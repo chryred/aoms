@@ -1,0 +1,6 @@
+.claude/
+.serena/
+aoms-offline/
+docker-images/
+trivy-db/
+venv/
