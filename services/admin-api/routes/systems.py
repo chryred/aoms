@@ -1,0 +1,96 @@
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from database import get_db
+from models import System, SystemContact, Contact
+from schemas import SystemCreate, SystemUpdate, SystemOut, SystemContactCreate, SystemContactOut, ContactOut
+
+router = APIRouter(prefix="/api/v1/systems", tags=["systems"])
+
+
+@router.get("", response_model=list[SystemOut])
+async def list_systems(db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(System).order_by(System.system_name))
+    return result.scalars().all()
+
+
+@router.post("", response_model=SystemOut, status_code=status.HTTP_201_CREATED)
+async def create_system(payload: SystemCreate, db: AsyncSession = Depends(get_db)):
+    system = System(**payload.model_dump())
+    db.add(system)
+    await db.commit()
+    await db.refresh(system)
+    return system
+
+
+@router.get("/{system_id}", response_model=SystemOut)
+async def get_system(system_id: int, db: AsyncSession = Depends(get_db)):
+    system = await db.get(System, system_id)
+    if not system:
+        raise HTTPException(status_code=404, detail="System not found")
+    return system
+
+
+@router.patch("/{system_id}", response_model=SystemOut)
+async def update_system(system_id: int, payload: SystemUpdate, db: AsyncSession = Depends(get_db)):
+    system = await db.get(System, system_id)
+    if not system:
+        raise HTTPException(status_code=404, detail="System not found")
+    for field, value in payload.model_dump(exclude_none=True).items():
+        setattr(system, field, value)
+    await db.commit()
+    await db.refresh(system)
+    return system
+
+
+@router.delete("/{system_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_system(system_id: int, db: AsyncSession = Depends(get_db)):
+    system = await db.get(System, system_id)
+    if not system:
+        raise HTTPException(status_code=404, detail="System not found")
+    await db.delete(system)
+    await db.commit()
+
+
+# ── 시스템별 담당자 ────────────────────────────────────────────────────
+@router.get("/{system_id}/contacts", response_model=list[ContactOut])
+async def list_system_contacts(system_id: int, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(
+        select(Contact)
+        .join(SystemContact, SystemContact.contact_id == Contact.id)
+        .where(SystemContact.system_id == system_id)
+    )
+    return result.scalars().all()
+
+
+@router.post("/{system_id}/contacts", response_model=SystemContactOut, status_code=status.HTTP_201_CREATED)
+async def add_system_contact(
+    system_id: int,
+    payload: SystemContactCreate,
+    db: AsyncSession = Depends(get_db)
+):
+    if not await db.get(System, system_id):
+        raise HTTPException(status_code=404, detail="System not found")
+    if not await db.get(Contact, payload.contact_id):
+        raise HTTPException(status_code=404, detail="Contact not found")
+    sc = SystemContact(system_id=system_id, **payload.model_dump())
+    db.add(sc)
+    await db.commit()
+    await db.refresh(sc)
+    return sc
+
+
+@router.delete("/{system_id}/contacts/{contact_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def remove_system_contact(system_id: int, contact_id: int, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(
+        select(SystemContact).where(
+            SystemContact.system_id == system_id,
+            SystemContact.contact_id == contact_id,
+        )
+    )
+    sc = result.scalar_one_or_none()
+    if not sc:
+        raise HTTPException(status_code=404, detail="Mapping not found")
+    await db.delete(sc)
+    await db.commit()
