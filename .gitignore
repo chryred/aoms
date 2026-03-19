@@ -3,4 +3,5 @@
 aoms-offline/
 docker-images/
 trivy-db/
+.DS_Store
 venv/
