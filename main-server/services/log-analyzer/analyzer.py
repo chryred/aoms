@@ -6,6 +6,7 @@ AOMS Log Analyzer — 핵심 분석 로직
   2. 시스템별 Loki에서 최근 5분 ERROR/WARN/FATAL 로그 수집
   3. instance_role별 그룹화 + PII 마스킹
   4. 담당자별 LLM API key / agent_code 조회 후 DevX API 호출
+     (Phase 4b) 벡터 임베딩 → Qdrant 유사도 검색 → 강화 프롬프트 구성
   5. 분석 결과를 Admin API로 전송 (Teams 알림은 Admin API가 처리)
 """
 
@@ -17,13 +18,22 @@ from datetime import datetime, timedelta, timezone
 
 import httpx
 
+from vector_client import (
+    build_enhanced_prompt,
+    classify_anomaly,
+    get_embedding,
+    normalize_log_for_embedding,
+    search_similar_incidents,
+    store_incident_vector,
+)
+
 logger = logging.getLogger(__name__)
 
-LOKI_URL = os.getenv("LOKI_URL", "http://loki:3100")
-LLM_API_URL = os.getenv("LLM_API_URL", "")       # DevX API endpoint
-LLM_API_KEY = os.getenv("LLM_API_KEY", "")        # 기본 API key (담당자 미등록 시 사용)
+LOKI_URL       = os.getenv("LOKI_URL",       "http://loki:3100")
+LLM_API_URL    = os.getenv("LLM_API_URL",    "")       # DevX API endpoint
+LLM_API_KEY    = os.getenv("LLM_API_KEY",    "")        # 기본 API key (담당자 미등록 시 사용)
 LLM_AGENT_CODE = os.getenv("LLM_AGENT_CODE", "")  # 기본 agent_code (담당자 미등록 시 사용)
-ADMIN_API_URL = os.getenv("ADMIN_API_URL", "http://admin-api:8080")
+ADMIN_API_URL  = os.getenv("ADMIN_API_URL",  "http://admin-api:8080")
 
 ANALYSIS_QUERY = """다음 서버 로그를 분석하여 반드시 아래 JSON 형식으로만 응답하세요. 추가 설명 없이 JSON만 출력하세요.
 
@@ -154,32 +164,15 @@ async def fetch_logs_for_system(system_name: str) -> dict[str, list[dict]]:
     return by_role
 
 
-async def analyze_with_llm(
-    system_name: str,
-    instance_role: str,
-    host: str,
-    logs: list[dict],
-    api_key: str,
-    agent_code: str,
-) -> dict:
-    """DevX API로 로그 분석 요청 후 결과 반환"""
-    log_content = mask_sensitive_data("\n".join(entry["line"] for entry in logs[:50]))
-
-    query = ANALYSIS_QUERY.format(
-        system_name=system_name,
-        instance_role=instance_role,
-        host=host,
-        count=len(logs),
-        log_content=log_content,
-    )
-
+async def _call_llm_api(prompt: str, api_key: str, agent_code: str) -> dict:
+    """DevX API 호출 및 JSON 파싱 (내부 공용 함수)"""
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
     }
     body = {
         "agent_code": agent_code,
-        "query": query,
+        "query": prompt,
         "response_mode": "blocking",
     }
 
@@ -199,6 +192,107 @@ async def analyze_with_llm(
     return _parse_llm_response(answer)
 
 
+async def analyze_with_llm(
+    system_name: str,
+    instance_role: str,
+    host: str,
+    logs: list[dict],
+    api_key: str,
+    agent_code: str,
+) -> dict:
+    """DevX API로 로그 분석 요청 후 결과 반환 (벡터 컨텍스트 없음)"""
+    log_content = mask_sensitive_data("\n".join(entry["line"] for entry in logs[:50]))
+
+    query = ANALYSIS_QUERY.format(
+        system_name=system_name,
+        instance_role=instance_role,
+        host=host,
+        count=len(logs),
+        log_content=log_content,
+    )
+    return await _call_llm_api(query, api_key, agent_code)
+
+
+async def analyze_with_vector_context(
+    system_name: str,
+    instance_role: str,
+    logs: list[dict],
+    api_key: str,
+    agent_code: str,
+) -> dict:
+    """
+    T4.14 — 벡터 유사도 검색 + LLM 분석 통합 파이프라인
+
+    처리 순서:
+      1. 로그 정규화 및 압축
+      2. Ollama 임베딩 생성 (Server B)
+      3. Qdrant 유사 이력 검색
+      4. duplicate 판정 시 알림 억제 (조기 반환)
+      5. 강화 프롬프트 구성 + LLM 호출
+      6. 분석 결과 Qdrant 저장
+    """
+    # 1. 로그 정규화 및 압축
+    log_text   = mask_sensitive_data("\n".join(entry["line"] for entry in logs[:50]))
+    normalized = normalize_log_for_embedding(log_text)
+
+    # 2. 임베딩 생성 (Server B Ollama)
+    embedding = None
+    try:
+        embedding = await get_embedding(normalized)
+    except Exception as e:
+        logger.warning(f"임베딩 생성 실패: {e} → 벡터 검색 없이 분석 진행")
+
+    # 3. 유사 이력 검색
+    anomaly_info: dict = {"type": "new", "score": 0.0, "has_solution": False, "top_results": []}
+    if embedding:
+        try:
+            similar      = await search_similar_incidents(embedding, system_name)
+            anomaly_info = classify_anomaly(similar)
+        except Exception as e:
+            logger.warning(f"Qdrant 검색 실패: {e} → 신규 이상으로 처리")
+
+    # 4. duplicate면 알림 억제
+    if anomaly_info["type"] == "duplicate":
+        logger.info(f"{system_name}/{instance_role}: 중복 이상 → 알림 억제")
+        return {"skipped": True, "reason": "duplicate", "score": anomaly_info["score"]}
+
+    # 5. 강화 프롬프트 구성 + LLM 호출
+    prompt   = build_enhanced_prompt(log_text, system_name, instance_role, anomaly_info)
+    analysis = await _call_llm_api(prompt, api_key, agent_code)
+
+    # 6. 벡터 저장 (새로운 분석 결과 누적)
+    point_id = None
+    if embedding:
+        try:
+            point_id = await store_incident_vector(
+                embedding, system_name, instance_role,
+                analysis.get("severity", "unknown"),
+                normalized[:500],
+                analysis.get("error_category"),
+            )
+        except Exception as e:
+            logger.warning(f"Qdrant 저장 실패: {e}")
+
+    # similar_incidents: Teams 알림용 정형화된 이력 목록
+    similar_incidents = [
+        {
+            "score":       r["score"],
+            "log_pattern": r["payload"].get("log_pattern", ""),
+            "resolution":  r["payload"].get("resolution"),
+        }
+        for r in anomaly_info.get("top_results", [])
+    ]
+
+    return {
+        **analysis,
+        "anomaly_type":       anomaly_info["type"],
+        "similarity_score":   anomaly_info["score"],
+        "qdrant_point_id":    point_id,
+        "has_solution":       anomaly_info["has_solution"],
+        "similar_incidents":  similar_incidents,
+    }
+
+
 async def submit_analysis(
     system_id: int,
     instance_role: str,
@@ -207,17 +301,29 @@ async def submit_analysis(
     severity: str,
     root_cause: str,
     recommendation: str,
+    anomaly_type: str | None = None,
+    similarity_score: float | None = None,
+    qdrant_point_id: str | None = None,
+    has_solution: bool | None = None,
+    similar_incidents: list[dict] | None = None,
 ) -> dict:
     """Admin API에 LLM 분석 결과 제출 (Teams 알림은 Admin API가 처리)"""
-    payload = {
-        "system_id": system_id,
-        "instance_role": instance_role,
-        "log_content": log_content[:10000],  # DB 저장 크기 제한
+    payload: dict = {
+        "system_id":       system_id,
+        "instance_role":   instance_role,
+        "log_content":     log_content[:10000],  # DB 저장 크기 제한
         "analysis_result": json.dumps(analysis_result, ensure_ascii=False),
-        "severity": severity,
-        "root_cause": root_cause,
-        "recommendation": recommendation,
+        "severity":        severity,
+        "root_cause":      root_cause,
+        "recommendation":  recommendation,
     }
+    # Phase 4b: 벡터 필드 (값이 있을 때만 포함)
+    if anomaly_type      is not None: payload["anomaly_type"]      = anomaly_type
+    if similarity_score  is not None: payload["similarity_score"]  = similarity_score
+    if qdrant_point_id   is not None: payload["qdrant_point_id"]   = qdrant_point_id
+    if has_solution      is not None: payload["has_solution"]      = has_solution
+    if similar_incidents is not None: payload["similar_incidents"] = similar_incidents
+
     async with httpx.AsyncClient() as client:
         resp = await client.post(
             f"{ADMIN_API_URL}/api/v1/analysis",
@@ -257,13 +363,22 @@ async def run_analysis() -> dict:
             api_key, agent_code = await get_llm_config_for_system(system_name)
 
             for instance_role, logs in logs_by_role.items():
-                host = logs[0]["host"] if logs else "unknown"
                 try:
-                    analysis = await analyze_with_llm(
-                        system_name, instance_role, host, logs, api_key, agent_code
+                    analysis = await analyze_with_vector_context(
+                        system_name, instance_role, logs, api_key, agent_code
                     )
-                    severity = analysis.get("severity", "info")
-                    root_cause = analysis.get("root_cause", "")
+
+                    # duplicate 억제 처리
+                    if analysis.get("skipped"):
+                        logger.info(
+                            f"[{system_name}/{instance_role}] 중복 이상 억제 "
+                            f"(score={analysis.get('score', 0):.2f})"
+                        )
+                        results["skipped"] += 1
+                        continue
+
+                    severity       = analysis.get("severity", "info")
+                    root_cause     = analysis.get("root_cause", "")
                     recommendation = analysis.get("recommendation", "")
 
                     masked_log = mask_sensitive_data(
@@ -277,10 +392,18 @@ async def run_analysis() -> dict:
                         severity=severity,
                         root_cause=root_cause,
                         recommendation=recommendation,
+                        anomaly_type=analysis.get("anomaly_type"),
+                        similarity_score=analysis.get("similarity_score"),
+                        qdrant_point_id=analysis.get("qdrant_point_id"),
+                        has_solution=analysis.get("has_solution"),
+                        similar_incidents=analysis.get("similar_incidents"),
                     )
                     results["analyzed"] += 1
                     results["systems"].append(f"{system_name}/{instance_role}")
-                    logger.info(f"[{system_name}/{instance_role}] 분석 완료: {severity}")
+                    logger.info(
+                        f"[{system_name}/{instance_role}] 분석 완료: {severity} "
+                        f"[{analysis.get('anomaly_type', 'unknown')}]"
+                    )
 
                 except Exception as e:
                     logger.error(f"[{system_name}/{instance_role}] 분석 실패: {e}")

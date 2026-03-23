@@ -91,6 +91,11 @@ class LogAnalysisHistory(Base):
     model_used = Column(String(100))
     processing_time = Column(Float)
     alert_sent = Column(Boolean, default=False)
+    # Phase 4b: 벡터 유사도 분석 필드
+    anomaly_type     = Column(String(20))    # 'new' | 'recurring' | 'related' | 'duplicate'
+    similarity_score = Column(Float)
+    qdrant_point_id  = Column(String(36))    # UUID
+    has_solution     = Column(Boolean, default=False)
     created_at = Column(DateTime, default=func.now())
 
     __table_args__ = (

@@ -136,6 +136,12 @@ class LogAnalysisCreate(BaseModel):
     recommendation: Optional[str] = None
     model_used: Optional[str] = None
     processing_time: Optional[float] = None
+    # Phase 4b: 벡터 유사도 필드
+    anomaly_type:      Optional[str]        = None  # 'new'|'recurring'|'related'|'duplicate'
+    similarity_score:  Optional[float]      = None
+    qdrant_point_id:   Optional[str]        = None
+    has_solution:      Optional[bool]       = None
+    similar_incidents: Optional[list[dict]] = None  # Teams 알림용 (DB 저장 안 함)
 
 
 class LogAnalysisOut(BaseModel):
@@ -147,6 +153,10 @@ class LogAnalysisOut(BaseModel):
     recommendation: Optional[str]
     model_used: Optional[str]
     alert_sent: bool
+    # Phase 4b: 벡터 유사도 필드
+    anomaly_type:     Optional[str]
+    similarity_score: Optional[float]
+    has_solution:     Optional[bool]
     created_at: datetime
 
     model_config = {"from_attributes": True}

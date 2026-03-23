@@ -22,11 +22,12 @@ async def create_analysis(payload: LogAnalysisCreate, db: AsyncSession = Depends
     if not system:
         raise HTTPException(status_code=404, detail="System not found")
 
-    record = LogAnalysisHistory(**payload.model_dump())
+    # similar_incidents는 DB에 저장하지 않음 (알림 전용 필드)
+    record = LogAnalysisHistory(**payload.model_dump(exclude={"similar_incidents"}))
     db.add(record)
 
-    # warning/critical이면 Teams 발송
-    if payload.severity in ("warning", "critical"):
+    # warning/critical이면 Teams 발송 (duplicate 분류 시 알림 억제)
+    if payload.severity in ("warning", "critical") and payload.anomaly_type != "duplicate":
         contacts_result = await db.execute(
             select(Contact)
             .join(SystemContact, SystemContact.contact_id == Contact.id)
@@ -43,13 +44,17 @@ async def create_analysis(payload: LogAnalysisCreate, db: AsyncSession = Depends
                 system_name=system.system_name,
                 instance_role=payload.instance_role or "",
                 analysis={
-                    "severity": payload.severity,
-                    "summary": f"로그 이상 감지 - {system.display_name}",
-                    "root_cause": payload.root_cause,
+                    "severity":       payload.severity,
+                    "summary":        f"로그 이상 감지 - {system.display_name}",
+                    "root_cause":     payload.root_cause,
                     "recommendation": payload.recommendation,
                 },
                 log_sample=payload.log_content,
                 contacts=contacts_data,
+                anomaly_type=payload.anomaly_type,
+                similarity_score=payload.similarity_score,
+                has_solution=payload.has_solution,
+                similar_incidents=payload.similar_incidents,
             )
             record.alert_sent = sent
 

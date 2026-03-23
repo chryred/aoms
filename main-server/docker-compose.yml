@@ -147,6 +147,10 @@ services:
       # 담당자별 API key: contacts.llm_api_key에서 조회
       # → 시스템별 primary 담당자의 llm_api_key가 있으면 해당 key로 LLM 호출
       # → 없으면 위 LLM_API_KEY (기본값) 사용
+      # Phase 4b: 벡터 DB (Server B)
+      - OLLAMA_URL=${OLLAMA_URL}
+      - EMBED_MODEL=${EMBED_MODEL:-bge-m3}
+      - QDRANT_URL=${QDRANT_URL}
     mem_limit: 256m
     cpus: '0.3'
     depends_on: [loki, admin-api]
