@@ -47,6 +47,8 @@ class ContactCreate(BaseModel):
     email: Optional[str] = None
     teams_upn: Optional[str] = None
     webhook_url: Optional[str] = None
+    llm_api_key: Optional[str] = None
+    agent_code: Optional[str] = None
 
 
 class ContactUpdate(BaseModel):
@@ -54,6 +56,8 @@ class ContactUpdate(BaseModel):
     email: Optional[str] = None
     teams_upn: Optional[str] = None
     webhook_url: Optional[str] = None
+    llm_api_key: Optional[str] = None
+    agent_code: Optional[str] = None
 
 
 class ContactOut(BaseModel):
@@ -62,7 +66,22 @@ class ContactOut(BaseModel):
     email: Optional[str]
     teams_upn: Optional[str]
     webhook_url: Optional[str]
+    llm_api_key: Optional[str]
+    agent_code: Optional[str]
     created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class ContactWithRoleOut(BaseModel):
+    """log-analyzer의 LLM 설정 조회용 (role + llm_api_key + agent_code 포함)"""
+    id: int
+    name: str
+    role: str
+    teams_upn: Optional[str]
+    webhook_url: Optional[str]
+    llm_api_key: Optional[str]
+    agent_code: Optional[str]
 
     model_config = {"from_attributes": True}
 

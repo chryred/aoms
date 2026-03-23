@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
 from models import System, SystemContact, Contact
-from schemas import SystemCreate, SystemUpdate, SystemOut, SystemContactCreate, SystemContactOut, ContactOut
+from schemas import SystemCreate, SystemUpdate, SystemOut, SystemContactCreate, SystemContactOut, ContactOut, ContactWithRoleOut
 
 router = APIRouter(prefix="/api/v1/systems", tags=["systems"])
 
@@ -54,6 +54,32 @@ async def delete_system(system_id: int, db: AsyncSession = Depends(get_db)):
 
 
 # ── 시스템별 담당자 ────────────────────────────────────────────────────
+
+@router.get("/name/{system_name}/contacts", response_model=list[ContactWithRoleOut])
+async def list_system_contacts_by_name(system_name: str, db: AsyncSession = Depends(get_db)):
+    """log-analyzer용: 시스템명으로 담당자 조회 (role + llm_api_key 포함)"""
+    result = await db.execute(
+        select(Contact, SystemContact.role)
+        .join(SystemContact, SystemContact.contact_id == Contact.id)
+        .join(System, System.id == SystemContact.system_id)
+        .where(System.system_name == system_name)
+        .order_by(SystemContact.role)  # primary 먼저
+    )
+    rows = result.all()
+    return [
+        ContactWithRoleOut(
+            id=contact.id,
+            name=contact.name,
+            role=role,
+            teams_upn=contact.teams_upn,
+            webhook_url=contact.webhook_url,
+            llm_api_key=contact.llm_api_key,
+            agent_code=contact.agent_code,
+        )
+        for contact, role in rows
+    ]
+
+
 @router.get("/{system_id}/contacts", response_model=list[ContactOut])
 async def list_system_contacts(system_id: int, db: AsyncSession = Depends(get_db)):
     result = await db.execute(

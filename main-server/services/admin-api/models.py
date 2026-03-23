@@ -1,7 +1,7 @@
 from datetime import datetime
 from sqlalchemy import (
-    Boolean, Column, Float, ForeignKey, Index, Integer,
-    String, Text, Timestamp, UniqueConstraint, func
+    Boolean, Column, DateTime, Float, ForeignKey, Index, Integer,
+    String, Text, UniqueConstraint, func
 )
 from database import Base
 
@@ -18,8 +18,8 @@ class System(Base):
     system_type = Column(String(50), nullable=False)   # 'web' | 'was' | 'db' | 'middleware'
     status = Column(String(20), default="active")
     teams_webhook_url = Column(Text)                   # 시스템별 Teams webhook (없으면 기본값 사용)
-    created_at = Column(Timestamp, default=func.now())
-    updated_at = Column(Timestamp, default=func.now(), onupdate=func.now())
+    created_at = Column(DateTime, default=func.now())
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
 
 
 class Contact(Base):
@@ -30,8 +30,10 @@ class Contact(Base):
     email = Column(String(200))
     teams_upn = Column(String(200))                    # Teams mention용 UPN (예: user@company.com)
     webhook_url = Column(Text)
-    created_at = Column(Timestamp, default=func.now())
-    updated_at = Column(Timestamp, default=func.now(), onupdate=func.now())
+    llm_api_key = Column(Text)                         # 담당자별 LLM API key (비용 분리 청구용)
+    agent_code = Column(String(100))                   # 담당자별 LLM Agent code
+    created_at = Column(DateTime, default=func.now())
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
 
 
 class SystemContact(Base):
@@ -64,10 +66,10 @@ class AlertHistory(Base):
     metric_value = Column(Float)
     notified_contacts = Column(Text)                   # JSON 문자열
     acknowledged = Column(Boolean, default=False)
-    acknowledged_at = Column(Timestamp)
+    acknowledged_at = Column(DateTime)
     acknowledged_by = Column(String(100))
     escalated = Column(Boolean, default=False)
-    created_at = Column(Timestamp, default=func.now())
+    created_at = Column(DateTime, default=func.now())
 
     __table_args__ = (
         Index("idx_alert_history_system", "system_id", "created_at"),
@@ -89,7 +91,7 @@ class LogAnalysisHistory(Base):
     model_used = Column(String(100))
     processing_time = Column(Float)
     alert_sent = Column(Boolean, default=False)
-    created_at = Column(Timestamp, default=func.now())
+    created_at = Column(DateTime, default=func.now())
 
     __table_args__ = (
         Index("idx_log_analysis_system", "system_id", "created_at"),
@@ -102,7 +104,7 @@ class AlertCooldown(Base):
     id = Column(Integer, primary_key=True)
     system_id = Column(Integer, ForeignKey("systems.id"))
     alert_key = Column(String(500), nullable=False)    # "{system_name}:{instance_role}:{alertname}:{severity}"
-    last_sent_at = Column(Timestamp, nullable=False)
+    last_sent_at = Column(DateTime, nullable=False)
 
     __table_args__ = (
         UniqueConstraint("system_id", "alert_key"),
