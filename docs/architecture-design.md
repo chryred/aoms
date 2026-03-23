@@ -458,7 +458,9 @@ CREATE TABLE contacts (
     email           VARCHAR(200),
     slack_id        VARCHAR(100),                    -- Slack mention용
     teams_email     VARCHAR(200),                    -- Teams 알림용
-    webhook_url     TEXT,                            -- 커스텀 Webhook URL
+    webhook_url     TEXT,                            -- 옵션
+    llm_api_key     VARCHAR(500),
+    agent_code      VARCHAR(100),
     created_at      TIMESTAMP DEFAULT NOW(),
     updated_at      TIMESTAMP DEFAULT NOW()
 );

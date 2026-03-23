@@ -23,9 +23,15 @@ CREATE TABLE IF NOT EXISTS contacts (
     email       VARCHAR(200),
     teams_upn   VARCHAR(200),          -- Teams mention용 UPN
     webhook_url TEXT,
+    llm_api_key     VARCHAR(500),
+    agent_code      VARCHAR(100),
     created_at  TIMESTAMP DEFAULT NOW(),
     updated_at  TIMESTAMP DEFAULT NOW()
 );
+
+COMMENT ON COLUMN contacts.teams_upn IS 'Microsoft Teams UPN (알림 멘션용)';
+COMMENT ON COLUMN contacts.llm_api_key IS '담당자별 LLM API key — NULL이면 .env 기본값 사용';
+COMMENT ON COLUMN contacts.agent_code IS 'LLM AGENT CODE';
 
 -- ── 시스템-담당자 매핑 (N:M) ──────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS system_contacts (
