@@ -14,8 +14,10 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 
 from fastapi import FastAPI
+from pydantic import BaseModel
 
 import analyzer
+import vector_client
 
 logging.basicConfig(
     level=logging.INFO,
@@ -92,3 +94,36 @@ async def trigger_analysis():
 @app.get("/analyze/status")
 async def analysis_status():
     return {"running": _running, "last_run": _last_run}
+
+
+# ── Phase 4c: 메트릭 유사도 분석 엔드포인트 ─────────────────────────────────
+
+class MetricSimilarityRequest(BaseModel):
+    system_name:   str
+    instance_role: str = ""
+    alertname:     str
+    labels:        dict = {}
+    annotations:   dict = {}
+
+
+@app.post("/metric/similarity")
+async def metric_similarity(req: MetricSimilarityRequest):
+    """
+    admin-api가 Alertmanager 메트릭 알림 수신 시 호출.
+    메트릭 상태를 임베딩하여 metric_baselines 컬렉션에서 유사 이력 검색 후 분류 반환.
+
+    Response:
+        type:         "new" | "recurring" | "related" | "duplicate"
+        score:        float (최고 유사도)
+        has_solution: bool
+        top_results:  list (상위 3건 payload)
+        point_id:     str | None (저장된 Qdrant point UUID)
+        description:  str (임베딩에 사용된 기술문)
+    """
+    return await vector_client.analyze_metric_similarity(
+        system_name=req.system_name,
+        instance_role=req.instance_role,
+        alertname=req.alertname,
+        labels=req.labels,
+        annotations=req.annotations,
+    )

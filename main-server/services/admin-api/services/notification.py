@@ -57,7 +57,11 @@ class TeamsNotifier:
         webhook_url: str,
         alert: dict,
         system_display_name: str,
-        contacts: list[dict]
+        contacts: list[dict],
+        anomaly_type: Optional[str] = None,
+        similarity_score: Optional[float] = None,
+        has_solution: Optional[bool] = None,
+        similar_incidents: Optional[list[dict]] = None,
     ) -> bool:
         """Adaptive Card 형식으로 메트릭 알림 발송"""
 
@@ -102,6 +106,23 @@ class TeamsNotifier:
                                 {"title": "발생 시각", "value": datetime.now().strftime("%Y-%m-%d %H:%M:%S")},
                             ]
                         },
+                        *([self._build_vector_context_block(
+                            anomaly_type=anomaly_type,
+                            similarity_score=similarity_score or 0.0,
+                            has_solution=bool(has_solution),
+                            similar_incidents=[
+                                {
+                                    "score":      inc.get("score", 0.0),
+                                    "log_pattern": (
+                                        f"{inc.get('alertname','')} "
+                                        f"{inc.get('metric_name','')} "
+                                        f"{inc.get('severity','')}"
+                                    ),
+                                    "resolution": inc.get("resolution", ""),
+                                }
+                                for inc in (similar_incidents or [])
+                            ],
+                        )] if anomaly_type and similarity_score is not None else []),
                         {
                             "type": "TextBlock",
                             "text": f"담당자: {mention_text}" if mention_text else "담당자 미지정",

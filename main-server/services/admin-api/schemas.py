@@ -116,6 +116,10 @@ class AlertHistoryOut(BaseModel):
     host: Optional[str]
     acknowledged: bool
     escalated: bool
+    # Phase 4c: 메트릭 벡터 유사도 분석 필드
+    anomaly_type:     Optional[str]
+    similarity_score: Optional[float]
+    qdrant_point_id:  Optional[str]
     created_at: datetime
 
     model_config = {"from_attributes": True}

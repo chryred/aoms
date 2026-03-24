@@ -69,6 +69,10 @@ class AlertHistory(Base):
     acknowledged_at = Column(DateTime)
     acknowledged_by = Column(String(100))
     escalated = Column(Boolean, default=False)
+    # Phase 4c: 메트릭 벡터 유사도 분석 필드
+    anomaly_type     = Column(String(20))              # 'new' | 'recurring' | 'related' | 'duplicate'
+    similarity_score = Column(Float)
+    qdrant_point_id  = Column(String(36))              # UUID
     created_at = Column(DateTime, default=func.now())
 
     __table_args__ = (

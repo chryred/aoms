@@ -123,11 +123,14 @@ services:
       - DATABASE_URL=postgresql://aoms:${DB_PASSWORD}@postgres:5432/aoms
       - TEAMS_WEBHOOK_URL=${TEAMS_WEBHOOK_URL}
       - LLM_API_URL=${LLM_API_URL}
+      - LOG_ANALYZER_URL=http://log-analyzer:8000
     mem_limit: 256m
     cpus: '0.3'
     depends_on:
       postgres:
         condition: service_healthy
+      log-analyzer:
+        condition: service_started
     restart: unless-stopped
     networks:
       - aoms-net

@@ -259,3 +259,198 @@ def build_enhanced_prompt(
 
 위 정보를 바탕으로 반드시 아래 JSON 형식으로만 응답하세요. 추가 설명 없이 JSON만 출력하세요.
 {{"severity": "critical 또는 warning 또는 info", "root_cause": "오류의 근본 원인 (한국어, 1~2문장)", "recommendation": "해결 방법 및 권고사항 (한국어, 구체적으로)", "error_category": "오류 카테고리 (예: DB_CONNECTION, MEMORY, NETWORK 등)", "estimated_impact": "예상 영향 범위 (한국어, 1문장)"}}"""
+
+
+# ── Phase 4c: 메트릭 벡터 유사도 분석 ───────────────────────────────────────
+
+METRIC_COLLECTION = "metric_baselines"
+
+# 메트릭용 분류 임계치 (로그: 0.95/0.85/0.75)
+# 메트릭은 반복성이 높아 duplicate 기준을 낮춤 → 과도한 알림 억제 방지
+_METRIC_DUPLICATE  = 0.92
+_METRIC_RECURRING  = 0.82
+_METRIC_RELATED    = 0.72
+
+
+def build_metric_description(
+    system_name: str,
+    instance_role: str,
+    alertname: str,
+    labels: dict,
+    annotations: dict,
+) -> str:
+    """
+    Alertmanager 라벨/어노테이션으로 메트릭 상태 자연어 기술문 생성.
+    이 텍스트가 임베딩의 입력이 된다.
+
+    예: "web-server (was1) HighCPUUsage 이상 — 현재값: 87 | CPU 사용률 임계 초과"
+    """
+    metric_name  = labels.get("metric_name", alertname)
+    metric_value = labels.get("metric_value") or annotations.get("value", "")
+    summary      = annotations.get("summary", "")
+    description  = annotations.get("description", "")
+
+    parts = [system_name]
+    if instance_role:
+        parts.append(f"({instance_role})")
+    parts.append(f"{metric_name} 이상")
+    if metric_value:
+        parts.append(f"— 현재값: {metric_value}")
+    if summary:
+        parts.append(f"| {summary[:150]}")
+    elif description:
+        parts.append(f"| {description[:150]}")
+
+    return " ".join(parts)
+
+
+async def search_similar_metrics(
+    embedding: list[float],
+    system_name: str,
+    metric_name: str,
+    limit: int = 5,
+    score_threshold: float = _METRIC_RELATED,
+) -> list[dict]:
+    """
+    metric_baselines 컬렉션에서 유사한 과거 메트릭 이상 이력 검색.
+    system_name + metric_name 이중 필터로 무관한 메트릭 간 간섭 방지.
+    """
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        resp = await client.post(
+            f"{QDRANT_URL}/collections/{METRIC_COLLECTION}/points/search",
+            json={
+                "vector": embedding,
+                "filter": {
+                    "must": [
+                        {"key": "system_name", "match": {"value": system_name}},
+                        {"key": "metric_name", "match": {"value": metric_name}},
+                    ]
+                },
+                "limit": limit,
+                "with_payload": True,
+                "score_threshold": score_threshold,
+            },
+        )
+        resp.raise_for_status()
+        return resp.json().get("result", [])
+
+
+def classify_metric_anomaly(similar_results: list[dict]) -> dict:
+    """
+    메트릭 유사도 검색 결과로 이상 유형 분류.
+    classify_anomaly()와 동일한 구조, 임계치만 다름.
+    """
+    if not similar_results:
+        return {"type": "new", "score": 0.0, "has_solution": False, "top_results": []}
+
+    top   = similar_results[0]
+    score = top["score"]
+
+    if score >= _METRIC_DUPLICATE:
+        anomaly_type = "duplicate"
+    elif score >= _METRIC_RECURRING:
+        anomaly_type = "recurring"
+    elif score >= _METRIC_RELATED:
+        anomaly_type = "related"
+    else:
+        anomaly_type = "new"
+
+    has_solution = any(r["payload"].get("resolution") for r in similar_results)
+
+    return {
+        "type":         anomaly_type,
+        "score":        score,
+        "has_solution": has_solution,
+        "top_results":  similar_results[:3],
+    }
+
+
+async def store_metric_vector(
+    embedding: list[float],
+    system_name: str,
+    instance_role: str,
+    metric_name: str,
+    alertname: str,
+    severity: str,
+    metric_value: str | None = None,
+) -> str:
+    """메트릭 이상 이력을 metric_baselines 컬렉션에 저장. point_id 반환."""
+    point_id = str(uuid4())
+    payload = {
+        "system_name":   system_name,
+        "instance_role": instance_role,
+        "metric_name":   metric_name,
+        "alertname":     alertname,
+        "severity":      severity,
+        "metric_value":  metric_value,
+        "timestamp":     datetime.now(timezone.utc).isoformat(),
+        "resolved":      False,
+    }
+
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        resp = await client.put(
+            f"{QDRANT_URL}/collections/{METRIC_COLLECTION}/points",
+            json={"points": [{"id": point_id, "vector": embedding, "payload": payload}]},
+        )
+        resp.raise_for_status()
+    return point_id
+
+
+async def analyze_metric_similarity(
+    system_name: str,
+    instance_role: str,
+    alertname: str,
+    labels: dict,
+    annotations: dict,
+) -> dict:
+    """
+    메트릭 알림에 대한 벡터 유사도 분석 통합 함수.
+    log-analyzer의 POST /metric/similarity 엔드포인트에서 호출.
+
+    1. 자연어 기술문 생성
+    2. Ollama 임베딩
+    3. Qdrant 유사 이력 검색
+    4. 이상 분류
+    5. duplicate가 아닌 경우 벡터 저장
+
+    임베딩/Qdrant 장애 시 {"type": "new", ...} 반환 → 기존 알림 흐름 유지.
+    """
+    metric_name  = labels.get("metric_name", alertname)
+    metric_value = labels.get("metric_value") or annotations.get("value")
+    severity     = labels.get("severity", "warning")
+
+    description = build_metric_description(
+        system_name, instance_role, alertname, labels, annotations
+    )
+
+    try:
+        embedding = await get_embedding(description)
+    except Exception as exc:
+        logger.warning("메트릭 임베딩 생성 실패: %s → 벡터 검색 없이 진행", exc)
+        return {
+            "type": "new", "score": 0.0, "has_solution": False,
+            "top_results": [], "point_id": None, "description": description,
+        }
+
+    try:
+        similar      = await search_similar_metrics(embedding, system_name, metric_name)
+        anomaly_info = classify_metric_anomaly(similar)
+    except Exception as exc:
+        logger.warning("Qdrant 메트릭 검색 실패: %s → 신규 이상으로 처리", exc)
+        anomaly_info = {"type": "new", "score": 0.0, "has_solution": False, "top_results": []}
+
+    point_id = None
+    if anomaly_info["type"] != "duplicate":
+        try:
+            point_id = await store_metric_vector(
+                embedding, system_name, instance_role,
+                metric_name, alertname, severity, metric_value,
+            )
+        except Exception as exc:
+            logger.warning("Qdrant 메트릭 저장 실패: %s", exc)
+
+    return {
+        **anomaly_info,
+        "point_id":    point_id,
+        "description": description,
+    }

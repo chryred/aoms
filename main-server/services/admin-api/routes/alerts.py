@@ -1,7 +1,9 @@
 import json
+import logging
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,6 +13,9 @@ from models import AlertHistory, System, Contact, SystemContact
 from schemas import AlertHistoryOut, AlertmanagerPayload, AcknowledgeRequest
 from services.cooldown import is_in_cooldown, make_alert_key, record_sent
 from services.notification import TeamsNotifier
+
+logger = logging.getLogger(__name__)
+LOG_ANALYZER_URL = os.getenv("LOG_ANALYZER_URL", "http://log-analyzer:8000")
 
 router = APIRouter(prefix="/api/v1/alerts", tags=["alerts"])
 
@@ -65,6 +70,33 @@ async def receive_alertmanager(
             processed.append({"alertname": alertname, "status": "cooldown_skipped"})
             continue
 
+        # 메트릭 벡터 유사도 분석 — log-analyzer 호출 (장애 시 new로 폴백)
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                resp = await client.post(
+                    f"{LOG_ANALYZER_URL}/metric/similarity",
+                    json={
+                        "system_name":   system_name,
+                        "instance_role": instance_role,
+                        "alertname":     alertname,
+                        "labels":        labels,
+                        "annotations":   alert.annotations,
+                    },
+                )
+                resp.raise_for_status()
+                anomaly = resp.json()
+        except Exception as exc:
+            logger.warning("log-analyzer 메트릭 유사도 분석 실패: %s → new로 처리", exc)
+            anomaly = {"type": "new", "score": 0.0, "has_solution": False,
+                       "top_results": [], "point_id": None}
+
+        # duplicate 분류 시 알림 억제 (cooldown과 병행)
+        if anomaly["type"] == "duplicate":
+            processed.append({"alertname": alertname, "status": "vector_duplicate_skipped"})
+            if system_id:
+                await record_sent(db, system_id, alert_key)
+            continue
+
         # Teams 발송
         webhook_url = (
             system.teams_webhook_url
@@ -82,6 +114,19 @@ async def receive_alertmanager(
                 alert={"labels": labels, "annotations": alert.annotations},
                 system_display_name=system.display_name if system else system_name,
                 contacts=contacts_data,
+                anomaly_type=anomaly["type"],
+                similarity_score=anomaly["score"],
+                has_solution=anomaly["has_solution"],
+                similar_incidents=[
+                    {
+                        "score":       r["score"],
+                        "metric_name": r["payload"].get("metric_name", ""),
+                        "alertname":   r["payload"].get("alertname", ""),
+                        "severity":    r["payload"].get("severity", ""),
+                        "resolution":  r["payload"].get("resolution", ""),
+                    }
+                    for r in anomaly["top_results"]
+                ],
             )
 
         # 쿨다운 기록
@@ -103,6 +148,9 @@ async def receive_alertmanager(
             notified_contacts=json.dumps(
                 [c.name for c in contacts], ensure_ascii=False
             ) if sent else None,
+            anomaly_type=anomaly["type"],
+            similarity_score=anomaly["score"],
+            qdrant_point_id=anomaly["point_id"],
         )
         db.add(history)
         await db.commit()
@@ -141,7 +189,7 @@ async def acknowledge_alert(
     if not alert:
         raise HTTPException(status_code=404, detail="Alert not found")
     alert.acknowledged = True
-    alert.acknowledged_at = datetime.utcnow()
+    alert.acknowledged_at = datetime.now(timezone.utc)
     alert.acknowledged_by = payload.acknowledged_by
     await db.commit()
     await db.refresh(alert)
