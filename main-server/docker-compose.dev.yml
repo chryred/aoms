@@ -1,0 +1,152 @@
+# 로컬 개발용 docker-compose
+# 인프라 서비스만 실행 — admin-api, log-analyzer는 직접 uvicorn으로 실행
+#
+# 사용법:
+#   docker compose -f docker-compose.dev.yml up -d
+#   또는 프로젝트 루트에서: make dev-up
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: dev-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_DB=aoms
+      - POSTGRES_USER=aoms
+      - POSTGRES_PASSWORD=aoms
+    volumes:
+      - postgres_dev_data:/var/lib/postgresql/data
+      - ./services/admin-api/init.sql:/docker-entrypoint-initdb.d/01_init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aoms -d aoms"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - dev-net
+
+  loki:
+    image: grafana/loki:main-26d9031
+    container_name: dev-loki
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./configs/dev/loki.yml:/etc/loki/local-config.yaml:ro
+      - loki_dev_data:/loki
+    command: -config.file=/etc/loki/local-config.yaml
+    restart: unless-stopped
+    networks:
+      - dev-net
+
+  prometheus:
+    image: prom/prometheus:v3.10.0
+    container_name: dev-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./configs/dev/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_dev_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.retention.time=3d'
+      - '--web.enable-lifecycle'
+    extra_hosts:
+      - "host.docker.internal:host-gateway"   # Mac에서 호스트 접근
+    restart: unless-stopped
+    networks:
+      - dev-net
+
+  alertmanager:
+    image: prom/alertmanager:main
+    container_name: dev-alertmanager
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./configs/dev/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"   # Mac에서 호스트 접근
+    restart: unless-stopped
+    networks:
+      - dev-net
+
+  qdrant:
+    image: qdrant/qdrant:v1.17.0
+    container_name: dev-qdrant
+    ports:
+      - "6333:6333"
+      - "6334:6334"
+    volumes:
+      - qdrant_dev_data:/qdrant/storage
+    restart: unless-stopped
+    networks:
+      - dev-net
+
+  n8n:
+    image: n8nio/n8n:1.44.0
+    container_name: dev-n8n
+    ports:
+      - "5678:5678"
+    environment:
+      - N8N_HOST=0.0.0.0
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      - WEBHOOK_URL=http://localhost:5678/
+      - N8N_BASIC_AUTH_ACTIVE=true
+      - N8N_BASIC_AUTH_USER=admin
+      - N8N_BASIC_AUTH_PASSWORD=admin123
+      - DB_TYPE=postgresdb
+      - DB_POSTGRESDB_HOST=postgres
+      - DB_POSTGRESDB_PORT=5432
+      - DB_POSTGRESDB_DATABASE=aoms
+      - DB_POSTGRESDB_USER=aoms
+      - DB_POSTGRESDB_PASSWORD=aoms
+      - DB_POSTGRESDB_SCHEMA=n8n
+      - GENERIC_TIMEZONE=Asia/Seoul
+      - N8N_LOG_LEVEL=info
+      # 워크플로우 내 $env 변수 접근 허용
+      - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
+      # 로컬 서비스 URL (host.docker.internal = Mac 호스트)
+      - LOG_ANALYZER_URL=http://host.docker.internal:8000
+      - ADMIN_API_URL=http://host.docker.internal:8080
+      - TEAMS_WEBHOOK_URL=${TEAMS_WEBHOOK_URL:-}
+      - OLLAMA_URL=http://host.docker.internal:11434
+      - QDRANT_URL=http://host.docker.internal:6333
+      - EMBED_MODEL=bge-m3
+      - LLM_API_URL=${LLM_API_URL:-}
+      - LLM_API_KEY=${LLM_API_KEY:-}
+    volumes:
+      - n8n_dev_data:/home/node/.n8n
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - dev-net
+
+  # Ollama는 리소스 소모가 크므로 필요할 때만 활성화
+  # ollama:
+  #   image: ollama/ollama:0.18.0
+  #   container_name: dev-ollama
+  #   ports:
+  #     - "11434:11434"
+  #   volumes:
+  #     - ollama_dev_data:/root/.ollama
+  #   restart: unless-stopped
+  #   networks:
+  #     - dev-net
+
+volumes:
+  postgres_dev_data:
+  loki_dev_data:
+  prometheus_dev_data:
+  qdrant_dev_data:
+  n8n_dev_data:
+  # ollama_dev_data:
+
+networks:
+  dev-net:
+    driver: bridge

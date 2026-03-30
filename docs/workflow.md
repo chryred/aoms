@@ -124,7 +124,7 @@
 | 사전 준비 | 7 | 이미지/바이너리/pip 패키지, Trivy DB, CRLF 변환, 폐쇄망 전송 |
 | Phase 1 | 12 | docker-compose (Basic Auth, HTTPS, SELinux), PLG 스택, 자동 설치 스크립트 |
 | Phase 2 | 5 | Admin API, Teams Adaptive Card 알림, 억제 규칙 |
-| Phase 3 | 6 | 전체 에이전트 배포 (방법3+4 Promtail), DB/WAS Exporter |
+| Phase 3 | 6 | 전체 에이전트 배포 (Grafana Alloy, node_exporter, jmx_exporter), DB/WAS Exporter |
 | Phase 4 | 12 | Log Analyzer (Loki 3.x, PII 마스킹, 재시도), 담당자별 API key |
 | Server B | 6 | Qdrant + Ollama 배포 (int8 양자화, bge-m3 GGUF, 폐쇄망 구축) |
 | Phase 4b | 6 | 벡터 유사도 분석 (이상 분류, LLM 컨텍스트 강화, Teams 차별화) |
@@ -138,9 +138,10 @@
 ## v2.0 주요 변경사항
 
 - Docker 이미지 최신화: Prometheus v3.10.0, Alertmanager v0.31.1, Grafana 12.4.0, Loki 3.6.7
-- 바이너리 최신화: node_exporter v1.10.2, Promtail v3.6.7, Trivy v0.69.3
+- 바이너리 최신화: node_exporter v1.10.2, Grafana Alloy v1.8.3 (Promtail 대체), Trivy v0.69.3
 - Mac→Linux 플랫폼 구분: `--platform linux/amd64` 명시, CRLF→LF 변환
-- Promtail 방법3+4 조합: 포괄적 멀티라인 + 빈줄 제거 + 에러 키워드 필터 + 레벨 라벨 추출
+- **Promtail → Grafana Alloy 교체**: Promtail v3.x의 glibc 2.34+ 의존성이 RHEL 8.9(glibc 2.28)와 비호환 → Alloy(glibc 독립)로 대체
+- Grafana Alloy: 멀티라인 처리 + 빈줄 제거 + 에러 키워드 필터(RE2) + 레벨 라벨 추출 + JEUS ACL 자동 설정
 - 보안 강화: Prometheus Basic Auth, Grafana HTTPS/SSL, SELinux `:z`, Trivy 보안 스캔
 - Alertmanager 억제 규칙 (inhibit_rules): Critical 발생 시 Warning 억제
 - LLM 분석기 개선: Loki 3.x API 정합성, PII 마스킹, 재시도 로직

@@ -1,0 +1,150 @@
+{
+  "name": "WF5: 반복 이상 에스컬레이션 (30분)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "*/30 * * * *"
+            }
+          ]
+        }
+      },
+      "id": "wf5-node-01",
+      "name": "30분 주기 트리거",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT\n  ah.id,\n  ah.alertname,\n  ah.severity,\n  ah.description,\n  ah.instance_role,\n  ah.host,\n  ah.created_at,\n  s.display_name,\n  s.system_name,\n  EXTRACT(EPOCH FROM (NOW() - ah.created_at)) / 3600 AS hours_elapsed\nFROM alert_history ah\nJOIN systems s ON ah.system_id = s.id\nWHERE ah.acknowledged = FALSE\n  AND ah.escalated     = FALSE\n  AND ah.severity      = 'critical'\n  AND ah.created_at   < NOW() - INTERVAL '2 hours'\nORDER BY ah.created_at ASC\nLIMIT 20;",
+        "options": {}
+      },
+      "id": "wf5-node-02",
+      "name": "미처리 Critical 조회",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [460, 300],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-aoms",
+          "name": "AOMS PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "conditions": [
+            {
+              "id": "wf5-cond-01",
+              "leftValue": "={{ $input.all().length }}",
+              "rightValue": 0,
+              "operator": { "type": "number", "operation": "gt" }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "wf5-node-03",
+      "name": "에스컬레이션 대상 있는지 확인",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {},
+      "id": "wf5-node-04",
+      "name": "에스컬레이션 없음 종료",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [900, 180]
+    },
+    {
+      "parameters": {
+        "jsCode": "const alerts = $input.all().map(i => i.json);\n\nconst facts = alerts.slice(0, 10).map((a, i) => ({\n  title: `${i + 1}. ${a.display_name}`,\n  value: `${a.alertname} | ${Math.floor(a.hours_elapsed)}시간 경과 | 역할: ${a.instance_role || '-'}`\n}));\n\nconst alertIds = alerts.map(a => a.id);\n\nreturn [{\n  json: {\n    alertIds,\n    count: alerts.length,\n    card: {\n      type: 'message',\n      attachments: [{\n        contentType: 'application/vnd.microsoft.card.adaptive',\n        content: {\n          type: 'AdaptiveCard',\n          version: '1.4',\n          body: [\n            {\n              type: 'TextBlock',\n              text: `🚨 미처리 Critical 알림 에스컬레이션 (${alerts.length}건)`,\n              weight: 'Bolder',\n              size: 'Medium',\n              color: 'Attention'\n            },\n            {\n              type: 'TextBlock',\n              text: '2시간 이상 미처리된 Critical 알림이 있습니다. 즉시 확인하세요.',\n              wrap: true\n            },\n            {\n              type: 'FactSet',\n              facts\n            }\n          ],\n          actions: [{\n            type: 'Action.OpenUrl',\n            title: '알림 목록 확인',\n            url: `${ $env?.ADMIN_API_URL?.replace(':8080', '') || 'http://localhost' }:5678`\n          }]\n        }\n      }]\n    }\n  }\n}];"
+      },
+      "id": "wf5-node-05",
+      "name": "에스컬레이션 카드 생성",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 400]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.TEAMS_WEBHOOK_URL }}",
+        "sendBody": true,
+        "contentType": "json",
+        "jsonBody": "={{ JSON.stringify($json.card) }}",
+        "options": {}
+      },
+      "id": "wf5-node-06",
+      "name": "Teams 에스컬레이션 알림",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1120, 400]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE alert_history\nSET escalated = TRUE\nWHERE id = ANY(ARRAY[{{ $('에스컬레이션 카드 생성').first().json.alertIds.join(',') }}]::integer[]);",
+        "options": {}
+      },
+      "id": "wf5-node-07",
+      "name": "에스컬레이션 플래그 업데이트",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1340, 400],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-aoms",
+          "name": "AOMS PostgreSQL"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "30분 주기 트리거": {
+      "main": [
+        [{"node": "미처리 Critical 조회", "type": "main", "index": 0}]
+      ]
+    },
+    "미처리 Critical 조회": {
+      "main": [
+        [{"node": "에스컬레이션 대상 있는지 확인", "type": "main", "index": 0}]
+      ]
+    },
+    "에스컬레이션 대상 있는지 확인": {
+      "main": [
+        [{"node": "에스컬레이션 카드 생성", "type": "main", "index": 0}],
+        [{"node": "에스컬레이션 없음 종료", "type": "main", "index": 0}]
+      ]
+    },
+    "에스컬레이션 카드 생성": {
+      "main": [
+        [{"node": "Teams 에스컬레이션 알림", "type": "main", "index": 0}]
+      ]
+    },
+    "Teams 에스컬레이션 알림": {
+      "main": [
+        [{"node": "에스컬레이션 플래그 업데이트", "type": "main", "index": 0}]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true
+  },
+  "versionId": "wf5-v1",
+  "meta": { "instanceId": "local" },
+  "id": "wf5-escalation",
+  "tags": [{"id": "aoms", "name": "AOMS"}]
+}

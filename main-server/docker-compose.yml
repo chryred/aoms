@@ -182,6 +182,17 @@ services:
       - DB_POSTGRESDB_SCHEMA=n8n
       - GENERIC_TIMEZONE=Asia/Seoul
       - N8N_LOG_LEVEL=info
+      # 워크플로우 내 $env 변수 접근 허용
+      - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
+      # 서비스 URL (Docker 내부 네트워크)
+      - LOG_ANALYZER_URL=http://log-analyzer:8000
+      - ADMIN_API_URL=http://admin-api:8080
+      - TEAMS_WEBHOOK_URL=${TEAMS_WEBHOOK_URL}
+      - OLLAMA_URL=${OLLAMA_URL}
+      - QDRANT_URL=${QDRANT_URL}
+      - EMBED_MODEL=${EMBED_MODEL:-bge-m3}
+      - LLM_API_URL=${LLM_API_URL}
+      - LLM_API_KEY=${LLM_API_KEY}
     volumes:
       - n8n_data:/home/node/.n8n
     mem_limit: 512m

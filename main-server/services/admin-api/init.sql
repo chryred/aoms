@@ -96,6 +96,20 @@ CREATE TABLE IF NOT EXISTS alert_cooldown (
 
 CREATE INDEX IF NOT EXISTS idx_alert_cooldown_lookup ON alert_cooldown(system_id, alert_key);
 
+-- ── 피드백 (Phase 4c: WF3 n8n 워크플로우에서 INSERT) ─────────────────
+CREATE TABLE IF NOT EXISTS alert_feedback (
+    id               SERIAL PRIMARY KEY,
+    system_id        INTEGER REFERENCES systems(id),
+    alert_history_id INTEGER REFERENCES alert_history(id),
+    error_type       VARCHAR(100) NOT NULL,
+    solution         TEXT NOT NULL,
+    resolver         VARCHAR(200) NOT NULL,
+    qdrant_point_id  VARCHAR(36),     -- 해결책 임베딩 후 저장된 Qdrant point ID
+    created_at       TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_alert_feedback_system ON alert_feedback(system_id, created_at DESC);
+
 -- ── 샘플 데이터 (선택) ────────────────────────────────────────────────
 -- INSERT INTO systems(system_name, display_name, host, os_type, system_type)
 -- VALUES ('customer-experience', '고객 경험 시스템', 'cx-was01', 'linux', 'was');

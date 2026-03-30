@@ -107,6 +107,24 @@ class LogAnalysisHistory(Base):
     )
 
 
+class AlertFeedback(Base):
+    """WF3: n8n 피드백 처리 워크플로우에서 INSERT"""
+    __tablename__ = "alert_feedback"
+
+    id               = Column(Integer, primary_key=True)
+    system_id        = Column(Integer, ForeignKey("systems.id"), nullable=True)
+    alert_history_id = Column(Integer, ForeignKey("alert_history.id"), nullable=True)
+    error_type       = Column(String(100), nullable=False)
+    solution         = Column(Text, nullable=False)
+    resolver         = Column(String(200), nullable=False)
+    qdrant_point_id  = Column(String(36), nullable=True)   # 해결책 임베딩 후 저장된 Qdrant point ID
+    created_at       = Column(DateTime, default=func.now())
+
+    __table_args__ = (
+        Index("idx_alert_feedback_system", "system_id", "created_at"),
+    )
+
+
 class AlertCooldown(Base):
     __tablename__ = "alert_cooldown"
 

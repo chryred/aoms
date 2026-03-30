@@ -1,10 +1,12 @@
 # AOMS 아키텍처 설계서
 
-> **문서 버전**: v1.1
+> **문서 버전**: v1.2
 > **작성일**: 2026-03-08
 > **상태**: 설계 검토 단계
 > **기반 문서**: [요구사항 명세서](./requirements-specification.md)
-> **변경 이력**: v1.1 - Ollama 제거 → 내부 LLM API 연동, 서버 사양 최적화 (4Core/10GB/50GB)
+> **변경 이력**:
+> - v1.1 - Ollama 제거 → 내부 LLM API 연동, 서버 사양 최적화 (4Core/10GB/50GB)
+> - v1.2 - Promtail → Grafana Alloy 교체 (glibc 2.34+ 의존성 문제, RHEL 8.9 호환성 확보)
 
 ---
 
@@ -15,7 +17,7 @@
 | 항목 | 내용 |
 |------|------|
 | **메트릭** | Prometheus (Pull 모델, 30초 주기) |
-| **로그** | Promtail → Loki |
+| **로그** | Grafana Alloy → Loki |
 | **대시보드** | Grafana (통합) |
 | **알림** | Alertmanager + Grafana Alerting |
 
@@ -75,14 +77,14 @@
 │  │   (JVM/Tomcat)      │  │   (JVM/Tomcat)      │  │   (Oracle/PG/MSSQL) │  │
 │  │ ◆ nginx_exporter    │  │                     │  │                     │  │
 │  │   (웹서버 메트릭)    │  │                     │  │                     │  │
-│  │ ◆ promtail          │  │ ◆ promtail          │  │ ◆ promtail          │  │
+│  │ ◆ alloy             │  │ ◆ alloy             │  │ ◆ alloy             │  │
 │  │   (로그 수집)        │  │   (로그 수집)        │  │   (로그 수집)        │  │
 │  └──────┬──────────────┘  └──────┬──────────────┘  └──────┬──────────────┘  │
 │         │ :9100/:9404/:9113      │ :9182/:9404            │ :9100/:9xxx     │
 └─────────┼────────────────────────┼────────────────────────┼─────────────────┘
           │                        │                        │
           │      ◄── metrics pull (Prometheus, 30s) ──►     │
-          │      ──► log push (Promtail → Loki) ───►        │
+          │      ──► log push (Grafana Alloy → Loki) ──►    │
           │                        │                        │
 ┌─────────▼────────────────────────▼────────────────────────▼─────────────────┐
 │              모니터링 서버 (Docker Compose) — 4Core / 10GB / 50GB            │
@@ -162,32 +164,53 @@
 | PostgreSQL | `postgres_exporter` | 커넥션, 슬로우 쿼리, Lock, Replication |
 | MSSQL | `sql_exporter` | 커넥션, 배치 요청, Lock, 버퍼 캐시 |
 
-### 3.2 로그 수집 — Promtail 구성
+### 3.2 로그 수집 — Grafana Alloy 구성
 
-```yaml
-# promtail 설정 예시 (각 대상 서버에 설치)
-server:
-  http_listen_port: 9080
+> **변경 이유**: Promtail v3.x는 glibc 2.34+를 요구하나 대상 서버(RHEL 8.9)의 glibc 버전이 2.28이므로 실행 불가. Grafana Alloy(glibc 의존성 없음)로 대체.
 
-positions:
-  filename: /var/promtail/positions.yaml  # 증분 수집 위치 기록
+```alloy
+// Alloy 설정 예시 (각 대상 서버에 설치, River 언어)
 
-clients:
-  - url: http://<monitoring-server>:3100/loki/api/v1/push
+// Loki 전송 설정
+loki.write "default" {
+  endpoint {
+    url = "http://<monitoring-server>:3100/loki/api/v1/push"
+    min_backoff_period  = "500ms"
+    max_backoff_period  = "5m"
+    max_backoff_retries = 10
+  }
+}
 
-scrape_configs:
-  - job_name: system-logs
-    static_configs:
-      - targets: [localhost]
-        labels:
-          system_name: "system-01"    # 시스템 식별 라벨
-          host: "server-hostname"
-          __path__: /var/log/app/*.log # 시스템별 로그 경로 설정
+// 로그 파일 수집
+local.file_match "app_logs" {
+  path_targets = [{
+    __path__      = "/app/logs/*.log",
+    system_name   = "system-01",
+    instance_role = "was1",
+    host          = "server-hostname",
+    log_type      = "application",
+    job           = "app-logs",
+  }]
+}
+
+loki.source.file "app_logs" {
+  targets    = local.file_match.app_logs.targets
+  forward_to = [loki.process.app_logs.receiver]
+}
+
+loki.process "app_logs" {
+  // ERROR/WARN/FATAL 키워드만 필터링 (RE2 정규식)
+  stage.regex { expression = "(?P<error_match>(?i)(error|warn|fatal|critical|exception|fail))" }
+  stage.drop  { source = "error_match"; expression = "^$" }
+  stage.label_drop { values = ["error_match"] }
+  forward_to = [loki.write.default.receiver]
+}
 ```
 
-- **증분 수집**: Promtail의 `positions` 파일이 마지막 읽은 위치를 기록
-- **멀티 로그**: 하나의 Promtail로 여러 로그 파일 수집 가능
-- **Windows**: Promtail Windows 바이너리 사용, 경로만 Windows 형식으로 변경
+- **증분 수집**: Alloy 내부적으로 파일 위치 기록 (`--storage.path` 경로)
+- **멀티 로그**: 컴포넌트 여러 개로 파일별 독립 파이프라인 구성
+- **JEUS 로그**: ACL(`setfacl`)로 `alloy` 사용자에게 읽기 권한 부여 — 스크립트 자동 처리
+- **설치 스크립트**: `install-agents.sh --type all|node|alloy|jmx` (폐쇄망 지원)
 
 ### 3.3 알림 엔진 — 이중 구조
 
@@ -311,7 +334,7 @@ scrape_configs:
         │ Tail (실시간, positions 기반 증분)
         │
         ▼
-[Promtail] ──► 라벨 추가 (system_name, host)
+[Grafana Alloy] ──► 라벨 추가 (system_name, instance_role, host, log_type, level)
         │
         │ HTTP POST /loki/api/v1/push
         │
@@ -778,7 +801,7 @@ TEAMS_WEBHOOK_URL=https://outlook.office.com/webhook/xxx
 | 에이전트 | CPU | RAM |
 |----------|-----|-----|
 | node_exporter / windows_exporter | < 1% | ~20MB |
-| promtail | < 1% | ~50MB |
+| alloy (Grafana Alloy) | < 1% | ~60MB |
 | jmx_exporter | < 1% | ~50MB |
 | DB exporter | < 1% | ~30MB |
 | **총 에이전트 오버헤드** | **< 3%** | **< 150MB** |
@@ -868,8 +891,8 @@ aoms/
 │   │       └── log-analysis.json     # LLM 분석 결과
 │   ├── postgres/
 │   │   └── init.sql                  # DB 초기화 스크립트
-│   └── promtail/
-│       └── promtail-template.yml     # 대상 서버용 Promtail 설정 템플릿
+│   └── alloy/
+│       └── alloy-template.alloy      # 대상 서버용 Alloy 설정 템플릿 (River 언어)
 │
 ├── services/
 │   ├── log-analyzer/
@@ -894,14 +917,14 @@ aoms/
 │
 ├── agents/                           # 대상 서버 설치용 에이전트 패키지
 │   ├── linux/
-│   │   ├── install.sh                # 원클릭 설치 스크립트
+│   │   ├── install-agents.sh         # 원클릭 설치 스크립트 (node/alloy/jmx)
 │   │   ├── node_exporter/
-│   │   ├── promtail/
+│   │   ├── alloy/                    # Grafana Alloy (Promtail 대체, glibc 독립)
 │   │   └── jmx_exporter/
 │   └── windows/
 │       ├── install.ps1               # PowerShell 설치 스크립트
 │       ├── windows_exporter/
-│       ├── promtail/
+│       ├── alloy/                    # Grafana Alloy Windows 바이너리
 │       └── jmx_exporter/
 │
 └── docs/
