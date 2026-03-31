@@ -1,6 +1,18 @@
+import os
+import ssl
+
 import httpx
 from datetime import datetime
 from typing import Optional
+
+# macOS/Linux 시스템 CA 번들 — httpx 기본 certifi 대신 사용
+_SSL_CAFILE = os.getenv(
+    "SSL_CERT_FILE",
+    "/opt/homebrew/etc/openssl@3/cert.pem"  # macOS Homebrew openssl
+    if os.path.exists("/opt/homebrew/etc/openssl@3/cert.pem")
+    else None,
+)
+_SSL_CONTEXT = ssl.create_default_context(cafile=_SSL_CAFILE) if _SSL_CAFILE else True
 
 # Phase 4b: 이상 분류별 스타일
 _ANOMALY_STYLES = {
@@ -146,7 +158,7 @@ class TeamsNotifier:
             }]
         }
 
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=10.0, verify=_SSL_CONTEXT) as client:
             resp = await client.post(webhook_url, json=body)
             return resp.status_code == 200
 
@@ -167,7 +179,7 @@ class TeamsNotifier:
         """LLM 분석 결과 알림 발송 (Phase 4b: 이상 분류 배지 + 유사 이력 포함)"""
 
         severity = analysis.get("severity", "warning")
-        icon = "🔴" if severity == "critical" else "🟡"
+        icon = "🔴" if severity == "critical" else ("🟡" if severity == "warning" else "🔵")
 
         mention_text = " ".join([
             f"<at>{c['name']}</at>"
@@ -180,7 +192,7 @@ class TeamsNotifier:
                 "text": f"{icon} [LLM 분석] {analysis.get('summary', '로그 이상 감지')}",
                 "weight": "Bolder",
                 "size": "Medium",
-                "color": "Attention" if severity == "critical" else "Warning",
+                "color": "Attention" if severity == "critical" else ("Warning" if severity == "warning" else "Default"),
             },
             {
                 "type": "FactSet",
@@ -237,6 +249,6 @@ class TeamsNotifier:
             }],
         }
 
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=10.0, verify=_SSL_CONTEXT) as client:
             resp = await client.post(webhook_url, json=body)
             return resp.status_code == 200

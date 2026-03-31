@@ -2,7 +2,7 @@ global:
   resolve_timeout: 5m
 
 route:
-  group_by: ["alertname", "system_name"]
+  group_by: ['system_name', 'alertname', 'severity']
   group_wait: 10s
   group_interval: 30s
   repeat_interval: 1h
@@ -17,3 +17,11 @@ receivers:
       # WF2: n8n 메트릭 벡터 검색 워크플로우
       - url: "http://dev-n8n:5678/webhook/metric-alert"
         send_resolved: false
+
+# 억제 규칙: Critical 발생 시 동일 인스턴스의 Warning 억제
+inhibit_rules:
+  - source_match:
+      severity: 'critical'
+    target_match:
+      severity: 'warning'
+    equal: ['instance']

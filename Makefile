@@ -30,9 +30,21 @@ help:
 	@echo "    make run-api        admin-api 실행 (포트 8080)"
 	@echo "    make run-analyzer   log-analyzer 실행 (포트 8000)"
 	@echo ""
-	@echo "  테스트"
+	@echo "  테스트 (단위)"
 	@echo "    make test-api       admin-api 단위 테스트"
 	@echo "    make test-all       전체 테스트"
+	@echo ""
+	@echo "  테스트 데이터 주입 (실서버 없이 전체 파이프라인 검증)"
+	@echo "    make seed-db            테스트 시스템+담당자 DB 등록 (1회)"
+	@echo "    make test-metric        Alertmanager 형식 메트릭 알림 주입"
+	@echo "    make reset-cooldown     5분 쿨다운 초기화 (test-metric 재실행용)"
+	@echo "    make push-logs          Loki에 ERROR 로그 직접 주입"
+	@echo "    make trigger-analysis   log-analyzer 분석 수동 트리거"
+	@echo "    make inject-analysis    분석 결과 직접 주입 (LLM/Loki 우회)"
+	@echo "    make test-metric-alert  seed-db + test-metric 합성"
+	@echo "    make test-log-pipeline  seed-db + push-logs + trigger-analysis 합성"
+	@echo "    make test-inject        seed-db + inject-analysis 합성"
+	@echo "    make test-all-inject    전체 파이프라인 순차 실행"
 	@echo ""
 	@echo "  의존성"
 	@echo "    make install        venv에 개발 의존성 설치"
@@ -149,6 +161,147 @@ db-shell:
 health:
 	@echo "=== admin-api ===" && curl -s http://localhost:8080/health | python3 -m json.tool || echo "응답 없음"
 	@echo "=== log-analyzer ===" && curl -s http://localhost:8000/health | python3 -m json.tool || echo "응답 없음"
+
+# ── 테스트 데이터 주입 ───────────────────────────────────────────────────────
+# 사용 순서:
+#   1. make seed-db          → 테스트 시스템 + 담당자 생성 (1회)
+#   2a. make test-metric     → 메트릭 알림 파이프라인
+#   2b. make push-logs && make trigger-analysis  → 로그 분석 파이프라인
+#   2c. make inject-analysis → 직접 분석 결과 주입 (LLM/Loki 우회)
+
+SEED_SYSTEM_NAME := was-server
+SEED_API         := http://localhost:8080
+ANALYZER_API     := http://localhost:8000
+LOKI_API         := http://localhost:3100
+
+.PHONY: seed-db
+seed-db:
+	@echo "════════════════════════════════════════"
+	@echo "  [SEED] 테스트 시스템 + 담당자 생성"
+	@echo "════════════════════════════════════════"
+	@echo "→ 시스템 등록: $(SEED_SYSTEM_NAME)"
+	@SYSTEM_RESP=$$(curl -s -X POST $(SEED_API)/api/v1/systems \
+	  -H "Content-Type: application/json" \
+	  -d '{"system_name":"$(SEED_SYSTEM_NAME)","display_name":"테스트 WAS 서버","description":"Makefile seed 테스트용","host":"test-host","os_type":"linux","system_type":"was","status":"active"}'); \
+	echo "  응답: $$SYSTEM_RESP"; \
+	SYSTEM_ID=$$(echo "$$SYSTEM_RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('id',''))" 2>/dev/null); \
+	if [ -z "$$SYSTEM_ID" ]; then \
+	  echo "  → 이미 존재하는 시스템. 기존 ID 조회..."; \
+	  SYSTEM_ID=$$(curl -s $(SEED_API)/api/v1/systems | python3 -c "import sys,json; systems=json.load(sys.stdin); match=[s for s in systems if s['system_name']=='$(SEED_SYSTEM_NAME)']; print(match[0]['id'] if match else '')"); \
+	fi; \
+	if [ -z "$$SYSTEM_ID" ]; then echo "✗ 시스템 등록 실패"; exit 1; fi; \
+	echo "  system_id=$$SYSTEM_ID"; \
+	echo "→ 담당자 등록: 테스트 담당자"; \
+	CONTACT_RESP=$$(curl -s -X POST $(SEED_API)/api/v1/contacts \
+	  -H "Content-Type: application/json" \
+	  -d '{"name":"테스트 담당자","email":"test@example.com","teams_upn":"test@example.com"}'); \
+	echo "  응답: $$CONTACT_RESP"; \
+	CONTACT_ID=$$(echo "$$CONTACT_RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('id',''))" 2>/dev/null); \
+	if [ -z "$$CONTACT_ID" ]; then \
+	  CONTACT_ID=$$(curl -s $(SEED_API)/api/v1/contacts | python3 -c "import sys,json; contacts=json.load(sys.stdin); match=[c for c in contacts if c['name']=='테스트 담당자']; print(match[0]['id'] if match else '')"); \
+	fi; \
+	if [ -z "$$CONTACT_ID" ]; then echo "✗ 담당자 등록 실패"; exit 1; fi; \
+	echo "  contact_id=$$CONTACT_ID"; \
+	echo "→ 시스템-담당자 연결"; \
+	LINK_RESP=$$(curl -s -X POST $(SEED_API)/api/v1/systems/$$SYSTEM_ID/contacts \
+	  -H "Content-Type: application/json" \
+	  -d "{\"contact_id\":$$CONTACT_ID,\"role\":\"primary\",\"notify_channels\":\"teams\"}"); \
+	echo "  응답: $$LINK_RESP"; \
+	echo "✓ seed-db 완료 (system_id=$$SYSTEM_ID)"
+
+.PHONY: test-metric
+test-metric:
+	@echo "════════════════════════════════════════"
+	@echo "  [TEST] 메트릭 알림 파이프라인"
+	@echo "  경로: admin-api /alerts/receive"
+	@echo "        → 쿨다운 체크 → Teams 발송"
+	@echo "        → /metric/similarity (log-analyzer)"
+	@echo "════════════════════════════════════════"
+	@curl -s -X POST $(SEED_API)/api/v1/alerts/receive \
+	  -H "Content-Type: application/json" \
+	  -d '{"version":"4","status":"firing","alerts":[{"status":"firing","labels":{"alertname":"HighMemoryUsage","system_name":"$(SEED_SYSTEM_NAME)","instance_role":"was1","severity":"warning","host":"test-host"},"annotations":{"summary":"메모리 사용률 85% 초과 (테스트)","description":"Makefile test-metric 테스트 알림"},"startsAt":"2024-01-01T00:00:00Z","endsAt":"0001-01-01T00:00:00Z"}]}' \
+	  | python3 -m json.tool
+	@echo ""
+	@echo "→ 알림 이력 확인: curl -s $(SEED_API)/api/v1/alerts?limit=3 | python3 -m json.tool"
+
+.PHONY: reset-cooldown
+reset-cooldown:
+	@echo "→ 쿨다운 초기화 ($(SEED_SYSTEM_NAME))"
+	@docker exec dev-postgres psql -U aoms -d aoms \
+	  -c "DELETE FROM alert_cooldown WHERE alert_key LIKE '$(SEED_SYSTEM_NAME):%';"
+	@echo "✓ 완료"
+
+.PHONY: push-logs
+push-logs:
+	@echo "════════════════════════════════════════"
+	@echo "  [TEST] Loki 가짜 ERROR 로그 주입"
+	@echo "  경로: Loki /loki/api/v1/push"
+	@echo "════════════════════════════════════════"
+	@TS=$$(python3 -c "import time; print(int(time.time()) * 1_000_000_000)"); \
+	echo "→ 타임스탬프(ns): $$TS"; \
+	HTTP_CODE=$$(curl -s -o /dev/null -w "%{http_code}" -X POST $(LOKI_API)/loki/api/v1/push \
+	  -H "Content-Type: application/json" \
+	  -d "{\"streams\":[{\"stream\":{\"system_name\":\"$(SEED_SYSTEM_NAME)\",\"instance_role\":\"was1\",\"host\":\"test-host\",\"log_type\":\"app\",\"level\":\"ERROR\"},\"values\":[[\"$$TS\",\"ERROR: OutOfMemoryError at heap space\\nException in thread \\\"main\\\" java.lang.OutOfMemoryError: Java heap space\"],[\"$$TS\",\"ERROR: Database connection pool exhausted after 30s timeout\"],[\"$$TS\",\"FATAL: Uncaught exception in request handler - NullPointerException at UserService.java:142\"]]}]}"); \
+	if [ "$$HTTP_CODE" = "204" ]; then \
+	  echo "✓ push-logs 완료 — 로그 3건 주입 (HTTP 204)"; \
+	else \
+	  echo "✗ push-logs 실패 (HTTP $$HTTP_CODE) — Loki가 실행 중인지 확인: make dev-up"; \
+	fi
+	@echo "→ trigger-analysis 로 분석 트리거: make trigger-analysis"
+
+.PHONY: trigger-analysis
+trigger-analysis:
+	@echo "════════════════════════════════════════"
+	@echo "  [TEST] 로그 분석 트리거 (비동기)"
+	@echo "  경로: log-analyzer /analyze/trigger"
+	@echo "        → Loki 최근 5분 조회 → LLM 분석"
+	@echo "        → admin-api /api/v1/analysis"
+	@echo "════════════════════════════════════════"
+	@curl -s -X POST $(ANALYZER_API)/analyze/trigger | python3 -m json.tool
+	@echo ""
+	@echo "→ 진행 상태: curl -s $(ANALYZER_API)/analyze/status | python3 -m json.tool"
+	@echo "→ 분석 결과: curl -s $(SEED_API)/api/v1/analysis?limit=3 | python3 -m json.tool"
+	@echo "※ LLM_API_URL 미설정 시 LLM 단계에서 실패 — inject-analysis 로 우회 가능"
+
+.PHONY: inject-analysis
+inject-analysis:
+	@echo "════════════════════════════════════════"
+	@echo "  [TEST] 직접 분석 결과 주입 (LLM/Loki 우회)"
+	@echo "  경로: admin-api /api/v1/analysis"
+	@echo "        → Teams Adaptive Card 발송"
+	@echo "════════════════════════════════════════"
+	@SYSTEM_ID=$$(curl -s $(SEED_API)/api/v1/systems \
+	  | python3 -c "import sys,json; systems=json.load(sys.stdin); match=[s for s in systems if s['system_name']=='$(SEED_SYSTEM_NAME)']; print(match[0]['id'] if match else '')"); \
+	if [ -z "$$SYSTEM_ID" ]; then \
+	  echo "✗ system_name=$(SEED_SYSTEM_NAME) 를 DB에서 찾을 수 없습니다."; \
+	  echo "  먼저 실행하세요: make seed-db"; \
+	  exit 1; \
+	fi; \
+	echo "→ system_id=$$SYSTEM_ID 로 분석 결과 주입 (severity=critical)"; \
+	curl -s -X POST $(SEED_API)/api/v1/analysis \
+	  -H "Content-Type: application/json" \
+	  -d "{\"system_id\":$$SYSTEM_ID,\"instance_role\":\"was1\",\"log_content\":\"ERROR: OutOfMemoryError at heap space\\nException in thread main java.lang.OutOfMemoryError\",\"analysis_result\":\"JVM 힙 공간 고갈로 인한 OutOfMemoryError 발생\",\"severity\":\"critical\",\"root_cause\":\"JVM 힙 공간 고갈 (Java heap space)\",\"recommendation\":\"JVM 옵션 -Xmx 값 증가 및 메모리 누수 프로파일링 실시\",\"model_used\":\"makefile-test\",\"anomaly_type\":\"new\",\"similarity_score\":0.0,\"has_solution\":false}" \
+	  | python3 -m json.tool
+	@echo ""
+	@echo "✓ inject-analysis 완료"
+	@echo "→ 결과 확인: curl -s $(SEED_API)/api/v1/analysis?limit=3 | python3 -m json.tool"
+
+# 합성 타겟
+.PHONY: test-metric-alert
+test-metric-alert: seed-db test-metric
+
+.PHONY: test-log-pipeline
+test-log-pipeline: seed-db push-logs trigger-analysis
+
+.PHONY: test-inject
+test-inject: seed-db inject-analysis
+
+.PHONY: test-all-inject
+test-all-inject: seed-db test-metric push-logs trigger-analysis inject-analysis
+	@echo ""
+	@echo "════════════════════════════════════════"
+	@echo "✓ 전체 테스트 데이터 주입 완료"
+	@echo "════════════════════════════════════════"
 
 # ── 내부 헬퍼 ────────────────────────────────────────────────────────────────
 .PHONY: _check-env

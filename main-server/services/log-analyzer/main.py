@@ -13,7 +13,7 @@ import os
 from contextlib import asynccontextmanager
 from datetime import datetime
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
 import analyzer
@@ -127,3 +127,46 @@ async def metric_similarity(req: MetricSimilarityRequest):
         labels=req.labels,
         annotations=req.annotations,
     )
+
+
+# ── 컬렉션 관리 엔드포인트 ───────────────────────────────────────────────────
+
+_COLLECTION_MAP = {
+    "log":    vector_client.COLLECTION,          # "log_incidents"
+    "metric": vector_client.METRIC_COLLECTION,   # "metric_baselines"
+}
+
+
+def _resolve_collection(collection_type: str) -> str:
+    name = _COLLECTION_MAP.get(collection_type)
+    if not name:
+        raise HTTPException(status_code=400, detail="collection_type은 'log' 또는 'metric'만 허용됩니다.")
+    return name
+
+
+@app.post("/collections/{collection_type}/create", status_code=201)
+async def create_collection(collection_type: str):
+    """
+    컬렉션 생성 (log_incidents / metric_baselines).
+    이미 존재하면 created=false 반환.
+    HNSW: m=16, ef_construct=200, ef=128
+    """
+    name    = _resolve_collection(collection_type)
+    created = await vector_client.ensure_collection(name)
+    return {"collection": name, "created": created}
+
+
+@app.delete("/collections/{collection_type}", status_code=200)
+async def delete_collection_endpoint(collection_type: str):
+    """컬렉션 삭제."""
+    name = _resolve_collection(collection_type)
+    await vector_client.delete_collection(name)
+    return {"collection": name, "deleted": True}
+
+
+@app.post("/collections/{collection_type}/reset", status_code=200)
+async def reset_collection(collection_type: str):
+    """컬렉션 초기화 — 삭제 후 재생성 (테스트용). 모든 데이터가 삭제됩니다."""
+    name = _resolve_collection(collection_type)
+    await vector_client.reset_collection(name)
+    return {"collection": name, "reset": True}

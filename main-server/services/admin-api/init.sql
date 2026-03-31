@@ -57,6 +57,10 @@ CREATE TABLE IF NOT EXISTS alert_history (
     metric_name         VARCHAR(100),
     metric_value        FLOAT,
     notified_contacts   TEXT,                                   -- JSON 배열 (담당자명)
+    -- Phase 4b: 벡터 유사도 분석 필드
+    anomaly_type        VARCHAR(20),
+    similarity_score    FLOAT,
+    qdrant_point_id     VARCHAR(36),
     acknowledged        BOOLEAN DEFAULT FALSE,
     acknowledged_at     TIMESTAMP,
     acknowledged_by     VARCHAR(100),
@@ -80,6 +84,11 @@ CREATE TABLE IF NOT EXISTS log_analysis_history (
     model_used       VARCHAR(100),
     processing_time  FLOAT,
     alert_sent       BOOLEAN DEFAULT FALSE,
+    -- Phase 4b: 벡터 유사도 분석 필드
+    anomaly_type     VARCHAR(20),
+    similarity_score FLOAT,
+    qdrant_point_id  VARCHAR(36),
+    has_solution     BOOLEAN DEFAULT FALSE,
     created_at       TIMESTAMP DEFAULT NOW()
 );
 

@@ -1,3 +1,4 @@
+import logging
 import os
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -9,6 +10,7 @@ from models import LogAnalysisHistory, System, Contact, SystemContact
 from schemas import LogAnalysisCreate, LogAnalysisOut
 from services.notification import TeamsNotifier
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/analysis", tags=["analysis"])
 
 DEFAULT_WEBHOOK_URL = os.getenv("TEAMS_WEBHOOK_URL", "")
@@ -26,8 +28,8 @@ async def create_analysis(payload: LogAnalysisCreate, db: AsyncSession = Depends
     record = LogAnalysisHistory(**payload.model_dump(exclude={"similar_incidents"}))
     db.add(record)
 
-    # warning/critical이면 Teams 발송 (duplicate 분류 시 알림 억제)
-    if payload.severity in ("warning", "critical") and payload.anomaly_type != "duplicate":
+    # warning/critical 또는 duplicate 분류 시 Teams 발송
+    if payload.anomaly_type == "duplicate" or payload.severity in ("warning", "critical"):
         contacts_result = await db.execute(
             select(Contact)
             .join(SystemContact, SystemContact.contact_id == Contact.id)
@@ -38,25 +40,28 @@ async def create_analysis(payload: LogAnalysisCreate, db: AsyncSession = Depends
 
         webhook_url = system.teams_webhook_url or DEFAULT_WEBHOOK_URL
         if webhook_url:
-            sent = await notifier.send_log_analysis_alert(
-                webhook_url=webhook_url,
-                system_display_name=system.display_name,
-                system_name=system.system_name,
-                instance_role=payload.instance_role or "",
-                analysis={
-                    "severity":       payload.severity,
-                    "summary":        f"로그 이상 감지 - {system.display_name}",
-                    "root_cause":     payload.root_cause,
-                    "recommendation": payload.recommendation,
-                },
-                log_sample=payload.log_content,
-                contacts=contacts_data,
-                anomaly_type=payload.anomaly_type,
-                similarity_score=payload.similarity_score,
-                has_solution=payload.has_solution,
-                similar_incidents=payload.similar_incidents,
-            )
-            record.alert_sent = sent
+            try:
+                sent = await notifier.send_log_analysis_alert(
+                    webhook_url=webhook_url,
+                    system_display_name=system.display_name,
+                    system_name=system.system_name,
+                    instance_role=payload.instance_role or "",
+                    analysis={
+                        "severity":       payload.severity,
+                        "summary":        f"로그 이상 감지 - {system.display_name}",
+                        "root_cause":     payload.root_cause,
+                        "recommendation": payload.recommendation,
+                    },
+                    log_sample=payload.log_content,
+                    contacts=contacts_data,
+                    anomaly_type=payload.anomaly_type,
+                    similarity_score=payload.similarity_score,
+                    has_solution=payload.has_solution,
+                    similar_incidents=payload.similar_incidents,
+                )
+                record.alert_sent = sent
+            except Exception as exc:
+                logger.warning("Teams 로그 분석 알림 발송 실패: %s", exc)
 
     await db.commit()
     await db.refresh(record)

@@ -251,10 +251,28 @@ async def analyze_with_vector_context(
         except Exception as e:
             logger.warning(f"Qdrant 검색 실패: {e} → 신규 이상으로 처리")
 
-    # 4. duplicate면 알림 억제
+    # 4. duplicate면 LLM 호출 없이 이전 분석 결과 재활용하여 알림 발송
     if anomaly_info["type"] == "duplicate":
-        logger.info(f"{system_name}/{instance_role}: 중복 이상 → 알림 억제")
-        return {"skipped": True, "reason": "duplicate", "score": anomaly_info["score"]}
+        logger.info(f"{system_name}/{instance_role}: 중복 이상 감지 (score={anomaly_info['score']:.2f}) → 중복 알림 발송")
+        top_payload = anomaly_info.get("top_results", [{}])[0].get("payload", {}) if anomaly_info.get("top_results") else {}
+        similar_incidents = [
+            {
+                "score":       r["score"],
+                "log_pattern": r["payload"].get("log_pattern", ""),
+                "resolution":  r["payload"].get("resolution"),
+            }
+            for r in anomaly_info.get("top_results", [])
+        ]
+        return {
+            "severity":          "info",
+            "root_cause":        "중복 이상 감지 — 이전에 동일한 패턴의 이상이 발생하였습니다.",
+            "recommendation":    top_payload.get("resolution") or "이전 분석 결과를 참고하세요.",
+            "anomaly_type":      "duplicate",
+            "similarity_score":  anomaly_info["score"],
+            "qdrant_point_id":   None,
+            "has_solution":      anomaly_info["has_solution"],
+            "similar_incidents": similar_incidents,
+        }
 
     # 5. 강화 프롬프트 구성 + LLM 호출
     prompt   = build_enhanced_prompt(log_text, system_name, instance_role, anomaly_info)
@@ -367,15 +385,6 @@ async def run_analysis() -> dict:
                     analysis = await analyze_with_vector_context(
                         system_name, instance_role, logs, api_key, agent_code
                     )
-
-                    # duplicate 억제 처리
-                    if analysis.get("skipped"):
-                        logger.info(
-                            f"[{system_name}/{instance_role}] 중복 이상 억제 "
-                            f"(score={analysis.get('score', 0):.2f})"
-                        )
-                        results["skipped"] += 1
-                        continue
 
                     severity       = analysis.get("severity", "info")
                     root_cause     = analysis.get("root_cause", "")

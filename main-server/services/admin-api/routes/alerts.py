@@ -109,25 +109,28 @@ async def receive_alertmanager(
                 {"name": c.name, "teams_upn": c.teams_upn}
                 for c in contacts
             ]
-            sent = await notifier.send_metric_alert(
-                webhook_url=webhook_url,
-                alert={"labels": labels, "annotations": alert.annotations},
-                system_display_name=system.display_name if system else system_name,
-                contacts=contacts_data,
-                anomaly_type=anomaly["type"],
-                similarity_score=anomaly["score"],
-                has_solution=anomaly["has_solution"],
-                similar_incidents=[
-                    {
-                        "score":       r["score"],
-                        "metric_name": r["payload"].get("metric_name", ""),
-                        "alertname":   r["payload"].get("alertname", ""),
-                        "severity":    r["payload"].get("severity", ""),
-                        "resolution":  r["payload"].get("resolution", ""),
-                    }
-                    for r in anomaly["top_results"]
-                ],
-            )
+            try:
+                sent = await notifier.send_metric_alert(
+                    webhook_url=webhook_url,
+                    alert={"labels": labels, "annotations": alert.annotations},
+                    system_display_name=system.display_name if system else system_name,
+                    contacts=contacts_data,
+                    anomaly_type=anomaly["type"],
+                    similarity_score=anomaly["score"],
+                    has_solution=anomaly["has_solution"],
+                    similar_incidents=[
+                        {
+                            "score":       r["score"],
+                            "metric_name": r["payload"].get("metric_name", ""),
+                            "alertname":   r["payload"].get("alertname", ""),
+                            "severity":    r["payload"].get("severity", ""),
+                            "resolution":  r["payload"].get("resolution", ""),
+                        }
+                        for r in anomaly["top_results"]
+                    ],
+                )
+            except Exception as exc:
+                logger.warning("Teams 메트릭 알림 발송 실패: %s", exc)
 
         # 쿨다운 기록
         if system_id:

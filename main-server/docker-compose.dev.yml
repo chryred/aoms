@@ -127,17 +127,16 @@ services:
     networks:
       - dev-net
 
-  # Ollama는 리소스 소모가 크므로 필요할 때만 활성화
-  # ollama:
-  #   image: ollama/ollama:0.18.0
-  #   container_name: dev-ollama
-  #   ports:
-  #     - "11434:11434"
-  #   volumes:
-  #     - ollama_dev_data:/root/.ollama
-  #   restart: unless-stopped
-  #   networks:
-  #     - dev-net
+  ollama:
+    image: ollama/ollama:0.18.0
+    container_name: dev-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_dev_data:/root/.ollama
+    restart: unless-stopped
+    networks:
+      - dev-net
 
 volumes:
   postgres_dev_data:
@@ -145,7 +144,7 @@ volumes:
   prometheus_dev_data:
   qdrant_dev_data:
   n8n_dev_data:
-  # ollama_dev_data:
+  ollama_dev_data:
 
 networks:
   dev-net:

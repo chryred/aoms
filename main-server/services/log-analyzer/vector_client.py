@@ -123,6 +123,7 @@ async def store_incident_vector(
         "resolved":         False,
     }
 
+    await ensure_collection(COLLECTION)
     async with httpx.AsyncClient(timeout=10.0) as client:
         resp = await client.put(
             f"{QDRANT_URL}/collections/{COLLECTION}/points",
@@ -387,6 +388,7 @@ async def store_metric_vector(
         "resolved":      False,
     }
 
+    await ensure_collection(METRIC_COLLECTION)
     async with httpx.AsyncClient(timeout=10.0) as client:
         resp = await client.put(
             f"{QDRANT_URL}/collections/{METRIC_COLLECTION}/points",
@@ -454,3 +456,47 @@ async def analyze_metric_similarity(
         "point_id":    point_id,
         "description": description,
     }
+
+
+# ── 컬렉션 관리 ──────────────────────────────────────────────────────────────
+
+_HNSW_CONFIG = {"m": 16, "ef_construct": 200, "ef": 128}
+_VECTOR_SIZE  = 1024  # bge-m3 출력 차원
+
+
+async def ensure_collection(collection_name: str) -> bool:
+    """
+    컬렉션 미존재 시 자동 생성. True=생성됨, False=이미 존재.
+    HNSW: m=16, ef_construct=200, ef=128 / 거리: Cosine
+    store_* 함수에서 적재 전 항상 호출.
+    """
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        check = await client.get(f"{QDRANT_URL}/collections/{collection_name}")
+        if check.status_code == 200:
+            return False
+        resp = await client.put(
+            f"{QDRANT_URL}/collections/{collection_name}",
+            json={
+                "vectors":     {"size": _VECTOR_SIZE, "distance": "Cosine"},
+                "hnsw_config": _HNSW_CONFIG,
+            },
+        )
+        resp.raise_for_status()
+    logger.info("컬렉션 생성: %s (m=16, ef_construct=200, ef=128)", collection_name)
+    return True
+
+
+async def delete_collection(collection_name: str) -> None:
+    """컬렉션 삭제. 미존재(404) 시 무시."""
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        resp = await client.delete(f"{QDRANT_URL}/collections/{collection_name}")
+        if resp.status_code not in (200, 404):
+            resp.raise_for_status()
+    logger.info("컬렉션 삭제: %s", collection_name)
+
+
+async def reset_collection(collection_name: str) -> None:
+    """컬렉션 삭제 후 재생성 (테스트용 초기화)."""
+    await delete_collection(collection_name)
+    await ensure_collection(collection_name)
+    logger.info("컬렉션 초기화 완료: %s", collection_name)
