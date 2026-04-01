@@ -124,6 +124,7 @@ services:
       - TEAMS_WEBHOOK_URL=${TEAMS_WEBHOOK_URL}
       - LLM_API_URL=${LLM_API_URL}
       - LOG_ANALYZER_URL=http://log-analyzer:8000
+      - ADMIN_API_EXTERNAL_URL=${ADMIN_API_EXTERNAL_URL}
     mem_limit: 256m
     cpus: '0.3'
     depends_on:

@@ -500,3 +500,23 @@ async def reset_collection(collection_name: str) -> None:
     await delete_collection(collection_name)
     await ensure_collection(collection_name)
     logger.info("컬렉션 초기화 완료: %s", collection_name)
+
+
+async def resolve_metric_vector(point_id: str) -> None:
+    """
+    메트릭 알림 복구(resolved) 시 Qdrant metric_baselines 포인트 상태 업데이트.
+    admin-api가 Alertmanager resolved 이벤트 수신 시 호출.
+    """
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        resp = await client.post(
+            f"{QDRANT_URL}/collections/{METRIC_COLLECTION}/points/payload",
+            json={
+                "payload": {
+                    "resolved":    True,
+                    "resolved_at": datetime.now(timezone.utc).isoformat(),
+                },
+                "points": [point_id],
+            },
+        )
+        resp.raise_for_status()
+    logger.info("메트릭 벡터 복구 상태 업데이트: point_id=%s", point_id)

@@ -13,7 +13,7 @@ receivers:
     webhook_configs:
       # 로컬 admin-api로 알림 전송 (host.docker.internal = Mac 호스트)
       - url: "http://host.docker.internal:8080/api/v1/alerts/receive"
-        send_resolved: false
+        send_resolved: true
       # WF2: n8n 메트릭 벡터 검색 워크플로우
       - url: "http://dev-n8n:5678/webhook/metric-alert"
         send_resolved: false

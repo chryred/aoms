@@ -116,3 +116,74 @@ log-analyzer → POST /api/v1/analysis
   ```bash
   docker exec -i aoms-postgres psql -U aoms -d aoms < init.sql
   ```
+
+---
+
+## 개발 주의사항 (실수 방지)
+
+### Teams Adaptive Card — 피드백 버튼
+
+`notification.py`의 `send_metric_alert` / `send_log_analysis_alert` 두 함수 모두
+Adaptive Card에 `"actions"` 블록으로 **해결책 등록 버튼**이 포함되어 있습니다.
+
+```python
+"actions": [
+    {
+        "type": "Action.OpenUrl",
+        "title": "해결책 등록",
+        "url": f"{_ADMIN_API_EXTERNAL_URL}/api/v1/feedback/form"
+               f"?system={system_name}&point_id={point_id or ''}",
+    }
+],
+```
+
+- 버튼 URL은 `ADMIN_API_EXTERNAL_URL` 환경변수로 구성 (기본: `http://localhost:8080`)
+- **Teams에서 버튼을 클릭하는 것은 브라우저에서 열리므로**, 운영 배포 시 반드시 `ADMIN_API_EXTERNAL_URL=http://{server-a-ip}:8080` 설정 필요
+- `point_id`는 Qdrant의 포인트 UUID — 메트릭 알림은 `anomaly.get("point_id")`, 로그 분석은 `payload.qdrant_point_id`로 전달
+
+### TeamsNotifier 함수 시그니처 (현재)
+
+```python
+# send_metric_alert
+async def send_metric_alert(
+    self, webhook_url, alert, system_display_name, contacts,
+    anomaly_type=None, similarity_score=None, has_solution=None,
+    similar_incidents=None, point_id=None  # ← 추가된 파라미터
+) -> bool
+
+# send_log_analysis_alert
+async def send_log_analysis_alert(
+    self, webhook_url, system_display_name, system_name, instance_role,
+    analysis, log_sample, contacts,
+    anomaly_type=None, similarity_score=None, has_solution=None,
+    similar_incidents=None, point_id=None  # ← 추가된 파라미터
+) -> bool
+```
+
+새 기능 추가 시 두 함수를 함께 수정해야 대칭이 유지됩니다.
+
+### resolved 알림 처리
+
+`alerts.py`에서 `resolved` 상태도 처리합니다 (복구 알림 발송 + `alert_type: "metric_resolved"` 저장).
+
+```python
+# ❌ 과거 인식 (틀림)
+if alert.status not in ("firing", "resolved"):
+    continue  # resolved를 건너뜀
+
+# ✅ 현재 코드 (맞음) — resolved도 처리
+if alert.status not in ("firing", "resolved"):
+    continue
+# → 아래에 resolved 분기 처리 로직 있음
+```
+
+테스트 작성 시: `status=resolved` 알림은 `processed[0]["status"] == "resolved"` 반환을 검증해야 합니다.
+
+### 피드백 폼 엔드포인트
+
+`routes/feedback.py` — `GET /api/v1/feedback/form`
+
+- Teams 알림 버튼이 이 URL로 연결됩니다
+- 폼 제출은 n8n webhook(`N8N_WEBHOOK_URL/webhook/feedback`)으로 직접 POST
+- `N8N_WEBHOOK_URL` 환경변수 미설정 시 기본값: `http://localhost:5678`
+- 운영 배포 시 `N8N_WEBHOOK_URL=http://{server-a-ip}:5678` 설정 필요

@@ -50,7 +50,7 @@ async def receive_alertmanager(
     processed = []
 
     for alert in payload.alerts:
-        if alert.status != "firing":
+        if alert.status not in ("firing", "resolved"):
             continue
 
         labels = alert.labels
@@ -59,6 +59,66 @@ async def receive_alertmanager(
         alertname = labels.get("alertname", "")
         severity = labels.get("severity", "warning")
         host = labels.get("host", "")
+
+        # ── 정상 복구 처리 ────────────────────────────────────────────────
+        if alert.status == "resolved":
+            system, contacts = await _get_system_and_contacts(db, system_name)
+            webhook_url = (
+                system.teams_webhook_url
+                if system and system.teams_webhook_url
+                else DEFAULT_WEBHOOK_URL
+            )
+            contacts_data = [{"name": c.name, "teams_upn": c.teams_upn} for c in contacts] if contacts else []
+
+            if webhook_url:
+                try:
+                    await notifier.send_recovery_alert(
+                        webhook_url=webhook_url,
+                        system_display_name=system.display_name if system else system_name,
+                        system_name=system_name,
+                        alertname=alertname,
+                        instance_role=instance_role,
+                        host=host,
+                        contacts=contacts_data,
+                    )
+                except Exception as exc:
+                    logger.warning("Teams 복구 알림 발송 실패: %s", exc)
+
+            # 가장 최근 firing 이력에서 qdrant_point_id 조회 후 resolved 업데이트
+            try:
+                recent = await db.execute(
+                    select(AlertHistory)
+                    .where(AlertHistory.alertname == alertname)
+                    .where(AlertHistory.system_id == (system.id if system else None))
+                    .where(AlertHistory.qdrant_point_id.isnot(None))
+                    .order_by(AlertHistory.created_at.desc())
+                    .limit(1)
+                )
+                recent_alert = recent.scalar_one_or_none()
+                if recent_alert and recent_alert.qdrant_point_id:
+                    async with httpx.AsyncClient(timeout=10.0) as client:
+                        await client.post(
+                            f"{LOG_ANALYZER_URL}/metric/resolve",
+                            json={"point_id": recent_alert.qdrant_point_id},
+                        )
+            except Exception as exc:
+                logger.warning("Qdrant 복구 상태 업데이트 실패: %s", exc)
+
+            # alert_history 저장 (복구 이력)
+            history = AlertHistory(
+                system_id=system.id if system else None,
+                alert_type="metric_resolved",
+                severity=severity,
+                alertname=alertname,
+                title=alert.annotations.get("summary", f"{alertname} 정상 복구"),
+                description=alert.annotations.get("description", ""),
+                instance_role=instance_role,
+                host=host,
+            )
+            db.add(history)
+            await db.commit()
+            processed.append({"alertname": alertname, "status": "resolved"})
+            continue
 
         system, contacts = await _get_system_and_contacts(db, system_name)
 
@@ -89,13 +149,6 @@ async def receive_alertmanager(
             logger.warning("log-analyzer 메트릭 유사도 분석 실패: %s → new로 처리", exc)
             anomaly = {"type": "new", "score": 0.0, "has_solution": False,
                        "top_results": [], "point_id": None}
-
-        # duplicate 분류 시 알림 억제 (cooldown과 병행)
-        if anomaly["type"] == "duplicate":
-            processed.append({"alertname": alertname, "status": "vector_duplicate_skipped"})
-            if system_id:
-                await record_sent(db, system_id, alert_key)
-            continue
 
         # Teams 발송
         webhook_url = (
@@ -128,6 +181,7 @@ async def receive_alertmanager(
                         }
                         for r in anomaly["top_results"]
                     ],
+                    point_id=anomaly.get("point_id"),
                 )
             except Exception as exc:
                 logger.warning("Teams 메트릭 알림 발송 실패: %s", exc)

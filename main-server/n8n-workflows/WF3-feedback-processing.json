@@ -5,14 +5,17 @@
       "parameters": {
         "httpMethod": "POST",
         "path": "feedback",
-        "responseMode": "lastNode",
+        "responseMode": "responseNode",
         "options": {}
       },
       "id": "wf3-node-01",
       "name": "피드백 Webhook 수신",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
-      "position": [240, 300],
+      "position": [
+        240,
+        300
+      ],
       "webhookId": "wf3-webhook-feedback"
     },
     {
@@ -23,19 +26,25 @@
       "name": "폼 데이터 파싱",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [460, 300]
+      "position": [
+        460,
+        300
+      ]
     },
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT ah.id, ah.system_id, ah.qdrant_point_id\nFROM alert_history ah\nWHERE ah.id = {{ $json.alertId }}\nLIMIT 1;",
+        "query": "SELECT ah.id, ah.system_id, ah.qdrant_point_id,\n  CASE WHEN ah.alert_type IN ('metric', 'metric_resolved') THEN 'metric_baselines' ELSE 'log_incidents' END as qdrant_collection\nFROM alert_history ah\nWHERE ah.id = {{ $json.alertId }}\nLIMIT 1;",
         "options": {}
       },
       "id": "wf3-node-03",
       "name": "알림 이력 조회",
       "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2.5,
-      "position": [680, 300],
+      "typeVersion": 2.4,
+      "position": [
+        680,
+        300
+      ],
       "credentials": {
         "postgres": {
           "id": "postgres-aoms",
@@ -52,8 +61,11 @@
       "id": "wf3-node-04",
       "name": "피드백 DB 저장",
       "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2.5,
-      "position": [900, 300],
+      "typeVersion": 2.4,
+      "position": [
+        900,
+        300
+      ],
       "credentials": {
         "postgres": {
           "id": "postgres-aoms",
@@ -64,13 +76,22 @@
     {
       "parameters": {
         "conditions": {
-          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict" },
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
           "conditions": [
             {
               "id": "wf3-cond-01",
               "leftValue": "={{ $('알림 이력 조회').first().json.qdrant_point_id || $('폼 데이터 파싱').first().json.pointId }}",
               "rightValue": "",
-              "operator": { "type": "string", "operation": "notEquals" }
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "name": "filter.operator.isNotEmpty",
+                "description": "is not empty"
+              }
             }
           ],
           "combinator": "and"
@@ -80,37 +101,50 @@
       "name": "Qdrant point 있는지 확인",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
-      "position": [1120, 300]
+      "position": [
+        1120,
+        300
+      ]
     },
     {
       "parameters": {
         "method": "POST",
         "url": "={{ $env.OLLAMA_URL }}/api/embed",
         "sendBody": true,
-        "contentType": "json",
+        "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({ model: $env.EMBED_MODEL || 'bge-m3', input: $('폼 데이터 파싱').first().json.solution }) }}",
-        "options": { "timeout": 30000 }
+        "options": {
+          "timeout": 30000
+        }
       },
       "id": "wf3-node-06",
       "name": "해결책 임베딩",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1340, 180]
+      "position": [
+        1340,
+        180
+      ]
     },
     {
       "parameters": {
         "method": "POST",
-        "url": "={{ $env.QDRANT_URL }}/collections/log_incidents/points/payload",
+        "url": "={{ $env.QDRANT_URL }}/collections/{{ $('알림 이력 조회').first().json.qdrant_collection || 'log_incidents' }}/points/payload",
         "sendBody": true,
-        "contentType": "json",
+        "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({ payload: { resolution: $('폼 데이터 파싱').first().json.solution, resolver: $('폼 데이터 파싱').first().json.resolver, error_type: $('폼 데이터 파싱').first().json.errorType, resolved_at: new Date().toISOString() }, points: [$('알림 이력 조회').first().json.qdrant_point_id || $('폼 데이터 파싱').first().json.pointId] }) }}",
-        "options": { "timeout": 10000 }
+        "options": {
+          "timeout": 10000
+        }
       },
       "id": "wf3-node-07",
       "name": "Qdrant 해결책 업데이트",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1560, 180]
+      "position": [
+        1560,
+        180
+      ]
     },
     {
       "parameters": {
@@ -120,14 +154,17 @@
       "name": "완료 알림 카드 생성",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1560, 420]
+      "position": [
+        1560,
+        420
+      ]
     },
     {
       "parameters": {
         "method": "POST",
         "url": "={{ $env.TEAMS_WEBHOOK_URL }}",
         "sendBody": true,
-        "contentType": "json",
+        "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify($json) }}",
         "options": {}
       },
@@ -135,66 +172,132 @@
       "name": "Teams 피드백 완료 알림",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1780, 420]
+      "position": [
+        1780,
+        420
+      ]
     },
     {
       "parameters": {
         "respondWith": "json",
-        "responseBody": "={ \"status\": \"ok\", \"message\": \"피드백이 등록되었습니다.\" }"
+        "responseBody": "={{ JSON.stringify({status: 'ok', message: '피드백이 등록되었습니다.'}) }}"
       },
       "id": "wf3-node-10",
       "name": "응답 반환",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
-      "position": [2000, 420]
+      "position": [
+        2000,
+        420
+      ]
     }
   ],
   "pinData": {},
   "connections": {
     "피드백 Webhook 수신": {
       "main": [
-        [{"node": "폼 데이터 파싱", "type": "main", "index": 0}]
+        [
+          {
+            "node": "폼 데이터 파싱",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "폼 데이터 파싱": {
       "main": [
-        [{"node": "알림 이력 조회", "type": "main", "index": 0}]
+        [
+          {
+            "node": "알림 이력 조회",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "알림 이력 조회": {
       "main": [
-        [{"node": "피드백 DB 저장", "type": "main", "index": 0}]
+        [
+          {
+            "node": "피드백 DB 저장",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "피드백 DB 저장": {
       "main": [
-        [{"node": "Qdrant point 있는지 확인", "type": "main", "index": 0}]
+        [
+          {
+            "node": "Qdrant point 있는지 확인",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Qdrant point 있는지 확인": {
       "main": [
-        [{"node": "해결책 임베딩", "type": "main", "index": 0}],
-        [{"node": "완료 알림 카드 생성", "type": "main", "index": 0}]
+        [
+          {
+            "node": "해결책 임베딩",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "완료 알림 카드 생성",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "해결책 임베딩": {
       "main": [
-        [{"node": "Qdrant 해결책 업데이트", "type": "main", "index": 0}]
+        [
+          {
+            "node": "Qdrant 해결책 업데이트",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Qdrant 해결책 업데이트": {
       "main": [
-        [{"node": "완료 알림 카드 생성", "type": "main", "index": 0}]
+        [
+          {
+            "node": "완료 알림 카드 생성",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "완료 알림 카드 생성": {
       "main": [
-        [{"node": "Teams 피드백 완료 알림", "type": "main", "index": 0}]
+        [
+          {
+            "node": "Teams 피드백 완료 알림",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
     "Teams 피드백 완료 알림": {
       "main": [
-        [{"node": "응답 반환", "type": "main", "index": 0}]
+        [
+          {
+            "node": "응답 반환",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     }
   },
@@ -204,7 +307,14 @@
     "saveManualExecutions": true
   },
   "versionId": "wf3-v1",
-  "meta": { "instanceId": "local" },
+  "meta": {
+    "instanceId": "local"
+  },
   "id": "wf3-feedback-processing",
-  "tags": [{"id": "aoms", "name": "AOMS"}]
+  "tags": [
+    {
+      "id": "aoms",
+      "name": "AOMS"
+    }
+  ]
 }

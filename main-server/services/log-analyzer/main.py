@@ -170,3 +170,19 @@ async def reset_collection(collection_type: str):
     name = _resolve_collection(collection_type)
     await vector_client.reset_collection(name)
     return {"collection": name, "reset": True}
+
+
+# ── 메트릭 복구 엔드포인트 ────────────────────────────────────────────────────
+
+class MetricResolveRequest(BaseModel):
+    point_id: str
+
+
+@app.post("/metric/resolve")
+async def metric_resolve(req: MetricResolveRequest):
+    """
+    admin-api가 Alertmanager resolved 이벤트 수신 시 호출.
+    metric_baselines Qdrant 포인트에 resolved=True 업데이트.
+    """
+    await vector_client.resolve_metric_vector(req.point_id)
+    return {"point_id": req.point_id, "resolved": True}

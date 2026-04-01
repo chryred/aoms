@@ -58,6 +58,7 @@ async def create_analysis(payload: LogAnalysisCreate, db: AsyncSession = Depends
                     similarity_score=payload.similarity_score,
                     has_solution=payload.has_solution,
                     similar_incidents=payload.similar_incidents,
+                    point_id=payload.qdrant_point_id,
                 )
                 record.alert_sent = sent
             except Exception as exc:

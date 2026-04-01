@@ -6,13 +6,18 @@ from datetime import datetime
 from typing import Optional
 
 # macOS/Linux 시스템 CA 번들 — httpx 기본 certifi 대신 사용
-_SSL_CAFILE = os.getenv(
-    "SSL_CERT_FILE",
-    "/opt/homebrew/etc/openssl@3/cert.pem"  # macOS Homebrew openssl
-    if os.path.exists("/opt/homebrew/etc/openssl@3/cert.pem")
-    else None,
-)
-_SSL_CONTEXT = ssl.create_default_context(cafile=_SSL_CAFILE) if _SSL_CAFILE else True
+_SSL_CAFILE = os.getenv("SSL_CERT_FILE", None)
+if _SSL_CAFILE is None:
+    _homebrew_ca = "/opt/homebrew/etc/openssl@3/cert.pem"
+    _SSL_CAFILE = _homebrew_ca if os.path.exists(_homebrew_ca) else None
+
+# httpx verify= 파라미터: CA 파일 경로(str) 또는 True(기본값)
+_SSL_CONTEXT = _SSL_CAFILE if _SSL_CAFILE else True
+
+# 피드백 폼 URL — Teams 카드 버튼이 이 주소로 연결됨 (브라우저에서 열려야 하므로 외부 접근 가능한 주소)
+_ADMIN_API_EXTERNAL_URL = os.getenv(
+    "ADMIN_API_EXTERNAL_URL", "http://localhost:8080"
+).rstrip("/")
 
 # Phase 4b: 이상 분류별 스타일
 _ANOMALY_STYLES = {
@@ -74,6 +79,7 @@ class TeamsNotifier:
         similarity_score: Optional[float] = None,
         has_solution: Optional[bool] = None,
         similar_incidents: Optional[list[dict]] = None,
+        point_id: Optional[str] = None,
     ) -> bool:
         """Adaptive Card 형식으로 메트릭 알림 발송"""
 
@@ -141,6 +147,16 @@ class TeamsNotifier:
                             "wrap": True
                         }
                     ],
+                    "actions": [
+                        {
+                            "type": "Action.OpenUrl",
+                            "title": "해결책 등록",
+                            "url": (
+                                f"{_ADMIN_API_EXTERNAL_URL}/api/v1/feedback/form"
+                                f"?system={system_name}&point_id={point_id or ''}"
+                            ),
+                        }
+                    ],
                     "msteams": {
                         "entities": [
                             {
@@ -175,6 +191,7 @@ class TeamsNotifier:
         similarity_score: Optional[float] = None,
         has_solution: Optional[bool] = None,
         similar_incidents: Optional[list[dict]] = None,
+        point_id: Optional[str] = None,
     ) -> bool:
         """LLM 분석 결과 알림 발송 (Phase 4b: 이상 분류 배지 + 유사 이력 포함)"""
 
@@ -222,6 +239,80 @@ class TeamsNotifier:
                     similar_incidents=similar_incidents or [],
                 )
             )
+
+        if mention_text:
+            card_body.append({"type": "TextBlock", "text": f"담당자: {mention_text}", "wrap": True})
+
+        body = {
+            "type": "message",
+            "attachments": [{
+                "contentType": "application/vnd.microsoft.card.adaptive",
+                "content": {
+                    "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                    "type": "AdaptiveCard",
+                    "version": "1.4",
+                    "body": card_body,
+                    "actions": [
+                        {
+                            "type": "Action.OpenUrl",
+                            "title": "해결책 등록",
+                            "url": (
+                                f"{_ADMIN_API_EXTERNAL_URL}/api/v1/feedback/form"
+                                f"?system={system_name}&point_id={point_id or ''}"
+                            ),
+                        }
+                    ],
+                    "msteams": {
+                        "entities": [
+                            {
+                                "type": "mention",
+                                "text": f"<at>{c['name']}</at>",
+                                "mentioned": {"id": c["teams_upn"], "name": c["name"]},
+                            }
+                            for c in contacts if c.get("teams_upn")
+                        ]
+                    },
+                },
+            }],
+        }
+
+        async with httpx.AsyncClient(timeout=10.0, verify=_SSL_CONTEXT) as client:
+            resp = await client.post(webhook_url, json=body)
+            return resp.status_code == 200
+
+    async def send_recovery_alert(
+        self,
+        webhook_url: str,
+        system_display_name: str,
+        system_name: str,
+        alertname: str,
+        instance_role: str,
+        host: str,
+        contacts: list[dict],
+    ) -> bool:
+        """정상 복구 알림 — 녹색 Adaptive Card"""
+        mention_text = " ".join([
+            f"<at>{c['name']}</at>"
+            for c in contacts if c.get("teams_upn")
+        ])
+
+        card_body = [
+            {
+                "type": "TextBlock",
+                "text": f"✅ [정상 복구] {alertname}",
+                "weight": "Bolder",
+                "size": "Medium",
+                "color": "Good",
+            },
+            {
+                "type": "FactSet",
+                "facts": [
+                    {"title": "시스템",   "value": f"{system_display_name} ({system_name})"},
+                    {"title": "서버",     "value": f"{instance_role} ({host})" if instance_role else host},
+                    {"title": "복구 시각", "value": datetime.now().strftime("%Y-%m-%d %H:%M:%S")},
+                ],
+            },
+        ]
 
         if mention_text:
             card_body.append({"type": "TextBlock", "text": f"담당자: {mention_text}", "wrap": True})

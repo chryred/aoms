@@ -105,8 +105,9 @@ async def test_receive_alert_cooldown(client: AsyncClient):
     assert resp.json()["processed"][0]["status"] == "cooldown_skipped"
 
 
-async def test_receive_resolved_alert_ignored(client: AsyncClient):
-    """status=resolved 알림은 처리하지 않음"""
+async def test_receive_resolved_alert_processed(client: AsyncClient):
+    """status=resolved 알림은 처리되어 resolved 상태로 반환됨"""
+    await create_system(client)
     payload = {
         "status": "resolved",
         "alerts": [{
@@ -118,7 +119,10 @@ async def test_receive_resolved_alert_ignored(client: AsyncClient):
     resp = await client.post("/api/v1/alerts/receive", json=payload)
 
     assert resp.status_code == 200
-    assert resp.json()["processed"] == []
+    processed = resp.json()["processed"]
+    assert len(processed) == 1
+    assert processed[0]["alertname"] == "HighCpuUsage"
+    assert processed[0]["status"] == "resolved"
 
 
 # ── 이력 조회 ─────────────────────────────────────────────────────────────────
