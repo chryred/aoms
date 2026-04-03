@@ -1,0 +1,194 @@
+{
+  "name": "WF10: 분기/반기/연간 리포트 (분기 시작월 1일 08:00)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 1 1,4,7,10 *"
+            }
+          ]
+        }
+      },
+      "id": "wf10-node-01",
+      "name": "분기 시작월 1일 08:00 트리거",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// 오늘 날짜 기반으로 생성할 리포트 타입 결정\nconst today = new Date();\nconst month = today.getMonth() + 1; // 1-12\n\nconst periodTypes = ['quarterly']; // 항상 분기 리포트\nif (month === 1 || month === 7) periodTypes.push('half_year'); // 7월, 1월\nif (month === 1) periodTypes.push('annual'); // 1월만 연간\n\n// 각 period_type에 대한 기간 계산\nconst periods = periodTypes.map(type => {\n  let periodStart, periodEnd, months, label;\n  \n  if (type === 'quarterly') {\n    months = 3;\n    label = `${today.getFullYear()}년 Q${Math.ceil((month - 1) / 3)}분기`;\n    periodStart = new Date(today.getFullYear(), today.getMonth() - 3, 1);\n    periodEnd   = new Date(today.getFullYear(), today.getMonth(), 0);\n  } else if (type === 'half_year') {\n    months = 6;\n    label = month === 1 ? `${today.getFullYear() - 1}년 하반기` : `${today.getFullYear()}년 상반기`;\n    periodStart = new Date(today.getFullYear(), today.getMonth() - 6, 1);\n    periodEnd   = new Date(today.getFullYear(), today.getMonth(), 0);\n  } else if (type === 'annual') {\n    months = 12;\n    label = `${today.getFullYear() - 1}년 연간`;\n    periodStart = new Date(today.getFullYear() - 1, 0, 1);\n    periodEnd   = new Date(today.getFullYear() - 1, 11, 31);\n  }\n  \n  return {\n    period_type: type,\n    period_start_iso: periodStart.toISOString(),\n    period_end_iso:   periodEnd.toISOString(),\n    label,\n    months\n  };\n});\n\nreturn periods.map(p => ({ json: p }));\n"
+      },
+      "id": "wf10-node-02",
+      "name": "생성할 리포트 타입 결정",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [540, 300]
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "wf10-node-03",
+      "name": "리포트 타입별 반복",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [840, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT s.id as system_id, s.system_name, s.display_name, m.collector_type, m.metric_group, COUNT(*) as month_count, SUM((m.metrics_json::jsonb->>'total_anomaly_hours')::float) as total_anomaly_hours, MAX(m.llm_severity) as worst_severity, STRING_AGG(DISTINCT m.llm_trend, ' | ') FILTER (WHERE m.llm_trend IS NOT NULL) as trend_summary FROM metric_monthly_aggregations m JOIN systems s ON m.system_id = s.id WHERE m.period_type = 'monthly' AND m.period_start >= '{{ $json.period_start_iso }}'::timestamp AND m.period_start < '{{ $json.period_end_iso }}'::timestamp GROUP BY s.id, s.system_name, s.display_name, m.collector_type, m.metric_group ORDER BY worst_severity DESC, total_anomaly_hours DESC LIMIT 100",
+        "options": {}
+      },
+      "id": "wf10-node-04",
+      "name": "기간별 월간 집계 조회",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [1140, 300],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_POSTGRES_CRED_ID",
+          "name": "AOMS PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// 장기 집계 통계 계산 및 LLM 프롬프트 생성\nconst items = $input.all();\nconst periodInfo = $('리포트 타입별 반복').first().json;\n\nif (!items.length) {\n  return [{ json: { skip: true, ...periodInfo } }];\n}\n\nconst systemSummary = {};\nitems.forEach(item => {\n  const d = item.json;\n  if (!systemSummary[d.system_name]) {\n    systemSummary[d.system_name] = {\n      system_id: d.system_id,\n      display_name: d.display_name,\n      total_anomaly_hours: 0,\n      worst_severity: 'normal',\n      trends: []\n    };\n  }\n  const s = systemSummary[d.system_name];\n  s.total_anomaly_hours += parseFloat(d.total_anomaly_hours) || 0;\n  if (d.worst_severity === 'critical' || (d.worst_severity === 'warning' && s.worst_severity !== 'critical')) {\n    s.worst_severity = d.worst_severity;\n  }\n  if (d.trend_summary) s.trends.push(d.trend_summary.substring(0, 80));\n});\n\nconst systemLines = Object.values(systemSummary)\n  .sort((a, b) => b.total_anomaly_hours - a.total_anomaly_hours)\n  .slice(0, 8)\n  .map(s => `- ${s.display_name}: 이상 ${Math.round(s.total_anomaly_hours)}시간, 심각도: ${s.worst_severity}`);\n\nconst periodLabel = periodInfo.label;\nconst llmPrompt = `${periodLabel} 전체 시스템 모니터링 ${periodInfo.period_type === 'quarterly' ? '분기' : periodInfo.period_type === 'half_year' ? '반기' : '연간'} 집계입니다.\n\n[시스템별 현황]\n${systemLines.join('\\n')}\n\n총 ${Object.keys(systemSummary).length}개 시스템. 이 기간의 전반적인 시스템 안정성 평가, 개선된 점, 우려되는 장기 추세, 향후 권고사항을 한국어로 4-5 문장으로 요약해 주세요.`;\n\nconst metricsJson = JSON.stringify({\n  period: periodLabel,\n  period_type: periodInfo.period_type,\n  system_count: Object.keys(systemSummary).length,\n  total_anomaly_hours: Math.round(Object.values(systemSummary).reduce((a, s) => a + s.total_anomaly_hours, 0)),\n  critical_systems: Object.values(systemSummary).filter(s => s.worst_severity === 'critical').length\n});\n\nreturn [{\n  json: {\n    ...periodInfo,\n    llm_prompt: llmPrompt,\n    metrics_json: metricsJson,\n    system_count: Object.keys(systemSummary).length,\n    skip: false\n  }\n}];\n"
+      },
+      "id": "wf10-node-05",
+      "name": "장기 집계 계산 및 LLM 프롬프트 생성",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1440, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "wf10-cond-01",
+              "leftValue": "={{ $json.skip }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "notEqual",
+                "name": "filter.operator.notEqual",
+                "description": "is not equal to"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "wf10-node-06",
+      "name": "데이터 있는지 확인",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1740, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.LLM_API_URL }}",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ agent_code: $env.LLM_AGENT_CODE, api_key: $env.LLM_API_KEY, messages: [{ role: 'user', content: $json.llm_prompt }], max_tokens: 500 }) }}",
+        "options": { "timeout": 60000 }
+      },
+      "id": "wf10-node-07",
+      "name": "LLM 장기 요약 호출",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2040, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "const llmResp = $input.first().json;\nconst prevData = $('장기 집계 계산 및 LLM 프롬프트 생성').first().json;\n\nconst llmSummary = llmResp?.choices?.[0]?.message?.content \n  || llmResp?.response \n  || llmResp?.content \n  || '장기 요약 생성 실패';\n\nconst metricsObj = JSON.parse(prevData.metrics_json || '{}');\nconst periodEmoji = prevData.period_type === 'annual' ? '🗓️' : prevData.period_type === 'half_year' ? '📆' : '📊';\n\nconst card = {\n  type: 'message',\n  attachments: [{\n    contentType: 'application/vnd.microsoft.card.adaptive',\n    content: {\n      '$schema': 'http://adaptivecards.io/schemas/adaptive-card.json',\n      type: 'AdaptiveCard',\n      version: '1.4',\n      body: [\n        { type: 'TextBlock', text: `${periodEmoji} ${prevData.label} 모니터링 리포트`, weight: 'Bolder', size: 'Medium' },\n        { type: 'TextBlock', text: llmSummary, wrap: true },\n        {\n          type: 'FactSet',\n          facts: [\n            { title: '기간',            value: `${prevData.period_start_iso.split('T')[0]} ~ ${prevData.period_end_iso.split('T')[0]}` },\n            { title: '모니터링 시스템', value: `${metricsObj.system_count || 0}개` },\n            { title: '총 이상 발생',    value: `${metricsObj.total_anomaly_hours || 0}시간` },\n            { title: 'Critical 시스템', value: `${metricsObj.critical_systems || 0}개` }\n          ]\n        }\n      ]\n    }\n  }]\n};\n\nreturn [{ json: { ...prevData, llm_summary: llmSummary, teams_card: JSON.stringify(card) } }];\n"
+      },
+      "id": "wf10-node-08",
+      "name": "LLM 응답 파싱 및 카드 생성",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2340, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.TEAMS_WEBHOOK_URL }}",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.teams_card }}",
+        "options": { "timeout": 15000 }
+      },
+      "id": "wf10-node-09",
+      "name": "Teams 장기 리포트 발송",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2640, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.ADMIN_API_URL || 'http://admin-api:8080' }}/api/v1/reports",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ report_type: $('장기 집계 계산 및 LLM 프롬프트 생성').first().json.period_type, period_start: $('장기 집계 계산 및 LLM 프롬프트 생성').first().json.period_start_iso, period_end: $('장기 집계 계산 및 LLM 프롬프트 생성').first().json.period_end_iso, teams_status: 'sent', llm_summary: $('LLM 응답 파싱 및 카드 생성').first().json.llm_summary, system_count: $('장기 집계 계산 및 LLM 프롬프트 생성').first().json.system_count }) }}",
+        "options": { "timeout": 10000 }
+      },
+      "id": "wf10-node-10",
+      "name": "Admin API에 리포트 이력 저장",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2940, 200]
+    }
+  ],
+  "connections": {
+    "분기 시작월 1일 08:00 트리거": {
+      "main": [[{ "node": "생성할 리포트 타입 결정", "type": "main", "index": 0 }]]
+    },
+    "생성할 리포트 타입 결정": {
+      "main": [[{ "node": "리포트 타입별 반복", "type": "main", "index": 0 }]]
+    },
+    "리포트 타입별 반복": {
+      "main": [[{ "node": "기간별 월간 집계 조회", "type": "main", "index": 0 }]]
+    },
+    "기간별 월간 집계 조회": {
+      "main": [[{ "node": "장기 집계 계산 및 LLM 프롬프트 생성", "type": "main", "index": 0 }]]
+    },
+    "장기 집계 계산 및 LLM 프롬프트 생성": {
+      "main": [[{ "node": "데이터 있는지 확인", "type": "main", "index": 0 }]]
+    },
+    "데이터 있는지 확인": {
+      "main": [
+        [{ "node": "LLM 장기 요약 호출", "type": "main", "index": 0 }],
+        []
+      ]
+    },
+    "LLM 장기 요약 호출": {
+      "main": [[{ "node": "LLM 응답 파싱 및 카드 생성", "type": "main", "index": 0 }]]
+    },
+    "LLM 응답 파싱 및 카드 생성": {
+      "main": [[{ "node": "Teams 장기 리포트 발송", "type": "main", "index": 0 }]]
+    },
+    "Teams 장기 리포트 발송": {
+      "main": [[{ "node": "Admin API에 리포트 이력 저장", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "tags": ["aoms", "report", "quarterly", "annual"]
+}

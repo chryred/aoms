@@ -1,0 +1,175 @@
+{
+  "name": "WF8: 주간 리포트 (월요일 08:00)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 8 * * 1"
+            }
+          ]
+        }
+      },
+      "id": "wf8-node-01",
+      "name": "매주 월요일 08:00 트리거",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT s.id as system_id, s.system_name, s.display_name, d.collector_type, d.metric_group, COUNT(*) as day_count, AVG((d.metrics_json::jsonb->>'anomaly_hours')::float) as avg_anomaly_hours, SUM((d.metrics_json::jsonb->>'anomaly_hours')::float) as total_anomaly_hours, MAX(d.llm_severity) as worst_severity, STRING_AGG(DISTINCT d.llm_trend, ' | ') FILTER (WHERE d.llm_trend IS NOT NULL) as trend_summary FROM metric_daily_aggregations d JOIN systems s ON d.system_id = s.id WHERE d.day_bucket >= date_trunc('week', NOW() - interval '7 days') AND d.day_bucket < date_trunc('week', NOW()) GROUP BY s.id, s.system_name, s.display_name, d.collector_type, d.metric_group ORDER BY worst_severity DESC, total_anomaly_hours DESC",
+        "options": {}
+      },
+      "id": "wf8-node-02",
+      "name": "전주 일별 집계 조회",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [540, 300],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_POSTGRES_CRED_ID",
+          "name": "AOMS PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// 주간 집계 통계 계산 및 LLM 프롬프트 생성\nconst items = $input.all();\n\nif (!items.length) {\n  return [{ json: { skip: true } }];\n}\n\nconst weekStart = new Date();\n// 지난 주 월요일\nconst day = weekStart.getDay();\nconst diff = weekStart.getDate() - day + (day === 0 ? -6 : 1) - 7;\nweekStart.setDate(diff);\nweekStart.setHours(0, 0, 0, 0);\nconst weekStartISO = weekStart.toISOString();\n\n// 시스템별 요약 집계\nconst systemSummary = {};\nitems.forEach(item => {\n  const d = item.json;\n  if (!systemSummary[d.system_name]) {\n    systemSummary[d.system_name] = {\n      system_id: d.system_id,\n      display_name: d.display_name,\n      total_anomaly_hours: 0,\n      worst_severity: 'normal',\n      metrics: []\n    };\n  }\n  const s = systemSummary[d.system_name];\n  s.total_anomaly_hours += parseFloat(d.total_anomaly_hours) || 0;\n  if (d.worst_severity === 'critical' || (d.worst_severity === 'warning' && s.worst_severity !== 'critical')) {\n    s.worst_severity = d.worst_severity;\n  }\n  s.metrics.push(`${d.collector_type}/${d.metric_group}: ${d.trend_summary || '정상'}`);\n});\n\nconst systemLines = Object.values(systemSummary)\n  .sort((a, b) => b.total_anomaly_hours - a.total_anomaly_hours)\n  .slice(0, 10)\n  .map(s => `- ${s.display_name}: 이상 ${Math.round(s.total_anomaly_hours)}시간, 최고 심각도: ${s.worst_severity}`);\n\nconst llmPrompt = `다음은 지난 7일간 시스템 모니터링 집계 데이터입니다.\n\n[시스템별 주간 현황 (이상 시간 순)]\n${systemLines.join('\\n')}\n\n총 ${Object.keys(systemSummary).length}개 시스템 모니터링. 한국어로 2-3 문장의 핵심 요약을 작성해 주세요. 가장 주의가 필요한 시스템과 전체적인 추세를 포함해 주세요.`;\n\nconst weeklyMetricsJson = JSON.stringify({\n  system_count: Object.keys(systemSummary).length,\n  total_anomaly_hours: Object.values(systemSummary).reduce((a, s) => a + s.total_anomaly_hours, 0),\n  critical_systems: Object.values(systemSummary).filter(s => s.worst_severity === 'critical').length\n});\n\nreturn [{\n  json: {\n    week_start_iso: weekStartISO,\n    llm_prompt: llmPrompt,\n    system_summary: systemSummary,\n    weekly_metrics_json: weeklyMetricsJson,\n    item_count: items.length,\n    skip: false\n  }\n}];\n"
+      },
+      "id": "wf8-node-03",
+      "name": "주간 집계 계산 및 LLM 프롬프트 생성",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [840, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "wf8-cond-01",
+              "leftValue": "={{ $json.skip }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "notEqual",
+                "name": "filter.operator.notEqual",
+                "description": "is not equal to"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "wf8-node-04",
+      "name": "데이터 있는지 확인",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1140, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.LLM_API_URL }}",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ agent_code: $env.LLM_AGENT_CODE, api_key: $env.LLM_API_KEY, messages: [{ role: 'user', content: $json.llm_prompt }], max_tokens: 300 }) }}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "wf8-node-05",
+      "name": "LLM 주간 요약 호출",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1440, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "// LLM 응답 파싱 및 Teams 카드 생성\nconst llmResp = $input.first().json;\nconst prevData = $('주간 집계 계산 및 LLM 프롬프트 생성').first().json;\n\nconst llmSummary = llmResp?.choices?.[0]?.message?.content \n  || llmResp?.response \n  || llmResp?.content \n  || '주간 요약 생성 실패';\n\nconst weekStart = new Date(prevData.week_start_iso);\nconst weekEnd = new Date(weekStart);\nweekEnd.setDate(weekEnd.getDate() + 6);\nconst dateRange = `${weekStart.toLocaleDateString('ko-KR')} ~ ${weekEnd.toLocaleDateString('ko-KR')}`;\n\nconst metricsObj = JSON.parse(prevData.weekly_metrics_json || '{}');\n\nconst card = {\n  type: 'message',\n  attachments: [{\n    contentType: 'application/vnd.microsoft.card.adaptive',\n    content: {\n      '$schema': 'http://adaptivecards.io/schemas/adaptive-card.json',\n      type: 'AdaptiveCard',\n      version: '1.4',\n      body: [\n        { type: 'TextBlock', text: `📊 주간 모니터링 리포트: ${dateRange}`, weight: 'Bolder', size: 'Medium' },\n        { type: 'TextBlock', text: llmSummary, wrap: true },\n        {\n          type: 'FactSet',\n          facts: [\n            { title: '모니터링 시스템', value: `${metricsObj.system_count || 0}개` },\n            { title: '총 이상 발생',    value: `${Math.round(metricsObj.total_anomaly_hours || 0)}시간` },\n            { title: 'Critical 시스템', value: `${metricsObj.critical_systems || 0}개` }\n          ]\n        }\n      ]\n    }\n  }]\n};\n\nreturn [{\n  json: {\n    ...prevData,\n    llm_summary: llmSummary,\n    teams_card: JSON.stringify(card)\n  }\n}];\n"
+      },
+      "id": "wf8-node-06",
+      "name": "LLM 응답 파싱 및 카드 생성",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1740, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.TEAMS_WEBHOOK_URL }}",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.teams_card }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "wf8-node-07",
+      "name": "Teams 주간 리포트 발송",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2040, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.ADMIN_API_URL || 'http://admin-api:8080' }}/api/v1/reports",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ report_type: 'weekly', period_start: $('주간 집계 계산 및 LLM 프롬프트 생성').first().json.week_start_iso, period_end: new Date(new Date($('주간 집계 계산 및 LLM 프롬프트 생성').first().json.week_start_iso).getTime() + 6*24*3600*1000).toISOString(), teams_status: 'sent', llm_summary: $('LLM 응답 파싱 및 카드 생성').first().json.llm_summary, system_count: JSON.parse($('주간 집계 계산 및 LLM 프롬프트 생성').first().json.weekly_metrics_json).system_count }) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "wf8-node-08",
+      "name": "Admin API에 리포트 이력 저장",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2340, 200]
+    }
+  ],
+  "connections": {
+    "매주 월요일 08:00 트리거": {
+      "main": [[{ "node": "전주 일별 집계 조회", "type": "main", "index": 0 }]]
+    },
+    "전주 일별 집계 조회": {
+      "main": [[{ "node": "주간 집계 계산 및 LLM 프롬프트 생성", "type": "main", "index": 0 }]]
+    },
+    "주간 집계 계산 및 LLM 프롬프트 생성": {
+      "main": [[{ "node": "데이터 있는지 확인", "type": "main", "index": 0 }]]
+    },
+    "데이터 있는지 확인": {
+      "main": [
+        [{ "node": "LLM 주간 요약 호출", "type": "main", "index": 0 }],
+        []
+      ]
+    },
+    "LLM 주간 요약 호출": {
+      "main": [[{ "node": "LLM 응답 파싱 및 카드 생성", "type": "main", "index": 0 }]]
+    },
+    "LLM 응답 파싱 및 카드 생성": {
+      "main": [[{ "node": "Teams 주간 리포트 발송", "type": "main", "index": 0 }]]
+    },
+    "Teams 주간 리포트 발송": {
+      "main": [[{ "node": "Admin API에 리포트 이력 저장", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": ["aoms", "report", "weekly"]
+}

@@ -1,0 +1,183 @@
+{
+  "name": "WF11: 프로액티브 추세 알림 (4시간마다)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 */4 * * *"
+            }
+          ]
+        }
+      },
+      "id": "wf11-node-01",
+      "name": "4시간마다 트리거",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT h.system_id, s.system_name, s.display_name, s.teams_webhook_url, h.collector_type, h.metric_group, COUNT(*) as anomaly_hours, MAX(h.llm_severity) as worst_severity, STRING_AGG(h.llm_trend, ' → ' ORDER BY h.hour_bucket) FILTER (WHERE h.llm_trend IS NOT NULL) as trend_sequence, STRING_AGG(h.llm_prediction, ' | ' ORDER BY h.hour_bucket) FILTER (WHERE h.llm_prediction IS NOT NULL) as predictions FROM metric_hourly_aggregations h JOIN systems s ON h.system_id = s.id WHERE h.hour_bucket >= NOW() - interval '8 hours' AND h.llm_severity IN ('warning', 'critical') GROUP BY h.system_id, s.system_name, s.display_name, s.teams_webhook_url, h.collector_type, h.metric_group HAVING COUNT(*) >= 3 ORDER BY worst_severity DESC, anomaly_hours DESC LIMIT 20",
+        "options": {}
+      },
+      "id": "wf11-node-02",
+      "name": "지속적 이상 시스템 조회 (3시간 이상)",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [540, 300],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_POSTGRES_CRED_ID",
+          "name": "AOMS PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "wf11-cond-01",
+              "leftValue": "={{ $items().length }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt",
+                "name": "filter.operator.gt",
+                "description": "greater than"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "wf11-node-03",
+      "name": "지속 이상 시스템 있는지 확인",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [840, 300]
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "wf11-node-04",
+      "name": "시스템별 반복",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [1140, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "// 지속 추세 LLM 프롬프트 생성 (Template C)\nconst item = $input.first().json;\n\nconst llmPrompt = `시스템: ${item.display_name} (${item.system_name})\n분석 기간: 최근 8시간 중 ${item.anomaly_hours}시간 이상 감지\n수집기: ${item.collector_type} / ${item.metric_group}\n최고 심각도: ${item.worst_severity}\n\n[시간별 추세 흐름]\n${item.trend_sequence || '추세 데이터 없음'}\n\n[기존 예측 목록]\n${item.predictions || '예측 없음'}\n\n이 시스템이 지속적으로 이상 상태를 보이고 있습니다.\n임계치 도달 예상 시점과 조치 우선순위를 다음 JSON 형식으로만 응답해 주세요:\n{\n  \"hours_to_breach\": 숫자 또는 null,\n  \"breach_metric\": \"임계치에 먼저 도달할 메트릭명\",\n  \"severity\": \"warning 또는 critical 중 하나\",\n  \"trend_summary\": \"지속 추세 요약 (1문장)\",\n  \"immediate_actions\": \"즉시 조치 사항 (1~2문장)\"\n}`;\n\nreturn [{ json: { ...item, llm_prompt: llmPrompt } }];\n"
+      },
+      "id": "wf11-node-05",
+      "name": "지속 추세 LLM 프롬프트 생성",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1440, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.LLM_API_URL }}",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ agent_code: $env.LLM_AGENT_CODE, api_key: $env.LLM_API_KEY, messages: [{ role: 'user', content: $json.llm_prompt }], max_tokens: 300 }) }}",
+        "options": { "timeout": 60000 }
+      },
+      "id": "wf11-node-06",
+      "name": "LLM 지속 추세 분석 호출",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1740, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "// LLM 응답 파싱 및 프로액티브 알림 카드 생성\nconst llmResp = $input.first().json;\nconst prevData = $('지속 추세 LLM 프롬프트 생성').first().json;\n\nlet llmResult = {};\ntry {\n  const content = llmResp?.choices?.[0]?.message?.content \n    || llmResp?.response \n    || llmResp?.content \n    || '{}';\n  const jsonMatch = content.match(/\\{[\\s\\S]*\\}/);\n  llmResult = jsonMatch ? JSON.parse(jsonMatch[0]) : {};\n} catch(e) {\n  llmResult = { severity: 'warning', trend_summary: '분석 실패', hours_to_breach: null };\n}\n\nconst severity    = llmResult.severity || 'warning';\nconst colorMap    = { critical: 'Attention', warning: 'Warning', normal: 'Good' };\nconst color       = colorMap[severity] || 'Warning';\nconst hoursText   = llmResult.hours_to_breach ? `약 ${llmResult.hours_to_breach}시간 후` : '예측 불가';\n\nconst card = {\n  type: 'message',\n  attachments: [{\n    contentType: 'application/vnd.microsoft.card.adaptive',\n    content: {\n      '$schema': 'http://adaptivecards.io/schemas/adaptive-card.json',\n      type: 'AdaptiveCard',\n      version: '1.4',\n      body: [\n        {\n          type: 'TextBlock',\n          text: `🔴 [장애 예방] ${prevData.display_name} 지속 이상 감지`,\n          weight: 'Bolder',\n          size: 'Medium',\n          color: color\n        },\n        {\n          type: 'FactSet',\n          facts: [\n            { title: '시스템',       value: `${prevData.display_name} (${prevData.system_name})` },\n            { title: '수집기',       value: `${prevData.collector_type} / ${prevData.metric_group}` },\n            { title: '지속 이상',    value: `최근 8시간 중 ${prevData.anomaly_hours}시간` },\n            { title: '추세',         value: llmResult.trend_summary || '-' },\n            { title: '임계치 예상',  value: `${llmResult.breach_metric || '-'} — ${hoursText}` },\n            { title: '즉시 조치',    value: llmResult.immediate_actions || '-' }\n          ]\n        }\n      ]\n    }\n  }]\n};\n\nconst webhookUrl = prevData.teams_webhook_url || $env.TEAMS_WEBHOOK_URL;\n\nreturn [{ json: { ...prevData, llm_result: llmResult, teams_card: JSON.stringify(card), webhook_url: webhookUrl } }];\n"
+      },
+      "id": "wf11-node-07",
+      "name": "LLM 응답 파싱 및 카드 생성",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2040, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.webhook_url }}",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.teams_card }}",
+        "options": { "timeout": 15000 }
+      },
+      "id": "wf11-node-08",
+      "name": "Teams 프로액티브 알림 발송",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2340, 200]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO alert_history (system_id, alert_type, severity, alertname, title, description, created_at) VALUES ({{ $('LLM 응답 파싱 및 카드 생성').first().json.system_id }}, 'proactive_trend', '{{ $('LLM 응답 파싱 및 카드 생성').first().json.llm_result.severity || 'warning' }}', 'ProactiveTrendAlert', '{{ $('LLM 응답 파싱 및 카드 생성').first().json.display_name }} 지속 이상 감지', '{{ $('LLM 응답 파싱 및 카드 생성').first().json.llm_result.trend_summary || '' }}', NOW())",
+        "options": {}
+      },
+      "id": "wf11-node-09",
+      "name": "alert_history에 프로액티브 알림 기록",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [2640, 200],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_POSTGRES_CRED_ID",
+          "name": "AOMS PostgreSQL"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "4시간마다 트리거": {
+      "main": [[{ "node": "지속적 이상 시스템 조회 (3시간 이상)", "type": "main", "index": 0 }]]
+    },
+    "지속적 이상 시스템 조회 (3시간 이상)": {
+      "main": [[{ "node": "지속 이상 시스템 있는지 확인", "type": "main", "index": 0 }]]
+    },
+    "지속 이상 시스템 있는지 확인": {
+      "main": [
+        [{ "node": "시스템별 반복", "type": "main", "index": 0 }],
+        []
+      ]
+    },
+    "시스템별 반복": {
+      "main": [[{ "node": "지속 추세 LLM 프롬프트 생성", "type": "main", "index": 0 }]]
+    },
+    "지속 추세 LLM 프롬프트 생성": {
+      "main": [[{ "node": "LLM 지속 추세 분석 호출", "type": "main", "index": 0 }]]
+    },
+    "LLM 지속 추세 분석 호출": {
+      "main": [[{ "node": "LLM 응답 파싱 및 카드 생성", "type": "main", "index": 0 }]]
+    },
+    "LLM 응답 파싱 및 카드 생성": {
+      "main": [[{ "node": "Teams 프로액티브 알림 발송", "type": "main", "index": 0 }]]
+    },
+    "Teams 프로액티브 알림 발송": {
+      "main": [[{ "node": "alert_history에 프로액티브 알림 기록", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "tags": ["aoms", "proactive", "alert"]
+}

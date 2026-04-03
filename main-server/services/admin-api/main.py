@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from database import engine, Base
 from routes import alerts, analysis, contacts, feedback, systems
+from routes import collector_config, aggregations, reports
 
 
 @asynccontextmanager
@@ -35,6 +36,9 @@ app.include_router(contacts.router)
 app.include_router(alerts.router)
 app.include_router(analysis.router)
 app.include_router(feedback.router)
+app.include_router(collector_config.router)
+app.include_router(aggregations.router)
+app.include_router(reports.router)
 
 
 @app.get("/health")

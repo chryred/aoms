@@ -18,6 +18,7 @@ from pydantic import BaseModel
 
 import analyzer
 import vector_client
+import aggregation_vector_client
 
 logging.basicConfig(
     level=logging.INFO,
@@ -132,15 +133,20 @@ async def metric_similarity(req: MetricSimilarityRequest):
 # ── 컬렉션 관리 엔드포인트 ───────────────────────────────────────────────────
 
 _COLLECTION_MAP = {
-    "log":    vector_client.COLLECTION,          # "log_incidents"
-    "metric": vector_client.METRIC_COLLECTION,   # "metric_baselines"
+    "log":     vector_client.COLLECTION,                                      # "log_incidents"
+    "metric":  vector_client.METRIC_COLLECTION,                               # "metric_baselines"
+    "hourly":  aggregation_vector_client.HOURLY_PATTERNS_COLLECTION,          # "metric_hourly_patterns"
+    "summary": aggregation_vector_client.AGG_SUMMARIES_COLLECTION,            # "aggregation_summaries"
 }
 
 
 def _resolve_collection(collection_type: str) -> str:
     name = _COLLECTION_MAP.get(collection_type)
     if not name:
-        raise HTTPException(status_code=400, detail="collection_type은 'log' 또는 'metric'만 허용됩니다.")
+        raise HTTPException(
+            status_code=400,
+            detail=f"collection_type은 {list(_COLLECTION_MAP.keys())} 중 하나여야 합니다.",
+        )
     return name
 
 
@@ -186,3 +192,146 @@ async def metric_resolve(req: MetricResolveRequest):
     """
     await vector_client.resolve_metric_vector(req.point_id)
     return {"point_id": req.point_id, "resolved": True}
+
+
+# ── Phase 5: 집계 벡터 검색 엔드포인트 (UI 프록시) ────────────────────────────
+
+class AggregationSearchRequest(BaseModel):
+    query_text:      str
+    collection:      str           # "metric_hourly_patterns" | "aggregation_summaries"
+    system_id:       int | None = None
+    limit:           int = 10
+    score_threshold: float = 0.70
+
+
+class SimilarPeriodRequest(BaseModel):
+    point_id:    str
+    collection:  str
+    system_id:   int | None = None
+    limit:       int = 5
+
+
+@app.post("/aggregation/search")
+async def aggregation_search(req: AggregationSearchRequest):
+    """
+    UI에서 자연어로 유사 집계 기간 검색.
+    query_text를 임베딩 후 Qdrant 컬렉션에서 유사도 조회.
+
+    collection 옵션:
+      - "metric_hourly_patterns"  : 1시간 집계 패턴 검색
+      - "aggregation_summaries"   : 일/주/월 리포트 요약 검색
+    """
+    try:
+        results = await aggregation_vector_client.search_similar_aggregations(
+            query_text=req.query_text,
+            collection=req.collection,
+            system_id=req.system_id,
+            limit=req.limit,
+            score_threshold=req.score_threshold,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"count": len(results), "results": results}
+
+
+@app.post("/aggregation/similar-period")
+async def aggregation_similar_period(req: SimilarPeriodRequest):
+    """
+    기존 집계 기간(point_id)과 유사한 과거 기간 검색.
+    "이 주와 비슷한 상황이었던 과거 주간" 조회 등에 활용.
+    """
+    try:
+        results = await aggregation_vector_client.search_similar_by_vector(
+            point_id=req.point_id,
+            collection=req.collection,
+            system_id=req.system_id,
+            limit=req.limit,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"count": len(results), "results": results}
+
+
+@app.get("/aggregation/collections/info")
+async def aggregation_collections_info():
+    """
+    metric_hourly_patterns, aggregation_summaries 컬렉션 현황.
+    UI 헬스 체크 및 데이터 적재 확인용.
+    """
+    return await aggregation_vector_client.get_collections_info()
+
+
+@app.post("/aggregation/collections/setup", status_code=201)
+async def aggregation_collections_setup():
+    """
+    WF12 또는 초기 배포 시 호출 — 두 컬렉션이 없으면 생성.
+    이미 존재하면 created=false 반환 (안전하게 재호출 가능).
+    """
+    result = await aggregation_vector_client.ensure_aggregation_collections()
+    return {"created": result}
+
+
+class StoreHourlyPatternRequest(BaseModel):
+    system_id:      int
+    system_name:    str
+    hour_bucket:    str                 # ISO datetime string
+    collector_type: str
+    metric_group:   str
+    summary_text:   str                 # 임베딩에 사용할 요약 텍스트
+    llm_severity:   str                 # normal | warning | critical
+    llm_trend:      str | None = None
+    llm_prediction: str | None = None
+    pg_row_id:      int                 # metric_hourly_aggregations.id
+
+
+class StoreAggSummaryRequest(BaseModel):
+    system_id:         int
+    system_name:       str
+    period_type:       str              # daily | weekly | monthly | quarterly | half_year | annual
+    period_start:      str
+    summary_text:      str
+    dominant_severity: str
+    pg_row_id:         int
+
+
+@app.post("/aggregation/store-hourly")
+async def store_hourly_pattern(req: StoreHourlyPatternRequest):
+    """
+    WF6 호출용 — 1시간 집계 요약 텍스트를 임베딩 후 metric_hourly_patterns에 저장.
+    point_id 반환 (admin-api hourly 레코드에 업데이트 용도).
+    """
+    embedding = await vector_client.get_embedding(req.summary_text)
+    point_id = await aggregation_vector_client.store_hourly_pattern_vector(
+        embedding=embedding,
+        system_id=req.system_id,
+        system_name=req.system_name,
+        hour_bucket=req.hour_bucket,
+        collector_type=req.collector_type,
+        metric_group=req.metric_group,
+        summary_text=req.summary_text,
+        llm_severity=req.llm_severity,
+        llm_trend=req.llm_trend,
+        llm_prediction=req.llm_prediction,
+        pg_row_id=req.pg_row_id,
+    )
+    return {"point_id": point_id}
+
+
+@app.post("/aggregation/store-summary")
+async def store_agg_summary(req: StoreAggSummaryRequest):
+    """
+    WF7-WF10 호출용 — 일/주/월 집계 요약을 임베딩 후 aggregation_summaries에 저장.
+    point_id 반환.
+    """
+    embedding = await vector_client.get_embedding(req.summary_text)
+    point_id = await aggregation_vector_client.store_aggregation_summary_vector(
+        embedding=embedding,
+        system_id=req.system_id,
+        system_name=req.system_name,
+        period_type=req.period_type,
+        period_start=req.period_start,
+        summary_text=req.summary_text,
+        dominant_severity=req.dominant_severity,
+        pg_row_id=req.pg_row_id,
+    )
+    return {"point_id": point_id}

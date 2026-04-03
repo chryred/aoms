@@ -21,17 +21,17 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT\n  COALESCE(anomaly_type, 'unknown') AS anomaly_type,\n  severity,\n  COUNT(*) AS cnt\nFROM log_analysis_history\nWHERE created_at >= NOW() - INTERVAL '1 day'\n  AND alert_sent = TRUE\nGROUP BY anomaly_type, severity\nORDER BY cnt DESC;",
+        "query": "SELECT COALESCE(anomaly_type, 'unknown') AS anomaly_type, severity, COUNT(*) AS cnt FROM log_analysis_history WHERE created_at >= NOW() - INTERVAL '1 day' AND alert_sent = TRUE GROUP BY anomaly_type, severity ORDER BY cnt DESC",
         "options": {}
       },
       "id": "wf4-node-02",
       "name": "이상 유형별 통계",
       "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2.5,
-      "position": [460, 200],
+      "typeVersion": 2.4,
+      "position": [460, 100],
       "credentials": {
         "postgres": {
-          "id": "postgres-aoms",
+          "id": "REPLACE_WITH_POSTGRES_CRED_ID",
           "name": "AOMS PostgreSQL"
         }
       }
@@ -39,17 +39,17 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT\n  s.display_name,\n  s.system_name,\n  COUNT(l.id) AS cnt\nFROM log_analysis_history l\nJOIN systems s ON l.system_id = s.id\nWHERE l.created_at >= NOW() - INTERVAL '1 day'\n  AND l.alert_sent = TRUE\nGROUP BY s.display_name, s.system_name\nORDER BY cnt DESC\nLIMIT 5;",
+        "query": "SELECT s.display_name, s.system_name, COUNT(l.id) AS cnt FROM log_analysis_history l JOIN systems s ON l.system_id = s.id WHERE l.created_at >= NOW() - INTERVAL '1 day' AND l.alert_sent = TRUE GROUP BY s.display_name, s.system_name ORDER BY cnt DESC LIMIT 5",
         "options": {}
       },
       "id": "wf4-node-03",
       "name": "Top5 시스템 조회",
       "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2.5,
-      "position": [460, 420],
+      "typeVersion": 2.4,
+      "position": [460, 280],
       "credentials": {
         "postgres": {
-          "id": "postgres-aoms",
+          "id": "REPLACE_WITH_POSTGRES_CRED_ID",
           "name": "AOMS PostgreSQL"
         }
       }
@@ -57,62 +57,92 @@
     {
       "parameters": {
         "operation": "executeQuery",
-        "query": "SELECT COUNT(*) AS unresolved_critical\nFROM alert_history\nWHERE severity = 'critical'\n  AND acknowledged = FALSE\n  AND created_at >= NOW() - INTERVAL '1 day';",
+        "query": "SELECT COUNT(*) AS unresolved_critical FROM alert_history WHERE severity = 'critical' AND acknowledged = FALSE AND created_at >= NOW() - INTERVAL '1 day'",
         "options": {}
       },
       "id": "wf4-node-04",
       "name": "미처리 Critical 조회",
       "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2.5,
-      "position": [460, 620],
+      "typeVersion": 2.4,
+      "position": [460, 460],
       "credentials": {
         "postgres": {
-          "id": "postgres-aoms",
+          "id": "REPLACE_WITH_POSTGRES_CRED_ID",
           "name": "AOMS PostgreSQL"
         }
       }
     },
     {
       "parameters": {
-        "jsCode": "// 세 쿼리 결과 통합하여 LLM 프롬프트 구성\nconst stats    = $('이상 유형별 통계').all().map(i => i.json);\nconst top5     = $('Top5 시스템 조회').all().map(i => i.json);\nconst critical = $('미처리 Critical 조회').first().json;\n\nconst today = new Date().toLocaleDateString('ko-KR', {timeZone: 'Asia/Seoul'});\n\n// 유형별 집계\nconst typeSummary = {};\nstats.forEach(r => {\n  typeSummary[r.anomaly_type] = (typeSummary[r.anomaly_type] || 0) + parseInt(r.cnt, 10);\n});\n\nconst totalAlerts = Object.values(typeSummary).reduce((a, b) => a + b, 0);\n\nconst statsText = [\n  `신규(new): ${typeSummary.new || 0}건`,\n  `반복(recurring): ${typeSummary.recurring || 0}건`,\n  `유사(related): ${typeSummary.related || 0}건`,\n  `중복(duplicate): ${typeSummary.duplicate || 0}건`\n].join(', ');\n\nconst top5Text = top5.map((r, i) =>\n  `${i + 1}. ${r.display_name}(${r.system_name}): ${r.cnt}건`\n).join('\\n');\n\nconst prompt = `오늘(${today}) AOMS 모니터링 일일 리포트를 작성해 주세요.\n\n[이상 탐지 통계]\n- 총 알림: ${totalAlerts}건\n- ${statsText}\n\n[주요 발생 시스템 Top 5]\n${top5Text || '없음'}\n\n[미처리 Critical]: ${critical.unresolved_critical || 0}건\n\n2~3문장으로 핵심 요약과 주의 사항을 작성해 주세요. 한국어로 답변하세요.`;\n\nreturn [{\n  json: { prompt, today, totalAlerts, typeSummary, top5, unresolvedCritical: critical.unresolved_critical || 0 }\n}];"
+        "operation": "executeQuery",
+        "query": "SELECT s.display_name, s.system_name, d.collector_type, d.metric_group, d.llm_severity, d.metrics_json FROM metric_daily_aggregations d JOIN systems s ON d.system_id = s.id WHERE d.day_bucket >= NOW() - INTERVAL '1 day' AND d.llm_severity IN ('warning', 'critical') ORDER BY d.llm_severity DESC, s.system_name LIMIT 10",
+        "options": {}
+      },
+      "id": "wf4-node-09",
+      "name": "메트릭 이상 집계 조회",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [460, 640],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_POSTGRES_CRED_ID",
+          "name": "AOMS PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT s.display_name, s.system_name, h.collector_type, h.metric_group, h.llm_prediction FROM metric_hourly_aggregations h JOIN systems s ON h.system_id = s.id WHERE h.hour_bucket >= NOW() - INTERVAL '12 hours' AND h.llm_prediction IS NOT NULL AND h.llm_severity IN ('warning', 'critical') ORDER BY h.hour_bucket DESC LIMIT 5",
+        "options": {}
+      },
+      "id": "wf4-node-10",
+      "name": "장애 예측 항목 조회",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [460, 820],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_POSTGRES_CRED_ID",
+          "name": "AOMS PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// 모든 쿼리 결과 통합 및 LLM 프롬프트 구성 (Phase 5 강화)\nconst stats    = $('이상 유형별 통계').all().map(i => i.json);\nconst top5     = $('Top5 시스템 조회').all().map(i => i.json);\nconst critical = $('미처리 Critical 조회').first().json;\nconst metricAlerts = $('메트릭 이상 집계 조회').all().map(i => i.json);\nconst predictions  = $('장애 예측 항목 조회').all().map(i => i.json);\n\nconst today = new Date().toLocaleDateString('ko-KR', { timeZone: 'Asia/Seoul' });\n\n// 로그 이상 유형별 집계\nconst typeSummary = {};\nstats.forEach(r => {\n  typeSummary[r.anomaly_type] = (typeSummary[r.anomaly_type] || 0) + parseInt(r.cnt, 10);\n});\nconst totalLogAlerts = Object.values(typeSummary).reduce((a, b) => a + b, 0);\n\nconst statsText = [\n  `신규(new): ${typeSummary.new || 0}건`,\n  `반복(recurring): ${typeSummary.recurring || 0}건`,\n  `유사(related): ${typeSummary.related || 0}건`,\n  `중복(duplicate): ${typeSummary.duplicate || 0}건`\n].join(', ');\n\nconst top5Text = top5.map((r, i) =>\n  `${i + 1}. ${r.display_name}(${r.system_name}): ${r.cnt}건`\n).join('\\n');\n\n// 메트릭 이상 요약\nconst metricText = metricAlerts.length\n  ? metricAlerts.map(r =>\n      `  - ${r.display_name}: ${r.collector_type}/${r.metric_group} [${r.llm_severity}]`\n    ).join('\\n')\n  : '  없음';\n\n// 장애 예측 요약\nconst predText = predictions.length\n  ? predictions.map(r =>\n      `  - ${r.display_name} (${r.collector_type}/${r.metric_group}): ${r.llm_prediction}`\n    ).join('\\n')\n  : '  없음';\n\nconst prompt = `오늘(${today}) AOMS 모니터링 일일 리포트를 작성해 주세요.\n\n[로그 이상 탐지 통계]\n- 총 알림: ${totalLogAlerts}건\n- ${statsText}\n\n[주요 발생 시스템 Top 5]\n${top5Text || '없음'}\n\n[메트릭 이상 시스템]\n${metricText}\n\n[향후 12시간 내 장애 예측]\n${predText}\n\n[미처리 Critical]: ${critical.unresolved_critical || 0}건\n\n3~4문장으로 오늘의 핵심 요약, 가장 주의가 필요한 시스템, 예방 조치 권고를 작성해 주세요. 한국어로 답변하세요.`;\n\nreturn [{\n  json: {\n    prompt, today, totalLogAlerts, typeSummary, top5,\n    metricAlerts, predictions,\n    unresolvedCritical: critical.unresolved_critical || 0\n  }\n}];\n"
       },
       "id": "wf4-node-05",
       "name": "리포트 데이터 통합",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [700, 400]
+      "position": [760, 460]
     },
     {
       "parameters": {
         "method": "POST",
-        "url": "={{ $env.LLM_API_URL }}/v1/chat/completions",
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {"name": "Authorization", "value": "=Bearer {{ $env.LLM_API_KEY }}"},
-            {"name": "Content-Type",  "value": "application/json"}
-          ]
-        },
+        "url": "={{ $env.LLM_API_URL }}",
         "sendBody": true,
         "contentType": "json",
-        "jsonBody": "={{ JSON.stringify({ model: 'gpt-4o-mini', messages: [{ role: 'user', content: $json.prompt }], max_tokens: 300 }) }}",
-        "options": { "timeout": 30000 }
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ agent_code: $env.LLM_AGENT_CODE, api_key: $env.LLM_API_KEY, messages: [{ role: 'user', content: $json.prompt }], max_tokens: 400 }) }}",
+        "options": { "timeout": 60000 }
       },
       "id": "wf4-node-06",
       "name": "LLM 요약 생성",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [940, 400]
+      "position": [1040, 460]
     },
     {
       "parameters": {
-        "jsCode": "const llmResp  = $input.first().json;\nconst data     = $('리포트 데이터 통합').first().json;\nconst llmText  = llmResp.choices?.[0]?.message?.content || '요약 생성 실패';\n\nconst today = data.today;\nconst ts    = data.typeSummary;\nconst top5  = data.top5 || [];\n\nconst facts = [\n  { title: '🆕 신규',  value: `${ts.new       || 0}건` },\n  { title: '🔁 반복',  value: `${ts.recurring || 0}건` },\n  { title: '🔗 유사',  value: `${ts.related   || 0}건` },\n  { title: '🔄 중복',  value: `${ts.duplicate || 0}건` },\n  { title: '⚠️ 미처리 Critical', value: `${data.unresolvedCritical}건` }\n];\n\nconst top5Facts = top5.map((r, i) => ({\n  title: `${i+1}위`,\n  value: `${r.display_name}: ${r.cnt}건`\n}));\n\nreturn [{\n  json: {\n    type: 'message',\n    attachments: [{\n      contentType: 'application/vnd.microsoft.card.adaptive',\n      content: {\n        type: 'AdaptiveCard',\n        version: '1.4',\n        body: [\n          { type: 'TextBlock', text: `📊 AOMS 일일 이상 리포트 (${today})`, weight: 'Bolder', size: 'Large' },\n          { type: 'TextBlock', text: '이상 분류 통계', weight: 'Bolder', size: 'Small', spacing: 'Medium' },\n          { type: 'FactSet', facts },\n          { type: 'TextBlock', text: '주요 발생 시스템 Top 5', weight: 'Bolder', size: 'Small', spacing: 'Medium' },\n          { type: 'FactSet', facts: top5Facts.length ? top5Facts : [{ title: '-', value: '데이터 없음' }] },\n          { type: 'TextBlock', text: '🤖 AI 요약', weight: 'Bolder', size: 'Small', spacing: 'Medium' },\n          { type: 'TextBlock', text: llmText, wrap: true }\n        ]\n      }\n    }]\n  }\n}];"
+        "jsCode": "const llmResp = $input.first().json;\nconst data    = $('리포트 데이터 통합').first().json;\nconst llmText = llmResp?.choices?.[0]?.message?.content \n  || llmResp?.response \n  || llmResp?.content \n  || '요약 생성 실패';\n\nconst today = data.today;\nconst ts    = data.typeSummary;\nconst top5  = data.top5 || [];\nconst metricAlerts = data.metricAlerts || [];\nconst predictions  = data.predictions || [];\n\nconst facts = [\n  { title: '🆕 신규',  value: `${ts.new       || 0}건` },\n  { title: '🔁 반복',  value: `${ts.recurring || 0}건` },\n  { title: '🔗 유사',  value: `${ts.related   || 0}건` },\n  { title: '🔄 중복',  value: `${ts.duplicate || 0}건` },\n  { title: '⚠️ 미처리 Critical', value: `${data.unresolvedCritical}건` }\n];\n\nconst top5Facts = top5.map((r, i) => ({\n  title: `${i+1}위`,\n  value: `${r.display_name}: ${r.cnt}건`\n}));\n\nconst metricFacts = metricAlerts.slice(0, 5).map(r => ({\n  title: r.display_name,\n  value: `${r.collector_type}/${r.metric_group} [${r.llm_severity}]`\n}));\n\nconst predFacts = predictions.slice(0, 3).map(r => ({\n  title: r.display_name,\n  value: r.llm_prediction?.substring(0, 60) || '-'\n}));\n\nconst body = [\n  { type: 'TextBlock', text: `📊 AOMS 일일 모니터링 리포트 (${today})`, weight: 'Bolder', size: 'Large' },\n  { type: 'TextBlock', text: '로그 이상 분류 통계', weight: 'Bolder', size: 'Small', spacing: 'Medium' },\n  { type: 'FactSet', facts },\n  { type: 'TextBlock', text: '주요 발생 시스템 Top 5', weight: 'Bolder', size: 'Small', spacing: 'Medium' },\n  { type: 'FactSet', facts: top5Facts.length ? top5Facts : [{ title: '-', value: '데이터 없음' }] }\n];\n\nif (metricFacts.length) {\n  body.push({ type: 'TextBlock', text: '⚡ 메트릭 이상 시스템', weight: 'Bolder', size: 'Small', spacing: 'Medium' });\n  body.push({ type: 'FactSet', facts: metricFacts });\n}\n\nif (predFacts.length) {\n  body.push({ type: 'TextBlock', text: '🔮 향후 장애 예측', weight: 'Bolder', size: 'Small', spacing: 'Medium', color: 'Warning' });\n  body.push({ type: 'FactSet', facts: predFacts });\n}\n\nbody.push({ type: 'TextBlock', text: '🤖 AI 요약', weight: 'Bolder', size: 'Small', spacing: 'Medium' });\nbody.push({ type: 'TextBlock', text: llmText, wrap: true });\n\nreturn [{\n  json: {\n    card: JSON.stringify({\n      type: 'message',\n      attachments: [{\n        contentType: 'application/vnd.microsoft.card.adaptive',\n        content: {\n          '$schema': 'http://adaptivecards.io/schemas/adaptive-card.json',\n          type: 'AdaptiveCard',\n          version: '1.4',\n          body\n        }\n      }]\n    }),\n    llm_summary: llmText,\n    system_count: top5.length\n  }\n}];\n"
       },
       "id": "wf4-node-07",
       "name": "리포트 카드 생성",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
-      "position": [1160, 400]
+      "position": [1320, 460]
     },
     {
       "parameters": {
@@ -120,14 +150,31 @@
         "url": "={{ $env.TEAMS_WEBHOOK_URL }}",
         "sendBody": true,
         "contentType": "json",
-        "jsonBody": "={{ JSON.stringify($json) }}",
-        "options": {}
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.card }}",
+        "options": { "timeout": 15000 }
       },
       "id": "wf4-node-08",
       "name": "일일 리포트 Teams 발송",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
-      "position": [1380, 400]
+      "position": [1600, 460]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.ADMIN_API_URL || 'http://admin-api:8080' }}/api/v1/reports",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ report_type: 'daily', period_start: new Date(new Date().setHours(0,0,0,0) - 86400000).toISOString(), period_end: new Date(new Date().setHours(0,0,0,0)).toISOString(), teams_status: 'sent', llm_summary: $('리포트 카드 생성').first().json.llm_summary, system_count: $('리포트 데이터 통합').first().json.top5.length }) }}",
+        "options": { "timeout": 10000 }
+      },
+      "id": "wf4-node-11",
+      "name": "Admin API에 리포트 이력 저장",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1880, 460]
     }
   ],
   "pinData": {},
@@ -135,50 +182,31 @@
     "매일 08:00 트리거": {
       "main": [
         [
-          {"node": "이상 유형별 통계",  "type": "main", "index": 0},
-          {"node": "Top5 시스템 조회",  "type": "main", "index": 0},
-          {"node": "미처리 Critical 조회", "type": "main", "index": 0}
+          { "node": "이상 유형별 통계",    "type": "main", "index": 0 },
+          { "node": "Top5 시스템 조회",     "type": "main", "index": 0 },
+          { "node": "미처리 Critical 조회", "type": "main", "index": 0 },
+          { "node": "메트릭 이상 집계 조회","type": "main", "index": 0 },
+          { "node": "장애 예측 항목 조회",  "type": "main", "index": 0 }
         ]
       ]
     },
-    "이상 유형별 통계": {
-      "main": [
-        [{"node": "리포트 데이터 통합", "type": "main", "index": 0}]
-      ]
-    },
-    "Top5 시스템 조회": {
-      "main": [
-        [{"node": "리포트 데이터 통합", "type": "main", "index": 0}]
-      ]
-    },
-    "미처리 Critical 조회": {
-      "main": [
-        [{"node": "리포트 데이터 통합", "type": "main", "index": 0}]
-      ]
-    },
-    "리포트 데이터 통합": {
-      "main": [
-        [{"node": "LLM 요약 생성", "type": "main", "index": 0}]
-      ]
-    },
-    "LLM 요약 생성": {
-      "main": [
-        [{"node": "리포트 카드 생성", "type": "main", "index": 0}]
-      ]
-    },
-    "리포트 카드 생성": {
-      "main": [
-        [{"node": "일일 리포트 Teams 발송", "type": "main", "index": 0}]
-      ]
-    }
+    "이상 유형별 통계":    { "main": [[{ "node": "리포트 데이터 통합", "type": "main", "index": 0 }]] },
+    "Top5 시스템 조회":    { "main": [[{ "node": "리포트 데이터 통합", "type": "main", "index": 0 }]] },
+    "미처리 Critical 조회":{ "main": [[{ "node": "리포트 데이터 통합", "type": "main", "index": 0 }]] },
+    "메트릭 이상 집계 조회":{ "main": [[{ "node": "리포트 데이터 통합", "type": "main", "index": 0 }]] },
+    "장애 예측 항목 조회": { "main": [[{ "node": "리포트 데이터 통합", "type": "main", "index": 0 }]] },
+    "리포트 데이터 통합":  { "main": [[{ "node": "LLM 요약 생성",    "type": "main", "index": 0 }]] },
+    "LLM 요약 생성":       { "main": [[{ "node": "리포트 카드 생성",  "type": "main", "index": 0 }]] },
+    "리포트 카드 생성":    { "main": [[{ "node": "일일 리포트 Teams 발송", "type": "main", "index": 0 }]] },
+    "일일 리포트 Teams 발송": { "main": [[{ "node": "Admin API에 리포트 이력 저장", "type": "main", "index": 0 }]] }
   },
   "active": false,
   "settings": {
     "executionOrder": "v1",
     "saveManualExecutions": true
   },
-  "versionId": "wf4-v1",
+  "versionId": "wf4-v2",
   "meta": { "instanceId": "local" },
   "id": "wf4-daily-report",
-  "tags": [{"id": "aoms", "name": "AOMS"}]
+  "tags": [{ "id": "aoms", "name": "AOMS" }]
 }

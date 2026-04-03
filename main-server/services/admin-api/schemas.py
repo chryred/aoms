@@ -184,3 +184,174 @@ class AlertmanagerPayload(BaseModel):
     commonLabels: dict = {}
     commonAnnotations: dict = {}
     alerts: list[AlertmanagerAlert] = []
+
+
+# ── Phase 5: 계층적 집계 스키마 ─────────────────────────────────────────────
+
+class CollectorConfigCreate(BaseModel):
+    system_id: int
+    collector_type: str                     # node_exporter | jmx_exporter | db_exporter | custom
+    metric_group: str                       # cpu | memory | disk | jvm_heap | ...
+    enabled: bool = True
+    prometheus_job: Optional[str] = None
+    custom_config: Optional[str] = None    # JSON string
+
+
+class CollectorConfigUpdate(BaseModel):
+    enabled: Optional[bool] = None
+    prometheus_job: Optional[str] = None
+    custom_config: Optional[str] = None
+
+
+class CollectorConfigOut(BaseModel):
+    id: int
+    system_id: int
+    collector_type: str
+    metric_group: str
+    enabled: bool
+    prometheus_job: Optional[str]
+    custom_config: Optional[str]
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class HourlyAggregationCreate(BaseModel):
+    system_id: int
+    hour_bucket: datetime
+    collector_type: str
+    metric_group: str
+    metrics_json: str                       # JSON string
+    llm_summary: Optional[str] = None
+    llm_severity: Optional[str] = None     # normal | warning | critical
+    llm_trend: Optional[str] = None
+    llm_prediction: Optional[str] = None
+    llm_model_used: Optional[str] = None
+    qdrant_point_id: Optional[str] = None
+
+
+class HourlyAggregationOut(BaseModel):
+    id: int
+    system_id: int
+    hour_bucket: datetime
+    collector_type: str
+    metric_group: str
+    metrics_json: str
+    llm_summary: Optional[str]
+    llm_severity: Optional[str]
+    llm_trend: Optional[str]
+    llm_prediction: Optional[str]
+    llm_model_used: Optional[str]
+    qdrant_point_id: Optional[str]
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class DailyAggregationCreate(BaseModel):
+    system_id: int
+    day_bucket: datetime
+    collector_type: str
+    metric_group: str
+    metrics_json: str
+    llm_summary: Optional[str] = None
+    llm_severity: Optional[str] = None
+    llm_trend: Optional[str] = None
+    qdrant_point_id: Optional[str] = None
+
+
+class DailyAggregationOut(BaseModel):
+    id: int
+    system_id: int
+    day_bucket: datetime
+    collector_type: str
+    metric_group: str
+    metrics_json: str
+    llm_summary: Optional[str]
+    llm_severity: Optional[str]
+    llm_trend: Optional[str]
+    qdrant_point_id: Optional[str]
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class WeeklyAggregationCreate(BaseModel):
+    system_id: int
+    week_start: datetime
+    collector_type: str
+    metric_group: str
+    metrics_json: str
+    llm_summary: Optional[str] = None
+    llm_severity: Optional[str] = None
+    llm_trend: Optional[str] = None
+    qdrant_point_id: Optional[str] = None
+
+
+class WeeklyAggregationOut(BaseModel):
+    id: int
+    system_id: int
+    week_start: datetime
+    collector_type: str
+    metric_group: str
+    metrics_json: str
+    llm_summary: Optional[str]
+    llm_severity: Optional[str]
+    llm_trend: Optional[str]
+    qdrant_point_id: Optional[str]
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class MonthlyAggregationCreate(BaseModel):
+    system_id: int
+    period_start: datetime
+    period_type: str                        # monthly | quarterly | half_year | annual
+    collector_type: str
+    metric_group: str
+    metrics_json: str
+    llm_summary: Optional[str] = None
+    llm_severity: Optional[str] = None
+    llm_trend: Optional[str] = None
+    qdrant_point_id: Optional[str] = None
+
+
+class MonthlyAggregationOut(BaseModel):
+    id: int
+    system_id: int
+    period_start: datetime
+    period_type: str
+    collector_type: str
+    metric_group: str
+    metrics_json: str
+    llm_summary: Optional[str]
+    llm_severity: Optional[str]
+    llm_trend: Optional[str]
+    qdrant_point_id: Optional[str]
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class ReportHistoryCreate(BaseModel):
+    report_type: str                        # daily | weekly | monthly | quarterly | half_year | annual
+    period_start: datetime
+    period_end: datetime
+    teams_status: str = "sent"              # sent | failed
+    llm_summary: Optional[str] = None
+    system_count: Optional[int] = None
+
+
+class ReportHistoryOut(BaseModel):
+    id: int
+    report_type: str
+    period_start: datetime
+    period_end: datetime
+    sent_at: datetime
+    teams_status: Optional[str]
+    llm_summary: Optional[str]
+    system_count: Optional[int]
+
+    model_config = {"from_attributes": True}
