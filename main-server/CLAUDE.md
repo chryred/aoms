@@ -62,7 +62,11 @@ make test-api        # 단위 테스트 (인프라 불필요)
 |---|---|---|
 | `metric_baselines` | log-analyzer | 메트릭 알림 이상 이력 (alert_history.qdrant_point_id) |
 | `log_incidents` | log-analyzer | 로그 분석 이상 이력 (log_analysis_history.qdrant_point_id) |
+| `metric_hourly_patterns` | log-analyzer (Phase 5) | WF6가 저장하는 1시간 집계 LLM 분석 패턴 |
+| `aggregation_summaries` | log-analyzer (Phase 5) | WF7-WF10이 저장하는 일/주/월 리포트 요약 |
 
 피드백 등록 시 어느 컬렉션에 해결책을 업데이트할지 `alert_history.alert_type`으로 구분:
 - `metric`, `metric_resolved` → `metric_baselines`
 - 그 외 → `log_incidents`
+
+`metric_hourly_patterns` / `aggregation_summaries`는 UI 유사도 검색 프록시(`/aggregation/search`, `/aggregation/similar-period`)가 활용한다.

@@ -21,16 +21,20 @@
 admin-api/
 ├── main.py              # FastAPI 앱 초기화, 라우터 등록, lifespan(테이블 자동 생성)
 ├── database.py          # DB 엔진·세션 팩토리, get_db() 의존성
-├── models.py            # SQLAlchemy ORM 모델 (6개 테이블)
+├── models.py            # SQLAlchemy ORM 모델 (12개 테이블)
 ├── schemas.py           # Pydantic 입출력 스키마
 ├── init.sql             # 최초 DB 스키마 생성용 SQL (운영 권장)
 ├── requirements.txt
 ├── Dockerfile
 ├── routes/
-│   ├── systems.py       # /api/v1/systems
-│   ├── contacts.py      # /api/v1/contacts
-│   ├── alerts.py        # /api/v1/alerts
-│   └── analysis.py      # /api/v1/analysis
+│   ├── systems.py           # /api/v1/systems
+│   ├── contacts.py          # /api/v1/contacts
+│   ├── alerts.py            # /api/v1/alerts
+│   ├── analysis.py          # /api/v1/analysis
+│   ├── feedback.py          # /api/v1/feedback (해결책 폼 + n8n 연동)
+│   ├── collector_config.py  # /api/v1/collector-config (Phase 5)
+│   ├── aggregations.py      # /api/v1/aggregations (Phase 5)
+│   └── reports.py           # /api/v1/reports (Phase 5)
 └── services/
     ├── cooldown.py      # 알림 중복 발송 방지 (5분 쿨다운)
     └── notification.py  # TeamsNotifier — Adaptive Card 생성·발송
@@ -43,9 +47,15 @@ admin-api/
 | `systems` | 모니터링 대상 시스템. `system_name`은 Prometheus label과 동일하게 사용 |
 | `contacts` | 담당자. `teams_upn`은 Teams @mention용 이메일 |
 | `system_contacts` | 시스템↔담당자 N:M 매핑. `notify_channels`에 콤마로 채널 지정 |
-| `alert_history` | 모든 알림 발송 이력. `alert_type`: `metric` or `log_analysis` |
+| `alert_history` | 모든 알림 발송 이력. `alert_type`: `metric` / `metric_resolved` / `log_analysis` |
 | `log_analysis_history` | LLM 분석 결과 저장. log-analyzer 서비스가 POST로 전달 |
 | `alert_cooldown` | 중복 알림 방지용 쿨다운 추적. key: `{system}:{role}:{alertname}:{severity}` |
+| `system_collector_config` | 수집기 유연 레지스트리. 시스템별 collector_type + metric_group 등록 (Phase 5) |
+| `metric_hourly_aggregations` | 1시간 집계 + LLM 이상 분석 결과 (Phase 5) |
+| `metric_daily_aggregations` | 1일 집계 롤업 (Phase 5) |
+| `metric_weekly_aggregations` | 7일 집계 롤업 (Phase 5) |
+| `metric_monthly_aggregations` | 월/분기/반기/연간 집계. `period_type`으로 구분 (Phase 5) |
+| `aggregation_report_history` | Teams 주기별 리포트 발송 이력. 중복 방지용 (Phase 5) |
 
 ## API 엔드포인트
 
@@ -62,7 +72,7 @@ admin-api/
 
 ### 알림 `/api/v1/alerts`
 - `POST /receive` — **Alertmanager webhook 수신** 엔드포인트
-  - `firing` 상태 알림만 처리
+  - `firing` / `resolved` 모두 처리 (`firing` → 쿨다운 체크 → Teams 발송, `resolved` → 복구 알림)
   - 쿨다운(5분) 체크 → Teams 발송 → `alert_cooldown` 기록 → `alert_history` 저장
 - `GET /` — 이력 조회 (필터: `system_id`, `severity`, `acknowledged`, `limit`)
 - `POST /{id}/acknowledge` — 알림 확인 처리
@@ -72,6 +82,27 @@ admin-api/
   - `warning`/`critical`이면 Teams 발송 후 `alert_sent=True`
 - `GET /` — 이력 조회 (필터: `system_id`, `severity`, `limit`)
 - `GET /{id}` — 단건 조회
+
+### 수집기 설정 `/api/v1/collector-config` (Phase 5)
+- `GET /` — 시스템별/타입별 수집기 설정 목록 조회
+- `POST /` — 수집기 설정 등록 (`system_id`, `collector_type`, `metric_group`, `custom_config`)
+- `PATCH /{id}` — 설정 수정 (활성화/비활성화 포함)
+- `DELETE /{id}` — 설정 삭제
+- `GET /templates/{collector_type}` — 타입별 기본 metric_group 템플릿 반환
+  - 지원 타입: `node_exporter`, `jmx_exporter`, `db_exporter`, `custom`
+
+### 집계 데이터 `/api/v1/aggregations` (Phase 5)
+- `GET /hourly`, `POST /hourly` — 1시간 집계 조회·저장 (WF6 호출)
+- `GET /daily`, `POST /daily` — 1일 집계 조회·저장 (WF7 호출)
+- `GET /weekly`, `POST /weekly` — 7일 집계 조회·저장 (WF8 호출)
+- `GET /monthly`, `POST /monthly` — 월/분기/반기/연간 집계 조회·저장 (WF9/WF10 호출)
+- `GET /trend-alert` — `llm_prediction` 있는 최근 집계 중 warning/critical 항목 조회 (WF11 + UI 장애 예방)
+- 집계 저장은 모두 upsert (system_id + 기간 버킷 + collector_type + metric_group 기준 중복 방지)
+
+### 리포트 이력 `/api/v1/reports` (Phase 5)
+- `GET /` — 발송된 리포트 이력 조회 (필터: `report_type`)
+- `GET /{id}` — 단건 조회
+- `POST /` — 리포트 발송 기록 저장 (WF7-WF10 호출, 동일 type + period_start 중복 시 업데이트)
 
 ## 핵심 로직
 

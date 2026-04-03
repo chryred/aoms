@@ -92,21 +92,37 @@ ANALYSIS_INTERVAL_SECONDS   300
 | `systems` | admin-api, log-analyzer | 모니터링 대상 시스템. `system_name` = Prometheus label |
 | `contacts` | admin-api | 담당자. `teams_upn` = Teams @mention, `llm_api_key` = 담당자별 AI 비용 분리 |
 | `system_contacts` | admin-api | 시스템↔담당자 N:M |
-| `alert_history` | admin-api | 알림 발송 이력. `alert_type`: `metric` / `log_analysis` |
+| `alert_history` | admin-api | 알림 발송 이력. `alert_type`: `metric` / `metric_resolved` / `log_analysis` |
 | `log_analysis_history` | admin-api, log-analyzer | LLM 분석 결과 저장 |
 | `alert_cooldown` | admin-api | 5분 중복 발송 방지. key: `{system}:{role}:{alertname}:{severity}` |
+| `system_collector_config` | admin-api (Phase 5) | 수집기 유연 레지스트리. collector_type + metric_group 등록 |
+| `metric_hourly_aggregations` | admin-api (Phase 5) | 1시간 집계 + LLM 이상 분석 결과 |
+| `metric_daily_aggregations` | admin-api (Phase 5) | 1일 집계 롤업 |
+| `metric_weekly_aggregations` | admin-api (Phase 5) | 7일 집계 롤업 |
+| `metric_monthly_aggregations` | admin-api (Phase 5) | 월/분기/반기/연간 집계. `period_type`으로 구분 |
+| `aggregation_report_history` | admin-api (Phase 5) | Teams 주기별 리포트 발송 이력 |
 | n8n 스키마 | n8n | n8n 워크플로우 데이터 (`DB_POSTGRESDB_SCHEMA=n8n`) |
 
 ---
 
 ### n8n (포트 5678)
 
-5종 워크플로우:
-1. **로그 분석 트리거** — 5분 주기 → `POST log-analyzer/analyze/trigger`
-2. **메트릭 벡터 분석** — Alertmanager webhook → `POST admin-api/metric/similarity`
-3. **피드백 등록** — Teams 피드백 → `POST admin-api/api/v1/...`
-4. **일일 리포트** — 매일 08:00
-5. **반복 에스컬레이션** — 30분 주기
+12종 워크플로우 (WF1~WF12):
+
+| WF | 파일 | 트리거 | 설명 |
+|---|---|---|---|
+| WF1 | WF1-log-analysis-trigger | 5분 주기 | `POST log-analyzer/analyze/trigger` |
+| WF2 | WF2-metric-vector-search | Alertmanager webhook | `POST log-analyzer/metric/similarity` → admin-api 알림 |
+| WF3 | WF3-feedback-processing | Teams 피드백 버튼 | 해결책 등록 → Qdrant 업데이트 |
+| WF4 | WF4-daily-report | 매일 08:00 | 전일 집계 요약 Teams 발송 (Phase 5 통합) |
+| WF5 | WF5-escalation | 30분 주기 | 미확인 알림 반복 에스컬레이션 |
+| WF6 | WF6-hourly-metric-aggregation | 매 시간 | Prometheus 집계 → LLM 이상 감지 → Qdrant 저장 → 프로액티브 알림 (Phase 5) |
+| WF7 | WF7-daily-aggregation | 매일 07:30 | 1시간 집계 → 일별 롤업 → admin-api 저장 (Phase 5) |
+| WF8 | WF8-weekly-report | 매주 | 7일 집계 → Teams 주간 리포트 (Phase 5) |
+| WF9 | WF9-monthly-report | 매월 | 월간 집계 → Teams 월간 리포트 (Phase 5) |
+| WF10 | WF10-long-period-report | 분기/반기/연간 | 장기 집계 리포트 (Phase 5) |
+| WF11 | WF11-proactive-trend-alert | 주기적 | trend-alert 조회 → 임박 장애 프로액티브 알림 (Phase 5) |
+| WF12 | WF12-aggregation-collection-setup | 수동/배포 시 1회 | `POST log-analyzer/aggregation/collections/setup` — 집계 컬렉션 초기화 (Phase 5) |
 
 ---
 
@@ -130,17 +146,20 @@ aoms/
 │       │   ├── CLAUDE.md              # admin-api 상세 가이드
 │       │   ├── main.py                # FastAPI 앱, lifespan (테이블 자동생성)
 │       │   ├── database.py            # DB 엔진, get_db() 의존성
-│       │   ├── models.py              # SQLAlchemy ORM (6개 테이블)
+│       │   ├── models.py              # SQLAlchemy ORM (12개 테이블)
 │       │   ├── schemas.py             # Pydantic 스키마
-│       │   ├── routes/                # systems, contacts, alerts, analysis
+│       │   ├── routes/                # systems, contacts, alerts, analysis, feedback
+│       │   │                          # + collector_config, aggregations, reports (Phase 5)
 │       │   ├── services/
 │       │   │   ├── cooldown.py        # 5분 중복 알림 방지
 │       │   │   └── notification.py    # TeamsNotifier (Adaptive Card)
 │       │   └── tests/                 # pytest, SQLite in-memory
 │       └── log-analyzer/
-│           ├── main.py                # FastAPI 앱, 스케줄러, /analyze/trigger
+│           ├── CLAUDE.md              # log-analyzer 상세 가이드
+│           ├── main.py                # FastAPI 앱, 스케줄러, 모든 엔드포인트
 │           ├── analyzer.py            # 핵심 분석 로직 (Loki 조회 → LLM 호출 → admin-api 전송)
-│           └── vector_client.py       # Ollama 임베딩 + Qdrant 유사도 분석
+│           ├── vector_client.py       # log_incidents / metric_baselines 컬렉션 관리
+│           └── aggregation_vector_client.py  # metric_hourly_patterns / aggregation_summaries (Phase 5)
 └── sub-server/
     └── docker-compose.yml             # Server B: Ollama + Qdrant
 ```
@@ -222,6 +241,19 @@ make test-api   # 단위 테스트 (인프라 불필요 — SQLite in-memory)
 
 ---
 
+## Claude 작업 규칙
+
+### 개선 작업 워크플로우
+1. **CLAUDE.md 업데이트** — 개선 내용 중 아키텍처 변경, 새 기능, 설정 변경 등 프로젝트 컨텍스트에 해당하는 내용은 관련 폴더의 CLAUDE.md에 반드시 반영한다.
+2. **테스트 후 완료** — 모든 개선 작업은 테스트를 실행하고 통과 확인 후 완료 처리한다. 테스트 없이 완료 선언 금지.
+3. **CLAUDE.md 저장 위치** — 내용에 따라 해당 폴더의 CLAUDE.md에 나눠서 저장한다.
+   - 전체 아키텍처/공통: `aoms/CLAUDE.md`
+   - admin-api 관련: `main-server/services/admin-api/CLAUDE.md`
+   - log-analyzer 관련: `main-server/services/log-analyzer/CLAUDE.md`
+   - 인프라/배포 관련: `main-server/CLAUDE.md`
+
+---
+
 ## 현재 구현 상태
 
 | Phase | 상태 | 내용 |
@@ -232,6 +264,7 @@ make test-api   # 단위 테스트 (인프라 불필요 — SQLite in-memory)
 | Phase 4 | 완료 | log-analyzer, LLM 분석 |
 | Server B | 완료 | Ollama + Qdrant 배포 |
 | Phase 4b | 완료 | 벡터 유사도 분석 (log_incidents 컬렉션) |
-| Phase 4c | 완료 | n8n 5종 워크플로우 |
+| Phase 4c | 완료 | n8n 12종 워크플로우 (WF1~WF12) |
+| Phase 5 | 완료 | 계층적 메트릭 집계 (시간/일/주/월) + 장애 예방 시스템 (수집기 유연 레지스트리, 집계 벡터 검색, 프로액티브 알림) |
 | Phase 4d | 계획 | Agentic LLM 2-tier (ReAct 루프) |
-| Phase 5 | 계획 | 대시보드 완성, Self-monitoring |
+| Phase 6 | 계획 | 대시보드 완성, Self-monitoring |

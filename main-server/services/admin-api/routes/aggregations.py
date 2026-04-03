@@ -119,7 +119,8 @@ async def get_trend_alerts(
     llm_prediction이 존재하는 최근 집계 중 임계치 도달이 임박한 항목 조회.
     WF11 및 UI 장애 예방 화면에서 사용.
     """
-    from sqlalchemy import text, func as sqlfunc
+    from datetime import timedelta
+    cutoff = datetime.utcnow() - timedelta(hours=threshold_hours * 2)
     stmt = (
         select(
             MetricHourlyAggregation,
@@ -131,7 +132,7 @@ async def get_trend_alerts(
             and_(
                 MetricHourlyAggregation.llm_prediction.isnot(None),
                 MetricHourlyAggregation.llm_severity.in_(["warning", "critical"]),
-                MetricHourlyAggregation.hour_bucket >= sqlfunc.now() - text(f"interval '{threshold_hours * 2} hours'"),
+                MetricHourlyAggregation.hour_bucket >= cutoff,
             )
         )
         .order_by(MetricHourlyAggregation.hour_bucket.desc())

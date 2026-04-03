@@ -119,6 +119,114 @@ CREATE TABLE IF NOT EXISTS alert_feedback (
 
 CREATE INDEX IF NOT EXISTS idx_alert_feedback_system ON alert_feedback(system_id, created_at DESC);
 
+-- ── Phase 5: 수집기 유연 레지스트리 ──────────────────────────────────
+CREATE TABLE IF NOT EXISTS system_collector_config (
+    id             SERIAL PRIMARY KEY,
+    system_id      INTEGER NOT NULL REFERENCES systems(id) ON DELETE CASCADE,
+    collector_type VARCHAR(50)  NOT NULL,   -- node_exporter | jmx_exporter | db_exporter | custom
+    metric_group   VARCHAR(100) NOT NULL,   -- cpu | memory | disk | network | jvm_heap | thread_pool | ...
+    enabled        BOOLEAN DEFAULT TRUE,
+    prometheus_job VARCHAR(200),            -- Prometheus job label (쿼리 범위 한정)
+    custom_config  TEXT,                    -- JSON 형태 파라미터 (선택)
+    created_at     TIMESTAMP DEFAULT NOW(),
+    updated_at     TIMESTAMP DEFAULT NOW(),
+    UNIQUE(system_id, collector_type, metric_group)
+);
+
+CREATE INDEX IF NOT EXISTS idx_collector_config_system ON system_collector_config(system_id, collector_type);
+
+-- ── Phase 5: 1시간 메트릭 집계 ───────────────────────────────────────
+CREATE TABLE IF NOT EXISTS metric_hourly_aggregations (
+    id             SERIAL PRIMARY KEY,
+    system_id      INTEGER NOT NULL REFERENCES systems(id),
+    hour_bucket    TIMESTAMP NOT NULL,      -- 시간 단위 truncate (UTC)
+    collector_type VARCHAR(50)  NOT NULL,
+    metric_group   VARCHAR(100) NOT NULL,
+    metrics_json   TEXT NOT NULL,           -- JSON: avg/max/min/p95 등 집계값
+    -- LLM 분석 (이상 감지 시에만 채워짐)
+    llm_summary    TEXT,
+    llm_severity   VARCHAR(20),             -- normal | warning | critical
+    llm_trend      TEXT,                    -- 추세 설명 (1문장)
+    llm_prediction TEXT,                    -- 임계치 도달 예측 ("3.2시간 후 85% 도달 예상")
+    llm_model_used VARCHAR(100),
+    qdrant_point_id VARCHAR(36),            -- metric_hourly_patterns 컬렉션 UUID
+    created_at     TIMESTAMP DEFAULT NOW(),
+    UNIQUE(system_id, hour_bucket, collector_type, metric_group)
+);
+
+CREATE INDEX IF NOT EXISTS idx_hourly_agg_system_time ON metric_hourly_aggregations(system_id, hour_bucket DESC);
+CREATE INDEX IF NOT EXISTS idx_hourly_agg_severity    ON metric_hourly_aggregations(llm_severity, hour_bucket DESC);
+
+-- ── Phase 5: 1일 메트릭 집계 ─────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS metric_daily_aggregations (
+    id             SERIAL PRIMARY KEY,
+    system_id      INTEGER NOT NULL REFERENCES systems(id),
+    day_bucket     TIMESTAMP NOT NULL,      -- 날짜 단위 truncate (UTC)
+    collector_type VARCHAR(50)  NOT NULL,
+    metric_group   VARCHAR(100) NOT NULL,
+    metrics_json   TEXT NOT NULL,           -- 일간 통계 (peak_hour, anomaly_hours 등 포함)
+    llm_summary    TEXT,
+    llm_severity   VARCHAR(20),
+    llm_trend      TEXT,
+    qdrant_point_id VARCHAR(36),
+    created_at     TIMESTAMP DEFAULT NOW(),
+    UNIQUE(system_id, day_bucket, collector_type, metric_group)
+);
+
+CREATE INDEX IF NOT EXISTS idx_daily_agg_system_time ON metric_daily_aggregations(system_id, day_bucket DESC);
+
+-- ── Phase 5: 7일 메트릭 집계 ─────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS metric_weekly_aggregations (
+    id             SERIAL PRIMARY KEY,
+    system_id      INTEGER NOT NULL REFERENCES systems(id),
+    week_start     TIMESTAMP NOT NULL,      -- 해당 주 월요일 00:00 UTC
+    collector_type VARCHAR(50)  NOT NULL,
+    metric_group   VARCHAR(100) NOT NULL,
+    metrics_json   TEXT NOT NULL,
+    llm_summary    TEXT,
+    llm_severity   VARCHAR(20),
+    llm_trend      TEXT,
+    qdrant_point_id VARCHAR(36),
+    created_at     TIMESTAMP DEFAULT NOW(),
+    UNIQUE(system_id, week_start, collector_type, metric_group)
+);
+
+CREATE INDEX IF NOT EXISTS idx_weekly_agg_system_time ON metric_weekly_aggregations(system_id, week_start DESC);
+
+-- ── Phase 5: 월/분기/반기/연간 메트릭 집계 ───────────────────────────
+CREATE TABLE IF NOT EXISTS metric_monthly_aggregations (
+    id             SERIAL PRIMARY KEY,
+    system_id      INTEGER NOT NULL REFERENCES systems(id),
+    period_start   TIMESTAMP NOT NULL,      -- 해당 기간 시작일
+    period_type    VARCHAR(20) NOT NULL,    -- monthly | quarterly | half_year | annual
+    collector_type VARCHAR(50)  NOT NULL,
+    metric_group   VARCHAR(100) NOT NULL,
+    metrics_json   TEXT NOT NULL,
+    llm_summary    TEXT,
+    llm_severity   VARCHAR(20),
+    llm_trend      TEXT,
+    qdrant_point_id VARCHAR(36),
+    created_at     TIMESTAMP DEFAULT NOW(),
+    UNIQUE(system_id, period_start, period_type, collector_type, metric_group)
+);
+
+CREATE INDEX IF NOT EXISTS idx_monthly_agg_system_time ON metric_monthly_aggregations(system_id, period_start DESC, period_type);
+
+-- ── Phase 5: 집계 리포트 발송 이력 ───────────────────────────────────
+CREATE TABLE IF NOT EXISTS aggregation_report_history (
+    id           SERIAL PRIMARY KEY,
+    report_type  VARCHAR(20) NOT NULL,   -- daily | weekly | monthly | quarterly | half_year | annual
+    period_start TIMESTAMP NOT NULL,
+    period_end   TIMESTAMP NOT NULL,
+    sent_at      TIMESTAMP DEFAULT NOW(),
+    teams_status VARCHAR(20),            -- sent | failed
+    llm_summary  TEXT,
+    system_count INTEGER,
+    UNIQUE(report_type, period_start)
+);
+
+CREATE INDEX IF NOT EXISTS idx_report_history_type_time ON aggregation_report_history(report_type, period_start DESC);
+
 -- ── 샘플 데이터 (선택) ────────────────────────────────────────────────
 -- INSERT INTO systems(system_name, display_name, host, os_type, system_type)
 -- VALUES ('customer-experience', '고객 경험 시스템', 'cx-was01', 'linux', 'was');
