@@ -1,0 +1,404 @@
+{
+  "name": "WF6: 1시간 메트릭 집계",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "5 * * * *"
+            }
+          ]
+        }
+      },
+      "id": "wf6-node-01",
+      "name": "매 시간 :05분 트리거",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT s.id as system_id, s.system_name, s.display_name, s.status, cc.id as config_id, cc.collector_type, cc.metric_group, cc.prometheus_job FROM system_collector_config cc JOIN systems s ON cc.system_id = s.id WHERE s.status = 'active' AND cc.enabled = true ORDER BY s.system_name, cc.collector_type, cc.metric_group",
+        "options": {}
+      },
+      "id": "wf6-node-02",
+      "name": "활성 수집기 설정 조회",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.4,
+      "position": [540, 300],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_POSTGRES_CRED_ID",
+          "name": "AOMS PostgreSQL"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "wf6-cond-01",
+              "leftValue": "={{ $items().length }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt",
+                "name": "filter.operator.gt",
+                "description": "greater than"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "wf6-node-03",
+      "name": "수집기 설정 있는지 확인",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [840, 300]
+    },
+    {
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      },
+      "id": "wf6-node-04",
+      "name": "설정별 반복",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [1140, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prometheus 쿼리 URL 및 현재 시간대(hour_bucket) 구성\nconst item = $input.first().json;\nconst systemName = item.system_name;\nconst job = item.prometheus_job || '';\nconst collectorType = item.collector_type;\nconst metricGroup = item.metric_group;\n\n// 현재 시각 기준 1시간 전 (집계 대상 시간대)\nconst now = new Date();\nnow.setMinutes(0, 0, 0);\nconst hourEnd = now.getTime() / 1000;  // Unix timestamp\nconst hourStart = hourEnd - 3600;\n\n// 시간대 bucket (ISO 형식)\nconst hourBucket = new Date(hourEnd * 1000);\nhourBucket.setMinutes(0, 0, 0);\nconst hourBucketISO = hourBucket.toISOString();\n\n// collector_type + metric_group별 PromQL 매핑\nconst QUERIES = {\n  'node_exporter': {\n    'cpu': {\n      cpu_avg: `avg_over_time(node_cpu_usage_percent{system_name=\"${systemName}\"}[1h])`,\n      cpu_max: `max_over_time(node_cpu_usage_percent{system_name=\"${systemName}\"}[1h])`,\n      cpu_min: `min_over_time(node_cpu_usage_percent{system_name=\"${systemName}\"}[1h])`,\n      cpu_p95: `quantile_over_time(0.95, node_cpu_usage_percent{system_name=\"${systemName}\"}[1h])`,\n      iowait:  `avg_over_time(node_cpu_iowait_percent{system_name=\"${systemName}\"}[1h])`\n    },\n    'memory': {\n      mem_used_pct:  `avg_over_time(node_memory_used_percent{system_name=\"${systemName}\"}[1h])`,\n      mem_p95:       `quantile_over_time(0.95, node_memory_used_percent{system_name=\"${systemName}\"}[1h])`,\n      mem_avail_gb:  `min_over_time(node_memory_available_bytes{system_name=\"${systemName}\"}[1h]) / 1073741824`\n    },\n    'disk': {\n      disk_util_pct: `avg_over_time(node_disk_utilization_percent{system_name=\"${systemName}\"}[1h])`,\n      disk_read_iops:`avg_over_time(node_disk_reads_completed_total{system_name=\"${systemName}\"}[1h])`,\n      disk_write_iops:`avg_over_time(node_disk_writes_completed_total{system_name=\"${systemName}\"}[1h])`\n    },\n    'network': {\n      net_rx_mb: `avg_over_time(rate(node_network_receive_bytes_total{system_name=\"${systemName}\"}[5m])[1h:5m]) / 1048576`,\n      net_tx_mb: `avg_over_time(rate(node_network_transmit_bytes_total{system_name=\"${systemName}\"}[5m])[1h:5m]) / 1048576`\n    },\n    'system': {\n      load1:  `avg_over_time(node_load1{system_name=\"${systemName}\"}[1h])`,\n      load5:  `avg_over_time(node_load5{system_name=\"${systemName}\"}[1h])`,\n      load15: `avg_over_time(node_load15{system_name=\"${systemName}\"}[1h])`\n    }\n  },\n  'jmx_exporter': {\n    'jvm_heap': {\n      heap_used_pct: `avg_over_time(jvm_heap_used_percent{system_name=\"${systemName}\"}[1h])`,\n      heap_p95:      `quantile_over_time(0.95, jvm_heap_used_percent{system_name=\"${systemName}\"}[1h])`,\n      gc_time_pct:   `avg_over_time(jvm_gc_time_percent{system_name=\"${systemName}\"}[1h])`\n    },\n    'thread_pool': {\n      thread_active: `avg_over_time(jvm_threads_active{system_name=\"${systemName}\"}[1h])`,\n      thread_max:    `max_over_time(jvm_threads_active{system_name=\"${systemName}\"}[1h])`,\n      rejection_count:`sum_over_time(jvm_thread_pool_rejections_total{system_name=\"${systemName}\"}[1h])`\n    },\n    'request': {\n      req_tps:       `avg_over_time(jvm_requests_per_second{system_name=\"${systemName}\"}[1h])`,\n      req_error_rate:`avg_over_time(jvm_request_error_rate{system_name=\"${systemName}\"}[1h])`,\n      resp_p95_ms:   `quantile_over_time(0.95, jvm_response_time_ms{system_name=\"${systemName}\"}[1h])`\n    },\n    'connection_pool': {\n      conn_active: `avg_over_time(jvm_connection_pool_active{system_name=\"${systemName}\"}[1h])`,\n      conn_wait:   `max_over_time(jvm_connection_pool_waiting{system_name=\"${systemName}\"}[1h])`\n    }\n  },\n  'db_exporter': {\n    'db_connections': {\n      conn_active_pct:`avg_over_time(db_connections_active_percent{system_name=\"${systemName}\"}[1h])`,\n      conn_max:       `max_over_time(db_connections_active{system_name=\"${systemName}\"}[1h])`\n    },\n    'db_query': {\n      tps:             `avg_over_time(db_transactions_per_second{system_name=\"${systemName}\"}[1h])`,\n      slow_queries:    `sum_over_time(db_slow_queries_total{system_name=\"${systemName}\"}[1h])`\n    },\n    'db_cache': {\n      cache_hit_rate: `avg_over_time(db_cache_hit_rate_percent{system_name=\"${systemName}\"}[1h])`\n    },\n    'db_replication': {\n      repl_lag_sec: `max_over_time(db_replication_lag_seconds{system_name=\"${systemName}\"}[1h])`\n    }\n  }\n};\n\nconst queries = (QUERIES[collectorType] || {})[metricGroup] || {};\nconst queryList = Object.entries(queries).map(([key, promql]) => ({ key, promql }));\n\nreturn [{\n  json: {\n    ...item,\n    hour_bucket_iso: hourBucketISO,\n    hour_end_ts: hourEnd,\n    query_list: queryList,\n    prometheus_url: ($env.PROMETHEUS_URL || 'http://prometheus:9090')\n  }\n}];\n"
+      },
+      "id": "wf6-node-05",
+      "name": "Prometheus 쿼리 목록 생성",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1440, 200]
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $json.prometheus_url }}/api/v1/query",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "query",
+              "value": "={{ $json.query_list.map(q => q.promql).join(' or ') }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "wf6-node-06",
+      "name": "Prometheus 첫 번째 메트릭 조회",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1740, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prometheus 응답 파싱 및 집계 통계 계산\nconst item = $input.first().json;\nconst promResponse = $('Prometheus 첫 번째 메트릭 조회').first().json;\nconst queryList = item.query_list;\n\n// Prometheus /api/v1/query 결과 파싱\nconst parsePromResult = (data) => {\n  if (!data || data.status !== 'success') return {};\n  const results = {};\n  (data.data?.result || []).forEach(r => {\n    const metricName = r.metric?.__name__ || 'unknown';\n    const value = parseFloat(r.value?.[1]);\n    if (!isNaN(value)) results[metricName] = value;\n  });\n  return results;\n};\n\n// 쿼리가 하나씩 매핑되므로 실제로는 각 query_list 항목을 key로 사용\n// (Prometheus or 연산자는 union이므로 결과가 섞임 → 여기서는 단순화하여 첫 값 사용)\nconst rawValues = parsePromResult(promResponse);\n\n// query_list에서 key → value 매핑 시도\nconst metricsJson = {};\nqueryList.forEach(q => {\n  const matchingKey = Object.keys(rawValues).find(k => k === q.key) \n    || Object.keys(rawValues)[queryList.indexOf(q)];\n  if (rawValues[matchingKey] !== undefined) {\n    metricsJson[q.key] = Math.round(rawValues[matchingKey] * 100) / 100;\n  }\n});\n\n// 이상 감지 조건 (collector_type + metric_group별)\nconst collectorType = item.collector_type;\nconst metricGroup = item.metric_group;\nlet anomalyDetected = false;\nlet anomalyReason = '';\n\nconst checkCpuAnomaly = () => {\n  if (metricsJson.cpu_p95 > 75) { anomalyReason = `CPU p95 ${metricsJson.cpu_p95}% > 75%`; return true; }\n  if (metricsJson.cpu_avg > 65)  { anomalyReason = `CPU avg ${metricsJson.cpu_avg}% > 65%`; return true; }\n  if (metricsJson.iowait > 20)   { anomalyReason = `iowait ${metricsJson.iowait}% > 20%`; return true; }\n  return false;\n};\n\nconst checkMemoryAnomaly = () => {\n  if (metricsJson.mem_p95 > 85)     { anomalyReason = `Memory p95 ${metricsJson.mem_p95}% > 85%`; return true; }\n  if (metricsJson.mem_used_pct > 80) { anomalyReason = `Memory avg ${metricsJson.mem_used_pct}% > 80%`; return true; }\n  return false;\n};\n\nconst checkJvmAnomaly = () => {\n  if (metricsJson.heap_p95 > 85)       { anomalyReason = `JVM heap p95 ${metricsJson.heap_p95}% > 85%`; return true; }\n  if (metricsJson.gc_time_pct > 15)    { anomalyReason = `GC time ${metricsJson.gc_time_pct}% > 15%`; return true; }\n  if (metricsJson.rejection_count > 0) { anomalyReason = `Thread rejection ${metricsJson.rejection_count}건 발생`; return true; }\n  if (metricsJson.req_error_rate > 1)  { anomalyReason = `요청 오류율 ${metricsJson.req_error_rate}% > 1%`; return true; }\n  if (metricsJson.resp_p95_ms > 2000)  { anomalyReason = `응답시간 p95 ${metricsJson.resp_p95_ms}ms > 2000ms`; return true; }\n  return false;\n};\n\nconst checkDbAnomaly = () => {\n  if (metricsJson.conn_active_pct > 80) { anomalyReason = `DB 연결 ${metricsJson.conn_active_pct}% > 80%`; return true; }\n  if (metricsJson.cache_hit_rate < 95)  { anomalyReason = `캐시 히트율 ${metricsJson.cache_hit_rate}% < 95%`; return true; }\n  if (metricsJson.repl_lag_sec > 10)    { anomalyReason = `복제 지연 ${metricsJson.repl_lag_sec}초 > 10초`; return true; }\n  return false;\n};\n\nif (collectorType === 'node_exporter') {\n  if (metricGroup === 'cpu')    anomalyDetected = checkCpuAnomaly();\n  if (metricGroup === 'memory') anomalyDetected = checkMemoryAnomaly();\n  if (metricGroup === 'disk' && metricsJson.disk_util_pct > 80)  { anomalyDetected = true; anomalyReason = `디스크 사용률 ${metricsJson.disk_util_pct}% > 80%`; }\n} else if (collectorType === 'jmx_exporter') {\n  anomalyDetected = checkJvmAnomaly();\n} else if (collectorType === 'db_exporter') {\n  anomalyDetected = checkDbAnomaly();\n}\n\n// 데이터 없으면 집계 건너뜀\nif (Object.keys(metricsJson).length === 0) {\n  return [{ json: { ...item, skip: true, reason: 'no_prometheus_data' } }];\n}\n\nreturn [{\n  json: {\n    ...item,\n    metrics_json: JSON.stringify(metricsJson),\n    anomaly_detected: anomalyDetected,\n    anomaly_reason: anomalyReason,\n    skip: false\n  }\n}];\n"
+      },
+      "id": "wf6-node-07",
+      "name": "집계 계산 및 이상 감지",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2040, 200]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "wf6-cond-02",
+              "leftValue": "={{ $json.skip }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "notEqual",
+                "name": "filter.operator.notEqual",
+                "description": "is not equal to"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "wf6-node-08",
+      "name": "데이터 있는지 확인",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [2340, 200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.ADMIN_API_URL || 'http://admin-api:8080' }}/api/v1/aggregations/hourly",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ system_id: $json.system_id, hour_bucket: $json.hour_bucket_iso, collector_type: $json.collector_type, metric_group: $json.metric_group, metrics_json: $json.metrics_json, llm_severity: 'normal' }) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "wf6-node-09",
+      "name": "Admin API에 기본 집계 저장",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [2640, 200]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "wf6-cond-03",
+              "leftValue": "={{ $('집계 계산 및 이상 감지').first().json.anomaly_detected }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equal",
+                "name": "filter.operator.equal",
+                "description": "is equal to"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "wf6-node-10",
+      "name": "이상 감지 여부 확인",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [2940, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "// LLM 프롬프트 생성 (Template A: 단일 메트릭 이상)\nconst item = $('집계 계산 및 이상 감지').first().json;\nconst savedRow = $('Admin API에 기본 집계 저장').first().json;\n\nconst systemName = item.system_name;\nconst displayName = item.display_name;\nconst hourBucket = item.hour_bucket_iso;\nconst collectorType = item.collector_type;\nconst metricGroup = item.metric_group;\nconst metricsObj = JSON.parse(item.metrics_json || '{}');\nconst anomalyReason = item.anomaly_reason;\n\nconst metricsFormatted = Object.entries(metricsObj)\n  .map(([k, v]) => `  ${k}: ${v}`)\n  .join('\\n');\n\nconst prompt = `시스템: ${displayName} (${systemName})\n시간대: ${hourBucket} (1시간 집계)\n수집기: ${collectorType} / ${metricGroup}\n이상 감지 사유: ${anomalyReason}\n\n[현재 시간 집계 메트릭]\n${metricsFormatted}\n\n위 메트릭 데이터를 분석하여 다음 JSON 형식으로만 응답하세요:\n{\n  \"severity\": \"normal 또는 warning 또는 critical 중 하나\",\n  \"trend\": \"상승 또는 하락 또는 안정 또는 불규칙 (1문장 설명)\",\n  \"prediction\": \"현재 추세가 지속되면 임계치 도달 예상 (예측 불가 시 null)\",\n  \"root_cause_hypothesis\": \"가능한 원인 (한국어, 1문장)\",\n  \"recommendation\": \"권고 조치 (한국어, 1~2문장)\"\n}`;\n\nreturn [{\n  json: {\n    ...item,\n    llm_prompt: prompt,\n    pg_row_id: savedRow.id\n  }\n}];\n"
+      },
+      "id": "wf6-node-11",
+      "name": "LLM 프롬프트 생성",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3240, 100]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.LLM_API_URL }}",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ agent_code: $env.LLM_AGENT_CODE, api_key: $env.LLM_API_KEY, messages: [{ role: 'user', content: $json.llm_prompt }], max_tokens: 400 }) }}",
+        "options": {
+          "timeout": 60000
+        }
+      },
+      "id": "wf6-node-12",
+      "name": "LLM 분석 호출",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [3540, 100]
+    },
+    {
+      "parameters": {
+        "jsCode": "// LLM 응답 파싱 및 요약 텍스트 생성\nconst llmResponse = $input.first().json;\nconst prevData = $('LLM 프롬프트 생성').first().json;\n\nlet llmResult = {};\ntry {\n  const content = llmResponse?.choices?.[0]?.message?.content \n    || llmResponse?.response \n    || llmResponse?.content \n    || '{}';\n  // JSON 블록 추출\n  const jsonMatch = content.match(/\\{[\\s\\S]*\\}/);\n  llmResult = jsonMatch ? JSON.parse(jsonMatch[0]) : {};\n} catch(e) {\n  llmResult = { severity: 'warning', trend: 'LLM 파싱 오류', prediction: null };\n}\n\nconst severity    = llmResult.severity    || 'normal';\nconst trend       = llmResult.trend       || '';\nconst prediction  = llmResult.prediction  || null;\nconst rootCause   = llmResult.root_cause_hypothesis || '';\nconst recommend   = llmResult.recommendation || '';\n\n// Qdrant에 저장할 요약 텍스트\nconst summaryText = [\n  `시스템:${prevData.system_name} 수집기:${prevData.collector_type}/${prevData.metric_group}`,\n  `이상: ${prevData.anomaly_reason}`,\n  `추세: ${trend}`,\n  prediction ? `예측: ${prediction}` : '',\n  rootCause ? `원인: ${rootCause}` : ''\n].filter(Boolean).join(' | ');\n\nreturn [{\n  json: {\n    ...prevData,\n    llm_severity:   severity,\n    llm_trend:      trend,\n    llm_prediction: prediction,\n    llm_summary:    `${rootCause} ${recommend}`.trim(),\n    llm_model_used: 'internal_llm',\n    summary_text:   summaryText,\n    needs_proactive_alert: prediction && (severity === 'critical' || prediction.includes('시간'))\n  }\n}];\n"
+      },
+      "id": "wf6-node-13",
+      "name": "LLM 응답 파싱",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3840, 100]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.LOG_ANALYZER_URL || 'http://log-analyzer:8000' }}/aggregation/store-hourly",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ system_id: $json.system_id, system_name: $json.system_name, hour_bucket: $json.hour_bucket_iso, collector_type: $json.collector_type, metric_group: $json.metric_group, summary_text: $json.summary_text, llm_severity: $json.llm_severity, llm_trend: $json.llm_trend, llm_prediction: $json.llm_prediction, pg_row_id: $json.pg_row_id }) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "id": "wf6-node-14",
+      "name": "Qdrant에 집계 패턴 저장",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [4140, 100]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.ADMIN_API_URL || 'http://admin-api:8080' }}/api/v1/aggregations/hourly",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ system_id: $('LLM 응답 파싱').first().json.system_id, hour_bucket: $('LLM 응답 파싱').first().json.hour_bucket_iso, collector_type: $('LLM 응답 파싱').first().json.collector_type, metric_group: $('LLM 응답 파싱').first().json.metric_group, metrics_json: $('LLM 응답 파싱').first().json.metrics_json, llm_summary: $('LLM 응답 파싱').first().json.llm_summary, llm_severity: $('LLM 응답 파싱').first().json.llm_severity, llm_trend: $('LLM 응답 파싱').first().json.llm_trend, llm_prediction: $('LLM 응답 파싱').first().json.llm_prediction, llm_model_used: $('LLM 응답 파싱').first().json.llm_model_used, qdrant_point_id: $input.first().json.point_id }) }}",
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "id": "wf6-node-15",
+      "name": "Admin API에 LLM 분석 결과 업데이트",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [4440, 100]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "wf6-cond-04",
+              "leftValue": "={{ $('LLM 응답 파싱').first().json.needs_proactive_alert }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equal",
+                "name": "filter.operator.equal",
+                "description": "is equal to"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      },
+      "id": "wf6-node-16",
+      "name": "프로액티브 알림 필요 여부",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [4740, 100]
+    },
+    {
+      "parameters": {
+        "jsCode": "// 임계치 도달 예측 Teams Adaptive Card 생성\nconst item = $('LLM 응답 파싱').first().json;\n\nconst card = {\n  type: 'message',\n  attachments: [{\n    contentType: 'application/vnd.microsoft.card.adaptive',\n    content: {\n      '$schema': 'http://adaptivecards.io/schemas/adaptive-card.json',\n      type: 'AdaptiveCard',\n      version: '1.4',\n      body: [\n        {\n          type: 'TextBlock',\n          text: `⚠️ [장애 예방] ${item.display_name} 임계치 도달 예측`,\n          weight: 'Bolder',\n          size: 'Medium',\n          color: 'Warning'\n        },\n        {\n          type: 'FactSet',\n          facts: [\n            { title: '시스템',    value: `${item.display_name} (${item.system_name})` },\n            { title: '수집기',    value: `${item.collector_type} / ${item.metric_group}` },\n            { title: '이상 감지', value: item.anomaly_reason },\n            { title: '추세',      value: item.llm_trend || '-' },\n            { title: '예측',      value: item.llm_prediction || '-' },\n            { title: '권고 조치', value: item.llm_summary || '-' }\n          ]\n        }\n      ]\n    }\n  }]\n};\n\nreturn [{ json: { card: JSON.stringify(card), webhook_url: $env.TEAMS_WEBHOOK_URL } }];\n"
+      },
+      "id": "wf6-node-17",
+      "name": "프로액티브 알림 카드 생성",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [5040, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.webhook_url }}",
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ $json.card }}",
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "id": "wf6-node-18",
+      "name": "Teams 프로액티브 알림 발송",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [5340, 0]
+    }
+  ],
+  "connections": {
+    "매 시간 :05분 트리거": {
+      "main": [[{ "node": "활성 수집기 설정 조회", "type": "main", "index": 0 }]]
+    },
+    "활성 수집기 설정 조회": {
+      "main": [[{ "node": "수집기 설정 있는지 확인", "type": "main", "index": 0 }]]
+    },
+    "수집기 설정 있는지 확인": {
+      "main": [
+        [{ "node": "설정별 반복", "type": "main", "index": 0 }],
+        []
+      ]
+    },
+    "설정별 반복": {
+      "main": [[{ "node": "Prometheus 쿼리 목록 생성", "type": "main", "index": 0 }]]
+    },
+    "Prometheus 쿼리 목록 생성": {
+      "main": [[{ "node": "Prometheus 첫 번째 메트릭 조회", "type": "main", "index": 0 }]]
+    },
+    "Prometheus 첫 번째 메트릭 조회": {
+      "main": [[{ "node": "집계 계산 및 이상 감지", "type": "main", "index": 0 }]]
+    },
+    "집계 계산 및 이상 감지": {
+      "main": [[{ "node": "데이터 있는지 확인", "type": "main", "index": 0 }]]
+    },
+    "데이터 있는지 확인": {
+      "main": [
+        [{ "node": "Admin API에 기본 집계 저장", "type": "main", "index": 0 }],
+        []
+      ]
+    },
+    "Admin API에 기본 집계 저장": {
+      "main": [[{ "node": "이상 감지 여부 확인", "type": "main", "index": 0 }]]
+    },
+    "이상 감지 여부 확인": {
+      "main": [
+        [{ "node": "LLM 프롬프트 생성", "type": "main", "index": 0 }],
+        []
+      ]
+    },
+    "LLM 프롬프트 생성": {
+      "main": [[{ "node": "LLM 분석 호출", "type": "main", "index": 0 }]]
+    },
+    "LLM 분석 호출": {
+      "main": [[{ "node": "LLM 응답 파싱", "type": "main", "index": 0 }]]
+    },
+    "LLM 응답 파싱": {
+      "main": [[{ "node": "Qdrant에 집계 패턴 저장", "type": "main", "index": 0 }]]
+    },
+    "Qdrant에 집계 패턴 저장": {
+      "main": [[{ "node": "Admin API에 LLM 분석 결과 업데이트", "type": "main", "index": 0 }]]
+    },
+    "Admin API에 LLM 분석 결과 업데이트": {
+      "main": [[{ "node": "프로액티브 알림 필요 여부", "type": "main", "index": 0 }]]
+    },
+    "프로액티브 알림 필요 여부": {
+      "main": [
+        [{ "node": "프로액티브 알림 카드 생성", "type": "main", "index": 0 }],
+        []
+      ]
+    },
+    "프로액티브 알림 카드 생성": {
+      "main": [[{ "node": "Teams 프로액티브 알림 발송", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": ["aoms", "aggregation", "hourly"]
+}

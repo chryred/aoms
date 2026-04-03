@@ -137,3 +137,137 @@ class AlertCooldown(Base):
         UniqueConstraint("system_id", "alert_key"),
         Index("idx_alert_cooldown_lookup", "system_id", "alert_key"),
     )
+
+
+# ── Phase 5: 계층적 집계 & 장애 예방 ────────────────────────────────────────
+
+class SystemCollectorConfig(Base):
+    """수집기 유연 레지스트리 — 시스템별로 어떤 exporter의 어떤 metric_group을 집계할지 등록"""
+    __tablename__ = "system_collector_config"
+
+    id             = Column(Integer, primary_key=True)
+    system_id      = Column(Integer, ForeignKey("systems.id", ondelete="CASCADE"), nullable=False)
+    collector_type = Column(String(50), nullable=False)   # node_exporter | jmx_exporter | db_exporter | custom
+    metric_group   = Column(String(100), nullable=False)  # cpu | memory | disk | network | jvm_heap | thread_pool | ...
+    enabled        = Column(Boolean, default=True)
+    prometheus_job = Column(String(200))                  # Prometheus job label (쿼리 범위 한정)
+    custom_config  = Column(Text)                         # JSON 형태 파라미터 (선택)
+    created_at     = Column(DateTime, default=func.now())
+    updated_at     = Column(DateTime, default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("system_id", "collector_type", "metric_group"),
+        Index("idx_collector_config_system", "system_id", "collector_type"),
+    )
+
+
+class MetricHourlyAggregation(Base):
+    """1시간 단위 메트릭 집계 — WF6이 매 시간 Prometheus 쿼리 후 저장"""
+    __tablename__ = "metric_hourly_aggregations"
+
+    id             = Column(Integer, primary_key=True)
+    system_id      = Column(Integer, ForeignKey("systems.id"), nullable=False)
+    hour_bucket    = Column(DateTime, nullable=False)     # 시간 단위 truncate (UTC)
+    collector_type = Column(String(50), nullable=False)
+    metric_group   = Column(String(100), nullable=False)
+    metrics_json   = Column(Text, nullable=False)         # JSON: avg/max/min/p95 등 집계값
+    # LLM 분석 (이상 감지 시에만 채워짐)
+    llm_summary    = Column(Text)
+    llm_severity   = Column(String(20))                   # normal | warning | critical
+    llm_trend      = Column(Text)                         # 추세 설명 (1문장)
+    llm_prediction = Column(Text)                         # 임계치 도달 예측 ("3.2시간 후 85% 도달 예상")
+    llm_model_used = Column(String(100))
+    qdrant_point_id = Column(String(36))                  # metric_hourly_patterns 컬렉션 UUID
+    created_at     = Column(DateTime, default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("system_id", "hour_bucket", "collector_type", "metric_group"),
+        Index("idx_hourly_agg_system_time", "system_id", "hour_bucket"),
+        Index("idx_hourly_agg_severity", "llm_severity", "hour_bucket"),
+    )
+
+
+class MetricDailyAggregation(Base):
+    """1일 단위 집계 — WF7이 매일 07:30에 전일 hourly 데이터를 요약"""
+    __tablename__ = "metric_daily_aggregations"
+
+    id             = Column(Integer, primary_key=True)
+    system_id      = Column(Integer, ForeignKey("systems.id"), nullable=False)
+    day_bucket     = Column(DateTime, nullable=False)     # 날짜 단위 truncate (UTC)
+    collector_type = Column(String(50), nullable=False)
+    metric_group   = Column(String(100), nullable=False)
+    metrics_json   = Column(Text, nullable=False)         # 일간 통계 (peak_hour, anomaly_hours 등 포함)
+    llm_summary    = Column(Text)
+    llm_severity   = Column(String(20))
+    llm_trend      = Column(Text)
+    qdrant_point_id = Column(String(36))
+    created_at     = Column(DateTime, default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("system_id", "day_bucket", "collector_type", "metric_group"),
+        Index("idx_daily_agg_system_time", "system_id", "day_bucket"),
+    )
+
+
+class MetricWeeklyAggregation(Base):
+    """7일 단위 집계 — WF8이 매주 월요일 08:00에 전주 daily 데이터를 요약"""
+    __tablename__ = "metric_weekly_aggregations"
+
+    id             = Column(Integer, primary_key=True)
+    system_id      = Column(Integer, ForeignKey("systems.id"), nullable=False)
+    week_start     = Column(DateTime, nullable=False)     # 해당 주 월요일 00:00 UTC
+    collector_type = Column(String(50), nullable=False)
+    metric_group   = Column(String(100), nullable=False)
+    metrics_json   = Column(Text, nullable=False)
+    llm_summary    = Column(Text)
+    llm_severity   = Column(String(20))
+    llm_trend      = Column(Text)
+    qdrant_point_id = Column(String(36))
+    created_at     = Column(DateTime, default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("system_id", "week_start", "collector_type", "metric_group"),
+        Index("idx_weekly_agg_system_time", "system_id", "week_start"),
+    )
+
+
+class MetricMonthlyAggregation(Base):
+    """월/분기/반기/연간 집계 — period_type으로 구분 (단일 테이블)"""
+    __tablename__ = "metric_monthly_aggregations"
+
+    id             = Column(Integer, primary_key=True)
+    system_id      = Column(Integer, ForeignKey("systems.id"), nullable=False)
+    period_start   = Column(DateTime, nullable=False)     # 해당 기간 시작일
+    period_type    = Column(String(20), nullable=False)   # monthly | quarterly | half_year | annual
+    collector_type = Column(String(50), nullable=False)
+    metric_group   = Column(String(100), nullable=False)
+    metrics_json   = Column(Text, nullable=False)
+    llm_summary    = Column(Text)
+    llm_severity   = Column(String(20))
+    llm_trend      = Column(Text)
+    qdrant_point_id = Column(String(36))
+    created_at     = Column(DateTime, default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("system_id", "period_start", "period_type", "collector_type", "metric_group"),
+        Index("idx_monthly_agg_system_time", "system_id", "period_start", "period_type"),
+    )
+
+
+class AggregationReportHistory(Base):
+    """Teams로 발송된 집계 리포트 이력 — 중복 발송 방지 및 이력 조회"""
+    __tablename__ = "aggregation_report_history"
+
+    id           = Column(Integer, primary_key=True)
+    report_type  = Column(String(20), nullable=False)   # daily | weekly | monthly | quarterly | half_year | annual
+    period_start = Column(DateTime, nullable=False)
+    period_end   = Column(DateTime, nullable=False)
+    sent_at      = Column(DateTime, default=func.now())
+    teams_status = Column(String(20))                   # sent | failed
+    llm_summary  = Column(Text)
+    system_count = Column(Integer)
+
+    __table_args__ = (
+        UniqueConstraint("report_type", "period_start"),
+        Index("idx_report_history_type_time", "report_type", "period_start"),
+    )
