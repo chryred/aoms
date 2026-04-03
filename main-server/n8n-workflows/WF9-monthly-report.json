@@ -16,35 +16,32 @@
       "name": "매월 1일 08:00 트리거",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
-      "position": [240, 300]
+      "position": [
+        240,
+        300
+      ]
     },
     {
       "parameters": {
-        "operation": "executeQuery",
-        "query": "SELECT s.id as system_id, s.system_name, s.display_name, w.collector_type, w.metric_group, COUNT(*) as week_count, SUM((w.metrics_json::jsonb->>'total_anomaly_hours')::float) as total_anomaly_hours, MAX(w.llm_severity) as worst_severity, STRING_AGG(DISTINCT w.llm_trend, ' | ') FILTER (WHERE w.llm_trend IS NOT NULL) as trend_summary FROM metric_weekly_aggregations w JOIN systems s ON w.system_id = s.id WHERE w.week_start >= date_trunc('month', NOW() - interval '1 month') AND w.week_start < date_trunc('month', NOW()) GROUP BY s.id, s.system_name, s.display_name, w.collector_type, w.metric_group ORDER BY worst_severity DESC, total_anomaly_hours DESC",
-        "options": {}
+        "method": "POST",
+        "url": "={{ $env.LOG_ANALYZER_URL || 'http://log-analyzer:8000' }}/aggregation/monthly/trigger",
+        "options": {
+          "timeout": 10000,
+          "response": {
+            "response": {
+              "fullResponse": true
+            }
+          }
+        }
       },
       "id": "wf9-node-02",
-      "name": "전월 주별 집계 조회",
-      "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2.4,
-      "position": [540, 300],
-      "credentials": {
-        "postgres": {
-          "id": "REPLACE_WITH_POSTGRES_CRED_ID",
-          "name": "AOMS PostgreSQL"
-        }
-      }
-    },
-    {
-      "parameters": {
-        "jsCode": "// 월간 집계 통계 및 LLM 프롬프트 생성\nconst items = $input.all();\n\nif (!items.length) {\n  return [{ json: { skip: true } }];\n}\n\nconst now = new Date();\nconst monthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);\nconst monthStartISO = monthStart.toISOString();\nconst monthName = monthStart.toLocaleDateString('ko-KR', { year: 'numeric', month: 'long' });\n\nconst systemSummary = {};\nitems.forEach(item => {\n  const d = item.json;\n  if (!systemSummary[d.system_name]) {\n    systemSummary[d.system_name] = {\n      system_id: d.system_id,\n      display_name: d.display_name,\n      total_anomaly_hours: 0,\n      worst_severity: 'normal',\n      trends: []\n    };\n  }\n  const s = systemSummary[d.system_name];\n  s.total_anomaly_hours += parseFloat(d.total_anomaly_hours) || 0;\n  if (d.worst_severity === 'critical' || (d.worst_severity === 'warning' && s.worst_severity !== 'critical')) {\n    s.worst_severity = d.worst_severity;\n  }\n  if (d.trend_summary) s.trends.push(d.trend_summary.substring(0, 100));\n});\n\nconst systemLines = Object.values(systemSummary)\n  .sort((a, b) => b.total_anomaly_hours - a.total_anomaly_hours)\n  .slice(0, 10)\n  .map(s => `- ${s.display_name}: 이상 ${Math.round(s.total_anomaly_hours)}시간, 심각도: ${s.worst_severity}${s.trends.length ? ', 주요추세: ' + s.trends[0].substring(0, 80) : ''}`);\n\nconst llmPrompt = `${monthName} 전체 시스템 모니터링 월간 집계입니다.\n\n[시스템별 월간 현황]\n${systemLines.join('\\n')}\n\n총 ${Object.keys(systemSummary).length}개 시스템. 이번 달의 전반적인 시스템 안정성, 주목할 만한 이슈, 다음 달 주의사항을 한국어로 3-4 문장으로 요약해 주세요.`;\n\nconst monthlyMetricsJson = JSON.stringify({\n  month: monthName,\n  system_count: Object.keys(systemSummary).length,\n  total_anomaly_hours: Object.values(systemSummary).reduce((a, s) => a + s.total_anomaly_hours, 0),\n  critical_systems: Object.values(systemSummary).filter(s => s.worst_severity === 'critical').length\n});\n\nreturn [{\n  json: {\n    month_start_iso: monthStartISO,\n    month_name: monthName,\n    llm_prompt: llmPrompt,\n    monthly_metrics_json: monthlyMetricsJson,\n    system_count: Object.keys(systemSummary).length,\n    skip: false\n  }\n}];\n"
-      },
-      "id": "wf9-node-03",
-      "name": "월간 집계 계산 및 LLM 프롬프트 생성",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [840, 300]
+      "name": "log-analyzer 집계 트리거",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        460,
+        300
+      ]
     },
     {
       "parameters": {
@@ -57,111 +54,93 @@
           "conditions": [
             {
               "id": "wf9-cond-01",
-              "leftValue": "={{ $json.skip }}",
-              "rightValue": true,
+              "leftValue": "={{ $json.body.status }}",
+              "rightValue": "triggered",
               "operator": {
-                "type": "boolean",
-                "operation": "notEqual",
-                "name": "filter.operator.notEqual",
-                "description": "is not equal to"
+                "type": "string",
+                "operation": "equals"
               }
             }
           ],
           "combinator": "and"
         }
       },
-      "id": "wf9-node-04",
-      "name": "데이터 있는지 확인",
+      "id": "wf9-node-03",
+      "name": "트리거 성공 여부 확인",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
-      "position": [1140, 300]
+      "position": [
+        680,
+        300
+      ]
     },
     {
-      "parameters": {
-        "method": "POST",
-        "url": "={{ $env.LLM_API_URL }}",
-        "sendBody": true,
-        "contentType": "json",
-        "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ agent_code: $env.LLM_AGENT_CODE, api_key: $env.LLM_API_KEY, messages: [{ role: 'user', content: $json.llm_prompt }], max_tokens: 400 }) }}",
-        "options": { "timeout": 60000 }
-      },
+      "parameters": {},
+      "id": "wf9-node-04",
+      "name": "정상 종료",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        900,
+        240
+      ]
+    },
+    {
+      "parameters": {},
       "id": "wf9-node-05",
-      "name": "LLM 월간 요약 호출",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [1440, 200]
-    },
-    {
-      "parameters": {
-        "jsCode": "const llmResp = $input.first().json;\nconst prevData = $('월간 집계 계산 및 LLM 프롬프트 생성').first().json;\n\nconst llmSummary = llmResp?.choices?.[0]?.message?.content \n  || llmResp?.response \n  || llmResp?.content \n  || '월간 요약 생성 실패';\n\nconst metricsObj = JSON.parse(prevData.monthly_metrics_json || '{}');\n\nconst now = new Date();\nconst monthEnd = new Date(now.getFullYear(), now.getMonth(), 0);\n\nconst card = {\n  type: 'message',\n  attachments: [{\n    contentType: 'application/vnd.microsoft.card.adaptive',\n    content: {\n      '$schema': 'http://adaptivecards.io/schemas/adaptive-card.json',\n      type: 'AdaptiveCard',\n      version: '1.4',\n      body: [\n        { type: 'TextBlock', text: `📅 월간 모니터링 리포트: ${prevData.month_name}`, weight: 'Bolder', size: 'Medium' },\n        { type: 'TextBlock', text: llmSummary, wrap: true },\n        {\n          type: 'FactSet',\n          facts: [\n            { title: '모니터링 시스템', value: `${metricsObj.system_count || 0}개` },\n            { title: '총 이상 발생',    value: `${Math.round(metricsObj.total_anomaly_hours || 0)}시간` },\n            { title: 'Critical 시스템', value: `${metricsObj.critical_systems || 0}개` }\n          ]\n        }\n      ]\n    }\n  }]\n};\n\nreturn [{\n  json: {\n    ...prevData,\n    llm_summary: llmSummary,\n    month_end_iso: monthEnd.toISOString(),\n    teams_card: JSON.stringify(card)\n  }\n}];\n"
-      },
-      "id": "wf9-node-06",
-      "name": "LLM 응답 파싱 및 카드 생성",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [1740, 200]
-    },
-    {
-      "parameters": {
-        "method": "POST",
-        "url": "={{ $env.TEAMS_WEBHOOK_URL }}",
-        "sendBody": true,
-        "contentType": "json",
-        "specifyBody": "json",
-        "jsonBody": "={{ $json.teams_card }}",
-        "options": { "timeout": 15000 }
-      },
-      "id": "wf9-node-07",
-      "name": "Teams 월간 리포트 발송",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [2040, 200]
-    },
-    {
-      "parameters": {
-        "method": "POST",
-        "url": "={{ $env.ADMIN_API_URL || 'http://admin-api:8080' }}/api/v1/reports",
-        "sendBody": true,
-        "contentType": "json",
-        "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ report_type: 'monthly', period_start: $('월간 집계 계산 및 LLM 프롬프트 생성').first().json.month_start_iso, period_end: $('LLM 응답 파싱 및 카드 생성').first().json.month_end_iso, teams_status: 'sent', llm_summary: $('LLM 응답 파싱 및 카드 생성').first().json.llm_summary, system_count: $('월간 집계 계산 및 LLM 프롬프트 생성').first().json.system_count }) }}",
-        "options": { "timeout": 10000 }
-      },
-      "id": "wf9-node-08",
-      "name": "Admin API에 리포트 이력 저장",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [2340, 200]
+      "name": "이미 실행 중",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        900,
+        360
+      ]
     }
   ],
   "connections": {
     "매월 1일 08:00 트리거": {
-      "main": [[{ "node": "전월 주별 집계 조회", "type": "main", "index": 0 }]]
-    },
-    "전월 주별 집계 조회": {
-      "main": [[{ "node": "월간 집계 계산 및 LLM 프롬프트 생성", "type": "main", "index": 0 }]]
-    },
-    "월간 집계 계산 및 LLM 프롬프트 생성": {
-      "main": [[{ "node": "데이터 있는지 확인", "type": "main", "index": 0 }]]
-    },
-    "데이터 있는지 확인": {
       "main": [
-        [{ "node": "LLM 월간 요약 호출", "type": "main", "index": 0 }],
-        []
+        [
+          {
+            "node": "log-analyzer 집계 트리거",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
-    "LLM 월간 요약 호출": {
-      "main": [[{ "node": "LLM 응답 파싱 및 카드 생성", "type": "main", "index": 0 }]]
+    "log-analyzer 집계 트리거": {
+      "main": [
+        [
+          {
+            "node": "트리거 성공 여부 확인",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
-    "LLM 응답 파싱 및 카드 생성": {
-      "main": [[{ "node": "Teams 월간 리포트 발송", "type": "main", "index": 0 }]]
-    },
-    "Teams 월간 리포트 발송": {
-      "main": [[{ "node": "Admin API에 리포트 이력 저장", "type": "main", "index": 0 }]]
+    "트리거 성공 여부 확인": {
+      "main": [
+        [
+          {
+            "node": "정상 종료",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "이미 실행 중",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "active": false,
-  "settings": { "executionOrder": "v1" },
-  "tags": ["aoms", "report", "monthly"]
+  "settings": {
+    "executionOrder": "v1"
+  }
 }

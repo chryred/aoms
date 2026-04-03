@@ -19,6 +19,7 @@ from pydantic import BaseModel
 import analyzer
 import vector_client
 import aggregation_vector_client
+import aggregation_processor
 
 logging.basicConfig(
     level=logging.INFO,
@@ -30,6 +31,11 @@ ANALYSIS_INTERVAL = int(os.getenv("ANALYSIS_INTERVAL_SECONDS", "300"))
 
 _running = False
 _last_run: dict = {"started_at": None, "finished_at": None, "result": None}
+
+# ── Phase 5: 집계 처리 실행 상태 ─────────────────────────────────────────────
+_AGG_TYPES = ("hourly", "daily", "weekly", "monthly", "longperiod", "trend")
+_agg_running: dict[str, bool] = {k: False for k in _AGG_TYPES}
+_agg_last_run: dict[str, dict] = {k: {"started_at": None, "finished_at": None, "result": None} for k in _AGG_TYPES}
 
 
 async def _run_analysis_task() -> None:
@@ -315,6 +321,89 @@ async def store_hourly_pattern(req: StoreHourlyPatternRequest):
         pg_row_id=req.pg_row_id,
     )
     return {"point_id": point_id}
+
+
+# ── Phase 5: 집계 트리거 엔드포인트 (WF6~WF11 → log-analyzer) ─────────────────
+
+async def _run_agg_task(name: str, fn) -> None:
+    global _agg_running, _agg_last_run
+    if _agg_running[name]:
+        return
+    _agg_running[name] = True
+    _agg_last_run[name]["started_at"] = datetime.now().isoformat()
+    _agg_last_run[name]["finished_at"] = None
+    try:
+        result = await fn()
+        _agg_last_run[name]["result"] = result
+    except Exception as e:
+        logger.error(f"집계 오류 [{name}]: {e}")
+        _agg_last_run[name]["result"] = {"error": str(e)}
+    finally:
+        _agg_running[name] = False
+        _agg_last_run[name]["finished_at"] = datetime.now().isoformat()
+
+
+@app.post("/aggregation/hourly/trigger")
+async def trigger_hourly():
+    """WF6 호출용 — 1시간 메트릭 집계 트리거 (asyncio 병렬, semaphore=20)"""
+    if _agg_running["hourly"]:
+        return {"status": "already_running", "last_run": _agg_last_run["hourly"]}
+    asyncio.create_task(_run_agg_task("hourly", aggregation_processor.run_hourly_aggregation))
+    return {"status": "triggered"}
+
+
+@app.post("/aggregation/daily/trigger")
+async def trigger_daily():
+    """WF7 호출용 — 전일 시간별 집계 → 일별 롤업 트리거"""
+    if _agg_running["daily"]:
+        return {"status": "already_running", "last_run": _agg_last_run["daily"]}
+    asyncio.create_task(_run_agg_task("daily", aggregation_processor.run_daily_aggregation))
+    return {"status": "triggered"}
+
+
+@app.post("/aggregation/weekly/trigger")
+async def trigger_weekly():
+    """WF8 호출용 — 전주 일별 집계 → 주간 리포트 + Teams 발송 트리거"""
+    if _agg_running["weekly"]:
+        return {"status": "already_running", "last_run": _agg_last_run["weekly"]}
+    asyncio.create_task(_run_agg_task("weekly", aggregation_processor.run_weekly_report))
+    return {"status": "triggered"}
+
+
+@app.post("/aggregation/monthly/trigger")
+async def trigger_monthly():
+    """WF9 호출용 — 전월 주별 집계 → 월간 리포트 + Teams 발송 트리거"""
+    if _agg_running["monthly"]:
+        return {"status": "already_running", "last_run": _agg_last_run["monthly"]}
+    asyncio.create_task(_run_agg_task("monthly", aggregation_processor.run_monthly_report))
+    return {"status": "triggered"}
+
+
+@app.post("/aggregation/longperiod/trigger")
+async def trigger_longperiod():
+    """WF10 호출용 — 분기/반기/연간 리포트 + Teams 발송 트리거"""
+    if _agg_running["longperiod"]:
+        return {"status": "already_running", "last_run": _agg_last_run["longperiod"]}
+    asyncio.create_task(_run_agg_task("longperiod", aggregation_processor.run_longperiod_report))
+    return {"status": "triggered"}
+
+
+@app.post("/aggregation/trend/trigger")
+async def trigger_trend():
+    """WF11 호출용 — 지속 이상 시스템 추세 분석 + Teams 프로액티브 알림 트리거"""
+    if _agg_running["trend"]:
+        return {"status": "already_running", "last_run": _agg_last_run["trend"]}
+    asyncio.create_task(_run_agg_task("trend", aggregation_processor.run_trend_alert))
+    return {"status": "triggered"}
+
+
+@app.get("/aggregation/status")
+async def aggregation_status():
+    """WF6~WF11 집계 실행 상태 일괄 조회"""
+    return {
+        name: {"running": _agg_running[name], **_agg_last_run[name]}
+        for name in _AGG_TYPES
+    }
 
 
 @app.post("/aggregation/store-summary")

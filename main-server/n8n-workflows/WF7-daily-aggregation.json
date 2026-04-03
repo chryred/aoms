@@ -16,25 +16,32 @@
       "name": "매일 07:30 트리거",
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
-      "position": [240, 300]
+      "position": [
+        240,
+        300
+      ]
     },
     {
       "parameters": {
-        "operation": "executeQuery",
-        "query": "SELECT s.id as system_id, s.system_name, s.display_name, h.collector_type, h.metric_group, COUNT(*) as hour_count, AVG((h.metrics_json::jsonb->>'cpu_avg')::float) FILTER (WHERE h.metrics_json::jsonb ? 'cpu_avg') as cpu_avg, AVG((h.metrics_json::jsonb->>'mem_used_pct')::float) FILTER (WHERE h.metrics_json::jsonb ? 'mem_used_pct') as mem_avg, COUNT(*) FILTER (WHERE h.llm_severity IN ('warning','critical')) as anomaly_hours, MAX(h.llm_severity) as worst_severity, STRING_AGG(DISTINCT h.llm_prediction, ' | ') FILTER (WHERE h.llm_prediction IS NOT NULL) as predictions FROM metric_hourly_aggregations h JOIN systems s ON h.system_id = s.id WHERE h.hour_bucket >= date_trunc('day', NOW() - interval '1 day') AND h.hour_bucket < date_trunc('day', NOW()) GROUP BY s.id, s.system_name, s.display_name, h.collector_type, h.metric_group ORDER BY s.system_name",
-        "options": {}
+        "method": "POST",
+        "url": "={{ $env.LOG_ANALYZER_URL || 'http://log-analyzer:8000' }}/aggregation/daily/trigger",
+        "options": {
+          "timeout": 10000,
+          "response": {
+            "response": {
+              "fullResponse": true
+            }
+          }
+        }
       },
       "id": "wf7-node-02",
-      "name": "전일 시간별 집계 조회",
-      "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2.4,
-      "position": [540, 300],
-      "credentials": {
-        "postgres": {
-          "id": "REPLACE_WITH_POSTGRES_CRED_ID",
-          "name": "AOMS PostgreSQL"
-        }
-      }
+      "name": "log-analyzer 집계 트리거",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        460,
+        300
+      ]
     },
     {
       "parameters": {
@@ -47,13 +54,11 @@
           "conditions": [
             {
               "id": "wf7-cond-01",
-              "leftValue": "={{ $items().length }}",
-              "rightValue": 0,
+              "leftValue": "={{ $json.body.status }}",
+              "rightValue": "triggered",
               "operator": {
-                "type": "number",
-                "operation": "gt",
-                "name": "filter.operator.gt",
-                "description": "greater than"
+                "type": "string",
+                "operation": "equals"
               }
             }
           ],
@@ -61,108 +66,81 @@
         }
       },
       "id": "wf7-node-03",
-      "name": "집계 데이터 있는지 확인",
+      "name": "트리거 성공 여부 확인",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
-      "position": [840, 300]
+      "position": [
+        680,
+        300
+      ]
     },
     {
-      "parameters": {
-        "batchSize": 1,
-        "options": {}
-      },
+      "parameters": {},
       "id": "wf7-node-04",
-      "name": "시스템별 반복",
-      "type": "n8n-nodes-base.splitInBatches",
-      "typeVersion": 3,
-      "position": [1140, 200]
+      "name": "정상 종료",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        900,
+        240
+      ]
     },
     {
-      "parameters": {
-        "jsCode": "// 일별 집계 통계 계산 및 metrics_json 생성\nconst item = $input.first().json;\n\nconst dayBucket = new Date();\ndayBucket.setDate(dayBucket.getDate() - 1);\ndayBucket.setHours(0, 0, 0, 0);\nconst dayBucketISO = dayBucket.toISOString();\n\nconst metricsJson = {\n  hour_count:    item.hour_count || 0,\n  anomaly_hours: item.anomaly_hours || 0,\n  worst_severity: item.worst_severity || 'normal'\n};\n\nif (item.cpu_avg !== null) metricsJson.cpu_avg = Math.round(item.cpu_avg * 100) / 100;\nif (item.mem_avg !== null) metricsJson.mem_avg = Math.round(item.mem_avg * 100) / 100;\n\nconst dominantSeverity = item.worst_severity || 'normal';\n\nreturn [{\n  json: {\n    ...item,\n    day_bucket_iso: dayBucketISO,\n    metrics_json: JSON.stringify(metricsJson),\n    dominant_severity: dominantSeverity\n  }\n}];\n"
-      },
+      "parameters": {},
       "id": "wf7-node-05",
-      "name": "일별 집계 계산",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [1440, 200]
-    },
-    {
-      "parameters": {
-        "method": "POST",
-        "url": "={{ $env.ADMIN_API_URL || 'http://admin-api:8080' }}/api/v1/aggregations/daily",
-        "sendBody": true,
-        "contentType": "json",
-        "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ system_id: $json.system_id, day_bucket: $json.day_bucket_iso, collector_type: $json.collector_type, metric_group: $json.metric_group, metrics_json: $json.metrics_json, llm_severity: $json.dominant_severity }) }}",
-        "options": {
-          "timeout": 10000
-        }
-      },
-      "id": "wf7-node-06",
-      "name": "Admin API에 일별 집계 저장",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [1740, 200]
-    },
-    {
-      "parameters": {
-        "jsCode": "// Qdrant 저장용 요약 텍스트 생성\nconst item = $('일별 집계 계산').first().json;\nconst savedRow = $input.first().json;\n\nconst metricsObj = JSON.parse(item.metrics_json || '{}');\nconst summaryText = [\n  `시스템:${item.system_name} 날짜:${item.day_bucket_iso.split('T')[0]}`,\n  `수집기:${item.collector_type}/${item.metric_group}`,\n  `집계시간:${metricsObj.hour_count}h 이상:${metricsObj.anomaly_hours}h`,\n  item.predictions ? `예측:${item.predictions.substring(0, 200)}` : ''\n].filter(Boolean).join(' | ');\n\nreturn [{\n  json: {\n    ...item,\n    summary_text: summaryText,\n    pg_row_id: savedRow.id\n  }\n}];\n"
-      },
-      "id": "wf7-node-07",
-      "name": "요약 텍스트 생성",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [2040, 200]
-    },
-    {
-      "parameters": {
-        "method": "POST",
-        "url": "={{ $env.LOG_ANALYZER_URL || 'http://log-analyzer:8000' }}/aggregation/store-summary",
-        "sendBody": true,
-        "contentType": "json",
-        "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ system_id: $json.system_id, system_name: $json.system_name, period_type: 'daily', period_start: $json.day_bucket_iso, summary_text: $json.summary_text, dominant_severity: $json.dominant_severity, pg_row_id: $json.pg_row_id }) }}",
-        "options": {
-          "timeout": 30000
-        }
-      },
-      "id": "wf7-node-08",
-      "name": "Qdrant에 일별 요약 저장",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [2340, 200]
+      "name": "이미 실행 중",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        900,
+        360
+      ]
     }
   ],
   "connections": {
     "매일 07:30 트리거": {
-      "main": [[{ "node": "전일 시간별 집계 조회", "type": "main", "index": 0 }]]
-    },
-    "전일 시간별 집계 조회": {
-      "main": [[{ "node": "집계 데이터 있는지 확인", "type": "main", "index": 0 }]]
-    },
-    "집계 데이터 있는지 확인": {
       "main": [
-        [{ "node": "시스템별 반복", "type": "main", "index": 0 }],
-        []
+        [
+          {
+            "node": "log-analyzer 집계 트리거",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
-    "시스템별 반복": {
-      "main": [[{ "node": "일별 집계 계산", "type": "main", "index": 0 }]]
+    "log-analyzer 집계 트리거": {
+      "main": [
+        [
+          {
+            "node": "트리거 성공 여부 확인",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     },
-    "일별 집계 계산": {
-      "main": [[{ "node": "Admin API에 일별 집계 저장", "type": "main", "index": 0 }]]
-    },
-    "Admin API에 일별 집계 저장": {
-      "main": [[{ "node": "요약 텍스트 생성", "type": "main", "index": 0 }]]
-    },
-    "요약 텍스트 생성": {
-      "main": [[{ "node": "Qdrant에 일별 요약 저장", "type": "main", "index": 0 }]]
+    "트리거 성공 여부 확인": {
+      "main": [
+        [
+          {
+            "node": "정상 종료",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "이미 실행 중",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "active": false,
   "settings": {
     "executionOrder": "v1"
-  },
-  "tags": ["aoms", "aggregation", "daily"]
+  }
 }
