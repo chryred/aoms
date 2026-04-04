@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 # ── System ──────────────────────────────────────────────────────────────
@@ -72,6 +72,13 @@ class ContactOut(BaseModel):
 
     model_config = {"from_attributes": True}
 
+    @field_validator("llm_api_key", mode="before")
+    @classmethod
+    def mask_api_key(cls, v: Optional[str]) -> Optional[str]:
+        if v is None or len(v) <= 6:
+            return v
+        return v[:6] + "***"
+
 
 class ContactWithRoleOut(BaseModel):
     """log-analyzer의 LLM 설정 조회용 (role + llm_api_key + agent_code 포함)"""
@@ -90,7 +97,14 @@ class ContactWithRoleOut(BaseModel):
 class SystemContactCreate(BaseModel):
     contact_id: int
     role: str = "primary"
-    notify_channels: str = "teams"  # 콤마 구분 예: "teams,webhook"
+    notify_channels: str | list[str] = "teams"  # 콤마 구분 문자열 또는 배열
+
+    @field_validator("notify_channels", mode="before")
+    @classmethod
+    def coerce_channels(cls, v: object) -> str:
+        if isinstance(v, list):
+            return ",".join(v)
+        return str(v)
 
 
 class SystemContactOut(BaseModel):
@@ -101,6 +115,38 @@ class SystemContactOut(BaseModel):
     notify_channels: str
 
     model_config = {"from_attributes": True}
+
+
+class ContactSummaryOut(BaseModel):
+    id: int
+    name: str
+    email: Optional[str]
+
+    model_config = {"from_attributes": True}
+
+
+class SystemContactFullOut(BaseModel):
+    """프론트엔드 SystemContactPanel용 — contact 중첩 + notify_channels 배열 반환"""
+    id: int
+    system_id: int
+    contact_id: int
+    role: str
+    notify_channels: list[str]
+    contact: ContactSummaryOut
+
+    model_config = {"from_attributes": True}
+
+    @classmethod
+    def from_orm_row(cls, sc: object, contact: object) -> "SystemContactFullOut":
+        channels = getattr(sc, "notify_channels", "teams")
+        return cls(
+            id=sc.id,
+            system_id=sc.system_id,
+            contact_id=sc.contact_id,
+            role=sc.role,
+            notify_channels=[ch.strip() for ch in channels.split(",") if ch.strip()],
+            contact=ContactSummaryOut.model_validate(contact),
+        )
 
 
 # ── AlertHistory ─────────────────────────────────────────────────────────

@@ -100,7 +100,7 @@ async def test_add_and_list_system_contact(client: AsyncClient):
     resp = await client.get(f"/api/v1/systems/{system['id']}/contacts")
     assert resp.status_code == 200
     assert len(resp.json()) == 1
-    assert resp.json()[0]["name"] == "홍길동"
+    assert resp.json()[0]["contact"]["name"] == "홍길동"
 
 
 async def test_add_system_contact_system_not_found(client: AsyncClient):

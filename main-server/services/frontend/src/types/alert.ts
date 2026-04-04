@@ -1,0 +1,24 @@
+export type AlertType = 'metric' | 'metric_resolved' | 'log_analysis'
+export type Severity = 'info' | 'warning' | 'critical'
+export type AnomalyType = 'new' | 'related' | 'recurring' | 'duplicate'
+
+export interface AlertHistory {
+  id: number
+  system_id: number | null
+  alert_type: AlertType
+  severity: Severity
+  alertname: string | null
+  title: string
+  description: string | null
+  instance_role: string | null
+  host: string | null
+  acknowledged: boolean
+  acknowledged_at: string | null
+  acknowledged_by: string | null
+  escalated: boolean
+  anomaly_type: AnomalyType | null
+  similarity_score: number | null
+  qdrant_point_id: string | null
+  notified_contacts: string | null
+  created_at: string
+}

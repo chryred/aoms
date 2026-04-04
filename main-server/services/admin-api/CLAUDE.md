@@ -13,6 +13,7 @@
 - **Runtime**: Python 3.11, FastAPI (async)
 - **DB**: PostgreSQL — SQLAlchemy 2.0 async (asyncpg 드라이버)
 - **알림**: Microsoft Teams Incoming Webhook (Adaptive Card)
+- **인증**: JWT(HS256) + bcrypt — `python-jose 3.3.0`, `passlib[bcrypt] 1.7.4`, `bcrypt 4.0.1`
 - **포트**: 8080 (Docker)
 
 ## 파일 구조
@@ -21,12 +22,16 @@
 admin-api/
 ├── main.py              # FastAPI 앱 초기화, 라우터 등록, lifespan(테이블 자동 생성)
 ├── database.py          # DB 엔진·세션 팩토리, get_db() 의존성
-├── models.py            # SQLAlchemy ORM 모델 (12개 테이블)
-├── schemas.py           # Pydantic 입출력 스키마
+├── models.py            # SQLAlchemy ORM 모델 (14개 테이블 — users 포함)
+├── schemas.py           # Pydantic 입출력 스키마 (ContactOut.llm_api_key 마스킹 포함)
+├── auth.py              # JWT 발급/검증, bcrypt, get_current_user, require_admin Dependency
 ├── init.sql             # 최초 DB 스키마 생성용 SQL (운영 권장)
 ├── requirements.txt
 ├── Dockerfile
+├── scripts/
+│   └── create_admin.py  # 초기 admin 계정 생성 스크립트
 ├── routes/
+│   ├── auth.py              # /api/v1/auth (login, refresh, logout, me)
 │   ├── systems.py           # /api/v1/systems
 │   ├── contacts.py          # /api/v1/contacts
 │   ├── alerts.py            # /api/v1/alerts
@@ -56,8 +61,22 @@ admin-api/
 | `metric_weekly_aggregations` | 7일 집계 롤업 (Phase 5) |
 | `metric_monthly_aggregations` | 월/분기/반기/연간 집계. `period_type`으로 구분 (Phase 5) |
 | `aggregation_report_history` | Teams 주기별 리포트 발송 이력. 중복 방지용 (Phase 5) |
+| `users` | 프론트엔드 인증 사용자. `role`: admin / operator. `is_approved`: admin 승인 여부 (Phase 0) |
 
 ## API 엔드포인트
+
+### 인증 `/api/v1/auth` (Phase 0)
+- `POST /login` — email/password → accessToken(body) + refreshToken(httpOnly 쿠키, 7일)
+- `POST /refresh` — refresh 쿠키 → 새 accessToken 반환
+- `POST /logout` — refresh 쿠키 삭제 (204)
+- `GET /me` — 현재 로그인 사용자 정보
+
+**초기 admin 계정 생성:**
+```bash
+docker exec -it aoms-admin-api \
+  ADMIN_EMAIL=admin@company.com ADMIN_PASSWORD=changeme \
+  python scripts/create_admin.py
+```
 
 ### 시스템 관리 `/api/v1/systems`
 - `GET /` — 전체 목록
@@ -139,6 +158,11 @@ log-analyzer → POST /api/v1/analysis
 |---|---|---|
 | `DATABASE_URL` | `postgresql+asyncpg://aoms:aoms@localhost:5432/aoms` | DB 연결 URL |
 | `TEAMS_WEBHOOK_URL` | `""` | 전역 Teams webhook URL |
+| `SECRET_KEY` | `change-me-in-production` | JWT 서명 키 — **운영 배포 시 반드시 변경** |
+| `CORS_ORIGINS` | `http://localhost:3000,http://localhost:5173` | 허용 프론트엔드 도메인 (콤마 구분) |
+| `ACCESS_TOKEN_EXPIRE_MINUTES` | `15` | Access Token 만료 시간(분) |
+| `REFRESH_TOKEN_EXPIRE_DAYS` | `7` | Refresh Token 만료 시간(일) |
+| `COOKIE_SECURE` | `false` | HTTPS 환경에서 `true`로 설정 |
 
 ## DB 초기화
 

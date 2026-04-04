@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
 from models import System, SystemContact, Contact
-from schemas import SystemCreate, SystemUpdate, SystemOut, SystemContactCreate, SystemContactOut, ContactOut, ContactWithRoleOut
+from schemas import SystemCreate, SystemUpdate, SystemOut, SystemContactCreate, SystemContactOut, ContactOut, ContactWithRoleOut, SystemContactFullOut
 
 router = APIRouter(prefix="/api/v1/systems", tags=["systems"])
 
@@ -80,14 +80,15 @@ async def list_system_contacts_by_name(system_name: str, db: AsyncSession = Depe
     ]
 
 
-@router.get("/{system_id}/contacts", response_model=list[ContactOut])
+@router.get("/{system_id}/contacts", response_model=list[SystemContactFullOut])
 async def list_system_contacts(system_id: int, db: AsyncSession = Depends(get_db)):
     result = await db.execute(
-        select(Contact)
-        .join(SystemContact, SystemContact.contact_id == Contact.id)
+        select(SystemContact, Contact)
+        .join(Contact, SystemContact.contact_id == Contact.id)
         .where(SystemContact.system_id == system_id)
     )
-    return result.scalars().all()
+    rows = result.all()
+    return [SystemContactFullOut.from_orm_row(sc, contact) for sc, contact in rows]
 
 
 @router.post("/{system_id}/contacts", response_model=SystemContactOut, status_code=status.HTTP_201_CREATED)

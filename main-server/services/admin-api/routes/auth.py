@@ -1,0 +1,278 @@
+import os
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from pydantic import BaseModel
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from typing import Optional, List
+
+from auth import (
+    create_access_token,
+    create_refresh_token,
+    decode_token,
+    verify_password,
+    get_password_hash,
+    get_current_user,
+    require_admin,
+)
+from database import get_db
+from models import User
+
+router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
+
+COOKIE_SECURE = os.getenv("COOKIE_SECURE", "false").lower() == "true"
+REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "7"))
+
+
+# ── 스키마 ──────────────────────────────────────────────────────────────────
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+
+
+class UserOut(BaseModel):
+    id: int
+    email: str
+    name: str
+    role: str
+
+    model_config = {"from_attributes": True}
+
+
+class LoginResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user: UserOut
+
+
+# Phase 3c 스키마
+class RegisterRequest(BaseModel):
+    name: str
+    email: str
+    password: str
+
+
+class UserAdminOut(BaseModel):
+    id: int
+    email: str
+    name: str
+    role: str
+    is_active: bool
+    is_approved: bool
+    created_at: str
+
+    model_config = {"from_attributes": True}
+
+
+class UserStatusUpdate(BaseModel):
+    is_approved: Optional[bool] = None
+    is_active: Optional[bool] = None
+
+
+class UserRoleUpdate(BaseModel):
+    role: str
+
+
+class UserUpdateMe(BaseModel):
+    name: Optional[str] = None
+    current_password: Optional[str] = None
+    new_password: Optional[str] = None
+
+
+# ── 엔드포인트 ───────────────────────────────────────────────────────────────
+@router.post("/login", response_model=LoginResponse)
+async def login(body: LoginRequest, response: Response, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(User).where(User.email == body.email))
+    user: User | None = result.scalar_one_or_none()
+
+    if not user or not verify_password(body.password, user.password_hash):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="이메일 또는 비밀번호가 올바르지 않습니다",
+        )
+    if not user.is_active:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="비활성화된 계정입니다")
+    if not user.is_approved:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="승인 대기 중인 계정입니다")
+
+    access_token = create_access_token(user)
+    refresh_token = create_refresh_token(user.id)
+
+    response.set_cookie(
+        key="refresh_token",
+        value=refresh_token,
+        httponly=True,
+        samesite="lax",
+        secure=COOKIE_SECURE,
+        max_age=REFRESH_TOKEN_EXPIRE_DAYS * 86400,
+        path="/api/v1/auth",
+    )
+
+    return LoginResponse(
+        access_token=access_token,
+        user=UserOut.model_validate(user),
+    )
+
+
+@router.post("/refresh", response_model=TokenResponse)
+async def refresh(request: Request, db: AsyncSession = Depends(get_db)):
+    refresh_token = request.cookies.get("refresh_token")
+    if not refresh_token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token 없음")
+
+    from jose import JWTError
+    try:
+        payload = decode_token(refresh_token)
+    except JWTError:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token 만료 또는 유효하지 않음")
+
+    if payload.get("type") != "refresh":
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="잘못된 토큰 타입")
+
+    user = await db.get(User, int(payload["sub"]))
+    if not user or not user.is_active or not user.is_approved:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="사용자를 찾을 수 없거나 비활성 상태")
+
+    return TokenResponse(access_token=create_access_token(user))
+
+
+@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
+async def logout(response: Response):
+    response.set_cookie(
+        key="refresh_token",
+        value="",
+        httponly=True,
+        samesite="lax",
+        secure=COOKIE_SECURE,
+        max_age=0,
+        path="/api/v1/auth",
+    )
+
+
+@router.get("/me", response_model=UserOut)
+async def me(user: User = Depends(get_current_user)):
+    return user
+
+
+# ── Phase 3c ─────────────────────────────────────────────────────────────────
+
+@router.post("/register", status_code=status.HTTP_201_CREATED)
+async def register(body: RegisterRequest, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(User).where(User.email == body.email))
+    if result.scalar_one_or_none():
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="이미 사용 중인 이메일입니다")
+
+    user = User(
+        email=body.email,
+        password_hash=get_password_hash(body.password),
+        name=body.name,
+        role="operator",
+        is_active=True,
+        is_approved=False,
+    )
+    db.add(user)
+    await db.commit()
+    return {"message": "등록 신청이 완료되었습니다. 관리자 승인 후 로그인 가능합니다."}
+
+
+@router.get("/users", response_model=List[UserAdminOut])
+async def get_users(
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
+):
+    result = await db.execute(select(User).order_by(User.created_at.desc()))
+    users = result.scalars().all()
+    return [
+        UserAdminOut(
+            id=u.id,
+            email=u.email,
+            name=u.name,
+            role=u.role,
+            is_active=u.is_active,
+            is_approved=u.is_approved,
+            created_at=u.created_at.isoformat(),
+        )
+        for u in users
+    ]
+
+
+@router.patch("/users/{user_id}/status", response_model=UserAdminOut)
+async def update_user_status(
+    user_id: int,
+    body: UserStatusUpdate,
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
+):
+    user = await db.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="사용자를 찾을 수 없습니다")
+
+    if body.is_approved is not None:
+        user.is_approved = body.is_approved
+    if body.is_active is not None:
+        user.is_active = body.is_active
+
+    await db.commit()
+    await db.refresh(user)
+    return UserAdminOut(
+        id=user.id,
+        email=user.email,
+        name=user.name,
+        role=user.role,
+        is_active=user.is_active,
+        is_approved=user.is_approved,
+        created_at=user.created_at.isoformat(),
+    )
+
+
+@router.patch("/users/{user_id}/role", response_model=UserAdminOut)
+async def update_user_role(
+    user_id: int,
+    body: UserRoleUpdate,
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
+):
+    if body.role not in ("admin", "operator"):
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="role은 admin 또는 operator여야 합니다")
+
+    user = await db.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="사용자를 찾을 수 없습니다")
+
+    user.role = body.role
+    await db.commit()
+    await db.refresh(user)
+    return UserAdminOut(
+        id=user.id,
+        email=user.email,
+        name=user.name,
+        role=user.role,
+        is_active=user.is_active,
+        is_approved=user.is_approved,
+        created_at=user.created_at.isoformat(),
+    )
+
+
+@router.patch("/me", response_model=UserOut)
+async def update_me(
+    body: UserUpdateMe,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    if body.new_password:
+        if not body.current_password:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="현재 비밀번호를 입력하세요")
+        if not verify_password(body.current_password, user.password_hash):
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="현재 비밀번호가 올바르지 않습니다")
+        user.password_hash = get_password_hash(body.new_password)
+
+    if body.name is not None:
+        user.name = body.name
+
+    await db.commit()
+    await db.refresh(user)
+    return user

@@ -223,9 +223,10 @@ async def list_alerts(
     severity: str | None = Query(None),
     acknowledged: bool | None = Query(None),
     limit: int = Query(50, le=500),
+    offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
 ):
-    stmt = select(AlertHistory).order_by(AlertHistory.created_at.desc()).limit(limit)
+    stmt = select(AlertHistory).order_by(AlertHistory.created_at.desc()).offset(offset).limit(limit)
     if system_id is not None:
         stmt = stmt.where(AlertHistory.system_id == system_id)
     if severity:

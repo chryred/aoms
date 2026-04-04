@@ -1,0 +1,68 @@
+@import "tailwindcss";
+
+@font-face {
+  font-family: 'Pretendard';
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/Pretendard-Regular.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Pretendard';
+  font-weight: 500;
+  font-display: swap;
+  src: url('/fonts/Pretendard-Medium.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Pretendard';
+  font-weight: 600;
+  font-display: swap;
+  src: url('/fonts/Pretendard-SemiBold.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Pretendard';
+  font-weight: 700;
+  font-display: swap;
+  src: url('/fonts/Pretendard-Bold.woff2') format('woff2');
+}
+
+@theme inline {
+  --font-sans: 'Pretendard', system-ui, sans-serif;
+
+  /* 뉴모피즘 그림자 토큰 */
+  --shadow-neu-flat:    6px 6px 12px #C8CBD4, -6px -6px 12px #FFFFFF;
+  --shadow-neu-inset:   inset 4px 4px 8px #C8CBD4, inset -4px -4px 8px #FFFFFF;
+  --shadow-neu-pressed: inset 2px 2px 6px #C8CBD4, inset -2px -2px 6px #FFFFFF;
+
+  /* 색상 팔레트 */
+  --color-bg-base:        #E8EBF0;
+  --color-surface:        #E8EBF0;
+  --color-accent:         #6366F1;
+  --color-accent-hover:   #4F46E5;
+  --color-accent-muted:   #EEF2FF;
+  --color-text-primary:   #1A1F2E;
+  --color-text-secondary: #4A5568;
+  --color-border:         #D4D7DE;
+  --color-critical:       #DC2626;
+  --color-warning:        #D97706;
+  --color-normal:         #16A34A;
+  --color-glass-bg:       rgba(99, 102, 241, 0.10);
+  --color-glass-border:   rgba(99, 102, 241, 0.20);
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+body {
+  background-color: #E8EBF0;
+  font-family: 'Pretendard', system-ui, sans-serif;
+  color: #1A1F2E;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* 스크롤바 */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #C8CBD4; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #A0A4B0; }

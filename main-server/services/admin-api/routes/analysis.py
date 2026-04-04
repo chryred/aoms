@@ -74,11 +74,13 @@ async def list_analysis(
     system_id: int | None = Query(None),
     severity: str | None = Query(None),
     limit: int = Query(50, le=500),
+    offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
 ):
     stmt = (
         select(LogAnalysisHistory)
         .order_by(LogAnalysisHistory.created_at.desc())
+        .offset(offset)
         .limit(limit)
     )
     if system_id is not None:

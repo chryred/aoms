@@ -1,0 +1,15 @@
+export const ROUTES = {
+  LOGIN: '/login',
+  REGISTER: '/register',
+  DASHBOARD: '/dashboard',
+  SYSTEMS: '/systems',
+  ALERTS: '/alerts',
+  CONTACTS: '/contacts',
+  REPORTS: '/reports',
+  SEARCH: '/search',
+  TRENDS: '/trends',
+  FEEDBACK: '/feedback',
+  PROFILE: '/profile',
+  ADMIN_USERS: '/admin/users',
+  VECTOR_HEALTH: '/vector-health',
+} as const
