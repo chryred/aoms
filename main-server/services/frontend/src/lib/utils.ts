@@ -33,18 +33,18 @@ export function formatRelative(utcDate: string): string {
 
 export function severityColor(severity: Severity | string): string {
   switch (severity) {
-    case 'critical': return 'text-[#DC2626]'
-    case 'warning': return 'text-[#D97706]'
-    default: return 'text-[#16A34A]'
+    case 'critical': return 'text-[#EF4444]'
+    case 'warning': return 'text-[#F59E0B]'
+    default: return 'text-[#22C55E]'
   }
 }
 
 export function anomalyColor(type: AnomalyType | null): string {
   switch (type) {
-    case 'duplicate': return 'bg-gray-100 text-gray-600 border-gray-200'
-    case 'recurring': return 'bg-red-100 text-red-700 border-red-200'
-    case 'related': return 'bg-yellow-100 text-yellow-700 border-yellow-200'
-    default: return 'bg-blue-100 text-blue-700 border-blue-200'
+    case 'duplicate': return 'bg-[rgba(255,255,255,0.06)] text-[#8B97AD] border-[rgba(255,255,255,0.10)]'
+    case 'recurring': return 'bg-[rgba(239,68,68,0.12)] text-[#F87171] border-[rgba(239,68,68,0.25)]'
+    case 'related': return 'bg-[rgba(245,158,11,0.12)] text-[#FCD34D] border-[rgba(245,158,11,0.25)]'
+    default: return 'bg-[rgba(0,212,255,0.10)] text-[#00D4FF] border-[rgba(0,212,255,0.20)]'
   }
 }
 

@@ -13,10 +13,10 @@ import type { AggregationPipelineKey } from '@/types/search'
 // 컬렉션 status → 색상 + 레이블 매핑
 const COLLECTION_STATUS_MAP: Record<string, { color: string; label: string }> = {
   green:     { color: '#22C55E', label: '정상' },
-  yellow:    { color: '#D97706', label: '주의' },
-  red:       { color: '#DC2626', label: '오류' },
-  error:     { color: '#DC2626', label: '오류' },
-  not_found: { color: '#A0A4B0', label: '미생성' },
+  yellow:    { color: '#F59E0B', label: '주의' },
+  red:       { color: '#EF4444', label: '오류' },
+  error:     { color: '#EF4444', label: '오류' },
+  not_found: { color: '#5A6478', label: '미생성' },
 }
 
 // WF 번호 및 한국어 레이블
@@ -32,7 +32,7 @@ const PIPELINE_META: Record<AggregationPipelineKey, { wf: string; label: string 
 const PIPELINE_ORDER: AggregationPipelineKey[] = ['hourly', 'daily', 'weekly', 'monthly', 'longperiod', 'trend']
 
 function StatusDot({ status }: { status: string }) {
-  const { color } = COLLECTION_STATUS_MAP[status] ?? { color: '#A0A4B0' }
+  const { color } = COLLECTION_STATUS_MAP[status] ?? { color: '#5A6478' }
   return (
     <span
       className="inline-block w-3 h-3 rounded-full shrink-0"
@@ -87,7 +87,7 @@ export function VectorHealthPage() {
       ) : (
         <>
           {/* 컬렉션 상태 카드 */}
-          <h2 className="text-sm font-semibold text-[#4A5568] uppercase tracking-wider mb-3">
+          <h2 className="type-label mb-3">
             컬렉션 현황
           </h2>
           <div className="grid grid-cols-2 gap-4 mb-6">
@@ -100,13 +100,13 @@ export function VectorHealthPage() {
                   ] as const
                 ).map(({ key, label, desc }) => {
                   const info = collectionInfo[key]
-                  const statusMeta = COLLECTION_STATUS_MAP[info.status] ?? { color: '#A0A4B0', label: info.status }
+                  const statusMeta = COLLECTION_STATUS_MAP[info.status] ?? { color: '#5A6478', label: info.status }
                   return (
                     <NeuCard key={key}>
                       <div className="flex items-start justify-between mb-3">
                         <div>
-                          <p className="text-xs font-mono text-[#4A5568] mb-0.5">{label}</p>
-                          <p className="text-xs text-[#A0A4B0]">{desc}</p>
+                          <p className="text-xs font-mono text-[#8B97AD] mb-0.5">{label}</p>
+                          <p className="text-xs text-[#5A6478]">{desc}</p>
                         </div>
                         <span
                           className="text-xs font-medium px-2 py-0.5 rounded-full"
@@ -117,16 +117,16 @@ export function VectorHealthPage() {
                       </div>
                       <div className="flex gap-6">
                         <div>
-                          <p className="text-2xl font-bold text-[#1A1F2E]">
+                          <p className="text-2xl font-bold text-[#E2E8F2]">
                             {info.points_count.toLocaleString()}
                           </p>
-                          <p className="text-xs text-[#4A5568]">포인트 수</p>
+                          <p className="text-xs text-[#8B97AD]">포인트 수</p>
                         </div>
                         <div>
-                          <p className="text-2xl font-bold text-[#6366F1]">
+                          <p className="text-2xl font-bold text-[#00D4FF]">
                             {info.vectors_count.toLocaleString()}
                           </p>
-                          <p className="text-xs text-[#4A5568]">벡터 수</p>
+                          <p className="text-xs text-[#8B97AD]">벡터 수</p>
                         </div>
                       </div>
                     </NeuCard>
@@ -137,24 +137,24 @@ export function VectorHealthPage() {
           </div>
 
           {/* 집계 파이프라인 상태 */}
-          <h2 className="text-sm font-semibold text-[#4A5568] uppercase tracking-wider mb-3">
+          <h2 className="type-label mb-3">
             집계 파이프라인 상태
           </h2>
           <NeuCard className="p-0 overflow-hidden">
             <table className="w-full">
               <thead>
-                <tr className="border-b border-[#D4D7DE]">
+                <tr className="border-b border-[#2B2F37]">
                   {['워크플로우', '이름', '상태', '마지막 실행'].map((h) => (
                     <th
                       key={h}
-                      className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-[#4A5568]"
+                      className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-[#8B97AD]"
                     >
                       {h}
                     </th>
                   ))}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-[#E8EBF0]">
+              <tbody className="divide-y divide-[#2B2F37]">
                 {PIPELINE_ORDER.map((key) => {
                   const meta = PIPELINE_META[key]
                   const status = aggStatus?.[key]
@@ -163,37 +163,37 @@ export function VectorHealthPage() {
                   const lastStatus = status?.last_status
 
                   return (
-                    <tr key={key} className="hover:bg-[rgba(99,102,241,0.03)]">
+                    <tr key={key} className="hover:bg-[rgba(0,212,255,0.03)]">
                       <td className="px-4 py-3">
-                        <span className="text-xs font-mono font-semibold text-[#6366F1]">
+                        <span className="text-xs font-mono font-semibold text-[#00D4FF]">
                           {meta.wf}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-sm text-[#1A1F2E]">{meta.label}</td>
+                      <td className="px-4 py-3 text-sm text-[#E2E8F2]">{meta.label}</td>
                       <td className="px-4 py-3">
                         {isRunning ? (
                           <div className="flex items-center gap-1.5">
-                            <span className="inline-block w-2.5 h-2.5 rounded-full bg-[#6366F1] animate-pulse" />
-                            <span className="text-xs text-[#6366F1]">실행 중</span>
+                            <span className="inline-block w-2.5 h-2.5 rounded-full bg-[#00D4FF] animate-pulse" />
+                            <span className="text-xs text-[#00D4FF]">실행 중</span>
                           </div>
                         ) : lastStatus === 'error' ? (
                           <div className="flex items-center gap-1.5">
                             <StatusDot status="red" />
-                            <span className="text-xs text-[#DC2626]">오류</span>
+                            <span className="text-xs text-[#EF4444]">오류</span>
                           </div>
                         ) : lastStatus === 'ok' ? (
                           <div className="flex items-center gap-1.5">
                             <StatusDot status="green" />
-                            <span className="text-xs text-[#16A34A]">정상</span>
+                            <span className="text-xs text-[#22C55E]">정상</span>
                           </div>
                         ) : (
                           <div className="flex items-center gap-1.5">
                             <StatusDot status="not_found" />
-                            <span className="text-xs text-[#A0A4B0]">대기</span>
+                            <span className="text-xs text-[#5A6478]">대기</span>
                           </div>
                         )}
                       </td>
-                      <td className="px-4 py-3 text-sm text-[#4A5568]">
+                      <td className="px-4 py-3 text-sm text-[#8B97AD]">
                         {lastRun ? formatRelative(lastRun) : '—'}
                       </td>
                     </tr>

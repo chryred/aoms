@@ -98,3 +98,36 @@ VITE_LOG_ANALYZER_URL    # log-analyzer 주소 (운영: http://log-analyzer:8000
 - 뉴모피즘 디자인 시스템 전체 적용 — 새 컴포넌트는 반드시 `neumorphic/` 기본 컴포넌트 위에서 구성
 - Collector 등록 마법사 UI 포함 (Phase 5 수집기 유연 레지스트리 연동)
 - 폐쇄망 배포 시 `npm run build` 결과물을 Nginx 등으로 정적 서빙
+
+---
+
+## Design Context
+
+> 자세한 내용은 `.impeccable.md` 참조. 여기서는 핵심만 요약.
+
+### Users
+운영팀 엔지니어 (24시간 모니터링). 장애 감지·대응 상황에서도 빠른 상황 판단이 가능해야 한다.
+신뢰감과 명확성이 미적 즐거움보다 우선.
+
+### Brand
+- **제품명**: Synapse-V (기존 "AOMS" 레이블 대체)
+- **브랜드 서체**: 영어 기하학적 sans-serif (Inter Display, Syne 등) — 워드마크 전용
+- **UI 서체**: Pretendard 유지
+- **3단어**: Precise · Trustworthy · Composed
+
+### Aesthetic
+- **기준**: 뉴모피즘 유지·개선 (soft 3D shadow, #E8EBF0 베이스)
+- **금지**: gradient glow, AI-스러운 보라/파랑 빛 번짐
+- **참조**: Linear (정밀함), Bloomberg Terminal (정보 밀도), AWS Console (엔터프라이즈)
+- **안티**: ChatGPT/Vercel AI 스타일 (purple haze, gradient shimmer)
+
+### Design Principles
+1. 데이터가 주인공 — UI 크롬은 정보 판독을 방해하지 않는다
+2. 신뢰는 일관성에서 — 같은 역할, 같은 스타일
+3. 긴급도는 색상으로만 — semantic 색상(red/amber/green)은 장식에 사용 금지
+4. 여백은 설계된 것 — 밀도 향상을 위해 여백을 줄이지 않는다
+5. 브랜드는 절제 속에 — indigo accent는 핵심 인터랙션에만 집중
+
+### 개선 범위
+- **포함**: `index.css` 토큰, `/components/neumorphic/` 기본 컴포넌트, Sidebar/TopBar
+- **제외**: 페이지 레이아웃 구조, 라우팅, API 연동, 비즈니스 로직

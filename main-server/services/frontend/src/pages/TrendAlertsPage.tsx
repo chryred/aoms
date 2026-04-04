@@ -39,7 +39,7 @@ export default function TrendAlertsPage() {
         title="트렌드 예측 알림"
         description="LLM 분석 기반 프로액티브 장애 예방 알림"
         action={
-          <div className="flex items-center gap-2 text-sm text-[#4A5568]">
+          <div className="flex items-center gap-2 text-sm text-[#8B97AD]">
             <RefreshCw className="w-4 h-4" />
             <span>5분 자동 갱신</span>
             {dataUpdatedAt > 0 && (
@@ -54,18 +54,18 @@ export default function TrendAlertsPage() {
       <CriticalTrendBanner count={criticalCount} />
 
       {/* Severity filter bar */}
-      <div className="flex gap-2 mb-6" role="group" aria-label="심각도 필터">
+      <div className="flex gap-1 mb-6 p-1 rounded-xl bg-[#1E2127] shadow-[inset_1px_1px_3px_#111317,inset_-1px_-1px_3px_#2B2F37] w-fit" role="group" aria-label="심각도 필터">
         {SEVERITY_OPTIONS.map((opt) => (
           <button
             key={opt.value}
             type="button"
             onClick={() => setSearchParams({ severity: opt.value })}
             className={cn(
-              'px-4 py-2 rounded-xl text-sm font-medium transition-all',
-              'focus:outline-none focus:ring-2 focus:ring-[#6366F1] focus:ring-offset-2',
+              'px-4 py-1.5 rounded-lg text-sm font-medium transition-all',
+              'focus:outline-none focus:ring-2 focus:ring-[#00D4FF] focus:ring-offset-[#1E2127]',
               severityFilter === opt.value
-                ? 'bg-[#6366F1] text-white shadow-[3px_3px_6px_#C8CBD4,-3px_-3px_6px_#FFFFFF]'
-                : 'bg-[#E8EBF0] text-[#4A5568] shadow-[3px_3px_6px_#C8CBD4,-3px_-3px_6px_#FFFFFF] hover:bg-[rgba(99,102,241,0.1)]'
+                ? 'bg-[#00D4FF] text-[#1E2127] font-semibold shadow-[2px_2px_4px_#111317]'
+                : 'text-[#8B97AD] hover:text-[#E2E8F2] hover:bg-[rgba(255,255,255,0.05)]'
             )}
           >
             {opt.label}
@@ -87,7 +87,7 @@ export default function TrendAlertsPage() {
 
       {!isLoading && !isError && trendAlerts.length > 0 && filtered.length === 0 && (
         <EmptyState
-          icon={<Filter className="w-12 h-12 text-[#4A5568]" />}
+          icon={<Filter className="w-12 h-12 text-[#8B97AD]" />}
           title={`${severityFilter === 'warning' ? 'Warning' : 'Critical'} 수준의 예측 알림이 없습니다`}
           description="다른 심각도를 선택하거나 '전체'를 선택해보세요."
           cta={{ label: '전체 보기', onClick: () => setSearchParams({ severity: 'all' }) }}

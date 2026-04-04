@@ -12,13 +12,13 @@ export const NeuInput = forwardRef<HTMLInputElement, NeuInputProps>(
     return (
       <div className="flex flex-col gap-1.5">
         {label && (
-          <label htmlFor={id} className="text-sm font-medium text-[#1A1F2E]">
+          <label htmlFor={id} className="text-[0.8125rem] font-medium text-[#8B97AD]">
             {label}
           </label>
         )}
         <div className="relative">
           {leftIcon && (
-            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[#4A5568]">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[#8B97AD]">
               {leftIcon}
             </span>
           )}
@@ -26,20 +26,20 @@ export const NeuInput = forwardRef<HTMLInputElement, NeuInputProps>(
             ref={ref}
             id={id}
             className={cn(
-              'w-full rounded-xl bg-[#E8EBF0]',
-              'border border-[#C0C4CF]',
-              'shadow-[inset_4px_4px_8px_#C8CBD4,inset_-4px_-4px_8px_#FFFFFF]',
-              'px-4 py-2.5 text-sm text-[#1A1F2E] placeholder:text-[#A0A4B0]',
-              'focus:outline-none focus:ring-2 focus:ring-[#6366F1] focus:ring-offset-2',
-              'disabled:opacity-50 disabled:cursor-not-allowed',
+              'w-full rounded-xl bg-[#1E2127]',
+              'border border-[#2B2F37]',
+              'shadow-[inset_2px_2px_5px_#111317,inset_-2px_-2px_5px_#2B2F37]',
+              'px-4 py-2.5 text-sm text-[#E2E8F2] placeholder:text-[#5A6478]',
+              'focus:outline-none focus:ring-2 focus:ring-[#00D4FF] focus:ring-offset-2 focus:ring-offset-[#1E2127]',
+              'disabled:opacity-40 disabled:cursor-not-allowed',
               leftIcon && 'pl-10',
-              error && 'border-[#DC2626] focus:ring-[#DC2626]',
+              error && 'border-[#EF4444] focus:ring-[#EF4444]',
               className
             )}
             {...props}
           />
         </div>
-        {error && <p className="text-xs text-[#DC2626]">{error}</p>}
+        {error && <p className="text-xs text-[#F87171]">{error}</p>}
       </div>
     )
   }

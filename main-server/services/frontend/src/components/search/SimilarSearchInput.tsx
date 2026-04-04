@@ -34,7 +34,6 @@ export function SimilarSearchInput({
   const [collection, setCollection] = useState(defaultCollection)
   const thresholdId = useRef(`threshold-desc-${Math.random().toString(36).slice(2)}`)
 
-  // sync defaults when URL params change
   useEffect(() => setQuery(defaultQuery), [defaultQuery])
   useEffect(() => setThreshold(defaultThreshold), [defaultThreshold])
   useEffect(() => setCollection(defaultCollection), [defaultCollection])
@@ -64,10 +63,10 @@ export function SimilarSearchInput({
             onClick={() => setCollection(opt.value)}
             className={cn(
               'px-4 py-2 rounded-xl text-sm font-medium transition-all',
-              'focus:outline-none focus:ring-2 focus:ring-[#6366F1] focus:ring-offset-2',
+              'focus:outline-none focus:ring-2 focus:ring-[#00D4FF] focus:ring-offset-2 focus:ring-offset-[#1E2127]',
               collection === opt.value
-                ? 'bg-[#6366F1] text-white shadow-[3px_3px_6px_#C8CBD4,-3px_-3px_6px_#FFFFFF]'
-                : 'bg-[#E8EBF0] text-[#4A5568] shadow-[3px_3px_6px_#C8CBD4,-3px_-3px_6px_#FFFFFF] hover:bg-[rgba(99,102,241,0.1)]'
+                ? 'bg-[#00D4FF] text-[#1E2127] font-semibold shadow-[2px_2px_5px_#111317,-2px_-2px_5px_#2B2F37]'
+                : 'bg-[#1E2127] text-[#8B97AD] shadow-[2px_2px_5px_#111317,-2px_-2px_5px_#2B2F37] hover:text-[#E2E8F2]'
             )}
           >
             {opt.label}
@@ -81,10 +80,11 @@ export function SimilarSearchInput({
         onChange={(e) => setQuery(e.target.value)}
         rows={4}
         className={cn(
-          'w-full rounded-xl bg-[#E8EBF0] px-4 py-3 text-sm text-[#1A1F2E]',
-          'shadow-[inset_3px_3px_6px_#C8CBD4,inset_-3px_-3px_6px_#FFFFFF]',
-          'placeholder:text-[#A0AEC0] resize-none whitespace-pre-wrap',
-          'focus:outline-none focus:ring-2 focus:ring-[#6366F1] focus:ring-offset-2'
+          'w-full rounded-xl bg-[#1E2127] px-4 py-3 text-sm text-[#E2E8F2]',
+          'shadow-[inset_2px_2px_5px_#111317,inset_-2px_-2px_5px_#2B2F37]',
+          'border border-[#2B2F37]',
+          'placeholder:text-[#5A6478] resize-none whitespace-pre-wrap',
+          'focus:outline-none focus:ring-2 focus:ring-[#00D4FF] focus:ring-offset-2 focus:ring-offset-[#1E2127]'
         )}
         placeholder="예: CPU 사용률이 80%를 초과하며 응답시간이 급증한 패턴"
         aria-label="검색 쿼리 입력"
@@ -102,11 +102,11 @@ export function SimilarSearchInput({
           <label
             htmlFor="threshold-slider"
             id={thresholdId.current}
-            className="text-sm font-medium text-[#1A1F2E]"
+            className="text-sm font-medium text-[#E2E8F2]"
           >
             유사도 기준값
           </label>
-          <span className="text-sm font-semibold text-[#6366F1]">
+          <span className="text-sm font-semibold text-[#00D4FF]">
             {(threshold * 100).toFixed(0)}%
           </span>
         </div>
@@ -118,13 +118,13 @@ export function SimilarSearchInput({
           step={0.05}
           value={threshold}
           onChange={(e) => setThreshold(Number(e.target.value))}
-          className="w-full accent-[#6366F1] focus:outline-none focus:ring-2 focus:ring-[#6366F1] focus:ring-offset-2"
+          className="w-full accent-[#00D4FF] focus:outline-none focus:ring-2 focus:ring-[#00D4FF] focus:ring-offset-2 focus:ring-offset-[#1E2127]"
           aria-label="유사도 기준값"
           aria-valuemin={0.5}
           aria-valuemax={1.0}
           aria-valuenow={threshold}
         />
-        <div className="flex justify-between text-xs text-[#A0AEC0]">
+        <div className="flex justify-between text-xs text-[#5A6478]">
           <span>50%</span>
           <span>100%</span>
         </div>

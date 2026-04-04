@@ -13,8 +13,8 @@ export function ErrorCard({
 }: ErrorCardProps) {
   return (
     <NeuCard className="flex flex-col items-center gap-4 py-12 text-center">
-      <AlertCircle className="w-12 h-12 text-[#DC2626]" />
-      <p className="text-[#4A5568]">{message}</p>
+      <AlertCircle className="w-12 h-12 text-[#EF4444]" />
+      <p className="text-[#8B97AD]">{message}</p>
       {onRetry && (
         <NeuButton variant="ghost" onClick={onRetry}>
           다시 시도

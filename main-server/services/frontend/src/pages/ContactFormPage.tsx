@@ -34,7 +34,7 @@ export function ContactFormPage() {
       <PageHeader
         title={isEdit ? `담당자 수정 — ${existing?.name ?? ''}` : '담당자 등록'}
       />
-      <div className="rounded-2xl bg-[#E8EBF0] p-6 shadow-[6px_6px_12px_#C8CBD4,-6px_-6px_12px_#FFFFFF]">
+      <div className="rounded-2xl bg-[#1E2127] p-6 shadow-[3px_3px_7px_#111317,-3px_-3px_7px_#2B2F37]">
         <ContactForm
           defaultValues={existing}
           isPending={isPending}

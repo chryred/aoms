@@ -9,9 +9,9 @@ interface SeverityBadgeProps {
 
 const colorMap: Record<string, string> = {
   normal: 'text-[#22C55E] bg-[rgba(34,197,94,0.1)]',
-  warning: 'text-[#D97706] bg-[rgba(217,119,6,0.1)]',
-  critical: 'text-[#DC2626] bg-[rgba(220,38,38,0.1)]',
-  info: 'text-[#6366F1] bg-[rgba(99,102,241,0.1)]',
+  warning: 'text-[#FCD34D] bg-[rgba(245,158,11,0.12)]',
+  critical: 'text-[#F87171] bg-[rgba(239,68,68,0.12)]',
+  info: 'text-[#00D4FF] bg-[rgba(0,212,255,0.10)]',
 }
 
 const labelMap: Record<string, string> = {

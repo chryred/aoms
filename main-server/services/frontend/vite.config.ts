@@ -14,6 +14,7 @@ export default defineConfig({
     setupFiles: ['./src/test/setup.ts'],
   },
   server: {
+    port: 3001,
     proxy: {
       '/api': 'http://localhost:8080',
       '/analyze': 'http://localhost:8000',

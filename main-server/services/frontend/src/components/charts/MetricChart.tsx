@@ -13,7 +13,7 @@ interface MetricChartProps {
   onPointClick?: (hourBucket: string) => void
 }
 
-const LINE_COLORS = ['#6366F1', '#22C55E', '#F59E0B', '#EC4899', '#14B8A6']
+const LINE_COLORS = ['#00D4FF', '#22C55E', '#F59E0B', '#EC4899', '#14B8A6']
 
 interface TooltipPayloadEntry {
   name: string
@@ -33,18 +33,18 @@ function CustomTooltip({ active, payload, label }: {
   const summary = raw.llm_summary as string | undefined
   const prediction = raw.llm_prediction as string | undefined
   return (
-    <div className="rounded-xl bg-white border border-[#C0C4CF] p-3 shadow-lg text-xs max-w-xs">
-      <p className="font-semibold text-[#1A1F2E] mb-1">{label}</p>
+    <div className="rounded-xl bg-[#1E2127] border border-[#2B2F37] p-3 shadow-[3px_3px_7px_#111317,-3px_-3px_7px_#2B2F37] text-xs max-w-xs">
+      <p className="font-semibold text-[#E2E8F2] mb-1">{label}</p>
       {payload.map((p) => (
         <p key={p.name} style={{ color: p.color }}>{p.name}: {p.value}</p>
       ))}
       {severity && severity !== 'normal' && (
-        <p className={`mt-1 font-medium ${severity === 'critical' ? 'text-[#DC2626]' : 'text-[#D97706]'}`}>
+        <p className={`mt-1 font-medium ${severity === 'critical' ? 'text-[#EF4444]' : 'text-[#F59E0B]'}`}>
           {severity === 'critical' ? '위험' : '경고'}
         </p>
       )}
-      {summary && <p className="mt-1 text-[#4A5568] whitespace-pre-wrap">{summary}</p>}
-      {prediction && <p className="mt-1 text-[#6366F1] italic">{prediction}</p>}
+      {summary && <p className="mt-1 text-[#8B97AD] whitespace-pre-wrap">{summary}</p>}
+      {prediction && <p className="mt-1 text-[#00D4FF] italic">{prediction}</p>}
     </div>
   )
 }
@@ -66,10 +66,10 @@ export function MetricChart({ aggregations, metricKeys, title, unit, onPointClic
     })
 
   return (
-    <div className="rounded-2xl bg-[#E8EBF0] p-4 shadow-[6px_6px_12px_#C8CBD4,-6px_-6px_12px_#FFFFFF]">
-      <h3 className="text-sm font-semibold text-[#1A1F2E] mb-3">{title}{unit && ` (${unit})`}</h3>
+    <div className="rounded-2xl bg-[#1E2127] p-4 shadow-[3px_3px_7px_#111317,-3px_-3px_7px_#2B2F37]">
+      <h3 className="text-sm font-semibold text-[#E2E8F2] mb-3">{title}{unit && ` (${unit})`}</h3>
       {data.length === 0 ? (
-        <div className="flex items-center justify-center h-32 text-sm text-[#4A5568]">데이터 없음</div>
+        <div className="flex items-center justify-center h-32 text-sm text-[#8B97AD]">데이터 없음</div>
       ) : (
         <ResponsiveContainer width="100%" height={200}>
           <ComposedChart
@@ -81,9 +81,9 @@ export function MetricChart({ aggregations, metricKeys, title, unit, onPointClic
               }
             }}
           >
-            <CartesianGrid strokeDasharray="3 3" stroke="#C8CBD4" />
-            <XAxis dataKey="timestamp" tick={{ fontSize: 11, fill: '#4A5568' }} />
-            <YAxis tick={{ fontSize: 11, fill: '#4A5568' }} unit={unit} />
+            <CartesianGrid strokeDasharray="3 3" stroke="#2B2F37" />
+            <XAxis dataKey="timestamp" tick={{ fontSize: 11, fill: '#8B97AD' }} />
+            <YAxis tick={{ fontSize: 11, fill: '#8B97AD' }} unit={unit} />
             <Tooltip content={<CustomTooltip />} />
             <Legend />
             {metricKeys.map((key, i) => (
@@ -98,10 +98,10 @@ export function MetricChart({ aggregations, metricKeys, title, unit, onPointClic
               />
             ))}
             {warningPoints.map(ts => (
-              <ReferenceLine key={`w-${ts}`} x={ts} stroke="#D97706" strokeDasharray="4 2" />
+              <ReferenceLine key={`w-${ts}`} x={ts} stroke="#F59E0B" strokeDasharray="4 2" />
             ))}
             {criticalPoints.map(ts => (
-              <ReferenceLine key={`c-${ts}`} x={ts} stroke="#DC2626" strokeDasharray="4 2" />
+              <ReferenceLine key={`c-${ts}`} x={ts} stroke="#EF4444" strokeDasharray="4 2" />
             ))}
           </ComposedChart>
         </ResponsiveContainer>

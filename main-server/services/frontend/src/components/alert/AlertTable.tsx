@@ -38,25 +38,34 @@ export function AlertTable({ alerts, onSelect }: AlertTableProps) {
     <div className="overflow-x-auto">
       <table className="w-full">
         <thead>
-          <tr className="border-b border-[#D4D7DE]">
+          <tr className="border-b border-[#2B2F37]">
             {['심각도', '유형', '제목', '이상 유형', '발생 시각', '확인'].map((h) => (
               <th
                 key={h}
-                className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-[#4A5568]"
+                className="px-4 py-3 text-left type-label"
               >
                 {h}
               </th>
             ))}
           </tr>
         </thead>
-        <tbody className="divide-y divide-[#E8EBF0]">
+        <tbody className="divide-y divide-[#2B2F37]">
           {alerts.map((alert) => (
             <tr
               key={alert.id}
               onClick={() => onSelect(alert)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  onSelect(alert)
+                }
+              }}
+              tabIndex={0}
+              aria-label={`알림: ${alert.title} (${alert.severity})`}
               className={cn(
                 'cursor-pointer transition-colors',
-                'hover:bg-[rgba(99,102,241,0.04)]',
+                'hover:bg-[rgba(0,212,255,0.04)]',
+                'focus-visible:outline-none focus-visible:bg-[rgba(0,212,255,0.06)]',
                 alert.acknowledged && 'opacity-60'
               )}
             >
@@ -71,24 +80,24 @@ export function AlertTable({ alerts, onSelect }: AlertTableProps) {
                 </NeuBadge>
               </td>
               <td className="px-4 py-3">
-                <p className="text-sm font-medium text-[#1A1F2E] max-w-xs truncate">
+                <p className="text-sm font-medium text-[#E2E8F2] max-w-xs truncate">
                   {alert.title}
                 </p>
                 {alert.alertname && (
-                  <p className="text-xs text-[#4A5568] font-mono">{alert.alertname}</p>
+                  <p className="text-xs text-[#8B97AD] font-mono">{alert.alertname}</p>
                 )}
               </td>
               <td className="px-4 py-3">
                 <AnomalyTypeBadge type={alert.anomaly_type} />
               </td>
-              <td className="px-4 py-3 text-sm text-[#4A5568] whitespace-nowrap">
+              <td className="px-4 py-3 text-sm text-[#8B97AD] whitespace-nowrap">
                 {formatRelative(alert.created_at)}
               </td>
               <td className="px-4 py-3">
                 {alert.acknowledged ? (
-                  <CheckCircle className="w-4 h-4 text-[#16A34A]" />
+                  <CheckCircle className="w-4 h-4 text-[#22C55E]" />
                 ) : (
-                  <span className="inline-block w-2 h-2 rounded-full bg-[#DC2626]" />
+                  <span className="inline-block w-2 h-2 rounded-full bg-[#EF4444]" />
                 )}
               </td>
             </tr>

@@ -59,12 +59,12 @@ export function ContactListPage() {
           cta={{ label: '담당자 등록', onClick: () => navigate('/contacts/new') }}
         />
       ) : (
-        <div className="rounded-2xl bg-[#E8EBF0] shadow-[6px_6px_12px_#C8CBD4,-6px_-6px_12px_#FFFFFF] overflow-hidden">
+        <div className="rounded-2xl bg-[#1E2127] shadow-[3px_3px_7px_#111317,-3px_-3px_7px_#2B2F37] overflow-hidden">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-[#C0C4CF]">
+              <tr className="border-b border-[#2B2F37]">
                 {['이름', '이메일', 'Teams UPN', '알림 채널', 'LLM 키', '등록일', ''].map(h => (
-                  <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-[#4A5568]">{h}</th>
+                  <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-[#8B97AD]">{h}</th>
                 ))}
               </tr>
             </thead>
@@ -85,10 +85,10 @@ export function ContactListPage() {
       {/* Confirm Dialog */}
       {confirmId !== null && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/30" onClick={() => setConfirmId(null)} />
-          <div className="relative bg-[#E8EBF0] rounded-2xl p-6 shadow-xl max-w-sm w-full mx-4">
-            <h3 className="text-base font-semibold text-[#1A1F2E] mb-2">담당자 삭제</h3>
-            <p className="text-sm text-[#4A5568] mb-4">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setConfirmId(null)} />
+          <div className="relative bg-[#1E2127] rounded-2xl p-6 shadow-[3px_3px_7px_#111317,-3px_-3px_7px_#2B2F37] border border-[#2B2F37] max-w-sm w-full mx-4">
+            <h3 className="text-base font-semibold text-[#E2E8F2] mb-2">담당자 삭제</h3>
+            <p className="text-sm text-[#8B97AD] mb-4">
               이 담당자가 연결된 시스템에서 제거됩니다. 계속하시겠습니까?
             </p>
             <div className="flex gap-2 justify-end">
@@ -114,27 +114,27 @@ function ContactRow({ contact, onEdit, onDelete }: {
   onDelete: () => void
 }) {
   return (
-    <tr className="border-b border-[#C0C4CF] last:border-0 hover:bg-[rgba(0,0,0,0.02)] transition-colors">
-      <td className="px-4 py-3 font-medium text-[#1A1F2E]">{contact.name}</td>
-      <td className="px-4 py-3 text-[#4A5568]">{contact.email ?? '-'}</td>
-      <td className="px-4 py-3 text-[#4A5568]">{contact.teams_upn ?? '-'}</td>
+    <tr className="border-b border-[#2B2F37] last:border-0 hover:bg-[rgba(0,212,255,0.04)] transition-colors">
+      <td className="px-4 py-3 font-medium text-[#E2E8F2]">{contact.name}</td>
+      <td className="px-4 py-3 text-[#8B97AD]">{contact.email ?? '-'}</td>
+      <td className="px-4 py-3 text-[#8B97AD]">{contact.teams_upn ?? '-'}</td>
       <td className="px-4 py-3">
         <div className="flex gap-1 flex-wrap">
           {contact.webhook_url && <NeuBadge variant="normal">Webhook</NeuBadge>}
           {contact.teams_upn && <NeuBadge variant="info">Teams</NeuBadge>}
-          {!contact.webhook_url && !contact.teams_upn && <span className="text-[#4A5568]">-</span>}
+          {!contact.webhook_url && !contact.teams_upn && <span className="text-[#5A6478]">-</span>}
         </div>
       </td>
-      <td className="px-4 py-3 text-[#4A5568]">
+      <td className="px-4 py-3 text-[#8B97AD]">
         {contact.llm_api_key ? contact.llm_api_key : '-'}
       </td>
-      <td className="px-4 py-3 text-[#4A5568]">{formatKST(contact.created_at, 'date')}</td>
+      <td className="px-4 py-3 text-[#8B97AD]">{formatKST(contact.created_at, 'date')}</td>
       <td className="px-4 py-3">
         <div className="flex gap-2">
-          <button onClick={onEdit} className="text-[#6366F1] hover:text-[#4F46E5]" aria-label="수정">
+          <button onClick={onEdit} className="text-[#8B97AD] hover:text-[#00D4FF]" aria-label="수정">
             <Pencil className="w-4 h-4" />
           </button>
-          <button onClick={onDelete} className="text-[#4A5568] hover:text-[#DC2626]" aria-label="삭제">
+          <button onClick={onDelete} className="text-[#8B97AD] hover:text-[#EF4444]" aria-label="삭제">
             <Trash2 className="w-4 h-4" />
           </button>
         </div>

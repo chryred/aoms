@@ -81,7 +81,7 @@ export function ReportPage() {
       </div>
 
       {isLoading ? (
-        <div className="text-sm text-[#4A5568]">불러오는 중...</div>
+        <div className="text-sm text-[#8B97AD]">불러오는 중...</div>
       ) : Object.keys(bySystem).length === 0 ? (
         <EmptyState
           icon={<BarChart3 className="w-10 h-10" />}

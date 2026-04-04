@@ -128,6 +128,18 @@ services:
     networks:
       - dev-net
 
+  frontend:
+    image: aoms-frontend:1.0
+    container_name: dev-frontend
+    ports:
+      - "3001:80"
+    extra_hosts:
+      - "admin-api:host-gateway"       # 호스트에서 실행 중인 admin-api (8080)
+      - "log-analyzer:host-gateway"    # 호스트에서 실행 중인 log-analyzer (8000)
+    restart: unless-stopped
+    networks:
+      - dev-net
+
   ollama:
     image: ollama/ollama:0.18.0
     container_name: dev-ollama

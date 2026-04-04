@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useSystems } from '@/hooks/queries/useSystems'
 import { useAlerts } from '@/hooks/queries/useAlerts'
@@ -29,6 +29,8 @@ export function DashboardPage() {
     if (systems) setLastRefreshed(new Date())
   }, [systems])
 
+  const handleAddSystem = useCallback(() => navigate('/systems'), [navigate])
+
   return (
     <div className="space-y-8">
       <PageHeader
@@ -38,10 +40,10 @@ export function DashboardPage() {
 
       {/* 시스템 상태 그리드 */}
       <section>
-        <h2 className="mb-3 text-lg font-semibold text-[#1A1F2E]">
+        <h2 className="mb-3 text-lg font-semibold text-[#E2E8F2]">
           모니터링 시스템
           {systems && (
-            <span className="ml-2 text-sm font-normal text-[#4A5568]">
+            <span className="ml-2 text-sm font-normal text-[#8B97AD]">
               ({systems.length}개)
             </span>
           )}
@@ -53,7 +55,7 @@ export function DashboardPage() {
         ) : (
           <SystemStatusGrid
             systems={systems ?? []}
-            onAddSystem={() => navigate('/systems')}
+            onAddSystem={handleAddSystem}
           />
         )}
       </section>

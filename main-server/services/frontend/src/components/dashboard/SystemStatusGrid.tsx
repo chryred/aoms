@@ -1,3 +1,4 @@
+import { memo } from 'react'
 import { SystemStatusCard } from './SystemStatusCard'
 import { EmptyState } from '@/components/common/EmptyState'
 import { Server } from 'lucide-react'
@@ -8,7 +9,7 @@ interface SystemStatusGridProps {
   onAddSystem?: () => void
 }
 
-export function SystemStatusGrid({ systems, onAddSystem }: SystemStatusGridProps) {
+export const SystemStatusGrid = memo(function SystemStatusGrid({ systems, onAddSystem }: SystemStatusGridProps) {
   if (systems.length === 0) {
     return (
       <EmptyState
@@ -27,4 +28,4 @@ export function SystemStatusGrid({ systems, onAddSystem }: SystemStatusGridProps
       ))}
     </div>
   )
-}
+})

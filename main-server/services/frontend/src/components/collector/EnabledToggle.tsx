@@ -41,9 +41,9 @@ export function EnabledToggle({ configId, enabled }: EnabledToggleProps) {
       onClick={handleToggle}
       className={cn(
         'relative inline-flex h-6 w-11 items-center rounded-full transition-colors',
-        'focus:outline-none focus:ring-2 focus:ring-[#6366F1] focus:ring-offset-2',
+        'focus:outline-none focus:ring-2 focus:ring-[#00D4FF] focus:ring-offset-2 focus:ring-offset-[#1E2127]',
         'disabled:opacity-50 disabled:cursor-not-allowed',
-        optimisticEnabled ? 'bg-[#6366F1]' : 'bg-[#C8CBD4]'
+        optimisticEnabled ? 'bg-[#00D4FF]' : 'bg-[#2B2F37]'
       )}
     >
       <span

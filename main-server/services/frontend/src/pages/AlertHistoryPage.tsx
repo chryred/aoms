@@ -55,17 +55,17 @@ export function AlertHistoryPage() {
       />
 
       {/* 탭 */}
-      <div className="flex gap-1 mb-4 p-1 rounded-xl bg-[#E8EBF0] shadow-[inset_4px_4px_8px_#C8CBD4,inset_-4px_-4px_8px_#FFFFFF] w-fit">
+      <div className="flex gap-1 mb-4 p-1 rounded-xl bg-[#1E2127] shadow-[inset_1px_1px_3px_#111317,inset_-1px_-1px_3px_#2B2F37] w-fit">
         {TABS.map(({ key, label }) => (
           <button
             key={key}
             onClick={() => handleTabChange(key)}
             className={cn(
               'rounded-lg px-4 py-1.5 text-sm font-medium transition-all',
-              'focus:outline-none focus:ring-2 focus:ring-[#6366F1]',
+              'focus:outline-none focus:ring-2 focus:ring-[#00D4FF] focus:ring-offset-[#1E2127]',
               tab === key
-                ? 'bg-[#6366F1] text-white shadow-[3px_3px_6px_#C8CBD4,-3px_-3px_6px_#FFFFFF]'
-                : 'text-[#4A5568] hover:bg-[rgba(99,102,241,0.08)]'
+                ? 'bg-[#00D4FF] text-[#1E2127] font-semibold shadow-[2px_2px_4px_#111317]'
+                : 'text-[#8B97AD] hover:text-[#E2E8F2] hover:bg-[rgba(255,255,255,0.05)]'
             )}
           >
             {label}
@@ -115,7 +115,7 @@ export function AlertHistoryPage() {
       {/* 페이지네이션 */}
       {!isLoading && !error && (
         <div className="flex items-center justify-between mt-4">
-          <span className="text-sm text-[#4A5568]">페이지 {currentPage}</span>
+          <span className="text-sm text-[#8B97AD]">페이지 {currentPage}</span>
           <div className="flex gap-2">
             <NeuButton
               variant="ghost"

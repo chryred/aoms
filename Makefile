@@ -4,6 +4,7 @@ ROOT_DIR      := $(shell pwd)
 MAIN_SERVER   := $(ROOT_DIR)/main-server
 ADMIN_API_DIR := $(MAIN_SERVER)/services/admin-api
 ANALYZER_DIR  := $(MAIN_SERVER)/services/log-analyzer
+FRONTEND_DIR  := $(MAIN_SERVER)/services/frontend
 VENV          := $(ROOT_DIR)/venv
 PYTHON        := $(VENV)/bin/python
 PIP           := $(VENV)/bin/pip
@@ -22,6 +23,7 @@ help:
 	@echo "  인프라"
 	@echo "    make dev-up         로컬 인프라 시작 (postgres, loki, qdrant 등)"
 	@echo "    make dev-down       로컬 인프라 중지"
+	@echo "    make dev-restart    로컬 인프라 재시작"
 	@echo "    make dev-clean      인프라 중지 + 볼륨 삭제 (DB 초기화)"
 	@echo "    make dev-logs       인프라 로그 스트리밍"
 	@echo "    make dev-ps         실행 중인 컨테이너 상태 확인"
@@ -29,6 +31,7 @@ help:
 	@echo "  앱 실행 (hot-reload)"
 	@echo "    make run-api        admin-api 실행 (포트 8080)"
 	@echo "    make run-analyzer   log-analyzer 실행 (포트 8000)"
+	@echo "    make run-frontend   frontend 개발 서버 실행 (포트 3001)"
 	@echo ""
 	@echo "  테스트 (단위)"
 	@echo "    make test-api       admin-api 단위 테스트"
@@ -89,6 +92,12 @@ dev-up:
 dev-down:
 	cd $(MAIN_SERVER) && docker compose -f docker-compose.dev.yml down
 
+.PHONY: dev-restart
+dev-restart:
+	@echo "→ 로컬 인프라 재시작..."
+	cd $(MAIN_SERVER) && docker compose -f docker-compose.dev.yml restart
+	@echo "✓ 완료"
+
 .PHONY: dev-clean
 dev-clean:
 	@echo "⚠ 볼륨까지 삭제됩니다 (DB 데이터 초기화)"
@@ -121,6 +130,11 @@ run-api: _check-env
 	@echo "  Swagger UI: http://localhost:8080/docs"
 	cd $(ADMIN_API_DIR) && set -a && source $(ENV_FILE) && set +a && \
 		$(UVICORN) main:app --host 0.0.0.0 --port 8080 --reload
+
+.PHONY: run-frontend
+run-frontend:
+	@echo "→ frontend 개발 서버 시작 (http://localhost:3001)"
+	cd $(FRONTEND_DIR) && npm run dev
 
 .PHONY: run-analyzer
 run-analyzer: _check-env

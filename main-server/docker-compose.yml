@@ -161,6 +161,18 @@ services:
     restart: unless-stopped
     networks:
       - aoms-net
+  frontend:
+    image: aoms-frontend:1.0           # 사전 빌드 후 load된 이미지
+    container_name: aoms-frontend
+    ports:
+      - "3001:80"
+    mem_limit: 64m
+    cpus: '0.1'
+    depends_on: [admin-api, log-analyzer]
+    restart: unless-stopped
+    networks:
+      - aoms-net
+
   n8n:
     image: n8nio/n8n:1.44.0
     container_name: aoms-n8n

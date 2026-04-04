@@ -1,5 +1,5 @@
 import { cn } from '@/lib/utils'
-import type { ReactNode } from 'react'
+import type { ReactNode, KeyboardEvent } from 'react'
 
 interface NeuCardProps {
   children: ReactNode
@@ -10,17 +10,33 @@ interface NeuCardProps {
 }
 
 export function NeuCard({ children, className, severity, pressed, onClick }: NeuCardProps) {
+  const handleKeyDown = onClick
+    ? (e: KeyboardEvent<HTMLDivElement>) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          onClick()
+        }
+      }
+    : undefined
+
   return (
     <div
       onClick={onClick}
+      onKeyDown={handleKeyDown}
+      role={onClick ? 'button' : undefined}
+      tabIndex={onClick ? 0 : undefined}
       className={cn(
-        'rounded-2xl bg-[#E8EBF0] p-6 transition-shadow',
+        'rounded-2xl bg-[#1E2127] p-6 transition-shadow',
         pressed
-          ? 'shadow-[inset_4px_4px_8px_#C8CBD4,inset_-4px_-4px_8px_#FFFFFF]'
-          : 'shadow-[6px_6px_12px_#C8CBD4,-6px_-6px_12px_#FFFFFF]',
-        severity === 'critical' && 'border-l-4 border-l-[#DC2626] bg-[rgba(220,38,38,0.04)]',
-        severity === 'warning' && 'border-l-4 border-l-[#D97706]',
-        onClick && 'cursor-pointer hover:shadow-[8px_8px_16px_#C8CBD4,-8px_-8px_16px_#FFFFFF]',
+          ? 'shadow-[inset_2px_2px_5px_#111317,inset_-2px_-2px_5px_#2B2F37]'
+          : 'shadow-[3px_3px_7px_#111317,-3px_-3px_7px_#2B2F37]',
+        severity === 'critical' && 'border-l-4 border-l-[#EF4444] bg-[rgba(239,68,68,0.06)]',
+        severity === 'warning' && 'border-l-4 border-l-[#F59E0B] bg-[rgba(245,158,11,0.04)]',
+        onClick && [
+          'cursor-pointer',
+          'hover:shadow-[4px_4px_10px_#111317,-4px_-4px_10px_#2B2F37]',
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00D4FF] focus-visible:ring-offset-2 focus-visible:ring-offset-[#1E2127]',
+        ],
         className
       )}
     >

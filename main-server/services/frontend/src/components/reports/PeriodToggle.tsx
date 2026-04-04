@@ -19,17 +19,17 @@ const PERIODS: ReportType[] = ['daily', 'weekly', 'monthly', 'quarterly', 'half_
 
 export function PeriodToggle({ value, onChange }: PeriodToggleProps) {
   return (
-    <div className="flex flex-wrap gap-1 p-1 rounded-xl bg-[#E8EBF0] shadow-[inset_2px_2px_4px_#C8CBD4,inset_-2px_-2px_4px_#FFFFFF]">
+    <div className="flex flex-wrap gap-1 p-1 rounded-xl bg-[#1E2127] shadow-[inset_1px_1px_3px_#111317,inset_-1px_-1px_3px_#2B2F37]">
       {PERIODS.map(period => (
         <button
           key={period}
           onClick={() => onChange(period)}
           className={cn(
             'px-3 py-1.5 rounded-lg text-sm font-medium transition-all',
-            'focus:outline-none focus:ring-2 focus:ring-[#6366F1] focus:ring-offset-1',
+            'focus:outline-none focus:ring-2 focus:ring-[#00D4FF] focus:ring-offset-1 focus:ring-offset-[#1E2127]',
             value === period
-              ? 'bg-[#6366F1] text-white shadow-[2px_2px_4px_#C8CBD4]'
-              : 'text-[#4A5568] hover:text-[#1A1F2E]'
+              ? 'bg-[#00D4FF] text-[#1E2127] font-semibold shadow-[2px_2px_4px_#111317]'
+              : 'text-[#8B97AD] hover:text-[#E2E8F2] hover:bg-[rgba(255,255,255,0.05)]'
           )}
         >
           {PERIOD_LABELS[period]}

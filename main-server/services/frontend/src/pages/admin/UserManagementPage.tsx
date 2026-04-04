@@ -80,23 +80,23 @@ export function UserManagementPage() {
       <PageHeader title="사용자 승인 관리" />
 
       {/* 탭 */}
-      <div className="flex gap-1 bg-[#E0E3E9] p-1 rounded-xl w-fit shadow-[inset_2px_2px_4px_#C8CBD4,inset_-2px_-2px_4px_#FFFFFF]">
+      <div className="flex gap-1 bg-[#1E2127] p-1 rounded-xl w-fit shadow-[inset_1px_1px_3px_#111317,inset_-1px_-1px_3px_#2B2F37]">
         {tabs.map((tab) => (
           <button
             key={tab.key}
             onClick={() => setActiveTab(tab.key)}
             className={cn(
-              'relative px-4 py-2 rounded-lg text-sm font-medium transition-all',
+              'relative px-4 py-1.5 rounded-lg text-sm font-medium transition-all',
               activeTab === tab.key
-                ? 'bg-[#6366F1] text-white shadow-[2px_2px_4px_#C8CBD4,-2px_-2px_4px_#FFFFFF]'
-                : 'text-[#4A5568] hover:bg-[rgba(99,102,241,0.08)]'
+                ? 'bg-[#00D4FF] text-[#1E2127] font-semibold shadow-[2px_2px_4px_#111317]'
+                : 'text-[#8B97AD] hover:text-[#E2E8F2] hover:bg-[rgba(255,255,255,0.05)]'
             )}
           >
             {tab.key === 'pending' ? (
               <span className="flex items-center gap-1.5">
                 승인 대기
                 {pendingCount > 0 && (
-                  <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-[#DC2626] text-white text-xs">
+                  <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-[#EF4444] text-white text-xs">
                     {pendingCount}
                   </span>
                 )}
@@ -109,23 +109,23 @@ export function UserManagementPage() {
       </div>
 
       {/* 테이블 */}
-      <div className="bg-[#E8EBF0] rounded-2xl shadow-[6px_6px_12px_#C8CBD4,-6px_-6px_12px_#FFFFFF] overflow-hidden">
+      <div className="bg-[#1E2127] rounded-2xl shadow-[3px_3px_7px_#111317,-3px_-3px_7px_#2B2F37] overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-[#D4D7DE] text-[#4A5568] text-xs uppercase tracking-wider">
-                <th className="px-4 py-3 text-left font-semibold">이름</th>
-                <th className="px-4 py-3 text-left font-semibold">이메일</th>
-                <th className="px-4 py-3 text-left font-semibold">권한</th>
-                <th className="px-4 py-3 text-left font-semibold">상태</th>
-                <th className="px-4 py-3 text-left font-semibold">신청일</th>
-                <th className="px-4 py-3 text-left font-semibold">액션</th>
+              <tr className="border-b border-[#2B2F37]">
+                <th className="px-4 py-3 text-left type-label">이름</th>
+                <th className="px-4 py-3 text-left type-label">이메일</th>
+                <th className="px-4 py-3 text-left type-label">권한</th>
+                <th className="px-4 py-3 text-left type-label">상태</th>
+                <th className="px-4 py-3 text-left type-label">신청일</th>
+                <th className="px-4 py-3 text-left type-label">액션</th>
               </tr>
             </thead>
             <tbody>
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-4 py-8 text-center text-[#4A5568]">
+                  <td colSpan={6} className="px-4 py-8 text-center text-[#8B97AD]">
                     해당 사용자가 없습니다
                   </td>
                 </tr>
@@ -136,10 +136,10 @@ export function UserManagementPage() {
                   return (
                     <tr
                       key={user.id}
-                      className="border-b border-[#D4D7DE] last:border-0 hover:bg-[rgba(99,102,241,0.04)]"
+                      className="border-b border-[#2B2F37] last:border-0 hover:bg-[rgba(0,212,255,0.04)]"
                     >
-                      <td className="px-4 py-3 font-medium text-[#1A1F2E]">{user.name}</td>
-                      <td className="px-4 py-3 text-[#4A5568]">{user.email}</td>
+                      <td className="px-4 py-3 font-medium text-[#E2E8F2]">{user.name}</td>
+                      <td className="px-4 py-3 text-[#8B97AD]">{user.email}</td>
                       <td className="px-4 py-3">
                         {isSelf ? (
                           <UserRoleBadge role={user.role} />
@@ -153,7 +153,7 @@ export function UserManagementPage() {
                                 body: { role: e.target.value as 'admin' | 'operator' },
                               })
                             }
-                            className="text-xs rounded-lg border border-[#D4D7DE] bg-[#E8EBF0] px-2 py-1 text-[#4A5568] focus:outline-none focus:ring-2 focus:ring-[#6366F1]"
+                            className="text-xs rounded-lg border border-[#2B2F37] bg-[#1E2127] px-2 py-1 text-[#8B97AD] focus:outline-none focus:ring-2 focus:ring-[#00D4FF] [color-scheme:dark]"
                           >
                             <option value="operator">운영자</option>
                             <option value="admin">관리자</option>
@@ -163,11 +163,11 @@ export function UserManagementPage() {
                       <td className="px-4 py-3">
                         <UserStatusBadge status={userStatus} />
                       </td>
-                      <td className="px-4 py-3 text-[#4A5568]">{formatDate(user.created_at)}</td>
+                      <td className="px-4 py-3 text-[#8B97AD]">{formatDate(user.created_at)}</td>
                       <td className="px-4 py-3">
                         {isSelf ? (
                           <span
-                            className="text-xs text-[#4A5568] cursor-not-allowed"
+                            className="text-xs text-[#5A6478] cursor-not-allowed"
                             title="본인 계정은 변경할 수 없습니다"
                           >
                             —
@@ -177,7 +177,7 @@ export function UserManagementPage() {
                             {userStatus === 'pending' && (
                               <>
                                 <button
-                                  className="text-xs font-medium text-[#16A34A] hover:underline"
+                                  className="text-xs font-medium text-[#22C55E] hover:underline"
                                   onClick={() =>
                                     setConfirmState({ open: true, userId: user.id, action: 'approve' })
                                   }
@@ -185,7 +185,7 @@ export function UserManagementPage() {
                                   승인
                                 </button>
                                 <button
-                                  className="text-xs font-medium text-[#DC2626] hover:underline"
+                                  className="text-xs font-medium text-[#EF4444] hover:underline"
                                   onClick={() =>
                                     setConfirmState({ open: true, userId: user.id, action: 'reject' })
                                   }
@@ -196,7 +196,7 @@ export function UserManagementPage() {
                             )}
                             {userStatus === 'active' && (
                               <button
-                                className="text-xs font-medium text-[#D97706] hover:underline"
+                                className="text-xs font-medium text-[#F59E0B] hover:underline"
                                 onClick={() =>
                                   setConfirmState({ open: true, userId: user.id, action: 'disable' })
                                 }
@@ -206,7 +206,7 @@ export function UserManagementPage() {
                             )}
                             {userStatus === 'disabled' && (
                               <button
-                                className="text-xs font-medium text-[#16A34A] hover:underline"
+                                className="text-xs font-medium text-[#22C55E] hover:underline"
                                 onClick={() =>
                                   setConfirmState({ open: true, userId: user.id, action: 'reactivate' })
                                 }

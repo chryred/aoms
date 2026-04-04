@@ -24,7 +24,7 @@ export function UserRoleBadge({ role }: UserRoleBadgeProps) {
     <NeuBadge
       className={
         role === 'admin'
-          ? 'bg-[#EEF2FF] text-[#6366F1] border-[#C7D2FE]'
+          ? 'bg-[rgba(0,212,255,0.10)] text-[#00D4FF] border border-[rgba(0,212,255,0.20)]'
           : undefined
       }
       variant={role === 'admin' ? undefined : 'muted'}

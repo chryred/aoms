@@ -52,7 +52,7 @@ export function SystemDetailPage() {
   )
 
   if (isLoading) return <LoadingSkeleton />
-  if (!system) return <div className="text-[#4A5568]">시스템을 찾을 수 없습니다.</div>
+  if (!system) return <div className="text-[#8B97AD]">시스템을 찾을 수 없습니다.</div>
 
   // collector_type별 metric_group 분리
   const groupedMetrics = hourly.reduce<Record<string, HourlyAggregation[]>>((acc, agg) => {
@@ -74,10 +74,10 @@ export function SystemDetailPage() {
 
   return (
     <div>
-      <nav className="text-xs text-[#4A5568] mb-3">
+      <nav className="text-xs text-[#8B97AD] mb-3">
         <Link to="/dashboard" className="hover:underline">대시보드</Link>
         <span className="mx-1">›</span>
-        <span className="text-[#1A1F2E]">{system.display_name}</span>
+        <span className="text-[#E2E8F2]">{system.display_name}</span>
       </nav>
 
       <PageHeader
@@ -91,9 +91,9 @@ export function SystemDetailPage() {
 
       {/* 시스템 정보 카드 */}
       <NeuCard className="mb-4 grid grid-cols-3 gap-4 text-sm">
-        <div><p className="text-xs text-[#4A5568]">호스트</p><p className="font-medium">{system.host}</p></div>
-        <div><p className="text-xs text-[#4A5568]">OS</p><p className="font-medium">{system.os_type}</p></div>
-        <div><p className="text-xs text-[#4A5568]">유형</p><p className="font-medium">{system.system_type}</p></div>
+        <div><p className="text-xs text-[#8B97AD]">호스트</p><p className="font-medium text-[#E2E8F2]">{system.host}</p></div>
+        <div><p className="text-xs text-[#8B97AD]">OS</p><p className="font-medium text-[#E2E8F2]">{system.os_type}</p></div>
+        <div><p className="text-xs text-[#8B97AD]">유형</p><p className="font-medium text-[#E2E8F2]">{system.system_type}</p></div>
       </NeuCard>
 
       {/* TrendAlert 배너 */}
@@ -101,21 +101,21 @@ export function SystemDetailPage() {
         <div className={cn(
           'rounded-xl border p-3 mb-4 flex gap-3',
           systemTrends[0].llm_severity === 'critical'
-            ? 'bg-[rgba(220,38,38,0.06)] border-[#DC2626]'
-            : 'bg-[rgba(217,119,6,0.06)] border-[#D97706]'
+            ? 'bg-[rgba(239,68,68,0.06)] border-[#EF4444]'
+            : 'bg-[rgba(245,158,11,0.06)] border-[#F59E0B]'
         )}>
-          <AlertTriangle className="w-5 h-5 mt-0.5 shrink-0 text-[#D97706]" />
+          <AlertTriangle className="w-5 h-5 mt-0.5 shrink-0 text-[#F59E0B]" />
           <div className="text-sm">
-            <p className="font-semibold text-[#1A1F2E] mb-1">장애 예측 알림</p>
+            <p className="font-semibold text-[#E2E8F2] mb-1">장애 예측 알림</p>
             {systemTrends.map(t => (
-              <p key={t.id} className="text-[#4A5568] whitespace-pre-wrap">{t.llm_prediction}</p>
+              <p key={t.id} className="text-[#8B97AD] whitespace-pre-wrap">{t.llm_prediction}</p>
             ))}
           </div>
         </div>
       )}
 
       {/* 탭 */}
-      <div className="flex gap-1 mb-4 border-b border-[#C0C4CF]">
+      <div className="flex gap-1 mb-4 border-b border-[#2B2F37]">
         {(['metrics', 'alerts', 'analysis', 'contacts'] as TabKey[]).map(t => (
           <button
             key={t}
@@ -123,8 +123,8 @@ export function SystemDetailPage() {
             className={cn(
               'px-4 py-2 text-sm font-medium transition-colors',
               tab === t
-                ? 'text-[#6366F1] border-b-2 border-[#6366F1]'
-                : 'text-[#4A5568] hover:text-[#1A1F2E]'
+                ? 'text-[#00D4FF] border-b-2 border-[#00D4FF]'
+                : 'text-[#8B97AD] hover:text-[#E2E8F2]'
             )}
           >
             {t === 'metrics' ? '메트릭' : t === 'alerts' ? '알림' : t === 'analysis' ? '분석' : '담당자'}
@@ -136,16 +136,16 @@ export function SystemDetailPage() {
         <div>
           {/* collector_type 선택 */}
           {availableCollectors.length > 0 && (
-            <div className="flex gap-2 mb-3 flex-wrap">
+            <div className="flex gap-1 mb-3 flex-wrap p-1 rounded-xl bg-[#1E2127] shadow-[inset_1px_1px_3px_#111317,inset_-1px_-1px_3px_#2B2F37] w-fit">
               {availableCollectors.map(ct => (
                 <button
                   key={ct}
                   onClick={() => setCollectorType(ct)}
                   className={cn(
-                    'px-3 py-1.5 rounded-lg text-xs font-medium transition-all',
+                    'px-3 py-1 rounded-lg text-xs font-medium transition-all',
                     collectorType === ct
-                      ? 'bg-[#6366F1] text-white'
-                      : 'bg-[#E8EBF0] text-[#4A5568] shadow-[3px_3px_6px_#C8CBD4,-3px_-3px_6px_#FFFFFF]'
+                      ? 'bg-[#00D4FF] text-[#1E2127] font-semibold shadow-[2px_2px_4px_#111317]'
+                      : 'text-[#8B97AD] hover:text-[#E2E8F2] hover:bg-[rgba(255,255,255,0.05)]'
                   )}
                 >
                   {ct}
@@ -155,7 +155,7 @@ export function SystemDetailPage() {
           )}
 
           {/* 시간 범위 선택 */}
-          <div className="flex gap-2 mb-4">
+          <div className="flex gap-1 mb-4 p-1 rounded-xl bg-[#1E2127] shadow-[inset_1px_1px_3px_#111317,inset_-1px_-1px_3px_#2B2F37] w-fit">
             {(['6h', '12h', '24h', '48h'] as TimeRange[]).map(r => (
               <button
                 key={r}
@@ -163,8 +163,8 @@ export function SystemDetailPage() {
                 className={cn(
                   'px-3 py-1 rounded-lg text-xs font-medium transition-all',
                   timeRange === r
-                    ? 'bg-[#6366F1] text-white'
-                    : 'bg-[#E8EBF0] text-[#4A5568] shadow-[2px_2px_4px_#C8CBD4,-2px_-2px_4px_#FFFFFF]'
+                    ? 'bg-[#00D4FF] text-[#1E2127] font-semibold shadow-[2px_2px_4px_#111317]'
+                    : 'text-[#8B97AD] hover:text-[#E2E8F2] hover:bg-[rgba(255,255,255,0.05)]'
                 )}
               >
                 최근 {r}
@@ -189,7 +189,7 @@ export function SystemDetailPage() {
               )
             })}
             {Object.keys(groupedMetrics).length === 0 && (
-              <p className="text-sm text-[#4A5568]">이 기간에 집계 데이터가 없습니다.</p>
+              <p className="text-sm text-[#8B97AD]">이 기간에 집계 데이터가 없습니다.</p>
             )}
           </div>
         </div>
@@ -198,15 +198,15 @@ export function SystemDetailPage() {
       {tab === 'alerts' && (
         <div>
           {alerts.length === 0
-            ? <p className="text-sm text-[#4A5568]">알림 이력이 없습니다.</p>
+            ? <p className="text-sm text-[#8B97AD]">알림 이력이 없습니다.</p>
             : (
               <div className="flex flex-col gap-2">
                 {alerts.map(a => (
                   <NeuCard key={a.id} severity={a.severity as 'warning' | 'critical' | undefined}>
                     <div className="flex items-start justify-between">
                       <div>
-                        <p className="font-medium text-[#1A1F2E] text-sm">{a.title}</p>
-                        {a.description && <p className="text-xs text-[#4A5568] mt-0.5">{a.description}</p>}
+                        <p className="font-medium text-[#E2E8F2] text-sm">{a.title}</p>
+                        {a.description && <p className="text-xs text-[#8B97AD] mt-0.5">{a.description}</p>}
                       </div>
                       <NeuBadge variant={a.severity === 'critical' ? 'critical' : a.severity === 'warning' ? 'warning' : 'muted'}>
                         {a.severity}
@@ -223,7 +223,7 @@ export function SystemDetailPage() {
       {tab === 'analysis' && (
         <>
           {logAnalysisAlerts.length === 0 ? (
-            <p className="text-sm text-[#4A5568]">이 시스템의 로그 분석 이력이 없습니다.</p>
+            <p className="text-sm text-[#8B97AD]">이 시스템의 로그 분석 이력이 없습니다.</p>
           ) : (
             <NeuCard className="p-0 overflow-hidden">
               <AlertTable alerts={logAnalysisAlerts} onSelect={setSelectedAlert} />

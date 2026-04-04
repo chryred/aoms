@@ -54,22 +54,22 @@ export function MetricGroupChecklist({
                 key={item.metric_group}
                 className={cn(
                   'flex items-start gap-3 p-3 rounded-xl cursor-pointer',
-                  'bg-[#E8EBF0] transition-shadow',
+                  'bg-[#1E2127] transition-shadow',
                   checked
-                    ? 'shadow-[inset_3px_3px_6px_#C8CBD4,inset_-3px_-3px_6px_#FFFFFF]'
-                    : 'shadow-[3px_3px_6px_#C8CBD4,-3px_-3px_6px_#FFFFFF]'
+                    ? 'shadow-[inset_2px_2px_5px_#111317,inset_-2px_-2px_5px_#2B2F37]'
+                    : 'shadow-[2px_2px_5px_#111317,-2px_-2px_5px_#2B2F37]'
                 )}
               >
                 <input
                   type="checkbox"
                   checked={checked}
                   onChange={() => onToggle(item.metric_group)}
-                  className="mt-0.5 w-4 h-4 accent-[#6366F1] flex-shrink-0"
+                  className="mt-0.5 w-4 h-4 accent-[#00D4FF] flex-shrink-0"
                   aria-label={item.metric_group}
                 />
                 <div>
-                  <p className="font-medium text-sm text-[#1A1F2E]">{item.metric_group}</p>
-                  <p className="text-xs text-[#4A5568]">{item.description}</p>
+                  <p className="font-medium text-sm text-[#E2E8F2]">{item.metric_group}</p>
+                  <p className="text-xs text-[#8B97AD]">{item.description}</p>
                 </div>
               </label>
             )
@@ -78,24 +78,24 @@ export function MetricGroupChecklist({
       )}
 
       {/* Inline error */}
-      {error && <p className="text-xs text-[#DC2626]">{error}</p>}
+      {error && <p className="text-xs text-[#EF4444]">{error}</p>}
 
       {/* Custom added items */}
       {customSelected.length > 0 && (
         <div className="flex flex-col gap-2">
-          <p className="text-xs font-medium text-[#4A5568]">추가된 항목</p>
+          <p className="text-xs font-medium text-[#8B97AD]">추가된 항목</p>
           <div className="flex flex-wrap gap-2">
             {customSelected.map((group) => (
               <span
                 key={group}
                 className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs
-                           bg-[rgba(99,102,241,0.1)] text-[#4338CA]"
+                           bg-[rgba(0,212,255,0.10)] text-[#00D4FF]"
               >
                 {group}
                 <button
                   type="button"
                   onClick={() => onRemove(group)}
-                  className="hover:text-[#DC2626] focus:outline-none"
+                  className="hover:text-[#EF4444] focus:outline-none"
                   aria-label={`${group} 제거`}
                 >
                   <X className="w-3 h-3" />
@@ -107,7 +107,7 @@ export function MetricGroupChecklist({
       )}
 
       {/* Divider */}
-      <hr className="border-[#C8CBD4]" />
+      <hr className="border-[#2B2F37]" />
 
       {/* Custom input */}
       <div className="flex gap-2 items-end">

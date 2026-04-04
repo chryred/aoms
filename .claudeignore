@@ -1,0 +1,20 @@
+# 폐쇄망 오프라인 배포 패키지 (6.7GB — 바이너리/이미지 모음)
+aoms-offline/
+
+# Python 가상환경
+venv/
+
+# Python 캐시
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+.python-version
+
+# Node.js 의존성
+**/node_modules/
+
+# 빌드 결과물
+**/dist/
+
+# 락 파일 (코드 작업에 불필요)
+**/package-lock.json

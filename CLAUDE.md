@@ -166,6 +166,36 @@ aoms/
 
 ---
 
+## 포트 맵
+
+### Server A — Main Server
+
+| 서비스 | 개발 (호스트 노출) | 운영 (호스트 노출) | 비고 |
+|---|---|---|---|
+| admin-api | `8080` (uvicorn 직접) | `8080` | Swagger: `/docs` |
+| log-analyzer | `8000` (uvicorn 직접) | `8000` | |
+| frontend | `3001` (Docker, nginx / npm run dev) | `3001` (Docker, nginx) | |
+| PostgreSQL | `5432` | `5432` | |
+| Prometheus | `9090` | `9090` | |
+| Alertmanager | `9093` | `9093` | |
+| Loki | `3100` | `3100` | |
+| Grafana | — (없음) | `3000` | |
+| n8n | `5678` | `5678` | |
+| Qdrant | `6333` (HTTP), `6334` (gRPC) | — (없음, Server B) | |
+| Ollama | `11434` | — (없음, Server B) | |
+
+> 개발 환경에서 `frontend` 컨테이너의 `/api/` → `admin-api`, `/analyze/` + `/aggregation/` → `log-analyzer`는  
+> `extra_hosts`로 호스트 머신을 향한다 (포트는 nginx.conf에 하드코딩 — 8080/8000).
+
+### Server B — AI/Vector
+
+| 서비스 | 포트 | 비고 |
+|---|---|---|
+| Ollama | `11434` | bge-m3 임베딩 모델 |
+| Qdrant | `6333` (HTTP), `6334` (gRPC) | 벡터 DB |
+
+---
+
 ## 핵심 데이터 흐름
 
 ### 메트릭 알림 흐름

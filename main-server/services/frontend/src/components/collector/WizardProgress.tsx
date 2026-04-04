@@ -29,10 +29,10 @@ export function WizardProgress({
                 className={cn(
                   'w-9 h-9 rounded-full flex items-center justify-center text-sm font-semibold transition-all',
                   isDone
-                    ? 'bg-[#6366F1] text-white'
+                    ? 'bg-[#00D4FF] text-[#1E2127]'
                     : isCurrent
-                      ? 'border-2 border-[#6366F1] text-[#6366F1] bg-[#E8EBF0]'
-                      : 'bg-[#C8CBD4] text-[#4A5568]'
+                      ? 'border-2 border-[#00D4FF] text-[#00D4FF] bg-[#1E2127]'
+                      : 'bg-[#2B2F37] text-[#5A6478]'
                 )}
                 aria-current={isCurrent ? 'step' : undefined}
               >
@@ -41,7 +41,7 @@ export function WizardProgress({
               <span
                 className={cn(
                   'mt-1 text-xs whitespace-nowrap',
-                  isCurrent ? 'text-[#6366F1] font-medium' : 'text-[#4A5568]'
+                  isCurrent ? 'text-[#00D4FF] font-medium' : 'text-[#8B97AD]'
                 )}
               >
                 {labels[i]}
@@ -52,7 +52,7 @@ export function WizardProgress({
               <div
                 className={cn(
                   'flex-1 h-0.5 mx-2 mb-4',
-                  isDone ? 'bg-[#6366F1]' : 'bg-[#C8CBD4]'
+                  isDone ? 'bg-[#00D4FF]' : 'bg-[#2B2F37]'
                 )}
               />
             )}

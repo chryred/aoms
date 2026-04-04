@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react'
 import { X, CheckCircle } from 'lucide-react'
 import { NeuButton } from '@/components/neumorphic/NeuButton'
 import { NeuBadge } from '@/components/neumorphic/NeuBadge'
@@ -19,6 +20,8 @@ const ALERT_TYPE_LABELS: Record<string, string> = {
   log_analysis: '로그 분석',
 }
 
+const PANEL_TITLE_ID = 'alert-detail-panel-title'
+
 interface AlertDetailPanelProps {
   alert: AlertHistory | null
   onClose: () => void
@@ -27,6 +30,46 @@ interface AlertDetailPanelProps {
 export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
   const user = useAuthStore((s) => s.user)
   const { mutate: acknowledge, isPending } = useAcknowledgeAlert()
+  const panelRef = useRef<HTMLDivElement>(null)
+
+  // Focus trap + ESC close
+  useEffect(() => {
+    if (!alert) return
+
+    const panel = panelRef.current
+    if (!panel) return
+
+    const FOCUSABLE = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+    const getFocusable = () => Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE))
+
+    // Focus first element on open
+    const focusables = getFocusable()
+    focusables[0]?.focus()
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { onClose(); return }
+      if (e.key !== 'Tab') return
+
+      const focusables = getFocusable()
+      const first = focusables[0]
+      const last = focusables[focusables.length - 1]
+
+      if (e.shiftKey) {
+        if (document.activeElement === first) {
+          e.preventDefault()
+          last?.focus()
+        }
+      } else {
+        if (document.activeElement === last) {
+          e.preventDefault()
+          first?.focus()
+        }
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [alert, onClose])
 
   if (!alert) return null
 
@@ -39,14 +82,20 @@ export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
 
   return (
     <>
-      <div className="fixed inset-0 z-40 bg-black/20" onClick={onClose} />
-      <div className="fixed right-0 top-0 bottom-0 z-50 w-full max-w-[460px] bg-[#E8EBF0]
-                      shadow-[-8px_0_32px_rgba(0,0,0,0.12)] flex flex-col">
+      <div className="fixed inset-0 z-40 bg-black/40" onClick={onClose} aria-hidden="true" />
+      <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={PANEL_TITLE_ID}
+        className="fixed right-0 top-0 bottom-0 z-50 w-full max-w-[460px] bg-[#1E2127]
+                   shadow-[-8px_0_32px_rgba(0,0,0,0.4)] border-l border-[#2B2F37] flex flex-col"
+      >
         {/* 헤더 */}
-        <div className="flex items-start justify-between px-6 py-4 border-b border-[#D4D7DE]">
+        <div className="flex items-start justify-between px-6 py-4 border-b border-[#2B2F37]">
           <div className="flex items-center gap-2 flex-wrap">
             <NeuBadge variant={SEVERITY_VARIANT[alert.severity]}>{alert.severity}</NeuBadge>
-            <span className="text-sm text-[#4A5568]">
+            <span className="text-sm text-[#8B97AD]">
               {ALERT_TYPE_LABELS[alert.alert_type] ?? alert.alert_type}
             </span>
             {alert.acknowledged && (
@@ -57,9 +106,9 @@ export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
           </div>
           <button
             onClick={onClose}
-            aria-label="닫기"
-            className="rounded-lg p-1.5 text-[#4A5568] hover:bg-[rgba(0,0,0,0.05)]
-                       focus:outline-none focus:ring-2 focus:ring-[#6366F1]"
+            aria-label="알림 상세 닫기"
+            className="rounded-lg p-1.5 text-[#8B97AD] hover:bg-[rgba(255,255,255,0.05)]
+                       focus:outline-none focus:ring-2 focus:ring-[#00D4FF]"
           >
             <X className="w-5 h-5" />
           </button>
@@ -68,31 +117,33 @@ export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
         {/* 내용 */}
         <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
           <div>
-            <h3 className="text-base font-semibold text-[#1A1F2E]">{alert.title}</h3>
+            <h3 id={PANEL_TITLE_ID} className="text-base font-semibold text-[#E2E8F2]">
+              {alert.title}
+            </h3>
           </div>
 
           {/* 메타 정보 */}
           <div className="grid grid-cols-2 gap-3 text-sm">
             <div>
-              <p className="text-xs font-medium text-[#A0A4B0] uppercase tracking-wider">발생 시각</p>
-              <p className="mt-0.5 text-[#1A1F2E]">{formatKST(alert.created_at)}</p>
+              <p className="type-label">발생 시각</p>
+              <p className="mt-0.5 text-[#E2E8F2]">{formatKST(alert.created_at)}</p>
             </div>
             {alert.alertname && (
               <div>
-                <p className="text-xs font-medium text-[#A0A4B0] uppercase tracking-wider">Alert Name</p>
-                <p className="mt-0.5 text-[#1A1F2E] font-mono text-xs">{alert.alertname}</p>
+                <p className="type-label">Alert Name</p>
+                <p className="mt-0.5 text-[#E2E8F2] font-mono text-xs break-all">{alert.alertname}</p>
               </div>
             )}
             {alert.instance_role && (
               <div>
-                <p className="text-xs font-medium text-[#A0A4B0] uppercase tracking-wider">인스턴스 역할</p>
-                <p className="mt-0.5 text-[#1A1F2E]">{alert.instance_role}</p>
+                <p className="type-label">인스턴스 역할</p>
+                <p className="mt-0.5 text-[#E2E8F2]">{alert.instance_role}</p>
               </div>
             )}
             {alert.host && (
               <div>
-                <p className="text-xs font-medium text-[#A0A4B0] uppercase tracking-wider">호스트</p>
-                <p className="mt-0.5 text-[#1A1F2E] font-mono text-xs">{alert.host}</p>
+                <p className="type-label">호스트</p>
+                <p className="mt-0.5 text-[#E2E8F2] font-mono text-xs break-all">{alert.host}</p>
               </div>
             )}
           </div>
@@ -100,7 +151,7 @@ export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
           {/* 유사도 분석 */}
           {alert.anomaly_type && (
             <div>
-              <p className="text-xs font-medium text-[#A0A4B0] uppercase tracking-wider mb-1.5">이상 유형</p>
+              <p className="type-label mb-1.5">이상 유형</p>
               <AnomalyTypeBadge type={alert.anomaly_type} score={alert.similarity_score} />
             </div>
           )}
@@ -108,9 +159,9 @@ export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
           {/* 설명 */}
           {alert.description && (
             <div>
-              <p className="text-xs font-medium text-[#A0A4B0] uppercase tracking-wider mb-1.5">상세 내용</p>
-              <div className="rounded-xl bg-[#E8EBF0] shadow-[inset_4px_4px_8px_#C8CBD4,inset_-4px_-4px_8px_#FFFFFF] p-4">
-                <p className="text-sm text-[#1A1F2E] whitespace-pre-wrap leading-relaxed">
+              <p className="type-label mb-1.5">상세 내용</p>
+              <div className="rounded-xl bg-[#1E2127] shadow-[inset_2px_2px_5px_#111317,inset_-2px_-2px_5px_#2B2F37] p-4">
+                <p className="text-sm text-[#E2E8F2] whitespace-pre-wrap leading-relaxed break-words">
                   {alert.description}
                 </p>
               </div>
@@ -120,8 +171,8 @@ export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
           {/* 확인 처리 이력 */}
           {alert.acknowledged && alert.acknowledged_by && (
             <div>
-              <p className="text-xs font-medium text-[#A0A4B0] uppercase tracking-wider mb-1.5">처리 정보</p>
-              <p className="text-sm text-[#4A5568]">
+              <p className="type-label mb-1.5">처리 정보</p>
+              <p className="text-sm text-[#8B97AD]">
                 {alert.acknowledged_by}
                 {alert.acknowledged_at && ` · ${formatKST(alert.acknowledged_at)}`}
               </p>
@@ -131,7 +182,7 @@ export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
 
         {/* 푸터 */}
         {!alert.acknowledged && (
-          <div className="px-6 py-4 border-t border-[#D4D7DE]">
+          <div className="px-6 py-4 border-t border-[#2B2F37]">
             <NeuButton
               className="w-full"
               loading={isPending}

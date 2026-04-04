@@ -83,18 +83,18 @@ export default function CollectorConfigListPage() {
       {/* Filter bar */}
       <div className="flex flex-wrap gap-4 mb-6">
         {/* Type filter */}
-        <div className="flex gap-1" role="group" aria-label="수집기 타입 필터">
+        <div className="flex gap-1 p-1 rounded-xl bg-[#1E2127] shadow-[inset_1px_1px_3px_#111317,inset_-1px_-1px_3px_#2B2F37]" role="group" aria-label="수집기 타입 필터">
           {COLLECTOR_TYPE_OPTIONS.map((opt) => (
             <button
               key={opt.value}
               type="button"
               onClick={() => setFilterType(opt.value as CollectorType | 'all')}
               className={cn(
-                'px-3 py-1.5 rounded-xl text-xs font-medium transition-all',
-                'focus:outline-none focus:ring-2 focus:ring-[#6366F1] focus:ring-offset-2',
+                'px-3 py-1 rounded-lg text-xs font-medium transition-all',
+                'focus:outline-none focus:ring-2 focus:ring-[#00D4FF] focus:ring-offset-[#1E2127]',
                 filterType === opt.value
-                  ? 'bg-[#6366F1] text-white shadow-[3px_3px_6px_#C8CBD4,-3px_-3px_6px_#FFFFFF]'
-                  : 'bg-[#E8EBF0] text-[#4A5568] shadow-[3px_3px_6px_#C8CBD4,-3px_-3px_6px_#FFFFFF] hover:bg-[rgba(99,102,241,0.1)]'
+                  ? 'bg-[#00D4FF] text-[#1E2127] font-semibold shadow-[2px_2px_4px_#111317]'
+                  : 'text-[#8B97AD] hover:text-[#E2E8F2] hover:bg-[rgba(255,255,255,0.05)]'
               )}
             >
               {opt.label}
@@ -103,18 +103,18 @@ export default function CollectorConfigListPage() {
         </div>
 
         {/* Enabled filter */}
-        <div className="flex gap-1" role="group" aria-label="활성 상태 필터">
+        <div className="flex gap-1 p-1 rounded-xl bg-[#1E2127] shadow-[inset_1px_1px_3px_#111317,inset_-1px_-1px_3px_#2B2F37]" role="group" aria-label="활성 상태 필터">
           {ENABLED_OPTIONS.map((opt) => (
             <button
               key={opt.value}
               type="button"
               onClick={() => setFilterEnabled(opt.value as 'all' | 'active' | 'inactive')}
               className={cn(
-                'px-3 py-1.5 rounded-xl text-xs font-medium transition-all',
-                'focus:outline-none focus:ring-2 focus:ring-[#6366F1] focus:ring-offset-2',
+                'px-3 py-1 rounded-lg text-xs font-medium transition-all',
+                'focus:outline-none focus:ring-2 focus:ring-[#00D4FF] focus:ring-offset-[#1E2127]',
                 filterEnabled === opt.value
-                  ? 'bg-[#6366F1] text-white shadow-[3px_3px_6px_#C8CBD4,-3px_-3px_6px_#FFFFFF]'
-                  : 'bg-[#E8EBF0] text-[#4A5568] shadow-[3px_3px_6px_#C8CBD4,-3px_-3px_6px_#FFFFFF] hover:bg-[rgba(99,102,241,0.1)]'
+                  ? 'bg-[#00D4FF] text-[#1E2127] font-semibold shadow-[2px_2px_4px_#111317]'
+                  : 'text-[#8B97AD] hover:text-[#E2E8F2] hover:bg-[rgba(255,255,255,0.05)]'
               )}
             >
               {opt.label}
@@ -129,7 +129,7 @@ export default function CollectorConfigListPage() {
 
       {!isLoading && !configsError && groupedConfigs.length === 0 && (
         <EmptyState
-          icon={<Settings className="w-12 h-12 text-[#4A5568]" />}
+          icon={<Settings className="w-12 h-12 text-[#8B97AD]" />}
           title="등록된 수집기 설정이 없습니다"
           description="시스템 수정 페이지에서 수집기를 추가할 수 있습니다."
           cta={{ label: '시스템에서 수집기 추가', onClick: () => navigate('/systems') }}
@@ -138,7 +138,7 @@ export default function CollectorConfigListPage() {
 
       {!isLoading && !configsError && filteredGroups.length === 0 && groupedConfigs.length > 0 && (
         <EmptyState
-          icon={<Settings className="w-12 h-12 text-[#4A5568]" />}
+          icon={<Settings className="w-12 h-12 text-[#8B97AD]" />}
           title="필터 조건에 맞는 수집기 설정이 없습니다"
           description="필터를 변경해보세요."
         />
@@ -149,10 +149,10 @@ export default function CollectorConfigListPage() {
           {filteredGroups.map(({ system, configs: systemConfigs }) => (
             <section key={system.id}>
               <div className="flex items-center gap-3 mb-3">
-                <h2 className="text-base font-bold text-[#1A1F2E]">{system.display_name}</h2>
-                <span className="text-sm text-[#4A5568]">{system.system_name}</span>
+                <h2 className="text-base font-bold text-[#E2E8F2]">{system.display_name}</h2>
+                <span className="text-sm text-[#8B97AD]">{system.system_name}</span>
                 <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs
-                                 bg-[rgba(99,102,241,0.1)] text-[#4338CA]">
+                                 bg-[rgba(0,212,255,0.10)] text-[#00D4FF]">
                   {systemConfigs.length}개
                 </span>
               </div>
@@ -169,10 +169,10 @@ export default function CollectorConfigListPage() {
       {/* Add hint modal */}
       {showAddHint && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/30" onClick={() => setShowAddHint(false)} />
+          <div className="absolute inset-0 bg-black/40" onClick={() => setShowAddHint(false)} />
           <NeuCard className="relative max-w-sm w-full mx-4">
-            <h3 className="text-base font-semibold text-[#1A1F2E] mb-2">수집기 추가 안내</h3>
-            <p className="text-sm text-[#4A5568] mb-4">
+            <h3 className="text-base font-semibold text-[#E2E8F2] mb-2">수집기 추가 안내</h3>
+            <p className="text-sm text-[#8B97AD] mb-4">
               수집기는 시스템 수정 페이지에서 추가할 수 있습니다.
               이동하려면 시스템을 선택하세요.
             </p>

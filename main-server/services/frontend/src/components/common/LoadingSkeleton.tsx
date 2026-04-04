@@ -7,7 +7,15 @@ interface LoadingSkeletonProps {
 }
 
 function SkeletonBox({ className }: { className?: string }) {
-  return <div className={cn('animate-pulse rounded-xl bg-[#D4D7DE]', className)} />
+  return (
+    <div
+      className={cn(
+        'rounded-xl bg-[#2B2F37]',
+        'animate-pulse',
+        className
+      )}
+    />
+  )
 }
 
 export function LoadingSkeleton({ shape = 'card', count = 3, className }: LoadingSkeletonProps) {

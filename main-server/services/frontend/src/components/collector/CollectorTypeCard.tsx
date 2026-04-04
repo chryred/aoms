@@ -25,8 +25,8 @@ export function CollectorTypeCard({ option, selected, onSelect }: CollectorTypeC
       onClick={onSelect}
       className={cn(
         'cursor-pointer select-none transition-all',
-        'focus-within:ring-2 focus-within:ring-[#6366F1] focus-within:ring-offset-2',
-        selected && 'ring-2 ring-[#6366F1]'
+        'focus-within:ring-2 focus-within:ring-[#00D4FF] focus-within:ring-offset-2 focus-within:ring-offset-[#1E2127]',
+        selected && 'ring-2 ring-[#00D4FF]'
       )}
     >
       <button
@@ -40,15 +40,15 @@ export function CollectorTypeCard({ option, selected, onSelect }: CollectorTypeC
           <Icon
             className={cn(
               'w-8 h-8',
-              selected ? 'text-[#6366F1]' : 'text-[#4A5568]'
+              selected ? 'text-[#00D4FF]' : 'text-[#8B97AD]'
             )}
           />
           {selected && (
-            <Check className="w-4 h-4 text-[#6366F1] flex-shrink-0" aria-hidden="true" />
+            <Check className="w-4 h-4 text-[#00D4FF] flex-shrink-0" aria-hidden="true" />
           )}
         </div>
-        <p className="font-semibold text-[#1A1F2E] mb-1">{option.label}</p>
-        <p className="text-sm text-[#4A5568]">{option.description}</p>
+        <p className="font-semibold text-[#E2E8F2] mb-1">{option.label}</p>
+        <p className="text-sm text-[#8B97AD]">{option.description}</p>
       </button>
     </NeuCard>
   )

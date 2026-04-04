@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { NeuButton } from '@/components/neumorphic/NeuButton'
 
 interface ConfirmDialogProps {
@@ -22,14 +22,32 @@ export function ConfirmDialog({
   onConfirm,
   isPending,
 }: ConfirmDialogProps) {
-  // ESC로 닫기
+  const dialogRef = useRef<HTMLDivElement>(null)
+
+  // Focus trap + ESC close
   useEffect(() => {
     if (!open) return
+    const dialog = dialogRef.current
+    if (!dialog) return
+
+    const FOCUSABLE = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+    const getFocusable = () => Array.from(dialog.querySelectorAll<HTMLElement>(FOCUSABLE))
+    getFocusable()[0]?.focus()
+
     const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !isPending) onOpenChange(false)
+      if (e.key === 'Escape' && !isPending) { onOpenChange(false); return }
+      if (e.key !== 'Tab') return
+      const focusables = getFocusable()
+      const first = focusables[0]
+      const last = focusables[focusables.length - 1]
+      if (e.shiftKey) {
+        if (document.activeElement === first) { e.preventDefault(); last?.focus() }
+      } else {
+        if (document.activeElement === last) { e.preventDefault(); first?.focus() }
+      }
     }
-    window.addEventListener('keydown', handler)
-    return () => window.removeEventListener('keydown', handler)
+    document.addEventListener('keydown', handler)
+    return () => document.removeEventListener('keydown', handler)
   }, [open, isPending, onOpenChange])
 
   if (!open) return null
@@ -45,17 +63,18 @@ export function ConfirmDialog({
       <div
         className="absolute inset-0 bg-black/40"
         onClick={() => !isPending && onOpenChange(false)}
+        aria-hidden="true"
       />
 
       {/* 다이얼로그 */}
-      <div className="relative z-10 w-full max-w-sm mx-4 bg-[#E8EBF0] rounded-2xl shadow-[8px_8px_16px_#C8CBD4,-8px_-8px_16px_#FFFFFF] p-6">
+      <div ref={dialogRef} className="relative z-10 w-full max-w-sm mx-4 bg-[#1E2127] rounded-2xl shadow-[3px_3px_7px_#111317,-3px_-3px_7px_#2B2F37] border border-[#2B2F37] p-6">
         <h2
           id="confirm-dialog-title"
-          className="text-base font-semibold text-[#1A1F2E] mb-2"
+          className="text-base font-semibold text-[#E2E8F2] mb-2"
         >
           {title}
         </h2>
-        <p className="text-sm text-[#4A5568] mb-6">{description}</p>
+        <p className="text-sm text-[#8B97AD] mb-6">{description}</p>
 
         <div className="flex gap-3 justify-end">
           <NeuButton

@@ -10,11 +10,11 @@ interface NeuBadgeProps {
 }
 
 const variantMap: Record<BadgeVariant, string> = {
-  critical: 'bg-red-100 text-red-700 border border-red-200',
-  warning: 'bg-yellow-100 text-yellow-700 border border-yellow-200',
-  normal: 'bg-green-100 text-green-700 border border-green-200',
-  info: 'bg-blue-100 text-blue-700 border border-blue-200',
-  muted: 'bg-gray-100 text-gray-600 border border-gray-200',
+  critical: 'bg-[rgba(239,68,68,0.12)] text-[#F87171] border border-[rgba(239,68,68,0.25)]',
+  warning:  'bg-[rgba(245,158,11,0.12)] text-[#FCD34D] border border-[rgba(245,158,11,0.25)]',
+  normal:   'bg-[rgba(34,197,94,0.12)] text-[#4ADE80] border border-[rgba(34,197,94,0.25)]',
+  info:     'bg-[rgba(0,212,255,0.10)] text-[#00D4FF] border border-[rgba(0,212,255,0.20)]',
+  muted:    'bg-[rgba(255,255,255,0.06)] text-[#8B97AD] border border-[rgba(255,255,255,0.10)]',
 }
 
 export function NeuBadge({ children, variant = 'muted', className }: NeuBadgeProps) {

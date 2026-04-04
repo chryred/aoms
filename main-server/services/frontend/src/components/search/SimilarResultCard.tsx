@@ -16,10 +16,10 @@ function ScoreBadge({ score }: { score: number }) {
   const label = `${(score * 100).toFixed(1)}%`
   const className =
     score >= 0.95
-      ? 'bg-[rgba(34,197,94,0.15)] text-[#15803D]'
+      ? 'bg-[rgba(34,197,94,0.15)] text-[#4ADE80]'
       : score >= 0.85
-        ? 'bg-[rgba(99,102,241,0.15)] text-[#4338CA]'
-        : 'bg-[rgba(217,119,6,0.15)] text-[#92400E]'
+        ? 'bg-[rgba(0,212,255,0.12)] text-[#00D4FF]'
+        : 'bg-[rgba(245,158,11,0.12)] text-[#FCD34D]'
 
   return (
     <span className={cn('inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold', className)}>
@@ -61,28 +61,28 @@ export function SimilarResultCard({ result, collection }: SimilarResultCardProps
 
       {/* System + period */}
       <div className="flex items-center gap-2 mb-2">
-        <span className="font-semibold text-[#1A1F2E]">{payload.system_name}</span>
-        <span className="text-sm text-[#4A5568]">{periodLabel}</span>
+        <span className="font-semibold text-[#E2E8F2]">{payload.system_name}</span>
+        <span className="text-sm text-[#8B97AD]">{periodLabel}</span>
       </div>
 
       {/* collector / metric badges (hourly only) */}
       {isHourlyPattern && (
         <div className="flex gap-2 mb-2">
-          <span className="text-xs bg-[rgba(99,102,241,0.1)] text-[#4338CA] px-2 py-0.5 rounded">
+          <span className="text-xs bg-[rgba(0,212,255,0.10)] text-[#00D4FF] px-2 py-0.5 rounded">
             {(payload as HourlyPatternPayload).metric_group}
           </span>
-          <span className="text-xs text-[#4A5568]">
+          <span className="text-xs text-[#8B97AD]">
             {(payload as HourlyPatternPayload).collector_type}
           </span>
         </div>
       )}
 
       {/* LLM summary */}
-      <p className="whitespace-pre-wrap text-sm text-[#1A1F2E] mb-2">{summaryText}</p>
+      <p className="whitespace-pre-wrap text-sm text-[#E2E8F2] mb-2">{summaryText}</p>
 
       {/* llm_prediction (hourly only) */}
       {isHourlyPattern && (payload as HourlyPatternPayload).llm_prediction && (
-        <p className="whitespace-pre-wrap text-sm italic text-[#4A5568] mb-3">
+        <p className="whitespace-pre-wrap text-sm italic text-[#8B97AD] mb-3">
           {(payload as HourlyPatternPayload).llm_prediction}
         </p>
       )}
@@ -90,7 +90,7 @@ export function SimilarResultCard({ result, collection }: SimilarResultCardProps
       {/* Footer link */}
       <Link
         to={`/alerts?system_id=${payload.system_id}`}
-        className="text-[#6366F1] text-sm hover:underline focus:outline-none focus:ring-2 focus:ring-[#6366F1] focus:ring-offset-2 rounded"
+        className="text-[#00D4FF] text-sm hover:underline focus:outline-none focus:ring-2 focus:ring-[#00D4FF] focus:ring-offset-2 focus:ring-offset-[#1E2127] rounded"
       >
         관련 알림 이력
       </Link>

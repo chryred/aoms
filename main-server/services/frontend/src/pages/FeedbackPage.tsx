@@ -65,16 +65,16 @@ export function FeedbackPage() {
       {/* 요약 카드 */}
       <div className="grid grid-cols-3 gap-4 mb-6">
         <NeuCard className="text-center">
-          <p className="text-2xl font-bold text-[#1A1F2E]">{totalCount}</p>
-          <p className="text-xs text-[#4A5568] mt-1">전체 분석 건수</p>
+          <p className="text-2xl font-bold text-[#E2E8F2]">{totalCount}</p>
+          <p className="text-xs text-[#8B97AD] mt-1">전체 분석 건수</p>
         </NeuCard>
         <NeuCard className="text-center">
-          <p className="text-2xl font-bold text-[#6366F1]">{feedbackableCount}</p>
-          <p className="text-xs text-[#4A5568] mt-1">피드백 제출 가능</p>
+          <p className="text-2xl font-bold text-[#00D4FF]">{feedbackableCount}</p>
+          <p className="text-xs text-[#8B97AD] mt-1">피드백 제출 가능</p>
         </NeuCard>
         <NeuCard className="text-center">
-          <p className="text-2xl font-bold text-[#16A34A]">{acknowledgedCount}</p>
-          <p className="text-xs text-[#4A5568] mt-1">확인 처리 완료</p>
+          <p className="text-2xl font-bold text-[#22C55E]">{acknowledgedCount}</p>
+          <p className="text-xs text-[#8B97AD] mt-1">확인 처리 완료</p>
         </NeuCard>
       </div>
 
@@ -119,7 +119,7 @@ export function FeedbackPage() {
       {/* 페이지네이션 */}
       {!isLoading && !error && (
         <div className="flex items-center justify-between mt-4">
-          <span className="text-sm text-[#4A5568]">페이지 {currentPage}</span>
+          <span className="text-sm text-[#8B97AD]">페이지 {currentPage}</span>
           <div className="flex gap-2">
             <NeuButton
               variant="ghost"

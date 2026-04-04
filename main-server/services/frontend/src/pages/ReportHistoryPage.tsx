@@ -32,14 +32,14 @@ export function ReportHistoryPage() {
       <PageHeader title="리포트 발송 이력" />
 
       {/* SubNav */}
-      <div className="flex gap-1 mb-5 border-b border-[#C0C4CF]">
+      <div className="flex gap-1 mb-5 border-b border-[#2B2F37]">
         <Link
           to="/reports"
-          className="px-4 py-2 text-sm text-[#4A5568] hover:text-[#1A1F2E]"
+          className="px-4 py-2 text-sm text-[#8B97AD] hover:text-[#E2E8F2]"
         >
           안정성 리포트
         </Link>
-        <span className="px-4 py-2 text-sm text-[#6366F1] border-b-2 border-[#6366F1] font-medium">
+        <span className="px-4 py-2 text-sm text-[#00D4FF] border-b-2 border-[#00D4FF] font-medium">
           발송 이력
         </span>
       </div>
@@ -62,12 +62,12 @@ export function ReportHistoryPage() {
           title="발송 이력이 없습니다"
         />
       ) : (
-        <div className="rounded-2xl bg-[#E8EBF0] shadow-[6px_6px_12px_#C8CBD4,-6px_-6px_12px_#FFFFFF] overflow-hidden">
+        <div className="rounded-2xl bg-[#1E2127] shadow-[3px_3px_7px_#111317,-3px_-3px_7px_#2B2F37] overflow-hidden">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-[#C0C4CF]">
+              <tr className="border-b border-[#2B2F37]">
                 {['유형', '기간', '발송 시각', '상태', '시스템 수', '요약'].map(h => (
-                  <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-[#4A5568]">{h}</th>
+                  <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-[#8B97AD]">{h}</th>
                 ))}
               </tr>
             </thead>
@@ -80,24 +80,24 @@ export function ReportHistoryPage() {
                 return (
                   <tr
                     key={r.id}
-                    className="border-b border-[#C0C4CF] last:border-0 hover:bg-[rgba(0,0,0,0.02)]"
+                    className="border-b border-[#2B2F37] last:border-0 hover:bg-[rgba(0,212,255,0.04)]"
                   >
                     <td className="px-4 py-3">
                       <NeuBadge variant="info">
                         {REPORT_TYPE_LABELS[r.report_type] ?? r.report_type}
                       </NeuBadge>
                     </td>
-                    <td className="px-4 py-3 text-[#4A5568] whitespace-nowrap">{periodStr}</td>
-                    <td className="px-4 py-3 text-[#4A5568]">{formatRelative(r.sent_at)}</td>
+                    <td className="px-4 py-3 text-[#8B97AD] whitespace-nowrap">{periodStr}</td>
+                    <td className="px-4 py-3 text-[#8B97AD]">{formatRelative(r.sent_at)}</td>
                     <td className="px-4 py-3">
                       <NeuBadge variant={r.teams_status === 'sent' ? 'normal' : r.teams_status === 'failed' ? 'critical' : 'muted'}>
                         {r.teams_status === 'sent' ? '발송 완료' : r.teams_status === 'failed' ? '발송 실패' : '-'}
                       </NeuBadge>
                     </td>
-                    <td className="px-4 py-3 text-[#4A5568]">
+                    <td className="px-4 py-3 text-[#8B97AD]">
                       {r.system_count != null ? `${r.system_count}개` : '-'}
                     </td>
-                    <td className="px-4 py-3 text-[#4A5568] relative">
+                    <td className="px-4 py-3 text-[#8B97AD] relative">
                       {summary.length > 80 ? (
                         <span
                           className="cursor-help"
@@ -106,7 +106,7 @@ export function ReportHistoryPage() {
                         >
                           {truncated}
                           {tooltip === r.id && (
-                            <span className="absolute bottom-full left-0 mb-1 z-10 w-64 bg-white border border-[#C0C4CF] rounded-lg p-2 text-xs shadow-lg whitespace-pre-wrap">
+                            <span className="absolute bottom-full left-0 mb-1 z-10 w-64 bg-[#1E2127] border border-[#2B2F37] rounded-lg p-2 text-xs shadow-[3px_3px_7px_#111317,-3px_-3px_7px_#2B2F37] whitespace-pre-wrap">
                               {summary}
                             </span>
                           )}

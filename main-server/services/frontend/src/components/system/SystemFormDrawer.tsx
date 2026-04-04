@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -33,6 +33,7 @@ interface SystemFormDrawerProps {
 export function SystemFormDrawer({ open, onClose, editTarget }: SystemFormDrawerProps) {
   const isEdit = Boolean(editTarget)
   const navigate = useNavigate()
+  const drawerRef = useRef<HTMLDivElement>(null)
   const { mutate: create, isPending: isCreating } = useCreateSystem()
   const { mutate: update, isPending: isUpdating } = useUpdateSystem(editTarget?.id ?? 0)
   const isPending = isCreating || isUpdating
@@ -46,6 +47,32 @@ export function SystemFormDrawer({ open, onClose, editTarget }: SystemFormDrawer
     resolver: zodResolver(schema),
     defaultValues: { os_type: 'linux', system_type: 'web', status: 'active' },
   })
+
+  // Focus trap + ESC close
+  useEffect(() => {
+    if (!open) return
+    const drawer = drawerRef.current
+    if (!drawer) return
+
+    const FOCUSABLE = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+    const getFocusable = () => Array.from(drawer.querySelectorAll<HTMLElement>(FOCUSABLE))
+    getFocusable()[0]?.focus()
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { onClose(); return }
+      if (e.key !== 'Tab') return
+      const focusables = getFocusable()
+      const first = focusables[0]
+      const last = focusables[focusables.length - 1]
+      if (e.shiftKey) {
+        if (document.activeElement === first) { e.preventDefault(); last?.focus() }
+      } else {
+        if (document.activeElement === last) { e.preventDefault(); first?.focus() }
+      }
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [open, onClose])
 
   useEffect(() => {
     if (editTarget) {
@@ -84,22 +111,28 @@ export function SystemFormDrawer({ open, onClose, editTarget }: SystemFormDrawer
     <>
       {/* 오버레이 */}
       <div
-        className="fixed inset-0 z-40 bg-black/20"
+        className="fixed inset-0 z-40 bg-black/40"
         onClick={onClose}
       />
       {/* 드로어 */}
-      <div className="fixed right-0 top-0 bottom-0 z-50 w-full max-w-[480px] bg-[#E8EBF0]
-                      shadow-[-8px_0_32px_rgba(0,0,0,0.12)] flex flex-col">
+      <div
+        ref={drawerRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={isEdit ? '시스템 수정' : '시스템 등록'}
+        className="fixed right-0 top-0 bottom-0 z-50 w-full max-w-[480px] bg-[#1E2127]
+                      shadow-[-8px_0_32px_rgba(0,0,0,0.4)] border-l border-[#2B2F37] flex flex-col"
+      >
         {/* 헤더 */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-[#D4D7DE]">
-          <h2 className="text-lg font-semibold text-[#1A1F2E]">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-[#2B2F37]">
+          <h2 className="text-lg font-semibold text-[#E2E8F2]">
             {isEdit ? '시스템 수정' : '시스템 등록'}
           </h2>
           <button
             onClick={onClose}
             aria-label="닫기"
-            className="rounded-lg p-1.5 text-[#4A5568] hover:bg-[rgba(0,0,0,0.05)]
-                       focus:outline-none focus:ring-2 focus:ring-[#6366F1]"
+            className="rounded-lg p-1.5 text-[#8B97AD] hover:bg-[rgba(255,255,255,0.05)]
+                       focus:outline-none focus:ring-2 focus:ring-[#00D4FF]"
           >
             <X className="w-5 h-5" />
           </button>
@@ -168,7 +201,7 @@ export function SystemFormDrawer({ open, onClose, editTarget }: SystemFormDrawer
         </form>
 
         {/* 푸터 */}
-        <div className="flex items-center justify-between px-6 py-4 border-t border-[#D4D7DE]">
+        <div className="flex items-center justify-between px-6 py-4 border-t border-[#2B2F37]">
           <div>
             {isEdit && editTarget && (
               <NeuButton

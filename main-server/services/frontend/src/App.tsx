@@ -5,16 +5,16 @@ import { AuthLayout } from '@/components/layout/AuthLayout'
 import { AuthGuard } from '@/components/layout/AuthGuard'
 import { AdminGuard } from '@/components/layout/AdminGuard'
 import { LoginPage } from '@/pages/auth/LoginPage'
-import { DashboardPage } from '@/pages/DashboardPage'
-import { SystemListPage } from '@/pages/system/SystemListPage'
-import { AlertHistoryPage } from '@/pages/AlertHistoryPage'
-import { ContactListPage } from '@/pages/ContactListPage'
-import { ContactFormPage } from '@/pages/ContactFormPage'
-import { SystemDetailPage } from '@/pages/SystemDetailPage'
-import { ReportPage } from '@/pages/ReportPage'
-import { ReportHistoryPage } from '@/pages/ReportHistoryPage'
 import { LoadingSkeleton } from '@/components/common/LoadingSkeleton'
 
+const DashboardPage = lazy(() => import('@/pages/DashboardPage').then((m) => ({ default: m.DashboardPage })))
+const SystemListPage = lazy(() => import('@/pages/system/SystemListPage').then((m) => ({ default: m.SystemListPage })))
+const AlertHistoryPage = lazy(() => import('@/pages/AlertHistoryPage').then((m) => ({ default: m.AlertHistoryPage })))
+const ContactListPage = lazy(() => import('@/pages/ContactListPage').then((m) => ({ default: m.ContactListPage })))
+const ContactFormPage = lazy(() => import('@/pages/ContactFormPage').then((m) => ({ default: m.ContactFormPage })))
+const SystemDetailPage = lazy(() => import('@/pages/SystemDetailPage').then((m) => ({ default: m.SystemDetailPage })))
+const ReportPage = lazy(() => import('@/pages/ReportPage').then((m) => ({ default: m.ReportPage })))
+const ReportHistoryPage = lazy(() => import('@/pages/ReportHistoryPage').then((m) => ({ default: m.ReportHistoryPage })))
 const SimilarSearchPage = lazy(() => import('@/pages/SimilarSearchPage'))
 const TrendAlertsPage = lazy(() => import('@/pages/TrendAlertsPage'))
 const CollectorWizardPage = lazy(() => import('@/pages/CollectorWizardPage'))
@@ -52,17 +52,17 @@ export function App() {
           }
         >
           <Route index element={<Navigate to="/dashboard" replace />} />
-          <Route path="/dashboard" element={<DashboardPage />} />
-          <Route path="/systems" element={<SystemListPage />} />
-          <Route path="/alerts" element={<AlertHistoryPage />} />
+          <Route path="/dashboard" element={<Suspense fallback={<LoadingSkeleton shape="card" count={4} />}><DashboardPage /></Suspense>} />
+          <Route path="/systems" element={<Suspense fallback={<LoadingSkeleton shape="card" count={4} />}><SystemListPage /></Suspense>} />
+          <Route path="/alerts" element={<Suspense fallback={<LoadingSkeleton shape="table" />}><AlertHistoryPage /></Suspense>} />
 
           {/* Phase 2 */}
-          <Route path="/contacts" element={<ContactListPage />} />
-          <Route path="/contacts/new" element={<ContactFormPage />} />
-          <Route path="/contacts/:id/edit" element={<ContactFormPage />} />
-          <Route path="/dashboard/:systemId" element={<SystemDetailPage />} />
-          <Route path="/reports" element={<ReportPage />} />
-          <Route path="/reports/history" element={<ReportHistoryPage />} />
+          <Route path="/contacts" element={<Suspense fallback={<LoadingSkeleton shape="table" />}><ContactListPage /></Suspense>} />
+          <Route path="/contacts/new" element={<Suspense fallback={<LoadingSkeleton shape="card" />}><ContactFormPage /></Suspense>} />
+          <Route path="/contacts/:id/edit" element={<Suspense fallback={<LoadingSkeleton shape="card" />}><ContactFormPage /></Suspense>} />
+          <Route path="/dashboard/:systemId" element={<Suspense fallback={<LoadingSkeleton shape="card" count={3} />}><SystemDetailPage /></Suspense>} />
+          <Route path="/reports" element={<Suspense fallback={<LoadingSkeleton shape="card" count={3} />}><ReportPage /></Suspense>} />
+          <Route path="/reports/history" element={<Suspense fallback={<LoadingSkeleton shape="table" />}><ReportHistoryPage /></Suspense>} />
           <Route
             path="/trends"
             element={
