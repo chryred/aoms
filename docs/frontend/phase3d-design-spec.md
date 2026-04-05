@@ -1,4 +1,4 @@
-# AOMS Frontend — Phase 3d 상세 설계 명세서
+# Synapse-V Frontend — Phase 3d 상세 설계 명세서
 
 > `frontend-design-spec.md` + `phase3a~c-design-spec.md` 기반. Phase 3 마무리 기능 구현 계약서.
 > 구현 전 반드시 이 문서를 전체 숙지할 것.

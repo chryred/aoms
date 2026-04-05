@@ -1,8 +1,8 @@
-# AOMS Admin API - 서비스 개요
+# Synapse-V Admin API - 서비스 개요
 
 ## 목적
 
-백화점 통합 모니터링 시스템(AOMS)의 관리 API 서비스.
+백화점 통합 모니터링 시스템(Synapse-V)의 관리 API 서비스.
 - 모니터링 대상 **시스템** 및 **담당자** 등록/관리
 - Prometheus Alertmanager로부터 **메트릭 알림** 수신 → Teams 발송
 - log-analyzer 서비스로부터 **LLM 로그 분석 결과** 수신 → Teams 발송

@@ -1,6 +1,6 @@
-# AOMS — Claude 컨텍스트 가이드
+# Synapse-V — Claude 컨텍스트 가이드
 
-백화점 통합 모니터링 시스템(AOMS). 폐쇄망 환경의 RedHat 8.9 서버에 Docker Compose로 운영된다.
+백화점 통합 모니터링 시스템(Synapse-V). 폐쇄망 환경의 RedHat 8.9 서버에 Docker Compose로 운영된다.
 
 ---
 

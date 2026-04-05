@@ -1,4 +1,4 @@
-# AOMS Frontend — Phase 3c 상세 설계 명세서
+# Synapse-V Frontend — Phase 3c 상세 설계 명세서
 
 > `frontend-design-spec.md` + `phase1-design-spec.md` 기반. Phase 3c 사용자 관리 기능 구현 계약서.
 > 구현 전 반드시 이 문서를 전체 숙지할 것.
@@ -343,7 +343,7 @@ export function useUpdateMe() {
 AuthLayout (Outlet)
 └── RegisterPage
     └── NeuCard (max-w-lg, w-full)
-        ├── Logo + "AOMS" 타이틀
+        ├── Logo + "Synapse-V" 타이틀
         ├── 부제목: "사용자 등록 신청"
         ├── [성공 상태가 아닌 경우] <form> (react-hook-form + zod)
         │   ├── NeuInput — 이름 (required)
@@ -449,7 +449,7 @@ export function RegisterPage() {
   return (
     <NeuCard className="w-full max-w-md">
       <div className="mb-8 text-center">
-        <h1 className="text-3xl font-bold text-[#1A1F2E]">AOMS</h1>
+        <h1 className="text-3xl font-bold text-[#1A1F2E]">Synapse-V</h1>
         <p className="mt-1 text-sm text-[#4A5568]">사용자 등록 신청</p>
       </div>
 

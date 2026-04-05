@@ -1,4 +1,4 @@
-# AOMS Frontend — Phase 1 상세 설계 명세서
+# Synapse-V Frontend — Phase 1 상세 설계 명세서
 
 > `frontend-design-spec.md` + `frontend-plan.md` 기반. Phase 1 구현 계약서.
 > 구현 전 반드시 이 문서를 전체 숙지할 것.
@@ -1217,7 +1217,7 @@ export function Sidebar() {
       {/* 로고 + 토글 */}
       <div className="flex items-center justify-between px-4 py-4 border-b border-[#D4D7DE]">
         {!collapsed && (
-          <span className="text-lg font-bold text-[#1A1F2E] tracking-tight">AOMS</span>
+          <span className="text-lg font-bold text-[#1A1F2E] tracking-tight">Synapse-V</span>
         )}
         <button
           onClick={toggleSidebar}
@@ -1300,7 +1300,7 @@ export function TopBar() {
 
   // 동적 경로 처리: /systems/1/edit → /systems
   const baseKey = '/' + pathname.split('/')[1]
-  const title = PAGE_TITLES[pathname] ?? PAGE_TITLES[baseKey] ?? 'AOMS'
+  const title = PAGE_TITLES[pathname] ?? PAGE_TITLES[baseKey] ?? 'Synapse-V'
 
   const handleLogout = async () => {
     try {
@@ -1465,7 +1465,7 @@ export function App() {
 ```
 LoginPage
 └── NeuCard (max-w-md, w-full)
-    ├── Logo + "AOMS" 타이틀
+    ├── Logo + "Synapse-V" 타이틀
     ├── <form> (react-hook-form + zod)
     │   ├── NeuInput (email, type="email", required)
     │   ├── NeuInput (password, type="password", required)
@@ -1537,7 +1537,7 @@ export function LoginPage() {
   return (
     <NeuCard className="w-full max-w-md">
       <div className="mb-8 text-center">
-        <h1 className="text-3xl font-bold text-[#1A1F2E]">AOMS</h1>
+        <h1 className="text-3xl font-bold text-[#1A1F2E]">Synapse-V</h1>
         <p className="mt-1 text-sm text-[#4A5568]">통합 모니터링 시스템</p>
       </div>
 
@@ -1566,7 +1566,7 @@ export function LoginPage() {
       </form>
 
       <p className="mt-6 text-center text-xs text-[#4A5568]">
-        © 2025 AOMS. All rights reserved.
+        © 2025 Synapse-V. All rights reserved.
       </p>
     </NeuCard>
   )

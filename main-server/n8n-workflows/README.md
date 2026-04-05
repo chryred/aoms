@@ -1,4 +1,4 @@
-# AOMS n8n 워크플로우 가이드
+# Synapse-V n8n 워크플로우 가이드
 
 ## 워크플로우 목록
 
@@ -37,7 +37,7 @@ Settings → Credentials → New Credential → PostgreSQL 선택
 
 | 항목 | 로컬 값 |
 |---|---|
-| Credential Name | `AOMS PostgreSQL` |
+| Credential Name | `Synapse-V PostgreSQL` |
 | Host | `postgres` |
 | Port | `5432` |
 | Database | `aoms` |

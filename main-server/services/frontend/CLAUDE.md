@@ -3,7 +3,7 @@
 ## Project Overview
 
 - **이름**: aoms-frontend
-- **목적**: AOMS 백화점 통합 모니터링 시스템 관리 UI
+- **목적**: Synapse-V 백화점 통합 모니터링 시스템 관리 UI
 - **대상 사용자**: 시스템 담당자, 운영팀
 
 ---
@@ -127,7 +127,7 @@ VITE_LOG_ANALYZER_URL    # log-analyzer 주소 (운영: http://log-analyzer:8000
 신뢰감과 명확성이 미적 즐거움보다 우선.
 
 ### Brand
-- **제품명**: Synapse-V (기존 "AOMS" 레이블 대체)
+- **제품명**: Synapse-V (기존 "aoms" 레이블 대체)
 - **브랜드 서체**: Lora Italic — 워드마크 전용 (`font-lora italic` Tailwind 클래스)
 - **UI 서체**: Pretendard (한글·영문 일반 UI 모두)
 - **3단어**: Precise · Trustworthy · Composed

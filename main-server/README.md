@@ -1,6 +1,6 @@
-# AOMS Main Server
+# Synapse-V Main Server
 
-백화점 통합 모니터링 시스템(AOMS) 메인 서버 — 로컬 개발 가이드 및 배포 절차
+백화점 통합 모니터링 시스템(Synapse-V) 메인 서버 — 로컬 개발 가이드 및 배포 절차
 
 ---
 

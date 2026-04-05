@@ -1,4 +1,4 @@
-# AOMS Log Analyzer — 서비스 개요
+# Synapse-V Log Analyzer — 서비스 개요
 
 ## 목적
 

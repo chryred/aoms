@@ -119,7 +119,7 @@ docker exec dev-postgres psql -U aoms -d aoms -c "
 UPDATE n8n.\"user\" SET
   email = 'admin@aoms.local',
   \"firstName\" = 'Admin',
-  \"lastName\" = 'AOMS',
+  \"lastName\" = 'Synapse-V',
   password = '$HASH',
   settings = '{\"userActivated\": true}'
 WHERE role = 'global:owner';"
@@ -147,7 +147,7 @@ curl -s -b /tmp/n8n_cookies.txt -X POST "http://localhost:5678/rest/me/api-key"
 curl -s -b /tmp/n8n_cookies.txt -X POST "http://localhost:5678/rest/credentials" \
   -H "Content-Type: application/json" \
   -d '{
-    "name": "AOMS PostgreSQL",
+    "name": "Synapse-V PostgreSQL",
     "type": "postgres",
     "data": {
       "host": "postgres",

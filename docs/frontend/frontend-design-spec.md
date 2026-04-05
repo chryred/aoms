@@ -1,4 +1,4 @@
-# AOMS Frontend — 상세 설계 명세서
+# Synapse-V Frontend — 상세 설계 명세서
 
 > `frontend-plan.md` 기반으로 도출한 구현 계약서.
 > `/sc:implement` 실행 전 반드시 이 문서를 참고할 것.

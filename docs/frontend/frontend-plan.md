@@ -1,8 +1,8 @@
-# AOMS 프론트엔드 UI 구현 계획
+# Synapse-V 프론트엔드 UI 구현 계획
 
 ## Context
 
-AOMS(백화점 통합 모니터링 시스템)의 관리자/사용자 페이지를 React + shadcn/ui + Tailwind CSS로 신규 구현한다.
+Synapse-V(백화점 통합 모니터링 시스템)의 관리자/사용자 페이지를 React + shadcn/ui + Tailwind CSS로 신규 구현한다.
 - API: admin-api(8080) 전체 + log-analyzer(8000)의 Qdrant 검색 엔드포인트 활용
 - 디자인: 뉴모피즘 카드 + 글라스모피즘 버튼 + Pretendard 폰트
 - 위치: `main-server/services/frontend/` (Main Server A, services 레벨)
@@ -461,7 +461,7 @@ const colors = {
 - SYS-01, CNT-01, COL-01 모든 삭제 액션에 적용
 
 #### 6. 타임존·시간 표시 전략 미정의
-AOMS는 백화점 운영 환경으로 KST(UTC+9) 기준. 현재 계획에 시간 처리 전략이 없다.
+Synapse-V는 백화점 운영 환경으로 KST(UTC+9) 기준. 현재 계획에 시간 처리 전략이 없다.
 
 **추가 필요:**
 - `utils.ts`에 `formatKST(utcDate)` 유틸 추가 → 모든 시간 표시를 KST 절대시간으로 통일
@@ -556,10 +556,10 @@ DASH-02 시스템 상세 차트(recharts)에서 특정 시점 클릭 시 해당 
 ```tsx
 // 각 Page에서
 useEffect(() => {
-  document.title = `AOMS | 운영 대시보드`
+  document.title = `Synapse-V | 운영 대시보드`
 }, [])
 ```
-- Favicon: AOMS 로고 (16×16, 32×32 SVG)
+- Favicon: Synapse-V 로고 (16×16, 32×32 SVG)
 - Critical 알림 있을 때 탭 제목에 `(🔴 3)` 표시
 
 #### 15. Makefile에 frontend 명령 추가
