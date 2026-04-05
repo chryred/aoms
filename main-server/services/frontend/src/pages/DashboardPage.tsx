@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { ROUTES } from '@/constants/routes'
 import { useSystems } from '@/hooks/queries/useSystems'
 import { useAlerts } from '@/hooks/queries/useAlerts'
 import { PageHeader } from '@/components/common/PageHeader'
@@ -29,7 +30,7 @@ export function DashboardPage() {
     if (systems) setLastRefreshed(new Date())
   }, [systems])
 
-  const handleAddSystem = useCallback(() => navigate('/systems'), [navigate])
+  const handleAddSystem = useCallback(() => navigate(ROUTES.SYSTEMS), [navigate])
 
   return (
     <div className="space-y-8">

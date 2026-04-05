@@ -5,11 +5,17 @@ export const ROUTES = {
   SYSTEMS: '/systems',
   ALERTS: '/alerts',
   CONTACTS: '/contacts',
+  CONTACTS_NEW: '/contacts/new',
   REPORTS: '/reports',
+  REPORTS_HISTORY: '/reports/history',
   SEARCH: '/search',
   TRENDS: '/trends',
   FEEDBACK: '/feedback',
   PROFILE: '/profile',
   ADMIN_USERS: '/admin/users',
   VECTOR_HEALTH: '/vector-health',
-} as const
+  COLLECTOR_CONFIGS: '/collector-configs',
+  contactEdit: (id: number | string) => `/contacts/${id}/edit`,
+  systemDetail: (id: number | string) => `/dashboard/${id}`,
+  systemWizard: (id: number | string) => `/systems/${id}/wizard`,
+}

@@ -4,6 +4,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { X, Plus } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
+import { ROUTES } from '@/constants/routes'
 import { NeuInput } from '@/components/neumorphic/NeuInput'
 import { NeuSelect } from '@/components/neumorphic/NeuSelect'
 import { NeuTextarea } from '@/components/neumorphic/NeuTextarea'
@@ -226,7 +227,7 @@ export function SystemFormDrawer({ open, onClose, editTarget }: SystemFormDrawer
                 variant="glass"
                 onClick={() => {
                   onClose()
-                  navigate(`/systems/${editTarget.id}/wizard`)
+                  navigate(ROUTES.systemWizard(editTarget.id))
                 }}
               >
                 <Plus className="h-4 w-4" />

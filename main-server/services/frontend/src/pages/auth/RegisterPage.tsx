@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { ROUTES } from '@/constants/routes'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -68,7 +69,7 @@ export function RegisterPage() {
         <CheckCircle2 className="mx-auto mb-4 h-16 w-16 text-[#22C55E]" />
         <h2 className="mb-2 text-xl font-bold text-[#E2E8F2]">등록 신청이 완료되었습니다</h2>
         <p className="mb-6 text-sm text-[#8B97AD]">관리자 승인 후 로그인 가능합니다</p>
-        <NeuButton className="w-full" onClick={() => navigate('/login')}>
+        <NeuButton className="w-full" onClick={() => navigate(ROUTES.LOGIN)}>
           로그인 페이지로
         </NeuButton>
       </NeuCard>
@@ -127,7 +128,7 @@ export function RegisterPage() {
         이미 계정이 있으신가요?{' '}
         <button
           type="button"
-          onClick={() => navigate('/login')}
+          onClick={() => navigate(ROUTES.LOGIN)}
           className="font-medium text-[#00D4FF] hover:underline"
         >
           로그인

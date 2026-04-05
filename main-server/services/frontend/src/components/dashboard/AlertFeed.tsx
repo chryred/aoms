@@ -1,5 +1,6 @@
 import { memo } from 'react'
 import { Link } from 'react-router-dom'
+import { ROUTES } from '@/constants/routes'
 import { Bell, ArrowRight } from 'lucide-react'
 import { NeuCard } from '@/components/neumorphic/NeuCard'
 import { NeuBadge } from '@/components/neumorphic/NeuBadge'
@@ -60,7 +61,7 @@ export function AlertFeed({ alerts, loading }: AlertFeedProps) {
           )}
         </h2>
         <Link
-          to="/alerts"
+          to={ROUTES.ALERTS}
           className="flex items-center gap-1 rounded text-sm text-[#00D4FF] hover:underline focus:ring-1 focus:ring-[#00D4FF] focus:outline-none"
         >
           전체 보기 <ArrowRight className="h-3.5 w-3.5" />

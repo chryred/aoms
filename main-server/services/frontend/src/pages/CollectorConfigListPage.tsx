@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { ROUTES } from '@/constants/routes'
 import { Settings, Plus } from 'lucide-react'
 import { PageHeader } from '@/components/common/PageHeader'
 import { EmptyState } from '@/components/common/EmptyState'
@@ -140,7 +141,7 @@ export default function CollectorConfigListPage() {
           icon={<Settings className="h-12 w-12 text-[#8B97AD]" />}
           title="등록된 수집기 설정이 없습니다"
           description="시스템 수정 페이지에서 수집기를 추가할 수 있습니다."
-          cta={{ label: '시스템에서 수집기 추가', onClick: () => navigate('/systems') }}
+          cta={{ label: '시스템에서 수집기 추가', onClick: () => navigate(ROUTES.SYSTEMS) }}
         />
       )}
 
@@ -189,7 +190,7 @@ export default function CollectorConfigListPage() {
               <NeuButton
                 onClick={() => {
                   setShowAddHint(false)
-                  navigate('/systems')
+                  navigate(ROUTES.SYSTEMS)
                 }}
               >
                 시스템 목록으로 이동

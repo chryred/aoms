@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
+import { ROUTES } from '@/constants/routes'
 import { FileText } from 'lucide-react'
 import { PageHeader } from '@/components/common/PageHeader'
 import { NeuSelect } from '@/components/neumorphic/NeuSelect'
@@ -44,7 +45,7 @@ export function ReportHistoryPage() {
 
       {/* SubNav */}
       <div className="mb-5 flex gap-1 border-b border-[#2B2F37]">
-        <Link to="/reports" className="px-4 py-2 text-sm text-[#8B97AD] hover:text-[#E2E8F2]">
+        <Link to={ROUTES.REPORTS} className="px-4 py-2 text-sm text-[#8B97AD] hover:text-[#E2E8F2]">
           안정성 리포트
         </Link>
         <span className="border-b-2 border-[#00D4FF] px-4 py-2 text-sm font-medium text-[#00D4FF]">

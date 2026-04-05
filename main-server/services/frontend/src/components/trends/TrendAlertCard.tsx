@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom'
 import { NeuCard } from '@/components/neumorphic/NeuCard'
+import { ROUTES } from '@/constants/routes'
 import { SeverityBadge } from '@/components/charts/SeverityBadge'
 import { formatRelative } from '@/lib/utils'
 import type { TrendAlert } from '@/types/aggregation'
@@ -51,7 +52,7 @@ export function TrendAlertCard({ alert }: TrendAlertCardProps) {
       {/* Footer */}
       <div className="mt-3">
         <Link
-          to={`/dashboard/${alert.system_id}`}
+          to={ROUTES.systemDetail(alert.system_id)}
           className="rounded text-sm text-[#00D4FF] hover:underline focus:ring-1 focus:ring-[#00D4FF] focus:ring-offset-2 focus:ring-offset-[#1E2127] focus:outline-none"
         >
           시스템 상세 보기

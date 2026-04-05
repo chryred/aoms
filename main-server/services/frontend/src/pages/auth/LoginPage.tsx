@@ -3,6 +3,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { useMutation } from '@tanstack/react-query'
 import { useNavigate } from 'react-router-dom'
+import { ROUTES } from '@/constants/routes'
 import { useRef, useState } from 'react'
 import { authApi } from '@/api/auth'
 import { useAuthStore } from '@/store/authStore'
@@ -64,7 +65,7 @@ export function LoginPage() {
     onSuccess: (resp) => {
       login(resp)
       setLoginDone(true)
-      setTimeout(() => navigate('/dashboard', { replace: true }), 700)
+      setTimeout(() => navigate(ROUTES.DASHBOARD, { replace: true }), 700)
     },
     onError: (err: unknown) => {
       const status = (err as { response?: { status: number } })?.response?.status

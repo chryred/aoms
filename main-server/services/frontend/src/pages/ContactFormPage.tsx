@@ -1,4 +1,5 @@
 import { useNavigate, useParams } from 'react-router-dom'
+import { ROUTES } from '@/constants/routes'
 import { PageHeader } from '@/components/common/PageHeader'
 import { LoadingSkeleton } from '@/components/common/LoadingSkeleton'
 import { ContactForm } from '@/components/contacts/ContactForm'
@@ -21,9 +22,9 @@ export function ContactFormPage() {
 
   function handleSubmit(data: ContactCreate) {
     if (isEdit) {
-      updateMutation.mutate(data, { onSuccess: () => navigate('/contacts') })
+      updateMutation.mutate(data, { onSuccess: () => navigate(ROUTES.CONTACTS) })
     } else {
-      createMutation.mutate(data, { onSuccess: () => navigate('/contacts') })
+      createMutation.mutate(data, { onSuccess: () => navigate(ROUTES.CONTACTS) })
     }
   }
 

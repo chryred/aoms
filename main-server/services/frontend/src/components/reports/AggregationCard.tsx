@@ -1,6 +1,7 @@
 import { NeuCard } from '@/components/neumorphic/NeuCard'
 import { SeverityBadge } from '@/components/charts/SeverityBadge'
 import { Link } from 'react-router-dom'
+import { ROUTES } from '@/constants/routes'
 import { summarizeMetrics, llmSeverityToCardSeverity, formatKST } from '@/lib/utils'
 import type { DailyAggregation, WeeklyAggregation, MonthlyAggregation } from '@/types/aggregation'
 
@@ -50,7 +51,7 @@ export function AggregationCard({
       )}
 
       <Link
-        to={`/dashboard/${systemId}`}
+        to={ROUTES.systemDetail(systemId)}
         onClick={onDrillDown}
         className="text-xs font-medium text-[#00D4FF] hover:underline"
       >

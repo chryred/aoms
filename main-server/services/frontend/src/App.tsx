@@ -1,5 +1,6 @@
 import { lazy, Suspense } from 'react'
 import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom'
+import { ROUTES } from '@/constants/routes'
 import { AppLayout } from '@/components/layout/AppLayout'
 import { AuthLayout } from '@/components/layout/AuthLayout'
 import { AuthGuard } from '@/components/layout/AuthGuard'
@@ -74,7 +75,7 @@ export function App() {
             </AuthGuard>
           }
         >
-          <Route index element={<Navigate to="/dashboard" replace />} />
+          <Route index element={<Navigate to={ROUTES.DASHBOARD} replace />} />
           <Route
             path="/dashboard"
             element={
@@ -219,7 +220,7 @@ export function App() {
           </Route>
         </Route>
 
-        <Route path="*" element={<Navigate to="/dashboard" replace />} />
+        <Route path="*" element={<Navigate to={ROUTES.DASHBOARD} replace />} />
       </Routes>
     </BrowserRouter>
   )

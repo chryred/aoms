@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom'
 import { NeuCard } from '@/components/neumorphic/NeuCard'
+import { ROUTES } from '@/constants/routes'
 import { SeverityBadge } from '@/components/charts/SeverityBadge'
 import { formatKST, formatPeriodLabel } from '@/lib/utils'
 import type { SimilarSearchResult, HourlyPatternPayload, AggSummaryPayload } from '@/types/search'
@@ -98,7 +99,7 @@ export function SimilarResultCard({ result, collection }: SimilarResultCardProps
 
       {/* Footer link */}
       <Link
-        to={`/alerts?system_id=${payload.system_id}`}
+        to={`${ROUTES.ALERTS}?system_id=${payload.system_id}`}
         className="rounded text-sm text-[#00D4FF] hover:underline focus:ring-1 focus:ring-[#00D4FF] focus:ring-offset-2 focus:ring-offset-[#1E2127] focus:outline-none"
       >
         관련 알림 이력

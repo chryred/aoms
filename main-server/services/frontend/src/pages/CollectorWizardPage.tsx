@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
+import { ROUTES } from '@/constants/routes'
 import { X } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { PageHeader } from '@/components/common/PageHeader'
@@ -157,7 +158,7 @@ export default function CollectorWizardPage() {
     if (successCount > 0) {
       toast.success(`수집기 설정 ${successCount}개가 등록되었습니다`)
       reset()
-      navigate('/collector-configs')
+      navigate(ROUTES.COLLECTOR_CONFIGS)
     }
   }
 

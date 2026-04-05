@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { ROUTES } from '@/constants/routes'
 import { Pencil, Trash2, Users } from 'lucide-react'
 import { PageHeader } from '@/components/common/PageHeader'
 import { NeuButton } from '@/components/neumorphic/NeuButton'
@@ -37,7 +38,7 @@ export function ContactListPage() {
     <div>
       <PageHeader
         title="담당자 관리"
-        action={<NeuButton onClick={() => navigate('/contacts/new')}>담당자 등록</NeuButton>}
+        action={<NeuButton onClick={() => navigate(ROUTES.CONTACTS_NEW)}>담당자 등록</NeuButton>}
       />
 
       <div className="mb-4 max-w-xs">
@@ -52,7 +53,7 @@ export function ContactListPage() {
         <EmptyState
           icon={<Users className="h-10 w-10" />}
           title="담당자가 없습니다"
-          cta={{ label: '담당자 등록', onClick: () => navigate('/contacts/new') }}
+          cta={{ label: '담당자 등록', onClick: () => navigate(ROUTES.CONTACTS_NEW) }}
         />
       ) : (
         <div className="overflow-hidden rounded-sm bg-[#1E2127] shadow-[3px_3px_7px_#111317,-3px_-3px_7px_#2B2F37]">
@@ -71,7 +72,7 @@ export function ContactListPage() {
                 <ContactRow
                   key={c.id}
                   contact={c}
-                  onEdit={() => navigate(`/contacts/${c.id}/edit`)}
+                  onEdit={() => navigate(ROUTES.contactEdit(c.id))}
                   onDelete={() => setConfirmId(c.id)}
                 />
               ))}

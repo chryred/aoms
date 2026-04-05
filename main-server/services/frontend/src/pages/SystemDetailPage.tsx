@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
+import { ROUTES } from '@/constants/routes'
 import { AlertTriangle } from 'lucide-react'
 import { PageHeader } from '@/components/common/PageHeader'
 import { NeuCard } from '@/components/neumorphic/NeuCard'
@@ -81,7 +82,7 @@ export function SystemDetailPage() {
   return (
     <div>
       <nav className="mb-3 text-xs text-[#8B97AD]">
-        <Link to="/dashboard" className="hover:underline">
+        <Link to={ROUTES.DASHBOARD} className="hover:underline">
           대시보드
         </Link>
         <span className="mx-1">›</span>

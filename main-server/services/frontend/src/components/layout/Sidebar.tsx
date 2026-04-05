@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
+import { ROUTES } from '@/constants/routes'
 import {
   LayoutDashboard,
   Bell,
@@ -137,14 +138,14 @@ export function Sidebar() {
       <nav className="flex-1 space-y-4 overflow-y-auto px-2 py-4">
         <NavGroup label="운영" collapsed={collapsed}>
           <NavItem
-            to="/dashboard"
+            to={ROUTES.DASHBOARD}
             icon={<LayoutDashboard className="h-4 w-4" />}
             label="대시보드"
             collapsed={collapsed}
             onNavigate={closeMobileSidebar}
           />
           <NavItem
-            to="/trends"
+            to={ROUTES.TRENDS}
             icon={<TrendingUp className="h-4 w-4" />}
             label="트렌드 예측"
             collapsed={collapsed}
@@ -154,7 +155,7 @@ export function Sidebar() {
 
         <NavGroup label="알림" collapsed={collapsed}>
           <NavItem
-            to="/alerts"
+            to={ROUTES.ALERTS}
             icon={<Bell className="h-4 w-4" />}
             label="알림 이력"
             badge={unackCount}
@@ -162,7 +163,7 @@ export function Sidebar() {
             onNavigate={closeMobileSidebar}
           />
           <NavItem
-            to="/feedback"
+            to={ROUTES.FEEDBACK}
             icon={<MessageSquare className="h-4 w-4" />}
             label="피드백"
             collapsed={collapsed}
@@ -172,14 +173,14 @@ export function Sidebar() {
 
         <NavGroup label="분석" collapsed={collapsed}>
           <NavItem
-            to="/reports"
+            to={ROUTES.REPORTS}
             icon={<BarChart3 className="h-4 w-4" />}
             label="안정성 리포트"
             collapsed={collapsed}
             onNavigate={closeMobileSidebar}
           />
           <NavItem
-            to="/search"
+            to={ROUTES.SEARCH}
             icon={<Search className="h-4 w-4" />}
             label="유사 장애 검색"
             collapsed={collapsed}
@@ -189,21 +190,21 @@ export function Sidebar() {
 
         <NavGroup label="관리" collapsed={collapsed}>
           <NavItem
-            to="/systems"
+            to={ROUTES.SYSTEMS}
             icon={<Server className="h-4 w-4" />}
             label="시스템 관리"
             collapsed={collapsed}
             onNavigate={closeMobileSidebar}
           />
           <NavItem
-            to="/contacts"
+            to={ROUTES.CONTACTS}
             icon={<Users className="h-4 w-4" />}
             label="담당자 관리"
             collapsed={collapsed}
             onNavigate={closeMobileSidebar}
           />
           <NavItem
-            to="/collector-configs"
+            to={ROUTES.COLLECTOR_CONFIGS}
             icon={<Settings className="h-4 w-4" />}
             label="수집기 설정"
             collapsed={collapsed}
@@ -215,7 +216,7 @@ export function Sidebar() {
       {/* 계정 */}
       <div className="space-y-0.5 border-t border-[#2B2F37] px-2 py-3">
         <NavItem
-          to="/profile"
+          to={ROUTES.PROFILE}
           icon={<UserCircle className="h-4 w-4" />}
           label="내 프로필"
           collapsed={collapsed}
@@ -224,7 +225,7 @@ export function Sidebar() {
         {user?.role === 'admin' && (
           <>
             <NavItem
-              to="/admin/users"
+              to={ROUTES.ADMIN_USERS}
               icon={<ShieldCheck className="h-4 w-4" />}
               label="사용자 관리"
               badge={pendingCount}
@@ -232,7 +233,7 @@ export function Sidebar() {
               onNavigate={closeMobileSidebar}
             />
             <NavItem
-              to="/vector-health"
+              to={ROUTES.VECTOR_HEALTH}
               icon={<Database className="h-4 w-4" />}
               label="벡터 상태"
               collapsed={collapsed}
