@@ -1,5 +1,5 @@
 import { lazy, Suspense } from 'react'
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom'
 import { AppLayout } from '@/components/layout/AppLayout'
 import { AuthLayout } from '@/components/layout/AuthLayout'
 import { AuthGuard } from '@/components/layout/AuthGuard'
@@ -199,26 +199,24 @@ export function App() {
           />
 
           {/* Admin 전용 */}
-          <Route
-            path="/admin/users"
-            element={
-              <AdminGuard>
+          <Route element={<AdminGuard><Outlet /></AdminGuard>}>
+            <Route
+              path="/admin/users"
+              element={
                 <Suspense fallback={<LoadingSkeleton shape="table" />}>
                   <UserManagementPage />
                 </Suspense>
-              </AdminGuard>
-            }
-          />
-          <Route
-            path="/vector-health"
-            element={
-              <AdminGuard>
+              }
+            />
+            <Route
+              path="/vector-health"
+              element={
                 <Suspense fallback={<LoadingSkeleton shape="card" count={4} />}>
                   <VectorHealthPage />
                 </Suspense>
-              </AdminGuard>
-            }
-          />
+              }
+            />
+          </Route>
         </Route>
 
         <Route path="*" element={<Navigate to="/dashboard" replace />} />
