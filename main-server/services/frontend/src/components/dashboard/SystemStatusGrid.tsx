@@ -9,11 +9,14 @@ interface SystemStatusGridProps {
   onAddSystem?: () => void
 }
 
-export const SystemStatusGrid = memo(function SystemStatusGrid({ systems, onAddSystem }: SystemStatusGridProps) {
+export const SystemStatusGrid = memo(function SystemStatusGrid({
+  systems,
+  onAddSystem,
+}: SystemStatusGridProps) {
   if (systems.length === 0) {
     return (
       <EmptyState
-        icon={<Server className="w-12 h-12" />}
+        icon={<Server className="h-12 w-12" />}
         title="등록된 시스템이 없습니다"
         description="시스템을 등록하면 모니터링이 시작됩니다"
         cta={onAddSystem ? { label: '시스템 등록', onClick: onAddSystem } : undefined}

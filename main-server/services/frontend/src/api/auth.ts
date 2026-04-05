@@ -14,8 +14,7 @@ export const authApi = {
   login: (body: LoginRequest) =>
     adminApi.post('api/v1/auth/login', { json: body }).json<LoginResponse>(),
 
-  refresh: () =>
-    adminApi.post('api/v1/auth/refresh').json<{ access_token: string }>(),
+  refresh: () => adminApi.post('api/v1/auth/refresh').json<{ access_token: string }>(),
 
   logout: () => adminApi.post('api/v1/auth/logout'),
 
@@ -24,8 +23,7 @@ export const authApi = {
   register: (body: RegisterRequest) =>
     adminApi.post('api/v1/auth/register', { json: body }).json<{ message: string }>(),
 
-  getUsers: () =>
-    adminApi.get('api/v1/auth/users').json<UserAdminOut[]>(),
+  getUsers: () => adminApi.get('api/v1/auth/users').json<UserAdminOut[]>(),
 
   updateUserStatus: (id: number, body: UserStatusUpdateRequest) =>
     adminApi.patch(`api/v1/auth/users/${id}/status`, { json: body }).json<UserAdminOut>(),

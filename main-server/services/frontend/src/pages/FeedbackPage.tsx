@@ -25,7 +25,12 @@ export function FeedbackPage() {
   const { data: systems = [] } = useSystems()
 
   // 페이지네이션용 필터 적용 조회
-  const { data: alerts, isLoading, error, refetch } = useAlerts({
+  const {
+    data: alerts,
+    isLoading,
+    error,
+    refetch,
+  } = useAlerts({
     alert_type: 'log_analysis',
     system_id: systemFilter ? Number(systemFilter) : undefined,
     acknowledged: ackFilter === 'all' ? undefined : ackFilter === 'ack',
@@ -43,10 +48,11 @@ export function FeedbackPage() {
   const hasPrev = offset > 0
   const currentPage = Math.floor(offset / PAGE_SIZE) + 1
 
-  const handleFilterChange = (setter: (v: string) => void) => (e: React.ChangeEvent<HTMLSelectElement>) => {
-    setter(e.target.value)
-    setOffset(0)
-  }
+  const handleFilterChange =
+    (setter: (v: string) => void) => (e: React.ChangeEvent<HTMLSelectElement>) => {
+      setter(e.target.value)
+      setOffset(0)
+    }
 
   const handleFeedback = (alert: AlertHistory) => {
     if (!alert.qdrant_point_id) return
@@ -63,28 +69,25 @@ export function FeedbackPage() {
       />
 
       {/* 요약 카드 */}
-      <div className="grid grid-cols-3 gap-4 mb-6">
+      <div className="mb-6 grid grid-cols-3 gap-4">
         <NeuCard className="text-center">
           <p className="text-2xl font-bold text-[#E2E8F2]">{totalCount}</p>
-          <p className="text-xs text-[#8B97AD] mt-1">전체 분석 건수</p>
+          <p className="mt-1 text-xs text-[#8B97AD]">전체 분석 건수</p>
         </NeuCard>
         <NeuCard className="text-center">
           <p className="text-2xl font-bold text-[#00D4FF]">{feedbackableCount}</p>
-          <p className="text-xs text-[#8B97AD] mt-1">피드백 제출 가능</p>
+          <p className="mt-1 text-xs text-[#8B97AD]">피드백 제출 가능</p>
         </NeuCard>
         <NeuCard className="text-center">
           <p className="text-2xl font-bold text-[#22C55E]">{acknowledgedCount}</p>
-          <p className="text-xs text-[#8B97AD] mt-1">확인 처리 완료</p>
+          <p className="mt-1 text-xs text-[#8B97AD]">확인 처리 완료</p>
         </NeuCard>
       </div>
 
       {/* 필터 */}
-      <div className="flex gap-3 mb-4">
+      <div className="mb-4 flex gap-3">
         <div className="w-48">
-          <NeuSelect
-            value={systemFilter}
-            onChange={handleFilterChange(setSystemFilter)}
-          >
+          <NeuSelect value={systemFilter} onChange={handleFilterChange(setSystemFilter)}>
             <option value="">전체 시스템</option>
             {systems.map((s) => (
               <option key={s.id} value={String(s.id)}>
@@ -111,14 +114,14 @@ export function FeedbackPage() {
       ) : error ? (
         <ErrorCard onRetry={refetch} />
       ) : (
-        <NeuCard className="p-0 overflow-hidden">
+        <NeuCard className="overflow-hidden p-0">
           <AlertTable alerts={alerts ?? []} onSelect={setSelectedAlert} />
         </NeuCard>
       )}
 
       {/* 페이지네이션 */}
       {!isLoading && !error && (
-        <div className="flex items-center justify-between mt-4">
+        <div className="mt-4 flex items-center justify-between">
           <span className="text-sm text-[#8B97AD]">페이지 {currentPage}</span>
           <div className="flex gap-2">
             <NeuButton
@@ -127,7 +130,7 @@ export function FeedbackPage() {
               disabled={!hasPrev}
               onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
             >
-              <ChevronLeft className="w-4 h-4" />
+              <ChevronLeft className="h-4 w-4" />
               이전
             </NeuButton>
             <NeuButton
@@ -137,30 +140,23 @@ export function FeedbackPage() {
               onClick={() => setOffset(offset + PAGE_SIZE)}
             >
               다음
-              <ChevronRight className="w-4 h-4" />
+              <ChevronRight className="h-4 w-4" />
             </NeuButton>
           </div>
         </div>
       )}
 
       {/* 알림 상세 패널 */}
-      <AlertDetailPanel
-        alert={selectedAlert}
-        onClose={() => setSelectedAlert(null)}
-      />
+      <AlertDetailPanel alert={selectedAlert} onClose={() => setSelectedAlert(null)} />
 
       {/* 피드백 제출 플로팅 버튼 — qdrant_point_id 있는 알림 선택 시 표시 */}
       {selectedAlert?.qdrant_point_id && (
-        <div className="fixed bottom-6 right-6 z-50">
+        <div className="fixed right-6 bottom-6 z-50">
           <NeuBadge variant="normal" className="mb-2 block text-center text-xs">
             피드백 제출 가능
           </NeuBadge>
-          <NeuButton
-            variant="primary"
-            size="md"
-            onClick={() => handleFeedback(selectedAlert)}
-          >
-            <MessageSquarePlus className="w-4 h-4 mr-1" />
+          <NeuButton variant="primary" size="md" onClick={() => handleFeedback(selectedAlert)}>
+            <MessageSquarePlus className="mr-1 h-4 w-4" />
             피드백 제출
           </NeuButton>
         </div>

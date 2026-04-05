@@ -31,9 +31,7 @@ export function ContactFormPage() {
 
   return (
     <div className="max-w-lg">
-      <PageHeader
-        title={isEdit ? `담당자 수정 — ${existing?.name ?? ''}` : '담당자 등록'}
-      />
+      <PageHeader title={isEdit ? `담당자 수정 — ${existing?.name ?? ''}` : '담당자 등록'} />
       <div className="rounded-sm bg-[#1E2127] p-6 shadow-[3px_3px_7px_#111317,-3px_-3px_7px_#2B2F37]">
         <ContactForm
           defaultValues={existing}

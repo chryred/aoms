@@ -24,7 +24,7 @@ const passwordSchema = z
       .min(8, '비밀번호는 8자 이상이어야 합니다')
       .regex(
         /^(?=.*[a-zA-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?])/,
-        '영문, 숫자, 특수문자를 모두 포함해야 합니다'
+        '영문, 숫자, 특수문자를 모두 포함해야 합니다',
       ),
     confirm_password: z.string(),
   })
@@ -35,7 +35,6 @@ const passwordSchema = z
 
 type ProfileFormData = z.infer<typeof profileSchema>
 type PasswordFormData = z.infer<typeof passwordSchema>
-
 
 export function ProfilePage() {
   const { data: me, isLoading } = useMe()
@@ -52,12 +51,15 @@ export function ProfilePage() {
   })
 
   const handleProfileSubmit = (data: ProfileFormData) => {
-    updateMe({ name: data.name }, {
-      onSuccess: () => {
-        setIsEditing(false)
-        profileForm.reset({ name: data.name })
+    updateMe(
+      { name: data.name },
+      {
+        onSuccess: () => {
+          setIsEditing(false)
+          profileForm.reset({ name: data.name })
+        },
       },
-    })
+    )
   }
 
   const handlePasswordSubmit = (data: PasswordFormData) => {
@@ -68,7 +70,7 @@ export function ProfilePage() {
           passwordForm.reset()
           setIsPasswordOpen(false)
         },
-      }
+      },
     )
   }
 
@@ -85,7 +87,7 @@ export function ProfilePage() {
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-full bg-[#00D4FF] flex items-center justify-center text-[#1E2127] text-lg font-bold shadow-[2px_2px_5px_#111317,-2px_-2px_5px_#2B2F37]">
+                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[#00D4FF] text-lg font-bold text-[#1E2127] shadow-[2px_2px_5px_#111317,-2px_-2px_5px_#2B2F37]">
                   {me.name.slice(0, 1)}
                 </div>
                 <div>
@@ -96,21 +98,25 @@ export function ProfilePage() {
                   <p className="text-sm text-[#8B97AD]">{me.email}</p>
                 </div>
               </div>
-              <NeuButton variant="ghost" size="sm" onClick={() => {
-                profileForm.reset({ name: me.name })
-                setIsEditing(true)
-              }}>
+              <NeuButton
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  profileForm.reset({ name: me.name })
+                  setIsEditing(true)
+                }}
+              >
                 정보 수정
               </NeuButton>
             </div>
 
-            <div className="border-t border-[#2B2F37] pt-4 grid grid-cols-2 gap-4 text-sm">
+            <div className="grid grid-cols-2 gap-4 border-t border-[#2B2F37] pt-4 text-sm">
               <div>
-                <p className="text-xs text-[#8B97AD] mb-0.5">이메일</p>
-                <p className="text-[#E2E8F2] font-medium">{me.email}</p>
+                <p className="mb-0.5 text-xs text-[#8B97AD]">이메일</p>
+                <p className="font-medium text-[#E2E8F2]">{me.email}</p>
               </div>
               <div>
-                <p className="text-xs text-[#8B97AD] mb-0.5">권한</p>
+                <p className="mb-0.5 text-xs text-[#8B97AD]">권한</p>
                 <UserRoleBadge role={me.role} />
               </div>
             </div>
@@ -126,15 +132,24 @@ export function ProfilePage() {
               {...profileForm.register('name')}
             />
             <div>
-              <label className="block text-xs font-medium text-[#8B97AD] mb-1">이메일</label>
-              <p className="px-3 py-2 rounded-sm bg-[#1E2127] border border-[#2B2F37] text-[#5A6478] text-sm">
+              <label className="mb-1 block text-xs font-medium text-[#8B97AD]">이메일</label>
+              <p className="rounded-sm border border-[#2B2F37] bg-[#1E2127] px-3 py-2 text-sm text-[#5A6478]">
                 {me.email}
                 <span className="ml-2 text-xs text-[#5A6478]">(이메일은 변경할 수 없습니다)</span>
               </p>
             </div>
             <div className="flex gap-3 pt-2">
-              <NeuButton type="submit" size="sm" loading={isPending}>저장</NeuButton>
-              <NeuButton type="button" variant="ghost" size="sm" onClick={() => setIsEditing(false)}>취소</NeuButton>
+              <NeuButton type="submit" size="sm" loading={isPending}>
+                저장
+              </NeuButton>
+              <NeuButton
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setIsEditing(false)}
+              >
+                취소
+              </NeuButton>
             </div>
           </form>
         )}
@@ -147,12 +162,14 @@ export function ProfilePage() {
               setIsPasswordOpen((v) => !v)
               if (isPasswordOpen) passwordForm.reset()
             }}
-            className="flex items-center gap-2 text-sm font-semibold text-[#E2E8F2] hover:text-[#00D4FF] transition-colors"
+            className="flex items-center gap-2 text-sm font-semibold text-[#E2E8F2] transition-colors hover:text-[#00D4FF]"
           >
             비밀번호 변경
-            {isPasswordOpen
-              ? <ChevronUp className="w-4 h-4" />
-              : <ChevronDown className="w-4 h-4" />}
+            {isPasswordOpen ? (
+              <ChevronUp className="h-4 w-4" />
+            ) : (
+              <ChevronDown className="h-4 w-4" />
+            )}
           </button>
 
           {isPasswordOpen && (
@@ -187,7 +204,9 @@ export function ProfilePage() {
                 {...passwordForm.register('confirm_password')}
               />
               <div className="flex gap-3 pt-2">
-                <NeuButton type="submit" size="sm" loading={isPending}>비밀번호 변경</NeuButton>
+                <NeuButton type="submit" size="sm" loading={isPending}>
+                  비밀번호 변경
+                </NeuButton>
                 <NeuButton
                   type="button"
                   variant="ghost"

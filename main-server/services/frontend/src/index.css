@@ -1,4 +1,4 @@
-@import "tailwindcss";
+@import 'tailwindcss';
 
 /*
  * 서체 전략
@@ -14,10 +14,10 @@
   font-style: italic;
   font-display: swap;
   src: url('/fonts/Lora-Italic-latin-ext.woff2') format('woff2');
-  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7,
-                 U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF,
-                 U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB,
-                 U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+  unicode-range:
+    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
+    U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F,
+    U+A720-A7FF;
 }
 
 /* ── Lora Italic — Latin 기본 (브랜드 워드마크 전용) ── */
@@ -27,10 +27,9 @@
   font-style: italic;
   font-display: swap;
   src: url('/fonts/Lora-Italic-latin.woff2') format('woff2');
-  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC,
-                 U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
-                 U+2000-206F, U+20AC, U+2122, U+2191, U+2193,
-                 U+2212, U+2215, U+FEFF, U+FFFD;
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
 
 /* ── Pretendard — 한글 및 나머지 전체 범위 ── */
@@ -69,57 +68,71 @@
   --font-lora: 'Lora', serif;
 
   /* 뉴모피즘 그림자 토큰 (다크) */
-  --shadow-neu-flat:    3px 3px 7px #111317, -3px -3px 7px #2B2F37;
-  --shadow-neu-inset:   inset 2px 2px 5px #111317, inset -2px -2px 5px #2B2F37;
-  --shadow-neu-pressed: inset 1px 1px 3px #111317, inset -1px -1px 3px #2B2F37;
+  --shadow-neu-flat: 3px 3px 7px #111317, -3px -3px 7px #2b2f37;
+  --shadow-neu-inset: inset 2px 2px 5px #111317, inset -2px -2px 5px #2b2f37;
+  --shadow-neu-pressed: inset 1px 1px 3px #111317, inset -1px -1px 3px #2b2f37;
 
   /* 색상 팔레트 (다크 뉴모피즘) */
-  --color-bg-base:        #1E2127;
-  --color-surface:        #1E2127;
-  --color-accent:         #00D4FF;
-  --color-accent-hover:   #00B8E0;
-  --color-accent-muted:   rgba(0, 212, 255, 0.10);
-  --color-text-primary:   #E2E8F2;
-  --color-text-secondary: #8B97AD;
-  --color-border:         #2B2F37;
-  --color-critical:       #EF4444;
-  --color-warning:        #F59E0B;
-  --color-normal:         #22C55E;
-  --color-glass-bg:       rgba(0, 212, 255, 0.08);
-  --color-glass-border:   rgba(0, 212, 255, 0.16);
+  --color-bg-base: #1e2127;
+  --color-surface: #1e2127;
+  --color-accent: #00d4ff;
+  --color-accent-hover: #00b8e0;
+  --color-accent-muted: rgba(0, 212, 255, 0.1);
+  --color-text-primary: #e2e8f2;
+  --color-text-secondary: #8b97ad;
+  --color-border: #2b2f37;
+  --color-critical: #ef4444;
+  --color-warning: #f59e0b;
+  --color-normal: #22c55e;
+  --color-glass-bg: rgba(0, 212, 255, 0.08);
+  --color-glass-border: rgba(0, 212, 255, 0.16);
 
   /* 타이포그래피 토큰 */
-  --tracking-heading: -0.02em;   /* 대형 헤딩 자간 압축 */
-  --tracking-label:    0.06em;   /* 대문자 레이블 자간 확장 */
-  --leading-body:      1.625;    /* 본문 행간 (다크 배경 가독성) */
-  --leading-heading:   1.2;      /* 헤딩 행간 */
+  --tracking-heading: -0.02em; /* 대형 헤딩 자간 압축 */
+  --tracking-label: 0.06em; /* 대문자 레이블 자간 확장 */
+  --leading-body: 1.625; /* 본문 행간 (다크 배경 가독성) */
+  --leading-heading: 1.2; /* 헤딩 행간 */
 }
 
-*, *::before, *::after {
+*,
+*::before,
+*::after {
   box-sizing: border-box;
 }
 
 body {
-  background-color: #1E2127;
+  background-color: #1e2127;
   font-family: 'Pretendard', system-ui, sans-serif;
-  font-size: 1rem;             /* 16px 기준 */
+  font-size: 1rem; /* 16px 기준 */
   line-height: var(--leading-body);
-  color: #E2E8F2;
-  font-variant-numeric: tabular-nums;   /* 숫자 균등 폭 — 모니터링 UI 전역 적용 */
+  color: #e2e8f2;
+  font-variant-numeric: tabular-nums; /* 숫자 균등 폭 — 모니터링 UI 전역 적용 */
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   color-scheme: dark;
 }
 
 /* 스크롤바 */
-::-webkit-scrollbar { width: 6px; height: 6px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: #2B2F37; border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: #3A404A; }
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #2b2f37;
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #3a404a;
+}
 
 /* 모션 감소 접근성 */
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
+  *,
+  *::before,
+  *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
@@ -128,8 +141,13 @@ body {
 }
 
 /* 긴 텍스트 오버플로우 방지 (모니터링 데이터용) */
-.font-mono { word-break: break-all; }
-pre { white-space: pre-wrap; word-break: break-word; }
+.font-mono {
+  word-break: break-all;
+}
+pre {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
 
 /* ── 폼 인텔리전스 (LoginPage overdrive) ─────────────── */
 
@@ -137,7 +155,7 @@ pre { white-space: pre-wrap; word-break: break-word; }
 .pw-track {
   height: 2px;
   border-radius: 9999px;
-  background: #2B2F37;
+  background: #2b2f37;
   overflow: hidden;
 }
 .pw-fill {
@@ -145,18 +163,31 @@ pre { white-space: pre-wrap; word-break: break-word; }
   border-radius: 9999px;
   transform-origin: left;
   transition:
-    transform          0.4s cubic-bezier(0.4, 0, 0.2, 1),
-    background-color   0.3s ease-out;
+    transform 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+    background-color 0.3s ease-out;
 }
 
 /* 오류 흔들기 */
 @keyframes shake {
-  0%, 100% { transform: translateX(0); }
-  18%       { transform: translateX(-6px); }
-  36%       { transform: translateX(6px); }
-  54%       { transform: translateX(-4px); }
-  72%       { transform: translateX(3px); }
-  88%       { transform: translateX(-1px); }
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  18% {
+    transform: translateX(-6px);
+  }
+  36% {
+    transform: translateX(6px);
+  }
+  54% {
+    transform: translateX(-4px);
+  }
+  72% {
+    transform: translateX(3px);
+  }
+  88% {
+    transform: translateX(-1px);
+  }
 }
 .animate-shake {
   animation: shake 0.45s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
@@ -164,20 +195,24 @@ pre { white-space: pre-wrap; word-break: break-word; }
 
 /* 로딩 아크 */
 @keyframes spin-arc {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 .btn-arc {
   width: 16px;
   height: 16px;
   border: 2px solid rgba(30, 33, 39, 0.35);
-  border-top-color: #1E2127;
+  border-top-color: #1e2127;
   border-radius: 50%;
   animation: spin-arc 0.65s linear infinite;
 }
 
 /* 체크마크 선 그리기 */
 @keyframes check-draw {
-  to { stroke-dashoffset: 0; }
+  to {
+    stroke-dashoffset: 0;
+  }
 }
 .btn-check path {
   stroke-dasharray: 24;
@@ -189,12 +224,12 @@ pre { white-space: pre-wrap; word-break: break-word; }
 
 /* 대문자 섹션 레이블 (반복 패턴 토큰화) */
 .type-label {
-  font-size: 0.6875rem;   /* 11px — xs보다 한 단계 작음 */
+  font-size: 0.6875rem; /* 11px — xs보다 한 단계 작음 */
   font-weight: 500;
   line-height: 1.4;
   letter-spacing: var(--tracking-label);
   text-transform: uppercase;
-  color: #5A6478;
+  color: #5a6478;
 }
 
 /* 페이지/섹션 헤딩 자간 압축 */
@@ -206,7 +241,7 @@ pre { white-space: pre-wrap; word-break: break-word; }
 /* 인라인 숫자 데이터 강조 (monospace 없이 폭 균일) */
 .type-data {
   font-variant-numeric: tabular-nums;
-  font-feature-settings: "tnum";
-  font-size: 0.8125rem;   /* 13px */
+  font-feature-settings: 'tnum';
+  font-size: 0.8125rem; /* 13px */
   line-height: 1.5;
 }

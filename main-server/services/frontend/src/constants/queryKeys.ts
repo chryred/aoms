@@ -19,8 +19,7 @@ export const qk = {
     hourly: (params: HourlyParams) => ['aggregations', 'hourly', params] as const,
     daily: (params: { system_id?: number; collector_type?: string }) =>
       ['aggregations', 'daily', params] as const,
-    weekly: (params: { system_id?: number }) =>
-      ['aggregations', 'weekly', params] as const,
+    weekly: (params: { system_id?: number }) => ['aggregations', 'weekly', params] as const,
     monthly: (params: { system_id?: number; period_type?: PeriodType }) =>
       ['aggregations', 'monthly', params] as const,
     trends: () => ['aggregations', 'trends'] as const,
@@ -36,6 +35,5 @@ export const qk = {
   collectorConfigs: (params?: CollectorConfigFilterParams) =>
     ['collector-configs', params] as const,
 
-  collectorTemplates: (type: CollectorType) =>
-    ['collector-templates', type] as const,
+  collectorTemplates: (type: CollectorType) => ['collector-templates', type] as const,
 }

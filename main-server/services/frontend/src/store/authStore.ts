@@ -23,6 +23,6 @@ export const useAuthStore = create<AuthState>()(
       name: 'aoms-auth',
       storage: createJSONStorage(() => sessionStorage),
       partialize: (s) => ({ user: s.user, token: s.token }),
-    }
-  )
+    },
+  ),
 )

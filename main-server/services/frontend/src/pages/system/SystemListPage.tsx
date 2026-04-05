@@ -40,7 +40,7 @@ export function SystemListPage() {
         description="모니터링 대상 시스템을 관리합니다"
         action={
           <NeuButton onClick={openCreate}>
-            <Plus className="w-4 h-4" />
+            <Plus className="h-4 w-4" />
             시스템 등록
           </NeuButton>
         }
@@ -50,7 +50,7 @@ export function SystemListPage() {
       <div className="mb-4 max-w-sm">
         <NeuInput
           placeholder="시스템명, 호스트 검색..."
-          leftIcon={<Search className="w-4 h-4" />}
+          leftIcon={<Search className="h-4 w-4" />}
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
         />
@@ -62,20 +62,12 @@ export function SystemListPage() {
       ) : error ? (
         <ErrorCard onRetry={refetch} />
       ) : (
-        <NeuCard className="p-0 overflow-hidden">
-          <SystemTable
-            systems={systems ?? []}
-            onEdit={openEdit}
-            searchQuery={searchQuery}
-          />
+        <NeuCard className="overflow-hidden p-0">
+          <SystemTable systems={systems ?? []} onEdit={openEdit} searchQuery={searchQuery} />
         </NeuCard>
       )}
 
-      <SystemFormDrawer
-        open={drawerOpen}
-        onClose={closeDrawer}
-        editTarget={editTarget}
-      />
+      <SystemFormDrawer open={drawerOpen} onClose={closeDrawer} editTarget={editTarget} />
     </>
   )
 }

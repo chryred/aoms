@@ -1,4 +1,9 @@
-import type { DailyAggregation, LlmSeverity, WeeklyAggregation, MonthlyAggregation } from './aggregation'
+import type {
+  DailyAggregation,
+  LlmSeverity,
+  WeeklyAggregation,
+  MonthlyAggregation,
+} from './aggregation'
 
 export type ReportType = 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'half_year' | 'annual'
 export type TeamsStatus = 'sent' | 'failed'

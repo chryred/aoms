@@ -20,8 +20,8 @@ export function AnomalyTypeBadge({ type, score }: AnomalyTypeBadgeProps) {
   return (
     <span
       className={cn(
-        'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border',
-        anomalyColor(type)
+        'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium',
+        anomalyColor(type),
       )}
     >
       {LABELS[type]}

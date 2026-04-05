@@ -19,20 +19,22 @@ const SEVERITY_VARIANT: Record<Severity, 'critical' | 'warning' | 'info'> = {
 const AlertFeedItem = memo(function AlertFeedItem({ alert }: { alert: AlertHistory }) {
   return (
     <NeuCard
-      severity={alert.severity === 'critical' ? 'critical' : alert.severity === 'warning' ? 'warning' : undefined}
+      severity={
+        alert.severity === 'critical'
+          ? 'critical'
+          : alert.severity === 'warning'
+            ? 'warning'
+            : undefined
+      }
       className="flex items-start gap-3 py-4"
     >
-      <div className="shrink-0 mt-0.5">
-        <NeuBadge variant={SEVERITY_VARIANT[alert.severity]}>
-          {alert.severity}
-        </NeuBadge>
+      <div className="mt-0.5 shrink-0">
+        <NeuBadge variant={SEVERITY_VARIANT[alert.severity]}>{alert.severity}</NeuBadge>
       </div>
-      <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium text-[#E2E8F2] line-clamp-2">{alert.title}</p>
-        <div className="mt-1 flex items-center gap-2 flex-wrap">
-          <span className="text-xs text-[#8B97AD]">
-            {alert.alertname ?? alert.alert_type}
-          </span>
+      <div className="min-w-0 flex-1">
+        <p className="line-clamp-2 text-sm font-medium text-[#E2E8F2]">{alert.title}</p>
+        <div className="mt-1 flex flex-wrap items-center gap-2">
+          <span className="text-xs text-[#8B97AD]">{alert.alertname ?? alert.alert_type}</span>
           <span className="text-xs text-[#5A6478]">·</span>
           <span className="text-xs text-[#5A6478]">{formatRelative(alert.created_at)}</span>
           <AnomalyTypeBadge type={alert.anomaly_type} />
@@ -50,7 +52,7 @@ interface AlertFeedProps {
 export function AlertFeed({ alerts, loading }: AlertFeedProps) {
   return (
     <section>
-      <div className="flex items-center justify-between mb-3">
+      <div className="mb-3 flex items-center justify-between">
         <h2 className="text-lg font-semibold text-[#E2E8F2]">
           미확인 알림
           {alerts.length > 0 && (
@@ -59,10 +61,9 @@ export function AlertFeed({ alerts, loading }: AlertFeedProps) {
         </h2>
         <Link
           to="/alerts"
-          className="flex items-center gap-1 text-sm text-[#00D4FF] hover:underline
-                     focus:outline-none focus:ring-1 focus:ring-[#00D4FF] rounded"
+          className="flex items-center gap-1 rounded text-sm text-[#00D4FF] hover:underline focus:ring-1 focus:ring-[#00D4FF] focus:outline-none"
         >
-          전체 보기 <ArrowRight className="w-3.5 h-3.5" />
+          전체 보기 <ArrowRight className="h-3.5 w-3.5" />
         </Link>
       </div>
 
@@ -71,7 +72,7 @@ export function AlertFeed({ alerts, loading }: AlertFeedProps) {
       ) : alerts.length === 0 ? (
         <NeuCard>
           <EmptyState
-            icon={<Bell className="w-10 h-10" />}
+            icon={<Bell className="h-10 w-10" />}
             title="미확인 알림이 없습니다"
             description="모든 알림이 정상 처리되었습니다"
           />

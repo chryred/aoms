@@ -35,6 +35,13 @@ from schemas import (
 router = APIRouter(prefix="/api/v1/aggregations", tags=["aggregations"])
 
 
+def _naive(dt: Optional[datetime]) -> Optional[datetime]:
+    """timezone-aware datetime을 naive로 변환 (DB 컬럼이 timezone-naive)"""
+    if dt is not None and dt.tzinfo is not None:
+        return dt.replace(tzinfo=None)
+    return dt
+
+
 # ── 1시간 집계 ──────────────────────────────────────────────────────────────
 
 @router.get("/hourly", response_model=list[HourlyAggregationOut])
@@ -60,9 +67,9 @@ async def list_hourly(
     if severity:
         conditions.append(MetricHourlyAggregation.llm_severity == severity)
     if from_dt:
-        conditions.append(MetricHourlyAggregation.hour_bucket >= from_dt)
+        conditions.append(MetricHourlyAggregation.hour_bucket >= _naive(from_dt))
     if to_dt:
-        conditions.append(MetricHourlyAggregation.hour_bucket <= to_dt)
+        conditions.append(MetricHourlyAggregation.hour_bucket <= _naive(to_dt))
     if conditions:
         stmt = stmt.where(and_(*conditions))
     stmt = stmt.order_by(MetricHourlyAggregation.hour_bucket.desc()).limit(limit)
@@ -173,9 +180,9 @@ async def list_daily(
     if metric_group:
         conditions.append(MetricDailyAggregation.metric_group == metric_group)
     if from_dt:
-        conditions.append(MetricDailyAggregation.day_bucket >= from_dt)
+        conditions.append(MetricDailyAggregation.day_bucket >= _naive(from_dt))
     if to_dt:
-        conditions.append(MetricDailyAggregation.day_bucket <= to_dt)
+        conditions.append(MetricDailyAggregation.day_bucket <= _naive(to_dt))
     if conditions:
         stmt = stmt.where(and_(*conditions))
     stmt = stmt.order_by(MetricDailyAggregation.day_bucket.desc()).limit(limit)
@@ -226,9 +233,9 @@ async def list_weekly(
     if system_id is not None:
         conditions.append(MetricWeeklyAggregation.system_id == system_id)
     if from_dt:
-        conditions.append(MetricWeeklyAggregation.week_start >= from_dt)
+        conditions.append(MetricWeeklyAggregation.week_start >= _naive(from_dt))
     if to_dt:
-        conditions.append(MetricWeeklyAggregation.week_start <= to_dt)
+        conditions.append(MetricWeeklyAggregation.week_start <= _naive(to_dt))
     if conditions:
         stmt = stmt.where(and_(*conditions))
     stmt = stmt.order_by(MetricWeeklyAggregation.week_start.desc()).limit(limit)
@@ -282,9 +289,9 @@ async def list_monthly(
     if period_type:
         conditions.append(MetricMonthlyAggregation.period_type == period_type)
     if from_dt:
-        conditions.append(MetricMonthlyAggregation.period_start >= from_dt)
+        conditions.append(MetricMonthlyAggregation.period_start >= _naive(from_dt))
     if to_dt:
-        conditions.append(MetricMonthlyAggregation.period_start <= to_dt)
+        conditions.append(MetricMonthlyAggregation.period_start <= _naive(to_dt))
     if conditions:
         stmt = stmt.where(and_(*conditions))
     stmt = stmt.order_by(MetricMonthlyAggregation.period_start.desc()).limit(limit)

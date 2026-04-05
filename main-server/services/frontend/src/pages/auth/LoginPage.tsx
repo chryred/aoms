@@ -21,21 +21,21 @@ type FormData = z.infer<typeof schema>
 function calcStrength(pw: string): { pct: number; color: string; label: string } {
   if (!pw) return { pct: 0, color: '#2B2F37', label: '' }
   let score = 0
-  if (pw.length >= 6)  score++
+  if (pw.length >= 6) score++
   if (pw.length >= 10) score++
   if (/[A-Z]/.test(pw)) score++
   if (/[0-9]/.test(pw)) score++
   if (/[^A-Za-z0-9]/.test(pw)) score++
 
-  if (score <= 1) return { pct: 25,  color: '#EF4444', label: '취약' }
-  if (score <= 3) return { pct: 60,  color: '#F59E0B', label: '보통' }
-  return             { pct: 100, color: '#22C55E', label: '강함' }
+  if (score <= 1) return { pct: 25, color: '#EF4444', label: '취약' }
+  if (score <= 3) return { pct: 60, color: '#F59E0B', label: '보통' }
+  return { pct: 100, color: '#22C55E', label: '강함' }
 }
 
 export function LoginPage() {
-  const navigate   = useNavigate()
-  const login      = useAuthStore((s) => s.login)
-  const formRef    = useRef<HTMLFormElement>(null)
+  const navigate = useNavigate()
+  const login = useAuthStore((s) => s.login)
+  const formRef = useRef<HTMLFormElement>(null)
   const [loginDone, setLoginDone] = useState(false)
 
   const {
@@ -54,7 +54,7 @@ export function LoginPage() {
     const el = formRef.current
     if (!el) return
     el.classList.remove('animate-shake')
-    void el.offsetWidth          // reflow 강제 → 같은 오류 반복 시에도 재생
+    void el.offsetWidth // reflow 강제 → 같은 오류 반복 시에도 재생
     el.classList.add('animate-shake')
     setTimeout(() => el.classList.remove('animate-shake'), 500)
   }
@@ -80,10 +80,12 @@ export function LoginPage() {
   return (
     <NeuCard className="w-full max-w-md">
       <div className="mb-8 text-center">
-        <div className="mb-3 inline-flex h-14 w-14 items-center justify-center rounded-sm bg-[#00D4FF] text-[#1E2127] text-2xl font-bold shadow-[2px_2px_5px_#111317,-2px_-2px_5px_#2B2F37]">
+        <div className="mb-3 inline-flex h-14 w-14 items-center justify-center rounded-sm bg-[#00D4FF] text-2xl font-bold text-[#1E2127] shadow-[2px_2px_5px_#111317,-2px_-2px_5px_#2B2F37]">
           S
         </div>
-        <h1 className="type-heading text-2xl font-bold text-[#E2E8F2] font-lora italic">Synapse-V</h1>
+        <h1 className="type-heading font-lora text-2xl font-bold text-[#E2E8F2] italic">
+          Synapse-V
+        </h1>
         <p className="mt-2 text-sm leading-relaxed text-[#8B97AD]">백화점 통합 모니터링 시스템</p>
       </div>
 
@@ -125,10 +127,7 @@ export function LoginPage() {
                   }}
                 />
               </div>
-              <span
-                className="type-data shrink-0 text-[10px]"
-                style={{ color: strength.color }}
-              >
+              <span className="type-data shrink-0 text-[10px]" style={{ color: strength.color }}>
                 {strength.label}
               </span>
             </div>
@@ -136,11 +135,7 @@ export function LoginPage() {
         </div>
 
         {/* 상태 머신: idle → loading arc → success checkmark → navigate */}
-        <NeuButton
-          type="submit"
-          className="w-full mt-6"
-          disabled={isPending || loginDone}
-        >
+        <NeuButton type="submit" className="mt-6 w-full" disabled={isPending || loginDone}>
           {loginDone ? (
             // 체크마크 선 그리기 애니메이션
             <svg
@@ -164,7 +159,7 @@ export function LoginPage() {
         </NeuButton>
       </form>
 
-      <p className="mt-6 text-center text-xs text-[#5A6478] font-lora italic">
+      <p className="font-lora mt-6 text-center text-xs text-[#5A6478] italic">
         © 2026 Synapse-V. All rights reserved.
       </p>
     </NeuCard>

@@ -35,9 +35,9 @@ export function NeuCard({ children, className, severity, pressed, onClick }: Neu
         onClick && [
           'cursor-pointer',
           'hover:shadow-[4px_4px_10px_#111317,-4px_-4px_10px_#2B2F37]',
-          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00D4FF] focus-visible:ring-offset-2 focus-visible:ring-offset-[#1E2127]',
+          'focus-visible:ring-2 focus-visible:ring-[#00D4FF] focus-visible:ring-offset-2 focus-visible:ring-offset-[#1E2127] focus-visible:outline-none',
         ],
-        className
+        className,
       )}
     >
       {children}

@@ -141,7 +141,7 @@ export default function CollectorWizardPage() {
             {
               onSuccess: () => resolve(),
               onError: (err) => reject(err),
-            }
+            },
           )
         })
         successCount++
@@ -173,13 +173,13 @@ export default function CollectorWizardPage() {
   const displayName = system?.display_name ?? `시스템 #${systemId}`
 
   return (
-    <div className="max-w-2xl mx-auto">
+    <div className="mx-auto max-w-2xl">
       <PageHeader
         title={`수집기 추가 — ${displayName}`}
         description={`시스템 관리 > ${displayName} 수정 > 수집기 추가`}
         action={
           <NeuButton variant="ghost" onClick={handleCancel} type="button">
-            <X className="w-4 h-4" />
+            <X className="h-4 w-4" />
             취소
           </NeuButton>
         }
@@ -190,11 +190,8 @@ export default function CollectorWizardPage() {
       <NeuCard>
         {/* Step 1 */}
         {step === 1 && (
-          <WizardStepLayout
-            onNext={handleNext}
-            nextDisabled={collectorType === null}
-          >
-            <p className="text-sm text-[#8B97AD] mb-4">수집기 타입을 선택하세요</p>
+          <WizardStepLayout onNext={handleNext} nextDisabled={collectorType === null}>
+            <p className="mb-4 text-sm text-[#8B97AD]">수집기 타입을 선택하세요</p>
             <div className="grid grid-cols-2 gap-4">
               {COLLECTOR_TYPE_OPTIONS.map((opt) => (
                 <CollectorTypeCard
@@ -215,7 +212,7 @@ export default function CollectorWizardPage() {
             onNext={handleNext}
             nextDisabled={selectedMetricGroups.length === 0}
           >
-            <p className="text-sm text-[#8B97AD] mb-4">
+            <p className="mb-4 text-sm text-[#8B97AD]">
               수집할 메트릭 그룹을 선택하세요 (최소 1개)
             </p>
             <MetricGroupChecklist
@@ -238,7 +235,7 @@ export default function CollectorWizardPage() {
         {/* Step 3 */}
         {step === 3 && (
           <WizardStepLayout onPrev={handlePrev} onNext={handleNext}>
-            <p className="text-sm text-[#8B97AD] mb-4">
+            <p className="mb-4 text-sm text-[#8B97AD]">
               Prometheus job label을 입력하면 해당 job 범위 내에서만 메트릭을 조회합니다
             </p>
             <NeuInput
@@ -247,7 +244,7 @@ export default function CollectorWizardPage() {
               value={prometheusJob}
               onChange={(e) => setPrometheusJob(e.target.value)}
             />
-            <p className="text-sm text-[#8B97AD] mt-3">
+            <p className="mt-3 text-sm text-[#8B97AD]">
               비워두면 시스템의 모든 Prometheus job에서 메트릭을 수집합니다.
               <br />
               Prometheus job 이름은 prometheus.yml의 job_name 값과 일치해야 합니다.
@@ -262,12 +259,11 @@ export default function CollectorWizardPage() {
             onNext={handleNext}
             nextDisabled={jsonError !== null}
           >
-            <p className="text-sm text-[#8B97AD] mb-3">
+            <p className="mb-3 text-sm text-[#8B97AD]">
               수집기 동작을 세부 조정할 JSON 설정을 입력합니다 (선택)
             </p>
             {/* Info banner */}
-            <div className="rounded-sm bg-[rgba(0,212,255,0.06)] border border-[rgba(0,212,255,0.16)]
-                            px-4 py-3 text-sm text-[#00D4FF] mb-4">
+            <div className="mb-4 rounded-sm border border-[rgba(0,212,255,0.16)] bg-[rgba(0,212,255,0.06)] px-4 py-3 text-sm text-[#00D4FF]">
               Monaco Editor CDN 접근 불가 환경으로 텍스트 에디터를 사용합니다.
             </div>
             <div className="flex flex-col gap-1.5">
@@ -279,11 +275,7 @@ export default function CollectorWizardPage() {
                 value={customConfig}
                 onChange={(e) => setCustomConfig(e.target.value)}
                 placeholder={'{\n  "threshold": 80,\n  "interval": "5m"\n}'}
-                className="w-full rounded-sm bg-[#1E2127] border border-[#2B2F37]
-                           shadow-[inset_2px_2px_5px_#111317,inset_-2px_-2px_5px_#2B2F37]
-                           px-4 py-2.5 text-sm text-[#E2E8F2] font-mono
-                           placeholder:text-[#5A6478]
-                           focus:outline-none focus:ring-1 focus:ring-[#00D4FF] focus:ring-offset-2 focus:ring-offset-[#1E2127]"
+                className="w-full rounded-sm border border-[#2B2F37] bg-[#1E2127] px-4 py-2.5 font-mono text-sm text-[#E2E8F2] shadow-[inset_2px_2px_5px_#111317,inset_-2px_-2px_5px_#2B2F37] placeholder:text-[#5A6478] focus:ring-1 focus:ring-[#00D4FF] focus:ring-offset-2 focus:ring-offset-[#1E2127] focus:outline-none"
                 style={{ fontFamily: "'Courier New', monospace" }}
               />
               {customConfig.trim() === '' && (
@@ -302,7 +294,7 @@ export default function CollectorWizardPage() {
         {/* Step 5 */}
         {step === 5 && (
           <WizardStepLayout onPrev={handlePrev}>
-            <p className="text-sm text-[#8B97AD] mb-4">입력한 내용을 확인하고 저장하세요</p>
+            <p className="mb-4 text-sm text-[#8B97AD]">입력한 내용을 확인하고 저장하세요</p>
             <NeuCard className="mb-4">
               <div className="flex flex-col gap-3 text-sm">
                 <SummaryRow label="수집기 타입">
@@ -313,8 +305,7 @@ export default function CollectorWizardPage() {
                     {selectedMetricGroups.map((g) => (
                       <span
                         key={g}
-                        className="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs
-                                   bg-[rgba(0,212,255,0.10)] text-[#00D4FF]"
+                        className="inline-flex items-center rounded-full bg-[rgba(0,212,255,0.10)] px-2.5 py-0.5 text-xs text-[#00D4FF]"
                       >
                         {g}
                       </span>
@@ -332,15 +323,14 @@ export default function CollectorWizardPage() {
                   ) : (
                     <div>
                       <pre
-                        className={`text-xs font-mono text-[#E2E8F2] whitespace-pre-wrap overflow-hidden
-                                    ${!showConfigExpanded ? 'line-clamp-[8]' : ''}`}
+                        className={`overflow-hidden font-mono text-xs whitespace-pre-wrap text-[#E2E8F2] ${!showConfigExpanded ? 'line-clamp-[8]' : ''}`}
                       >
                         {JSON.stringify(JSON.parse(customConfig), null, 2)}
                       </pre>
                       <button
                         type="button"
                         onClick={() => setShowConfigExpanded(!showConfigExpanded)}
-                        className="text-xs text-[#00D4FF] hover:underline mt-1"
+                        className="mt-1 text-xs text-[#00D4FF] hover:underline"
                       >
                         {showConfigExpanded ? '접기' : '더 보기'}
                       </button>
@@ -365,13 +355,16 @@ export default function CollectorWizardPage() {
       {/* Cancel confirm dialog */}
       {showCancelDialog && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/40" onClick={() => setShowCancelDialog(false)} />
-          <div className="relative bg-[#1E2127] rounded-sm p-6 shadow-[3px_3px_7px_#111317,-3px_-3px_7px_#2B2F37] border border-[#2B2F37] max-w-sm w-full mx-4">
-            <h3 className="text-base font-semibold text-[#E2E8F2] mb-2">
+          <div
+            className="absolute inset-0 bg-black/40"
+            onClick={() => setShowCancelDialog(false)}
+          />
+          <div className="relative mx-4 w-full max-w-sm rounded-sm border border-[#2B2F37] bg-[#1E2127] p-6 shadow-[3px_3px_7px_#111317,-3px_-3px_7px_#2B2F37]">
+            <h3 className="mb-2 text-base font-semibold text-[#E2E8F2]">
               마법사를 취소하시겠습니까?
             </h3>
-            <p className="text-sm text-[#8B97AD] mb-4">입력 중인 내용이 초기화됩니다.</p>
-            <div className="flex gap-2 justify-end">
+            <p className="mb-4 text-sm text-[#8B97AD]">입력 중인 내용이 초기화됩니다.</p>
+            <div className="flex justify-end gap-2">
               <NeuButton variant="ghost" onClick={() => setShowCancelDialog(false)}>
                 계속 입력
               </NeuButton>
@@ -390,7 +383,7 @@ export default function CollectorWizardPage() {
 function SummaryRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex items-start gap-4">
-      <span className="w-32 flex-shrink-0 text-[#8B97AD] font-medium">{label}</span>
+      <span className="w-32 flex-shrink-0 font-medium text-[#8B97AD]">{label}</span>
       <div className="flex-1">{children}</div>
     </div>
   )

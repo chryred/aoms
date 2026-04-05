@@ -11,8 +11,7 @@ export const useWizardStore = create<WizardState>((set) => ({
   customConfig: '',
 
   setStep: (step) => set({ step }),
-  setCollectorType: (type: CollectorType) =>
-    set({ collectorType: type, selectedMetricGroups: [] }),
+  setCollectorType: (type: CollectorType) => set({ collectorType: type, selectedMetricGroups: [] }),
   toggleMetricGroup: (group) =>
     set((s) => ({
       selectedMetricGroups: s.selectedMetricGroups.includes(group)

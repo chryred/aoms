@@ -13,7 +13,10 @@ import { useUpdateSystem } from '@/hooks/mutations/useUpdateSystem'
 import type { System } from '@/types/system'
 
 const schema = z.object({
-  system_name: z.string().min(1, '필수 항목입니다').regex(/^[a-z0-9_-]+$/, '소문자, 숫자, -_ 만 가능합니다'),
+  system_name: z
+    .string()
+    .min(1, '필수 항목입니다')
+    .regex(/^[a-z0-9_-]+$/, '소문자, 숫자, -_ 만 가능합니다'),
   display_name: z.string().min(1, '필수 항목입니다'),
   host: z.string().min(1, '필수 항목입니다'),
   os_type: z.enum(['linux', 'windows']),
@@ -59,15 +62,24 @@ export function SystemFormDrawer({ open, onClose, editTarget }: SystemFormDrawer
     getFocusable()[0]?.focus()
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { onClose(); return }
+      if (e.key === 'Escape') {
+        onClose()
+        return
+      }
       if (e.key !== 'Tab') return
       const focusables = getFocusable()
       const first = focusables[0]
       const last = focusables[focusables.length - 1]
       if (e.shiftKey) {
-        if (document.activeElement === first) { e.preventDefault(); last?.focus() }
+        if (document.activeElement === first) {
+          e.preventDefault()
+          last?.focus()
+        }
       } else {
-        if (document.activeElement === last) { e.preventDefault(); first?.focus() }
+        if (document.activeElement === last) {
+          e.preventDefault()
+          first?.focus()
+        }
       }
     }
     document.addEventListener('keydown', handleKeyDown)
@@ -110,31 +122,26 @@ export function SystemFormDrawer({ open, onClose, editTarget }: SystemFormDrawer
   return (
     <>
       {/* 오버레이 */}
-      <div
-        className="fixed inset-0 z-40 bg-black/40"
-        onClick={onClose}
-      />
+      <div className="fixed inset-0 z-40 bg-black/40" onClick={onClose} />
       {/* 드로어 */}
       <div
         ref={drawerRef}
         role="dialog"
         aria-modal="true"
         aria-label={isEdit ? '시스템 수정' : '시스템 등록'}
-        className="fixed right-0 top-0 bottom-0 z-50 w-full max-w-[480px] bg-[#1E2127]
-                      shadow-[-8px_0_32px_rgba(0,0,0,0.4)] border-l border-[#2B2F37] flex flex-col"
+        className="fixed top-0 right-0 bottom-0 z-50 flex w-full max-w-[480px] flex-col border-l border-[#2B2F37] bg-[#1E2127] shadow-[-8px_0_32px_rgba(0,0,0,0.4)]"
       >
         {/* 헤더 */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-[#2B2F37]">
+        <div className="flex items-center justify-between border-b border-[#2B2F37] px-6 py-4">
           <h2 className="text-lg font-semibold text-[#E2E8F2]">
             {isEdit ? '시스템 수정' : '시스템 등록'}
           </h2>
           <button
             onClick={onClose}
             aria-label="닫기"
-            className="rounded-sm p-1.5 text-[#8B97AD] hover:bg-[rgba(255,255,255,0.05)]
-                       focus:outline-none focus:ring-1 focus:ring-[#00D4FF]"
+            className="rounded-sm p-1.5 text-[#8B97AD] hover:bg-[rgba(255,255,255,0.05)] focus:ring-1 focus:ring-[#00D4FF] focus:outline-none"
           >
-            <X className="w-5 h-5" />
+            <X className="h-5 w-5" />
           </button>
         </div>
 
@@ -142,7 +149,7 @@ export function SystemFormDrawer({ open, onClose, editTarget }: SystemFormDrawer
         <form
           id="system-form"
           onSubmit={handleSubmit(onSubmit)}
-          className="flex-1 overflow-y-auto px-6 py-5 space-y-4"
+          className="flex-1 space-y-4 overflow-y-auto px-6 py-5"
           noValidate
         >
           <NeuInput
@@ -168,11 +175,21 @@ export function SystemFormDrawer({ open, onClose, editTarget }: SystemFormDrawer
             {...register('host')}
           />
           <div className="grid grid-cols-2 gap-3">
-            <NeuSelect id="os_type" label="OS *" error={errors.os_type?.message} {...register('os_type')}>
+            <NeuSelect
+              id="os_type"
+              label="OS *"
+              error={errors.os_type?.message}
+              {...register('os_type')}
+            >
               <option value="linux">Linux</option>
               <option value="windows">Windows</option>
             </NeuSelect>
-            <NeuSelect id="system_type" label="타입 *" error={errors.system_type?.message} {...register('system_type')}>
+            <NeuSelect
+              id="system_type"
+              label="타입 *"
+              error={errors.system_type?.message}
+              {...register('system_type')}
+            >
               <option value="web">Web</option>
               <option value="was">WAS</option>
               <option value="db">DB</option>
@@ -201,7 +218,7 @@ export function SystemFormDrawer({ open, onClose, editTarget }: SystemFormDrawer
         </form>
 
         {/* 푸터 */}
-        <div className="flex items-center justify-between px-6 py-4 border-t border-[#2B2F37]">
+        <div className="flex items-center justify-between border-t border-[#2B2F37] px-6 py-4">
           <div>
             {isEdit && editTarget && (
               <NeuButton
@@ -212,13 +229,15 @@ export function SystemFormDrawer({ open, onClose, editTarget }: SystemFormDrawer
                   navigate(`/systems/${editTarget.id}/wizard`)
                 }}
               >
-                <Plus className="w-4 h-4" />
+                <Plus className="h-4 w-4" />
                 수집기 추가
               </NeuButton>
             )}
           </div>
           <div className="flex gap-2">
-            <NeuButton variant="ghost" onClick={onClose}>취소</NeuButton>
+            <NeuButton variant="ghost" onClick={onClose}>
+              취소
+            </NeuButton>
             <NeuButton form="system-form" type="submit" loading={isPending}>
               {isEdit ? '수정' : '등록'}
             </NeuButton>

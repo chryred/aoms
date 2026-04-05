@@ -59,10 +59,27 @@ src/
 ## Commands
 
 ```bash
-npm run dev      # 개발 서버 (포트 5173)
-npm run build    # 타입 체크 + Vite 빌드
-npm run lint     # TypeScript 타입 체크
-npm test         # Vitest 단위 테스트
+npm run dev           # 개발 서버 (포트 5173)
+npm run build         # 타입 체크 + Vite 빌드
+npm run lint          # TypeScript 타입 체크 + ESLint
+npm run lint:fix      # ESLint 자동 수정
+npm run format        # Prettier 포맷 적용
+npm run format:check  # Prettier 포맷 검사 (CI용)
+npm test              # Vitest 단위 테스트
+```
+
+## 코드 품질 도구
+
+| 도구 | 설정 파일 | 역할 |
+|---|---|---|
+| ESLint | `eslint.config.js` | 코드 품질 — TypeScript, React, react-hooks, react-refresh 규칙 |
+| Prettier | `.prettierrc` | 코드 포맷 — singleQuote, semi off, printWidth 100, tailwindcss 플러그인 |
+
+**개선 작업 후 필수 실행 순서:**
+```bash
+npm run lint:fix   # ESLint 자동 수정 (고칠 수 있는 것 먼저)
+npm run format     # Prettier 포맷 정리
+npm run lint       # 최종 검사 (에러 0 확인 후 완료)
 ```
 
 개발 서버 프록시:

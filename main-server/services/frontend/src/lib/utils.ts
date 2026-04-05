@@ -11,7 +11,7 @@ export function cn(...inputs: ClassValue[]) {
 // UTC → KST (UTC+9) 변환
 export function formatKST(
   utcDate: string | Date,
-  format: 'datetime' | 'date' | 'HH:mm' = 'datetime'
+  format: 'datetime' | 'date' | 'HH:mm' = 'datetime',
 ): string {
   const d = new Date(utcDate)
   const kst = new Date(d.getTime() + 9 * 60 * 60 * 1000)
@@ -33,18 +33,25 @@ export function formatRelative(utcDate: string): string {
 
 export function severityColor(severity: Severity | string): string {
   switch (severity) {
-    case 'critical': return 'text-[#EF4444]'
-    case 'warning': return 'text-[#F59E0B]'
-    default: return 'text-[#22C55E]'
+    case 'critical':
+      return 'text-[#EF4444]'
+    case 'warning':
+      return 'text-[#F59E0B]'
+    default:
+      return 'text-[#22C55E]'
   }
 }
 
 export function anomalyColor(type: AnomalyType | null): string {
   switch (type) {
-    case 'duplicate': return 'bg-[rgba(255,255,255,0.06)] text-[#8B97AD] border-[rgba(255,255,255,0.10)]'
-    case 'recurring': return 'bg-[rgba(239,68,68,0.12)] text-[#F87171] border-[rgba(239,68,68,0.25)]'
-    case 'related': return 'bg-[rgba(245,158,11,0.12)] text-[#FCD34D] border-[rgba(245,158,11,0.25)]'
-    default: return 'bg-[rgba(0,212,255,0.10)] text-[#00D4FF] border-[rgba(0,212,255,0.20)]'
+    case 'duplicate':
+      return 'bg-[rgba(255,255,255,0.06)] text-[#8B97AD] border-[rgba(255,255,255,0.10)]'
+    case 'recurring':
+      return 'bg-[rgba(239,68,68,0.12)] text-[#F87171] border-[rgba(239,68,68,0.25)]'
+    case 'related':
+      return 'bg-[rgba(245,158,11,0.12)] text-[#FCD34D] border-[rgba(245,158,11,0.25)]'
+    default:
+      return 'bg-[rgba(0,212,255,0.10)] text-[#00D4FF] border-[rgba(0,212,255,0.20)]'
   }
 }
 
@@ -64,13 +71,20 @@ export function summarizeMetrics(metricsJson: string, collectorType: string): st
       if ('gc_count' in parsed) parts.push(`GC ${parsed.gc_count}회`)
       return parts.join(' | ')
     }
-    return Object.entries(parsed).slice(0, 3).map(([k, v]) => `${k}: ${v}`).join(' | ')
+    return Object.entries(parsed)
+      .slice(0, 3)
+      .map(([k, v]) => `${k}: ${v}`)
+      .join(' | ')
   } catch {
     return '-'
   }
 }
 
-export function formatPeriodLabel(periodType: ReportType, startDate: string, endDate?: string): string {
+export function formatPeriodLabel(
+  periodType: ReportType,
+  startDate: string,
+  endDate?: string,
+): string {
   const d = new Date(startDate)
   const kst = new Date(d.getTime() + 9 * 60 * 60 * 1000)
   if (periodType === 'daily') {
@@ -95,7 +109,9 @@ export function formatPeriodLabel(periodType: ReportType, startDate: string, end
   return `${kst.getFullYear()}년`
 }
 
-export function llmSeverityToCardSeverity(s: LlmSeverity | null): 'normal' | 'warning' | 'critical' {
+export function llmSeverityToCardSeverity(
+  s: LlmSeverity | null,
+): 'normal' | 'warning' | 'critical' {
   if (s === 'warning') return 'warning'
   if (s === 'critical') return 'critical'
   return 'normal'

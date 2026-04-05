@@ -19,7 +19,7 @@ const registerSchema = z
       .min(8, '비밀번호는 8자 이상이어야 합니다')
       .regex(
         /^(?=.*[a-zA-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?])/,
-        '영문, 숫자, 특수문자를 모두 포함해야 합니다'
+        '영문, 숫자, 특수문자를 모두 포함해야 합니다',
       ),
     confirmPassword: z.string(),
   })
@@ -58,16 +58,16 @@ export function RegisterPage() {
             toast.error('등록 신청 중 오류가 발생했습니다')
           }
         },
-      }
+      },
     )
   }
 
   if (isSuccess) {
     return (
       <NeuCard className="w-full max-w-md text-center">
-        <CheckCircle2 className="w-16 h-16 text-[#22C55E] mx-auto mb-4" />
-        <h2 className="text-xl font-bold text-[#E2E8F2] mb-2">등록 신청이 완료되었습니다</h2>
-        <p className="text-sm text-[#8B97AD] mb-6">관리자 승인 후 로그인 가능합니다</p>
+        <CheckCircle2 className="mx-auto mb-4 h-16 w-16 text-[#22C55E]" />
+        <h2 className="mb-2 text-xl font-bold text-[#E2E8F2]">등록 신청이 완료되었습니다</h2>
+        <p className="mb-6 text-sm text-[#8B97AD]">관리자 승인 후 로그인 가능합니다</p>
         <NeuButton className="w-full" onClick={() => navigate('/login')}>
           로그인 페이지로
         </NeuButton>
@@ -118,7 +118,7 @@ export function RegisterPage() {
           {...register('confirmPassword')}
         />
 
-        <NeuButton type="submit" className="w-full mt-6" loading={isPending}>
+        <NeuButton type="submit" className="mt-6 w-full" loading={isPending}>
           등록 신청
         </NeuButton>
       </form>
@@ -128,7 +128,7 @@ export function RegisterPage() {
         <button
           type="button"
           onClick={() => navigate('/login')}
-          className="text-[#00D4FF] hover:underline font-medium"
+          className="font-medium text-[#00D4FF] hover:underline"
         >
           로그인
         </button>

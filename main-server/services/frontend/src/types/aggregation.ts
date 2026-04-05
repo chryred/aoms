@@ -2,13 +2,19 @@ export type PeriodType = 'monthly' | 'quarterly' | 'half_year' | 'annual'
 export type LlmSeverity = 'normal' | 'warning' | 'critical'
 
 export interface NodeMetrics {
-  cpu_avg: number; cpu_max: number; cpu_min: number
-  mem_avg: number; mem_max: number
-  disk_avg: number; disk_max: number
+  cpu_avg: number
+  cpu_max: number
+  cpu_min: number
+  mem_avg: number
+  mem_max: number
+  disk_avg: number
+  disk_max: number
 }
 export interface JvmMetrics {
-  heap_avg: number; heap_max: number
-  gc_count: number; gc_time_avg: number
+  heap_avg: number
+  heap_max: number
+  gc_count: number
+  gc_time_avg: number
 }
 export type MetricsPayload = NodeMetrics | JvmMetrics | Record<string, number>
 

@@ -24,9 +24,9 @@ export function CollectorTypeCard({ option, selected, onSelect }: CollectorTypeC
       pressed={selected}
       onClick={onSelect}
       className={cn(
-        'cursor-pointer select-none transition-all',
+        'cursor-pointer transition-all select-none',
         'focus-within:ring-2 focus-within:ring-[#00D4FF] focus-within:ring-offset-2 focus-within:ring-offset-[#1E2127]',
-        selected && 'ring-2 ring-[#00D4FF]'
+        selected && 'ring-2 ring-[#00D4FF]',
       )}
     >
       <button
@@ -36,18 +36,13 @@ export function CollectorTypeCard({ option, selected, onSelect }: CollectorTypeC
         aria-pressed={selected}
         aria-label={option.label}
       >
-        <div className="flex items-start justify-between mb-3">
-          <Icon
-            className={cn(
-              'w-8 h-8',
-              selected ? 'text-[#00D4FF]' : 'text-[#8B97AD]'
-            )}
-          />
+        <div className="mb-3 flex items-start justify-between">
+          <Icon className={cn('h-8 w-8', selected ? 'text-[#00D4FF]' : 'text-[#8B97AD]')} />
           {selected && (
-            <Check className="w-4 h-4 text-[#00D4FF] flex-shrink-0" aria-hidden="true" />
+            <Check className="h-4 w-4 flex-shrink-0 text-[#00D4FF]" aria-hidden="true" />
           )}
         </div>
-        <p className="font-semibold text-[#E2E8F2] mb-1">{option.label}</p>
+        <p className="mb-1 font-semibold text-[#E2E8F2]">{option.label}</p>
         <p className="text-sm text-[#8B97AD]">{option.description}</p>
       </button>
     </NeuCard>

@@ -30,7 +30,12 @@ export function AlertHistoryPage() {
   const [offset, setOffset] = useState(0)
   const [selectedAlert, setSelectedAlert] = useState<AlertHistory | null>(null)
 
-  const { data: alerts, isLoading, error, refetch } = useAlerts({
+  const {
+    data: alerts,
+    isLoading,
+    error,
+    refetch,
+  } = useAlerts({
     alert_type: tab === 'all' ? undefined : tab,
     severity: severity || undefined,
     acknowledged: ackFilter === 'all' ? undefined : ackFilter === 'ack',
@@ -49,23 +54,20 @@ export function AlertHistoryPage() {
 
   return (
     <>
-      <PageHeader
-        title="알림 이력"
-        description="메트릭 알림 및 로그 분석 결과 이력"
-      />
+      <PageHeader title="알림 이력" description="메트릭 알림 및 로그 분석 결과 이력" />
 
       {/* 탭 */}
-      <div className="flex gap-1 mb-4 p-1 rounded-sm bg-[#1E2127] shadow-[inset_1px_1px_3px_#111317,inset_-1px_-1px_3px_#2B2F37] w-fit">
+      <div className="mb-4 flex w-fit gap-1 rounded-sm bg-[#1E2127] p-1 shadow-[inset_1px_1px_3px_#111317,inset_-1px_-1px_3px_#2B2F37]">
         {TABS.map(({ key, label }) => (
           <button
             key={key}
             onClick={() => handleTabChange(key)}
             className={cn(
               'rounded-sm px-4 py-1.5 text-sm font-medium transition-all',
-              'focus:outline-none focus:ring-1 focus:ring-[#00D4FF] focus:ring-offset-[#1E2127]',
+              'focus:ring-1 focus:ring-[#00D4FF] focus:ring-offset-[#1E2127] focus:outline-none',
               tab === key
-                ? 'bg-[#00D4FF] text-[#1E2127] font-semibold shadow-[2px_2px_4px_#111317]'
-                : 'text-[#8B97AD] hover:text-[#E2E8F2] hover:bg-[rgba(255,255,255,0.05)]'
+                ? 'bg-[#00D4FF] font-semibold text-[#1E2127] shadow-[2px_2px_4px_#111317]'
+                : 'text-[#8B97AD] hover:bg-[rgba(255,255,255,0.05)] hover:text-[#E2E8F2]',
             )}
           >
             {label}
@@ -74,11 +76,14 @@ export function AlertHistoryPage() {
       </div>
 
       {/* 필터 */}
-      <div className="flex gap-3 mb-4">
+      <div className="mb-4 flex gap-3">
         <div className="w-36">
           <NeuSelect
             value={severity}
-            onChange={(e) => { setSeverity(e.target.value as Severity | ''); setOffset(0) }}
+            onChange={(e) => {
+              setSeverity(e.target.value as Severity | '')
+              setOffset(0)
+            }}
           >
             <option value="">전체 심각도</option>
             <option value="critical">Critical</option>
@@ -89,7 +94,10 @@ export function AlertHistoryPage() {
         <div className="w-36">
           <NeuSelect
             value={ackFilter}
-            onChange={(e) => { setAckFilter(e.target.value as AckFilter); setOffset(0) }}
+            onChange={(e) => {
+              setAckFilter(e.target.value as AckFilter)
+              setOffset(0)
+            }}
           >
             <option value="all">전체 상태</option>
             <option value="unack">미확인</option>
@@ -104,17 +112,14 @@ export function AlertHistoryPage() {
       ) : error ? (
         <ErrorCard onRetry={refetch} />
       ) : (
-        <NeuCard className="p-0 overflow-hidden">
-          <AlertTable
-            alerts={alerts ?? []}
-            onSelect={setSelectedAlert}
-          />
+        <NeuCard className="overflow-hidden p-0">
+          <AlertTable alerts={alerts ?? []} onSelect={setSelectedAlert} />
         </NeuCard>
       )}
 
       {/* 페이지네이션 */}
       {!isLoading && !error && (
-        <div className="flex items-center justify-between mt-4">
+        <div className="mt-4 flex items-center justify-between">
           <span className="text-sm text-[#8B97AD]">페이지 {currentPage}</span>
           <div className="flex gap-2">
             <NeuButton
@@ -123,7 +128,7 @@ export function AlertHistoryPage() {
               disabled={!hasPrev}
               onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
             >
-              <ChevronLeft className="w-4 h-4" />
+              <ChevronLeft className="h-4 w-4" />
               이전
             </NeuButton>
             <NeuButton
@@ -133,17 +138,14 @@ export function AlertHistoryPage() {
               onClick={() => setOffset(offset + PAGE_SIZE)}
             >
               다음
-              <ChevronRight className="w-4 h-4" />
+              <ChevronRight className="h-4 w-4" />
             </NeuButton>
           </div>
         </div>
       )}
 
       {/* 상세 패널 */}
-      <AlertDetailPanel
-        alert={selectedAlert}
-        onClose={() => setSelectedAlert(null)}
-      />
+      <AlertDetailPanel alert={selectedAlert} onClose={() => setSelectedAlert(null)} />
     </>
   )
 }

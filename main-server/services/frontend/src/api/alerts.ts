@@ -15,13 +15,11 @@ export const alertsApi = {
     adminApi
       .get('api/v1/alerts', {
         searchParams: Object.fromEntries(
-          Object.entries(params).filter(([, v]) => v !== undefined)
+          Object.entries(params).filter(([, v]) => v !== undefined),
         ) as Record<string, string | number | boolean>,
       })
       .json<AlertHistory[]>(),
 
   acknowledgeAlert: (id: number, body: { acknowledged_by: string }) =>
-    adminApi
-      .post(`api/v1/alerts/${id}/acknowledge`, { json: body })
-      .json<AlertHistory>(),
+    adminApi.post(`api/v1/alerts/${id}/acknowledge`, { json: body }).json<AlertHistory>(),
 }

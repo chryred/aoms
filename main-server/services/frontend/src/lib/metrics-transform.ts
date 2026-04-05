@@ -13,7 +13,11 @@ export const COLLECTOR_METRIC_KEYS: Record<string, Record<string, string[]>> = {
   },
 }
 
-export function getMetricKeys(collectorType: string, metricGroup: string, sample?: string): string[] {
+export function getMetricKeys(
+  collectorType: string,
+  metricGroup: string,
+  sample?: string,
+): string[] {
   const keys = COLLECTOR_METRIC_KEYS[collectorType]?.[metricGroup]
   if (keys) return keys
   if (sample) {
@@ -28,9 +32,9 @@ export function getMetricKeys(collectorType: string, metricGroup: string, sample
 
 export function transformToChartData(
   aggregations: HourlyAggregation[],
-  metricKeys: string[]
+  metricKeys: string[],
 ): ChartDataPoint[] {
-  return aggregations.map(agg => {
+  return aggregations.map((agg) => {
     const parsed = JSON.parse(agg.metrics_json) as MetricsPayload
     const point: ChartDataPoint = {
       timestamp: formatKST(agg.hour_bucket, 'HH:mm'),

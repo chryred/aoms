@@ -27,9 +27,7 @@ export const collectorConfigApi = {
     adminApi.patch(`api/v1/collector-config/${id}`, { json: body }).json<CollectorConfig>(),
 
   deleteConfig: (id: number) =>
-    adminApi
-      .delete(`api/v1/collector-config/${id}`)
-      .json<{ deleted: boolean; id: number }>(),
+    adminApi.delete(`api/v1/collector-config/${id}`).json<{ deleted: boolean; id: number }>(),
 
   getTemplates: (type: CollectorType) =>
     adminApi.get(`api/v1/collector-config/templates/${type}`).json<CollectorTemplate>(),

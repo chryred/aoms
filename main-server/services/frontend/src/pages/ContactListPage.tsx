@@ -22,8 +22,8 @@ export function ContactListPage() {
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase()
-    return contacts.filter(c =>
-      c.name.toLowerCase().includes(q) || (c.email ?? '').toLowerCase().includes(q)
+    return contacts.filter(
+      (c) => c.name.toLowerCase().includes(q) || (c.email ?? '').toLowerCase().includes(q),
     )
   }, [contacts, search])
 
@@ -37,39 +37,37 @@ export function ContactListPage() {
     <div>
       <PageHeader
         title="담당자 관리"
-        action={
-          <NeuButton onClick={() => navigate('/contacts/new')}>
-            담당자 등록
-          </NeuButton>
-        }
+        action={<NeuButton onClick={() => navigate('/contacts/new')}>담당자 등록</NeuButton>}
       />
 
       <div className="mb-4 max-w-xs">
         <NeuInput
           placeholder="이름 또는 이메일 검색"
           value={search}
-          onChange={e => setSearch(e.target.value)}
+          onChange={(e) => setSearch(e.target.value)}
         />
       </div>
 
       {filtered.length === 0 ? (
         <EmptyState
-          icon={<Users className="w-10 h-10" />}
+          icon={<Users className="h-10 w-10" />}
           title="담당자가 없습니다"
           cta={{ label: '담당자 등록', onClick: () => navigate('/contacts/new') }}
         />
       ) : (
-        <div className="rounded-sm bg-[#1E2127] shadow-[3px_3px_7px_#111317,-3px_-3px_7px_#2B2F37] overflow-hidden">
+        <div className="overflow-hidden rounded-sm bg-[#1E2127] shadow-[3px_3px_7px_#111317,-3px_-3px_7px_#2B2F37]">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-[#2B2F37]">
-                {['이름', '이메일', 'Teams UPN', '알림 채널', 'LLM 키', '등록일', ''].map(h => (
-                  <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-[#8B97AD]">{h}</th>
+                {['이름', '이메일', 'Teams UPN', '알림 채널', 'LLM 키', '등록일', ''].map((h) => (
+                  <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-[#8B97AD]">
+                    {h}
+                  </th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {filtered.map(c => (
+              {filtered.map((c) => (
                 <ContactRow
                   key={c.id}
                   contact={c}
@@ -86,13 +84,15 @@ export function ContactListPage() {
       {confirmId !== null && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/40" onClick={() => setConfirmId(null)} />
-          <div className="relative bg-[#1E2127] rounded-sm p-6 shadow-[3px_3px_7px_#111317,-3px_-3px_7px_#2B2F37] border border-[#2B2F37] max-w-sm w-full mx-4">
-            <h3 className="text-base font-semibold text-[#E2E8F2] mb-2">담당자 삭제</h3>
-            <p className="text-sm text-[#8B97AD] mb-4">
+          <div className="relative mx-4 w-full max-w-sm rounded-sm border border-[#2B2F37] bg-[#1E2127] p-6 shadow-[3px_3px_7px_#111317,-3px_-3px_7px_#2B2F37]">
+            <h3 className="mb-2 text-base font-semibold text-[#E2E8F2]">담당자 삭제</h3>
+            <p className="mb-4 text-sm text-[#8B97AD]">
               이 담당자가 연결된 시스템에서 제거됩니다. 계속하시겠습니까?
             </p>
-            <div className="flex gap-2 justify-end">
-              <NeuButton variant="ghost" onClick={() => setConfirmId(null)}>취소</NeuButton>
+            <div className="flex justify-end gap-2">
+              <NeuButton variant="ghost" onClick={() => setConfirmId(null)}>
+                취소
+              </NeuButton>
               <NeuButton
                 variant="danger"
                 loading={deleteMutation.isPending}
@@ -108,18 +108,22 @@ export function ContactListPage() {
   )
 }
 
-function ContactRow({ contact, onEdit, onDelete }: {
+function ContactRow({
+  contact,
+  onEdit,
+  onDelete,
+}: {
   contact: Contact
   onEdit: () => void
   onDelete: () => void
 }) {
   return (
-    <tr className="border-b border-[#2B2F37] last:border-0 hover:bg-[rgba(0,212,255,0.04)] transition-colors">
+    <tr className="border-b border-[#2B2F37] transition-colors last:border-0 hover:bg-[rgba(0,212,255,0.04)]">
       <td className="px-4 py-3 font-medium text-[#E2E8F2]">{contact.name}</td>
       <td className="px-4 py-3 text-[#8B97AD]">{contact.email ?? '-'}</td>
       <td className="px-4 py-3 text-[#8B97AD]">{contact.teams_upn ?? '-'}</td>
       <td className="px-4 py-3">
-        <div className="flex gap-1 flex-wrap">
+        <div className="flex flex-wrap gap-1">
           {contact.webhook_url && <NeuBadge variant="normal">Webhook</NeuBadge>}
           {contact.teams_upn && <NeuBadge variant="info">Teams</NeuBadge>}
           {!contact.webhook_url && !contact.teams_upn && <span className="text-[#5A6478]">-</span>}
@@ -131,11 +135,19 @@ function ContactRow({ contact, onEdit, onDelete }: {
       <td className="px-4 py-3 text-[#8B97AD]">{formatKST(contact.created_at, 'date')}</td>
       <td className="px-4 py-3">
         <div className="flex gap-2">
-          <button onClick={onEdit} className="text-[#8B97AD] hover:text-[#00D4FF]" aria-label="수정">
-            <Pencil className="w-4 h-4" />
+          <button
+            onClick={onEdit}
+            className="text-[#8B97AD] hover:text-[#00D4FF]"
+            aria-label="수정"
+          >
+            <Pencil className="h-4 w-4" />
           </button>
-          <button onClick={onDelete} className="text-[#8B97AD] hover:text-[#EF4444]" aria-label="삭제">
-            <Trash2 className="w-4 h-4" />
+          <button
+            onClick={onDelete}
+            className="text-[#8B97AD] hover:text-[#EF4444]"
+            aria-label="삭제"
+          >
+            <Trash2 className="h-4 w-4" />
           </button>
         </div>
       </td>

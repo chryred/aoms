@@ -43,9 +43,7 @@ export function DashboardPage() {
         <h2 className="mb-3 text-lg font-semibold text-[#E2E8F2]">
           모니터링 시스템
           {systems && (
-            <span className="ml-2 text-sm font-normal text-[#8B97AD]">
-              ({systems.length}개)
-            </span>
+            <span className="ml-2 text-sm font-normal text-[#8B97AD]">({systems.length}개)</span>
           )}
         </h2>
         {systemsLoading ? (
@@ -53,10 +51,7 @@ export function DashboardPage() {
         ) : systemsError ? (
           <ErrorCard onRetry={refetchSystems} />
         ) : (
-          <SystemStatusGrid
-            systems={systems ?? []}
-            onAddSystem={handleAddSystem}
-          />
+          <SystemStatusGrid systems={systems ?? []} onAddSystem={handleAddSystem} />
         )}
       </section>
 

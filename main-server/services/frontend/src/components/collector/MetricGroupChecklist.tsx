@@ -53,22 +53,22 @@ export function MetricGroupChecklist({
               <label
                 key={item.metric_group}
                 className={cn(
-                  'flex items-start gap-3 p-3 rounded-sm cursor-pointer',
+                  'flex cursor-pointer items-start gap-3 rounded-sm p-3',
                   'bg-[#1E2127] transition-shadow',
                   checked
                     ? 'shadow-[inset_2px_2px_5px_#111317,inset_-2px_-2px_5px_#2B2F37]'
-                    : 'shadow-[2px_2px_5px_#111317,-2px_-2px_5px_#2B2F37]'
+                    : 'shadow-[2px_2px_5px_#111317,-2px_-2px_5px_#2B2F37]',
                 )}
               >
                 <input
                   type="checkbox"
                   checked={checked}
                   onChange={() => onToggle(item.metric_group)}
-                  className="mt-0.5 w-4 h-4 accent-[#00D4FF] flex-shrink-0"
+                  className="mt-0.5 h-4 w-4 flex-shrink-0 accent-[#00D4FF]"
                   aria-label={item.metric_group}
                 />
                 <div>
-                  <p className="font-medium text-sm text-[#E2E8F2]">{item.metric_group}</p>
+                  <p className="text-sm font-medium text-[#E2E8F2]">{item.metric_group}</p>
                   <p className="text-xs text-[#8B97AD]">{item.description}</p>
                 </div>
               </label>
@@ -88,8 +88,7 @@ export function MetricGroupChecklist({
             {customSelected.map((group) => (
               <span
                 key={group}
-                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs
-                           bg-[rgba(0,212,255,0.10)] text-[#00D4FF]"
+                className="inline-flex items-center gap-1 rounded-full bg-[rgba(0,212,255,0.10)] px-2.5 py-1 text-xs text-[#00D4FF]"
               >
                 {group}
                 <button
@@ -98,7 +97,7 @@ export function MetricGroupChecklist({
                   className="hover:text-[#EF4444] focus:outline-none"
                   aria-label={`${group} 제거`}
                 >
-                  <X className="w-3 h-3" />
+                  <X className="h-3 w-3" />
                 </button>
               </span>
             ))}
@@ -110,7 +109,7 @@ export function MetricGroupChecklist({
       <hr className="border-[#2B2F37]" />
 
       {/* Custom input */}
-      <div className="flex gap-2 items-end">
+      <div className="flex items-end gap-2">
         <div className="flex-1">
           <NeuInput
             label="커스텀 메트릭 그룹 추가"

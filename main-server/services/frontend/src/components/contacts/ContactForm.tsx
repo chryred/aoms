@@ -24,7 +24,11 @@ interface ContactFormProps {
 }
 
 export function ContactForm({ defaultValues, isPending, onSubmit, onCancel }: ContactFormProps) {
-  const { register, handleSubmit, formState: { errors } } = useForm<FormValues>({
+  const {
+    register,
+    handleSubmit,
+    formState: { errors },
+  } = useForm<FormValues>({
     resolver: zodResolver(contactSchema),
     defaultValues: {
       name: defaultValues?.name ?? '',
@@ -89,12 +93,8 @@ export function ContactForm({ defaultValues, isPending, onSubmit, onCancel }: Co
         placeholder={defaultValues?.llm_api_key ? '변경하려면 새 값 입력' : ''}
         {...register('llm_api_key')}
       />
-      <NeuInput
-        id="agent_code"
-        label="Agent Code"
-        {...register('agent_code')}
-      />
-      <div className="flex gap-2 justify-end pt-2">
+      <NeuInput id="agent_code" label="Agent Code" {...register('agent_code')} />
+      <div className="flex justify-end gap-2 pt-2">
         <NeuButton type="button" variant="ghost" onClick={onCancel}>
           취소
         </NeuButton>

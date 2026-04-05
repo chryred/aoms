@@ -19,13 +19,18 @@ function getBucket(agg: DailyAggregation | WeeklyAggregation | MonthlyAggregatio
   return '-'
 }
 
-export function AggregationCard({ systemId, displayName, aggregation, onDrillDown }: AggregationCardProps) {
+export function AggregationCard({
+  systemId,
+  displayName,
+  aggregation,
+  onDrillDown,
+}: AggregationCardProps) {
   const severity = llmSeverityToCardSeverity(aggregation.llm_severity)
   const metricSummary = summarizeMetrics(aggregation.metrics_json, aggregation.collector_type)
 
   return (
     <NeuCard severity={severity}>
-      <div className="flex items-start justify-between mb-2">
+      <div className="mb-2 flex items-start justify-between">
         <div>
           <p className="font-semibold text-[#E2E8F2]">{displayName}</p>
           <p className="text-xs text-[#8B97AD]">{getBucket(aggregation)}</p>
@@ -33,23 +38,21 @@ export function AggregationCard({ systemId, displayName, aggregation, onDrillDow
         {aggregation.llm_severity && <SeverityBadge severity={aggregation.llm_severity} />}
       </div>
 
-      {metricSummary && (
-        <p className="text-xs text-[#8B97AD] mb-2 font-mono">{metricSummary}</p>
-      )}
+      {metricSummary && <p className="mb-2 font-mono text-xs text-[#8B97AD]">{metricSummary}</p>}
 
       {aggregation.llm_summary && (
-        <p className="text-sm text-[#E2E8F2] whitespace-pre-wrap line-clamp-3 mb-1">
+        <p className="mb-1 line-clamp-3 text-sm whitespace-pre-wrap text-[#E2E8F2]">
           {aggregation.llm_summary}
         </p>
       )}
       {aggregation.llm_trend && (
-        <p className="text-xs text-[#8B97AD] italic mb-3">{aggregation.llm_trend}</p>
+        <p className="mb-3 text-xs text-[#8B97AD] italic">{aggregation.llm_trend}</p>
       )}
 
       <Link
         to={`/dashboard/${systemId}`}
         onClick={onDrillDown}
-        className="text-xs text-[#00D4FF] hover:underline font-medium"
+        className="text-xs font-medium text-[#00D4FF] hover:underline"
       >
         상세 보기 →
       </Link>

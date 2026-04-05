@@ -23,8 +23,7 @@ export default function TrendAlertsPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const severityFilter = searchParams.get('severity') ?? 'all'
 
-  const { data: trendAlerts = [], isLoading, isError, refetch, dataUpdatedAt } =
-    useTrendAlerts()
+  const { data: trendAlerts = [], isLoading, isError, refetch, dataUpdatedAt } = useTrendAlerts()
 
   const criticalCount = useUiStore((s) => s.criticalCount)
 
@@ -40,7 +39,7 @@ export default function TrendAlertsPage() {
         description="LLM 분석 기반 프로액티브 장애 예방 알림"
         action={
           <div className="flex items-center gap-2 text-sm text-[#8B97AD]">
-            <RefreshCw className="w-4 h-4" />
+            <RefreshCw className="h-4 w-4" />
             <span>5분 자동 갱신</span>
             {dataUpdatedAt > 0 && (
               <span className="text-xs">
@@ -54,18 +53,22 @@ export default function TrendAlertsPage() {
       <CriticalTrendBanner count={criticalCount} />
 
       {/* Severity filter bar */}
-      <div className="flex gap-1 mb-6 p-1 rounded-sm bg-[#1E2127] shadow-[inset_1px_1px_3px_#111317,inset_-1px_-1px_3px_#2B2F37] w-fit" role="group" aria-label="심각도 필터">
+      <div
+        className="mb-6 flex w-fit gap-1 rounded-sm bg-[#1E2127] p-1 shadow-[inset_1px_1px_3px_#111317,inset_-1px_-1px_3px_#2B2F37]"
+        role="group"
+        aria-label="심각도 필터"
+      >
         {SEVERITY_OPTIONS.map((opt) => (
           <button
             key={opt.value}
             type="button"
             onClick={() => setSearchParams({ severity: opt.value })}
             className={cn(
-              'px-4 py-1.5 rounded-sm text-sm font-medium transition-all',
-              'focus:outline-none focus:ring-1 focus:ring-[#00D4FF] focus:ring-offset-[#1E2127]',
+              'rounded-sm px-4 py-1.5 text-sm font-medium transition-all',
+              'focus:ring-1 focus:ring-[#00D4FF] focus:ring-offset-[#1E2127] focus:outline-none',
               severityFilter === opt.value
-                ? 'bg-[#00D4FF] text-[#1E2127] font-semibold shadow-[2px_2px_4px_#111317]'
-                : 'text-[#8B97AD] hover:text-[#E2E8F2] hover:bg-[rgba(255,255,255,0.05)]'
+                ? 'bg-[#00D4FF] font-semibold text-[#1E2127] shadow-[2px_2px_4px_#111317]'
+                : 'text-[#8B97AD] hover:bg-[rgba(255,255,255,0.05)] hover:text-[#E2E8F2]',
             )}
           >
             {opt.label}
@@ -79,7 +82,7 @@ export default function TrendAlertsPage() {
 
       {!isLoading && !isError && trendAlerts.length === 0 && (
         <EmptyState
-          icon={<ShieldCheck className="w-12 h-12 text-[#22C55E]" />}
+          icon={<ShieldCheck className="h-12 w-12 text-[#22C55E]" />}
           title="현재 임박한 장애 예측이 없습니다"
           description="모든 시스템이 정상 범위에서 운영되고 있습니다."
         />
@@ -87,7 +90,7 @@ export default function TrendAlertsPage() {
 
       {!isLoading && !isError && trendAlerts.length > 0 && filtered.length === 0 && (
         <EmptyState
-          icon={<Filter className="w-12 h-12 text-[#8B97AD]" />}
+          icon={<Filter className="h-12 w-12 text-[#8B97AD]" />}
           title={`${severityFilter === 'warning' ? 'Warning' : 'Critical'} 수준의 예측 알림이 없습니다`}
           description="다른 심각도를 선택하거나 '전체'를 선택해보세요."
           cta={{ label: '전체 보기', onClick: () => setSearchParams({ severity: 'all' }) }}

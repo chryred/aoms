@@ -35,15 +35,24 @@ export function ConfirmDialog({
     getFocusable()[0]?.focus()
 
     const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !isPending) { onOpenChange(false); return }
+      if (e.key === 'Escape' && !isPending) {
+        onOpenChange(false)
+        return
+      }
       if (e.key !== 'Tab') return
       const focusables = getFocusable()
       const first = focusables[0]
       const last = focusables[focusables.length - 1]
       if (e.shiftKey) {
-        if (document.activeElement === first) { e.preventDefault(); last?.focus() }
+        if (document.activeElement === first) {
+          e.preventDefault()
+          last?.focus()
+        }
       } else {
-        if (document.activeElement === last) { e.preventDefault(); first?.focus() }
+        if (document.activeElement === last) {
+          e.preventDefault()
+          first?.focus()
+        }
       }
     }
     document.addEventListener('keydown', handler)
@@ -67,16 +76,16 @@ export function ConfirmDialog({
       />
 
       {/* 다이얼로그 */}
-      <div ref={dialogRef} className="relative z-10 w-full max-w-sm mx-4 bg-[#1E2127] rounded-sm shadow-[3px_3px_7px_#111317,-3px_-3px_7px_#2B2F37] border border-[#2B2F37] p-6">
-        <h2
-          id="confirm-dialog-title"
-          className="text-base font-semibold text-[#E2E8F2] mb-2"
-        >
+      <div
+        ref={dialogRef}
+        className="relative z-10 mx-4 w-full max-w-sm rounded-sm border border-[#2B2F37] bg-[#1E2127] p-6 shadow-[3px_3px_7px_#111317,-3px_-3px_7px_#2B2F37]"
+      >
+        <h2 id="confirm-dialog-title" className="mb-2 text-base font-semibold text-[#E2E8F2]">
           {title}
         </h2>
-        <p className="text-sm text-[#8B97AD] mb-6">{description}</p>
+        <p className="mb-6 text-sm text-[#8B97AD]">{description}</p>
 
-        <div className="flex gap-3 justify-end">
+        <div className="flex justify-end gap-3">
           <NeuButton
             variant="ghost"
             size="sm"

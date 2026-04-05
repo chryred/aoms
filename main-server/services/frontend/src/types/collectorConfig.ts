@@ -1,8 +1,4 @@
-export type CollectorType =
-  | 'node_exporter'
-  | 'jmx_exporter'
-  | 'db_exporter'
-  | 'custom'
+export type CollectorType = 'node_exporter' | 'jmx_exporter' | 'db_exporter' | 'custom'
 
 export interface CollectorConfig {
   id: number

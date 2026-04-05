@@ -27,7 +27,7 @@ export function EnabledToggle({ configId, enabled }: EnabledToggleProps) {
           setOptimisticEnabled(enabled)
           toast.error('활성화 상태 변경에 실패했습니다')
         },
-      }
+      },
     )
   }
 
@@ -41,15 +41,15 @@ export function EnabledToggle({ configId, enabled }: EnabledToggleProps) {
       onClick={handleToggle}
       className={cn(
         'relative inline-flex h-6 w-11 items-center rounded-full transition-colors',
-        'focus:outline-none focus:ring-1 focus:ring-[#00D4FF] focus:ring-offset-2 focus:ring-offset-[#1E2127]',
-        'disabled:opacity-50 disabled:cursor-not-allowed',
-        optimisticEnabled ? 'bg-[#00D4FF]' : 'bg-[#2B2F37]'
+        'focus:ring-1 focus:ring-[#00D4FF] focus:ring-offset-2 focus:ring-offset-[#1E2127] focus:outline-none',
+        'disabled:cursor-not-allowed disabled:opacity-50',
+        optimisticEnabled ? 'bg-[#00D4FF]' : 'bg-[#2B2F37]',
       )}
     >
       <span
         className={cn(
           'inline-block h-4 w-4 transform rounded-full bg-white transition-transform',
-          optimisticEnabled ? 'translate-x-6' : 'translate-x-1'
+          optimisticEnabled ? 'translate-x-6' : 'translate-x-1',
         )}
       />
     </button>

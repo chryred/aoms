@@ -19,36 +19,31 @@ export function TopBar() {
   }
 
   return (
-    <header className="flex items-center justify-between px-4 md:px-6 py-3 bg-[#252932] border-b border-[#9E7B2F80] shrink-0">
-      <div className="flex items-center gap-3 min-w-0">
+    <header className="flex shrink-0 items-center justify-between border-b border-[#9E7B2F80] bg-[#252932] px-4 py-3 md:px-6">
+      <div className="flex min-w-0 items-center gap-3">
         {/* Hamburger — mobile only */}
         <button
           onClick={toggleMobileSidebar}
           aria-label="메뉴 열기"
-          className="md:hidden flex items-center justify-center w-9 h-9 rounded-sm text-[#8B97AD]
-                     hover:bg-[rgba(255,255,255,0.05)] focus:outline-none focus:ring-1 focus:ring-[#00D4FF]
-                     shrink-0"
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-sm text-[#8B97AD] hover:bg-[rgba(255,255,255,0.05)] focus:ring-1 focus:ring-[#00D4FF] focus:outline-none md:hidden"
         >
-          <Menu className="w-5 h-5" />
+          <Menu className="h-5 w-5" />
         </button>
         <CommandSearch />
       </div>
 
-      <div className="flex items-center gap-2 md:gap-3 shrink-0">
+      <div className="flex shrink-0 items-center gap-2 md:gap-3">
         {user && (
-          <span className="hidden sm:block text-sm text-[#8B97AD]">
-            {user.name}{' '}
-            <span className="text-xs text-[#5A6478]">({user.role})</span>
+          <span className="hidden text-sm text-[#8B97AD] sm:block">
+            {user.name} <span className="text-xs text-[#5A6478]">({user.role})</span>
           </span>
         )}
         <button
           onClick={handleLogout}
           aria-label="로그아웃"
-          className="flex items-center gap-1.5 rounded-sm px-2.5 py-2 md:px-3 text-sm text-[#8B97AD]
-                     hover:bg-[rgba(255,255,255,0.05)] focus:outline-none focus:ring-1 focus:ring-[#00D4FF]
-                     min-h-[40px]"
+          className="flex min-h-[40px] items-center gap-1.5 rounded-sm px-2.5 py-2 text-sm text-[#8B97AD] hover:bg-[rgba(255,255,255,0.05)] focus:ring-1 focus:ring-[#00D4FF] focus:outline-none md:px-3"
         >
-          <LogOut className="w-4 h-4" />
+          <LogOut className="h-4 w-4" />
           <span className="hidden sm:inline">로그아웃</span>
         </button>
       </div>

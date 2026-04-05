@@ -9,7 +9,7 @@ import './index.css'
 
 // 테스트 전용: dev 환경에서 queryClient를 window에 노출
 if (import.meta.env.DEV) {
-  (window as unknown as Record<string, unknown>).__qc = queryClient
+  ;(window as unknown as Record<string, unknown>).__qc = queryClient
 }
 
 createRoot(document.getElementById('root')!).render(
@@ -37,5 +37,5 @@ createRoot(document.getElementById('root')!).render(
       />
       {import.meta.env.DEV && <ReactQueryDevtools initialIsOpen={false} />}
     </QueryClientProvider>
-  </StrictMode>
+  </StrictMode>,
 )

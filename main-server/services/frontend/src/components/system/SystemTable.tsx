@@ -9,7 +9,11 @@ import { cn } from '@/lib/utils'
 import type { System } from '@/types/system'
 
 const TYPE_LABELS: Record<string, string> = {
-  web: 'Web', was: 'WAS', db: 'DB', middleware: 'Middleware', other: '기타',
+  web: 'Web',
+  was: 'WAS',
+  db: 'DB',
+  middleware: 'Middleware',
+  other: '기타',
 }
 
 interface ConfirmDialogProps {
@@ -24,15 +28,19 @@ function ConfirmDialog({ open, name, onConfirm, onCancel }: ConfirmDialogProps) 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="absolute inset-0 bg-black/50" onClick={onCancel} />
-      <div className="relative z-10 rounded-sm bg-[#1E2127] p-6 w-80 shadow-[3px_3px_7px_#111317,-3px_-3px_7px_#2B2F37]">
+      <div className="relative z-10 w-80 rounded-sm bg-[#1E2127] p-6 shadow-[3px_3px_7px_#111317,-3px_-3px_7px_#2B2F37]">
         <h3 className="text-base font-semibold text-[#E2E8F2]">시스템 삭제</h3>
         <p className="mt-2 text-sm text-[#8B97AD]">
-          <strong className="text-[#E2E8F2]">{name}</strong> 시스템을 삭제하시겠습니까?<br />
-          이 작업은 되돌릴 수 없습니다.
+          <strong className="text-[#E2E8F2]">{name}</strong> 시스템을 삭제하시겠습니까?
+          <br />이 작업은 되돌릴 수 없습니다.
         </p>
         <div className="mt-4 flex justify-end gap-2">
-          <NeuButton variant="ghost" size="sm" onClick={onCancel}>취소</NeuButton>
-          <NeuButton variant="danger" size="sm" onClick={onConfirm}>삭제</NeuButton>
+          <NeuButton variant="ghost" size="sm" onClick={onCancel}>
+            취소
+          </NeuButton>
+          <NeuButton variant="danger" size="sm" onClick={onConfirm}>
+            삭제
+          </NeuButton>
         </div>
       </div>
     </div>
@@ -61,7 +69,7 @@ export function SystemTable({ systems, onEdit, searchQuery = '' }: SystemTablePr
   if (filtered.length === 0) {
     return (
       <EmptyState
-        icon={<Terminal className="w-12 h-12" />}
+        icon={<Terminal className="h-12 w-12" />}
         title={searchQuery ? '검색 결과가 없습니다' : '등록된 시스템이 없습니다'}
         description={!searchQuery ? '우측 상단의 버튼으로 시스템을 등록하세요' : undefined}
       />
@@ -75,10 +83,7 @@ export function SystemTable({ systems, onEdit, searchQuery = '' }: SystemTablePr
           <thead>
             <tr className="border-b border-[#2B2F37]">
               {['시스템명', '호스트', '타입', 'OS', '상태', '등록일', ''].map((h) => (
-                <th
-                  key={h}
-                  className="px-4 py-3 text-left type-label"
-                >
+                <th key={h} className="type-label px-4 py-3 text-left">
                   {h}
                 </th>
               ))}
@@ -86,23 +91,24 @@ export function SystemTable({ systems, onEdit, searchQuery = '' }: SystemTablePr
           </thead>
           <tbody className="divide-y divide-[#2B2F37]">
             {filtered.map((system) => (
-              <tr
-                key={system.id}
-                className="hover:bg-[rgba(0,212,255,0.04)] transition-colors"
-              >
+              <tr key={system.id} className="transition-colors hover:bg-[rgba(0,212,255,0.04)]">
                 <td className="px-4 py-3">
                   <p className="font-medium text-[#E2E8F2]">{system.display_name}</p>
-                  <p className="text-xs text-[#8B97AD] font-mono">{system.system_name}</p>
+                  <p className="font-mono text-xs text-[#8B97AD]">{system.system_name}</p>
                 </td>
-                <td className="px-4 py-3 text-sm text-[#8B97AD] font-mono">{system.host}</td>
+                <td className="px-4 py-3 font-mono text-sm text-[#8B97AD]">{system.host}</td>
                 <td className="px-4 py-3">
-                  <NeuBadge variant="info">{TYPE_LABELS[system.system_type] ?? system.system_type}</NeuBadge>
+                  <NeuBadge variant="info">
+                    {TYPE_LABELS[system.system_type] ?? system.system_type}
+                  </NeuBadge>
                 </td>
                 <td className="px-4 py-3">
                   <span className="flex items-center gap-1 text-sm text-[#8B97AD]">
-                    {system.os_type === 'linux'
-                      ? <Terminal className="w-3.5 h-3.5" />
-                      : <Monitor className="w-3.5 h-3.5" />}
+                    {system.os_type === 'linux' ? (
+                      <Terminal className="h-3.5 w-3.5" />
+                    ) : (
+                      <Monitor className="h-3.5 w-3.5" />
+                    )}
                     {system.os_type}
                   </span>
                 </td>
@@ -110,13 +116,13 @@ export function SystemTable({ systems, onEdit, searchQuery = '' }: SystemTablePr
                   <span
                     className={cn(
                       'flex items-center gap-1.5 text-sm',
-                      system.status === 'active' ? 'text-[#22C55E]' : 'text-[#5A6478]'
+                      system.status === 'active' ? 'text-[#22C55E]' : 'text-[#5A6478]',
                     )}
                   >
                     <span
                       className={cn(
-                        'w-2 h-2 rounded-full',
-                        system.status === 'active' ? 'bg-[#22C55E]' : 'bg-[#5A6478]'
+                        'h-2 w-2 rounded-full',
+                        system.status === 'active' ? 'bg-[#22C55E]' : 'bg-[#5A6478]',
                       )}
                     />
                     {system.status === 'active' ? '운영 중' : '비활성'}
@@ -130,18 +136,16 @@ export function SystemTable({ systems, onEdit, searchQuery = '' }: SystemTablePr
                     <button
                       onClick={() => onEdit(system)}
                       aria-label="수정"
-                      className="rounded-sm p-1.5 text-[#8B97AD] hover:bg-[rgba(0,212,255,0.06)] hover:text-[#00D4FF]
-                                 focus:outline-none focus:ring-1 focus:ring-[#00D4FF]"
+                      className="rounded-sm p-1.5 text-[#8B97AD] hover:bg-[rgba(0,212,255,0.06)] hover:text-[#00D4FF] focus:ring-1 focus:ring-[#00D4FF] focus:outline-none"
                     >
-                      <Pencil className="w-4 h-4" />
+                      <Pencil className="h-4 w-4" />
                     </button>
                     <button
                       onClick={() => setDeleteTarget(system)}
                       aria-label="삭제"
-                      className="rounded-sm p-1.5 text-[#EF4444] hover:bg-[rgba(239,68,68,0.08)]
-                                 focus:outline-none focus:ring-1 focus:ring-[#EF4444]"
+                      className="rounded-sm p-1.5 text-[#EF4444] hover:bg-[rgba(239,68,68,0.08)] focus:ring-1 focus:ring-[#EF4444] focus:outline-none"
                     >
-                      <Trash2 className="w-4 h-4" />
+                      <Trash2 className="h-4 w-4" />
                     </button>
                   </div>
                 </td>
@@ -163,7 +167,7 @@ export function SystemTable({ systems, onEdit, searchQuery = '' }: SystemTablePr
       />
       {isDeleting && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="rounded-sm bg-[#1E2127] px-6 py-4 shadow-[3px_3px_7px_#111317,-3px_-3px_7px_#2B2F37] text-sm text-[#8B97AD]">
+          <div className="rounded-sm bg-[#1E2127] px-6 py-4 text-sm text-[#8B97AD] shadow-[3px_3px_7px_#111317,-3px_-3px_7px_#2B2F37]">
             삭제 중...
           </div>
         </div>

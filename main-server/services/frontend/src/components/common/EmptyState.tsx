@@ -14,7 +14,9 @@ export function EmptyState({ icon, title, description, cta }: EmptyStateProps) {
       <div className="text-[#5A6478] opacity-60">{icon}</div>
       <div className="max-w-xs">
         <p className="type-heading text-base font-semibold text-[#E2E8F2]">{title}</p>
-        {description && <p className="mt-1.5 text-sm leading-relaxed text-[#8B97AD]">{description}</p>}
+        {description && (
+          <p className="mt-1.5 text-sm leading-relaxed text-[#8B97AD]">{description}</p>
+        )}
       </div>
       {cta && <NeuButton onClick={cta.onClick}>{cta.label}</NeuButton>}
     </div>

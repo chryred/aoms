@@ -10,11 +10,10 @@ export function CriticalTrendBanner({ count }: CriticalTrendBannerProps) {
   return (
     <div
       role="alert"
-      className="rounded-sm bg-[rgba(239,68,68,0.08)] border border-[#EF4444]
-                 border-l-4 border-l-[#EF4444] px-4 py-3 flex items-center gap-3 mb-4"
+      className="mb-4 flex items-center gap-3 rounded-sm border border-l-4 border-[#EF4444] border-l-[#EF4444] bg-[rgba(239,68,68,0.08)] px-4 py-3"
     >
-      <AlertTriangle className="w-5 h-5 text-[#EF4444] flex-shrink-0" aria-hidden="true" />
-      <p className="text-[#F87171] text-sm font-medium">
+      <AlertTriangle className="h-5 w-5 flex-shrink-0 text-[#EF4444]" aria-hidden="true" />
+      <p className="text-sm font-medium text-[#F87171]">
         임박한 장애 예측 {count}건이 감지되었습니다. 즉시 확인이 필요합니다.
       </p>
     </div>

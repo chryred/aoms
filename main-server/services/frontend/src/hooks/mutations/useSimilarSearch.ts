@@ -4,7 +4,6 @@ import type { SimilarSearchRequest, SimilarSearchResponse } from '@/types/search
 
 export function useSimilarSearch() {
   return useMutation<SimilarSearchResponse, Error, SimilarSearchRequest>({
-    mutationFn: (body: SimilarSearchRequest) =>
-      logAnalyzerSearchApi.similarSearch(body),
+    mutationFn: (body: SimilarSearchRequest) => logAnalyzerSearchApi.similarSearch(body),
   })
 }

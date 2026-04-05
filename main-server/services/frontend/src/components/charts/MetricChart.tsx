@@ -1,6 +1,13 @@
 import {
-  ComposedChart, Line, XAxis, YAxis, CartesianGrid,
-  Tooltip, Legend, ReferenceLine, ResponsiveContainer
+  ComposedChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ReferenceLine,
+  ResponsiveContainer,
 } from 'recharts'
 import type { HourlyAggregation } from '@/types/aggregation'
 import { transformToChartData } from '@/lib/metrics-transform'
@@ -22,7 +29,11 @@ interface TooltipPayloadEntry {
   payload?: Record<string, unknown>
 }
 
-function CustomTooltip({ active, payload, label }: {
+function CustomTooltip({
+  active,
+  payload,
+  label,
+}: {
   active?: boolean
   payload?: TooltipPayloadEntry[]
   label?: string
@@ -33,43 +44,58 @@ function CustomTooltip({ active, payload, label }: {
   const summary = raw.llm_summary as string | undefined
   const prediction = raw.llm_prediction as string | undefined
   return (
-    <div className="rounded-sm bg-[#1E2127] border border-[#2B2F37] p-3 shadow-[3px_3px_7px_#111317,-3px_-3px_7px_#2B2F37] text-xs max-w-xs">
-      <p className="font-semibold text-[#E2E8F2] mb-1">{label}</p>
+    <div className="max-w-xs rounded-sm border border-[#2B2F37] bg-[#1E2127] p-3 text-xs shadow-[3px_3px_7px_#111317,-3px_-3px_7px_#2B2F37]">
+      <p className="mb-1 font-semibold text-[#E2E8F2]">{label}</p>
       {payload.map((p) => (
-        <p key={p.name} style={{ color: p.color }}>{p.name}: {p.value}</p>
+        <p key={p.name} style={{ color: p.color }}>
+          {p.name}: {p.value}
+        </p>
       ))}
       {severity && severity !== 'normal' && (
-        <p className={`mt-1 font-medium ${severity === 'critical' ? 'text-[#EF4444]' : 'text-[#F59E0B]'}`}>
+        <p
+          className={`mt-1 font-medium ${severity === 'critical' ? 'text-[#EF4444]' : 'text-[#F59E0B]'}`}
+        >
           {severity === 'critical' ? '위험' : '경고'}
         </p>
       )}
-      {summary && <p className="mt-1 text-[#8B97AD] whitespace-pre-wrap">{summary}</p>}
+      {summary && <p className="mt-1 whitespace-pre-wrap text-[#8B97AD]">{summary}</p>}
       {prediction && <p className="mt-1 text-[#00D4FF] italic">{prediction}</p>}
     </div>
   )
 }
 
-export function MetricChart({ aggregations, metricKeys, title, unit, onPointClick }: MetricChartProps) {
+export function MetricChart({
+  aggregations,
+  metricKeys,
+  title,
+  unit,
+  onPointClick,
+}: MetricChartProps) {
   const data = transformToChartData(aggregations, metricKeys)
 
   const warningPoints = aggregations
-    .filter(a => a.llm_severity === 'warning')
-    .map(a => {
+    .filter((a) => a.llm_severity === 'warning')
+    .map((a) => {
       const d = new Date(a.hour_bucket)
       return new Date(d.getTime() + 9 * 60 * 60 * 1000).toISOString().slice(11, 16)
     })
   const criticalPoints = aggregations
-    .filter(a => a.llm_severity === 'critical')
-    .map(a => {
+    .filter((a) => a.llm_severity === 'critical')
+    .map((a) => {
       const d = new Date(a.hour_bucket)
       return new Date(d.getTime() + 9 * 60 * 60 * 1000).toISOString().slice(11, 16)
     })
 
   return (
     <div className="rounded-sm bg-[#1E2127] p-4 shadow-[3px_3px_7px_#111317,-3px_-3px_7px_#2B2F37]">
-      <h3 className="text-sm font-semibold text-[#E2E8F2] mb-3">{title}{unit && ` (${unit})`}</h3>
+      <h3 className="mb-3 text-sm font-semibold text-[#E2E8F2]">
+        {title}
+        {unit && ` (${unit})`}
+      </h3>
       {data.length === 0 ? (
-        <div className="flex items-center justify-center h-32 text-sm text-[#8B97AD]">데이터 없음</div>
+        <div className="flex h-32 items-center justify-center text-sm text-[#8B97AD]">
+          데이터 없음
+        </div>
       ) : (
         <ResponsiveContainer width="100%" height={200}>
           <ComposedChart
@@ -97,10 +123,10 @@ export function MetricChart({ aggregations, metricKeys, title, unit, onPointClic
                 strokeWidth={1.5}
               />
             ))}
-            {warningPoints.map(ts => (
+            {warningPoints.map((ts) => (
               <ReferenceLine key={`w-${ts}`} x={ts} stroke="#F59E0B" strokeDasharray="4 2" />
             ))}
-            {criticalPoints.map(ts => (
+            {criticalPoints.map((ts) => (
               <ReferenceLine key={`c-${ts}`} x={ts} stroke="#EF4444" strokeDasharray="4 2" />
             ))}
           </ComposedChart>
