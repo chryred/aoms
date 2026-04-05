@@ -52,7 +52,7 @@ export function TrendAlertCard({ alert }: TrendAlertCardProps) {
       <div className="mt-3">
         <Link
           to={`/dashboard/${alert.system_id}`}
-          className="text-[#00D4FF] text-sm hover:underline focus:outline-none focus:ring-2 focus:ring-[#00D4FF] focus:ring-offset-2 focus:ring-offset-[#1E2127] rounded"
+          className="text-[#00D4FF] text-sm hover:underline focus:outline-none focus:ring-1 focus:ring-[#00D4FF] focus:ring-offset-2 focus:ring-offset-[#1E2127] rounded"
         >
           시스템 상세 보기
         </Link>

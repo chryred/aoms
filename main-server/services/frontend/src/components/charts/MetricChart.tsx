@@ -33,7 +33,7 @@ function CustomTooltip({ active, payload, label }: {
   const summary = raw.llm_summary as string | undefined
   const prediction = raw.llm_prediction as string | undefined
   return (
-    <div className="rounded-xl bg-[#1E2127] border border-[#2B2F37] p-3 shadow-[3px_3px_7px_#111317,-3px_-3px_7px_#2B2F37] text-xs max-w-xs">
+    <div className="rounded-sm bg-[#1E2127] border border-[#2B2F37] p-3 shadow-[3px_3px_7px_#111317,-3px_-3px_7px_#2B2F37] text-xs max-w-xs">
       <p className="font-semibold text-[#E2E8F2] mb-1">{label}</p>
       {payload.map((p) => (
         <p key={p.name} style={{ color: p.color }}>{p.name}: {p.value}</p>
@@ -66,7 +66,7 @@ export function MetricChart({ aggregations, metricKeys, title, unit, onPointClic
     })
 
   return (
-    <div className="rounded-2xl bg-[#1E2127] p-4 shadow-[3px_3px_7px_#111317,-3px_-3px_7px_#2B2F37]">
+    <div className="rounded-sm bg-[#1E2127] p-4 shadow-[3px_3px_7px_#111317,-3px_-3px_7px_#2B2F37]">
       <h3 className="text-sm font-semibold text-[#E2E8F2] mb-3">{title}{unit && ` (${unit})`}</h3>
       {data.length === 0 ? (
         <div className="flex items-center justify-center h-32 text-sm text-[#8B97AD]">데이터 없음</div>

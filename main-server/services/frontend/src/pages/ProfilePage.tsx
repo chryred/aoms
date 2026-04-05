@@ -127,7 +127,7 @@ export function ProfilePage() {
             />
             <div>
               <label className="block text-xs font-medium text-[#8B97AD] mb-1">이메일</label>
-              <p className="px-3 py-2 rounded-xl bg-[#1E2127] border border-[#2B2F37] text-[#5A6478] text-sm">
+              <p className="px-3 py-2 rounded-sm bg-[#1E2127] border border-[#2B2F37] text-[#5A6478] text-sm">
                 {me.email}
                 <span className="ml-2 text-xs text-[#5A6478]">(이메일은 변경할 수 없습니다)</span>
               </p>

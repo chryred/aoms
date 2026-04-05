@@ -266,7 +266,7 @@ export default function CollectorWizardPage() {
               수집기 동작을 세부 조정할 JSON 설정을 입력합니다 (선택)
             </p>
             {/* Info banner */}
-            <div className="rounded-xl bg-[rgba(0,212,255,0.06)] border border-[rgba(0,212,255,0.16)]
+            <div className="rounded-sm bg-[rgba(0,212,255,0.06)] border border-[rgba(0,212,255,0.16)]
                             px-4 py-3 text-sm text-[#00D4FF] mb-4">
               Monaco Editor CDN 접근 불가 환경으로 텍스트 에디터를 사용합니다.
             </div>
@@ -279,11 +279,11 @@ export default function CollectorWizardPage() {
                 value={customConfig}
                 onChange={(e) => setCustomConfig(e.target.value)}
                 placeholder={'{\n  "threshold": 80,\n  "interval": "5m"\n}'}
-                className="w-full rounded-xl bg-[#1E2127] border border-[#2B2F37]
+                className="w-full rounded-sm bg-[#1E2127] border border-[#2B2F37]
                            shadow-[inset_2px_2px_5px_#111317,inset_-2px_-2px_5px_#2B2F37]
                            px-4 py-2.5 text-sm text-[#E2E8F2] font-mono
                            placeholder:text-[#5A6478]
-                           focus:outline-none focus:ring-2 focus:ring-[#00D4FF] focus:ring-offset-2 focus:ring-offset-[#1E2127]"
+                           focus:outline-none focus:ring-1 focus:ring-[#00D4FF] focus:ring-offset-2 focus:ring-offset-[#1E2127]"
                 style={{ fontFamily: "'Courier New', monospace" }}
               />
               {customConfig.trim() === '' && (
@@ -366,7 +366,7 @@ export default function CollectorWizardPage() {
       {showCancelDialog && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/40" onClick={() => setShowCancelDialog(false)} />
-          <div className="relative bg-[#1E2127] rounded-2xl p-6 shadow-[3px_3px_7px_#111317,-3px_-3px_7px_#2B2F37] border border-[#2B2F37] max-w-sm w-full mx-4">
+          <div className="relative bg-[#1E2127] rounded-sm p-6 shadow-[3px_3px_7px_#111317,-3px_-3px_7px_#2B2F37] border border-[#2B2F37] max-w-sm w-full mx-4">
             <h3 className="text-base font-semibold text-[#E2E8F2] mb-2">
               마법사를 취소하시겠습니까?
             </h3>

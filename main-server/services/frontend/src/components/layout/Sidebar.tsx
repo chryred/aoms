@@ -33,9 +33,9 @@ function NavItem({
       onClick={onNavigate}
       className={({ isActive }) =>
         cn(
-          'flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium transition-[background-color,color,box-shadow] duration-150',
+          'flex items-center gap-3 rounded-sm px-3 py-3 text-sm font-medium transition-[background-color,color,box-shadow] duration-150',
           'min-h-[44px]',
-          'focus:outline-none focus:ring-2 focus:ring-[#00D4FF]',
+          'focus:outline-none focus:ring-1 focus:ring-[#00D4FF]',
           isActive
             ? 'bg-[#00D4FF] text-[#1E2127] font-semibold shadow-[2px_2px_5px_#111317,-2px_-2px_5px_#2B2F37]'
             : 'text-[#8B97AD] hover:bg-[rgba(0,212,255,0.06)] hover:text-[#E2E8F2]',
@@ -98,25 +98,25 @@ export function Sidebar() {
   return (
     <aside
       className={cn(
-        'flex flex-col h-full bg-[#1E2127] border-r border-[#2B2F37] transition-[width] duration-200 shrink-0',
+        'flex flex-col h-full bg-[#252932] border-r border-[#2B2F37] transition-[width] duration-200 shrink-0',
         // On mobile always full-width; on desktop: collapsed or expanded
         'w-60 md:w-auto',
         collapsed ? 'md:w-16' : 'md:w-60'
       )}
     >
       {/* 로고 */}
-      <div className="flex items-center justify-between px-4 py-4 border-b border-[#2B2F37]">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-[#9E7B2F80]">
         {!collapsed && (
-          <span className="type-heading text-lg font-bold text-[#00D4FF]">Synapse-V</span>
+          <span className="type-heading text-lg font-bold text-[#00D4FF] font-lora italic">Synapse-V</span>
         )}
         {/* Collapse toggle — desktop only */}
         <button
           onClick={toggleSidebar}
           aria-label={collapsed ? '사이드바 펼치기' : '사이드바 접기'}
           className={cn(
-            'hidden md:flex items-center justify-center w-9 h-9 rounded-lg text-[#8B97AD]',
+            'hidden md:flex items-center justify-center w-10 h-10 rounded-sm text-[#8B97AD]',
             'hover:bg-[rgba(255,255,255,0.05)]',
-            'focus:outline-none focus:ring-2 focus:ring-[#00D4FF]',
+            'focus:outline-none focus:ring-1 focus:ring-[#00D4FF]',
             collapsed && 'mx-auto'
           )}
         >

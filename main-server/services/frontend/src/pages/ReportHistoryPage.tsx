@@ -62,7 +62,7 @@ export function ReportHistoryPage() {
           title="발송 이력이 없습니다"
         />
       ) : (
-        <div className="rounded-2xl bg-[#1E2127] shadow-[3px_3px_7px_#111317,-3px_-3px_7px_#2B2F37] overflow-hidden">
+        <div className="rounded-sm bg-[#1E2127] shadow-[3px_3px_7px_#111317,-3px_-3px_7px_#2B2F37] overflow-hidden">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-[#2B2F37]">
@@ -106,7 +106,7 @@ export function ReportHistoryPage() {
                         >
                           {truncated}
                           {tooltip === r.id && (
-                            <span className="absolute bottom-full left-0 mb-1 z-10 w-64 bg-[#1E2127] border border-[#2B2F37] rounded-lg p-2 text-xs shadow-[3px_3px_7px_#111317,-3px_-3px_7px_#2B2F37] whitespace-pre-wrap">
+                            <span className="absolute bottom-full left-0 mb-1 z-10 w-64 bg-[#1E2127] border border-[#2B2F37] rounded-sm p-2 text-xs shadow-[3px_3px_7px_#111317,-3px_-3px_7px_#2B2F37] whitespace-pre-wrap">
                               {summary}
                             </span>
                           )}

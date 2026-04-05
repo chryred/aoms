@@ -80,10 +80,10 @@ export function LoginPage() {
   return (
     <NeuCard className="w-full max-w-md">
       <div className="mb-8 text-center">
-        <div className="mb-3 inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-[#00D4FF] text-[#1E2127] text-2xl font-bold shadow-[2px_2px_5px_#111317,-2px_-2px_5px_#2B2F37]">
+        <div className="mb-3 inline-flex h-14 w-14 items-center justify-center rounded-sm bg-[#00D4FF] text-[#1E2127] text-2xl font-bold shadow-[2px_2px_5px_#111317,-2px_-2px_5px_#2B2F37]">
           S
         </div>
-        <h1 className="type-heading text-2xl font-bold text-[#E2E8F2]">Synapse-V</h1>
+        <h1 className="type-heading text-2xl font-bold text-[#E2E8F2] font-lora italic">Synapse-V</h1>
         <p className="mt-2 text-sm leading-relaxed text-[#8B97AD]">백화점 통합 모니터링 시스템</p>
       </div>
 
@@ -164,7 +164,7 @@ export function LoginPage() {
         </NeuButton>
       </form>
 
-      <p className="mt-6 text-center text-xs text-[#5A6478]">
+      <p className="mt-6 text-center text-xs text-[#5A6478] font-lora italic">
         © 2026 Synapse-V. All rights reserved.
       </p>
     </NeuCard>

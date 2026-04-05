@@ -106,7 +106,7 @@ export function SystemContactPanel({ systemId }: SystemContactPanelProps) {
           {systemContacts.map(sc => (
             <div
               key={sc.id}
-              className="flex items-center justify-between rounded-xl bg-[#1E2127] px-4 py-3
+              className="flex items-center justify-between rounded-sm bg-[#1E2127] px-4 py-3
                          shadow-[2px_2px_5px_#111317,-2px_-2px_5px_#2B2F37]"
             >
               <div className="flex items-center gap-3">
@@ -149,7 +149,7 @@ export function SystemContactPanel({ systemId }: SystemContactPanelProps) {
               <h3 className="text-base font-semibold text-[#E2E8F2]">담당자 추가</h3>
               <button
                 onClick={() => setSheetOpen(false)}
-                className="text-[#8B97AD] hover:text-[#E2E8F2] focus:outline-none focus:ring-2 focus:ring-[#00D4FF] rounded-lg p-1"
+                className="text-[#8B97AD] hover:text-[#E2E8F2] focus:outline-none focus:ring-1 focus:ring-[#00D4FF] rounded-sm p-1"
               >
                 <X className="w-5 h-5" />
               </button>

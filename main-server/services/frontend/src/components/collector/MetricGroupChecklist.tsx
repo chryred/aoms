@@ -53,7 +53,7 @@ export function MetricGroupChecklist({
               <label
                 key={item.metric_group}
                 className={cn(
-                  'flex items-start gap-3 p-3 rounded-xl cursor-pointer',
+                  'flex items-start gap-3 p-3 rounded-sm cursor-pointer',
                   'bg-[#1E2127] transition-shadow',
                   checked
                     ? 'shadow-[inset_2px_2px_5px_#111317,inset_-2px_-2px_5px_#2B2F37]'

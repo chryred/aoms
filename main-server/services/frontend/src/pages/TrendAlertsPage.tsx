@@ -54,15 +54,15 @@ export default function TrendAlertsPage() {
       <CriticalTrendBanner count={criticalCount} />
 
       {/* Severity filter bar */}
-      <div className="flex gap-1 mb-6 p-1 rounded-xl bg-[#1E2127] shadow-[inset_1px_1px_3px_#111317,inset_-1px_-1px_3px_#2B2F37] w-fit" role="group" aria-label="심각도 필터">
+      <div className="flex gap-1 mb-6 p-1 rounded-sm bg-[#1E2127] shadow-[inset_1px_1px_3px_#111317,inset_-1px_-1px_3px_#2B2F37] w-fit" role="group" aria-label="심각도 필터">
         {SEVERITY_OPTIONS.map((opt) => (
           <button
             key={opt.value}
             type="button"
             onClick={() => setSearchParams({ severity: opt.value })}
             className={cn(
-              'px-4 py-1.5 rounded-lg text-sm font-medium transition-all',
-              'focus:outline-none focus:ring-2 focus:ring-[#00D4FF] focus:ring-offset-[#1E2127]',
+              'px-4 py-1.5 rounded-sm text-sm font-medium transition-all',
+              'focus:outline-none focus:ring-1 focus:ring-[#00D4FF] focus:ring-offset-[#1E2127]',
               severityFilter === opt.value
                 ? 'bg-[#00D4FF] text-[#1E2127] font-semibold shadow-[2px_2px_4px_#111317]'
                 : 'text-[#8B97AD] hover:text-[#E2E8F2] hover:bg-[rgba(255,255,255,0.05)]'

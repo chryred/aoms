@@ -1,21 +1,17 @@
 @import "tailwindcss";
 
 /*
- * 서체 분리 전략 (unicode-range 오버라이드)
- * ─ 한글 (Hangul + CJK 범위) → Pretendard
- * ─ 영문 / 숫자 / 기호 (Latin 범위) → Lora Italic (variable 400-700)
- *
- * 동작 원리: 같은 font-family 이름 'Pretendard' 아래
- *   unicode-range가 좁은 선언이 우선 매칭됨.
- *   Latin 범위 문자 → Lora Italic,
- *   그 밖(한글 등) → 아래 Pretendard 선언으로 폴백.
+ * 서체 전략
+ * ─ 한글 / 영문 일반 UI → Pretendard (upright, 가독성 우선)
+ * ─ 브랜드 워드마크 전용 → Lora Italic (font-family: 'Lora', font-style: italic)
+ *   사용: font-lora italic (Tailwind 클래스) — Synapse-V, Copyright 문구에만 적용
  */
 
-/* ── Lora Italic — Latin-ext (영문 확장 문자) ── */
+/* ── Lora Italic — Latin-ext (브랜드 워드마크 전용) ── */
 @font-face {
-  font-family: 'Pretendard';
-  font-weight: 400 700;           /* variable: 모든 weight에서 적용 */
-  font-style: normal;             /* normal로 등록 → 기울이지 않아도 Italic 글꼴 표시 */
+  font-family: 'Lora';
+  font-weight: 400 700;
+  font-style: italic;
   font-display: swap;
   src: url('/fonts/Lora-Italic-latin-ext.woff2') format('woff2');
   unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7,
@@ -24,11 +20,11 @@
                  U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
 }
 
-/* ── Lora Italic — Latin 기본 (영숫자·기호) ── */
+/* ── Lora Italic — Latin 기본 (브랜드 워드마크 전용) ── */
 @font-face {
-  font-family: 'Pretendard';
+  font-family: 'Lora';
   font-weight: 400 700;
-  font-style: normal;
+  font-style: italic;
   font-display: swap;
   src: url('/fonts/Lora-Italic-latin.woff2') format('woff2');
   unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC,
@@ -70,6 +66,7 @@
 @theme inline {
   --font-sans: 'Pretendard', system-ui, sans-serif;
   --font-mono: 'Pretendard', ui-monospace, 'Cascadia Code', monospace;
+  --font-lora: 'Lora', serif;
 
   /* 뉴모피즘 그림자 토큰 (다크) */
   --shadow-neu-flat:    3px 3px 7px #111317, -3px -3px 7px #2B2F37;

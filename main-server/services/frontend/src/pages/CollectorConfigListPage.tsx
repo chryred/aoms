@@ -83,15 +83,15 @@ export default function CollectorConfigListPage() {
       {/* Filter bar */}
       <div className="flex flex-wrap gap-4 mb-6">
         {/* Type filter */}
-        <div className="flex gap-1 p-1 rounded-xl bg-[#1E2127] shadow-[inset_1px_1px_3px_#111317,inset_-1px_-1px_3px_#2B2F37]" role="group" aria-label="수집기 타입 필터">
+        <div className="flex gap-1 p-1 rounded-sm bg-[#1E2127] shadow-[inset_1px_1px_3px_#111317,inset_-1px_-1px_3px_#2B2F37]" role="group" aria-label="수집기 타입 필터">
           {COLLECTOR_TYPE_OPTIONS.map((opt) => (
             <button
               key={opt.value}
               type="button"
               onClick={() => setFilterType(opt.value as CollectorType | 'all')}
               className={cn(
-                'px-3 py-1 rounded-lg text-xs font-medium transition-all',
-                'focus:outline-none focus:ring-2 focus:ring-[#00D4FF] focus:ring-offset-[#1E2127]',
+                'px-3 py-1 rounded-sm text-xs font-medium transition-all',
+                'focus:outline-none focus:ring-1 focus:ring-[#00D4FF] focus:ring-offset-[#1E2127]',
                 filterType === opt.value
                   ? 'bg-[#00D4FF] text-[#1E2127] font-semibold shadow-[2px_2px_4px_#111317]'
                   : 'text-[#8B97AD] hover:text-[#E2E8F2] hover:bg-[rgba(255,255,255,0.05)]'
@@ -103,15 +103,15 @@ export default function CollectorConfigListPage() {
         </div>
 
         {/* Enabled filter */}
-        <div className="flex gap-1 p-1 rounded-xl bg-[#1E2127] shadow-[inset_1px_1px_3px_#111317,inset_-1px_-1px_3px_#2B2F37]" role="group" aria-label="활성 상태 필터">
+        <div className="flex gap-1 p-1 rounded-sm bg-[#1E2127] shadow-[inset_1px_1px_3px_#111317,inset_-1px_-1px_3px_#2B2F37]" role="group" aria-label="활성 상태 필터">
           {ENABLED_OPTIONS.map((opt) => (
             <button
               key={opt.value}
               type="button"
               onClick={() => setFilterEnabled(opt.value as 'all' | 'active' | 'inactive')}
               className={cn(
-                'px-3 py-1 rounded-lg text-xs font-medium transition-all',
-                'focus:outline-none focus:ring-2 focus:ring-[#00D4FF] focus:ring-offset-[#1E2127]',
+                'px-3 py-1 rounded-sm text-xs font-medium transition-all',
+                'focus:outline-none focus:ring-1 focus:ring-[#00D4FF] focus:ring-offset-[#1E2127]',
                 filterEnabled === opt.value
                   ? 'bg-[#00D4FF] text-[#1E2127] font-semibold shadow-[2px_2px_4px_#111317]'
                   : 'text-[#8B97AD] hover:text-[#E2E8F2] hover:bg-[rgba(255,255,255,0.05)]'

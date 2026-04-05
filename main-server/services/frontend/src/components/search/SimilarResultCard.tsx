@@ -90,7 +90,7 @@ export function SimilarResultCard({ result, collection }: SimilarResultCardProps
       {/* Footer link */}
       <Link
         to={`/alerts?system_id=${payload.system_id}`}
-        className="text-[#00D4FF] text-sm hover:underline focus:outline-none focus:ring-2 focus:ring-[#00D4FF] focus:ring-offset-2 focus:ring-offset-[#1E2127] rounded"
+        className="text-[#00D4FF] text-sm hover:underline focus:outline-none focus:ring-1 focus:ring-[#00D4FF] focus:ring-offset-2 focus:ring-offset-[#1E2127] rounded"
       >
         관련 알림 이력
       </Link>

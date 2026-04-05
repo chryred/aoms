@@ -26,7 +26,7 @@ export function NeuCard({ children, className, severity, pressed, onClick }: Neu
       role={onClick ? 'button' : undefined}
       tabIndex={onClick ? 0 : undefined}
       className={cn(
-        'rounded-2xl bg-[#1E2127] p-6 transition-shadow',
+        'rounded-sm bg-[#1E2127] p-6 transition-shadow',
         pressed
           ? 'shadow-[inset_2px_2px_5px_#111317,inset_-2px_-2px_5px_#2B2F37]'
           : 'shadow-[3px_3px_7px_#111317,-3px_-3px_7px_#2B2F37]',

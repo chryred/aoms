@@ -107,8 +107,8 @@ export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
           <button
             onClick={onClose}
             aria-label="알림 상세 닫기"
-            className="rounded-lg p-1.5 text-[#8B97AD] hover:bg-[rgba(255,255,255,0.05)]
-                       focus:outline-none focus:ring-2 focus:ring-[#00D4FF]"
+            className="rounded-sm p-1.5 text-[#8B97AD] hover:bg-[rgba(255,255,255,0.05)]
+                       focus:outline-none focus:ring-1 focus:ring-[#00D4FF]"
           >
             <X className="w-5 h-5" />
           </button>
@@ -160,7 +160,7 @@ export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
           {alert.description && (
             <div>
               <p className="type-label mb-1.5">상세 내용</p>
-              <div className="rounded-xl bg-[#1E2127] shadow-[inset_2px_2px_5px_#111317,inset_-2px_-2px_5px_#2B2F37] p-4">
+              <div className="rounded-sm bg-[#1E2127] shadow-[inset_2px_2px_5px_#111317,inset_-2px_-2px_5px_#2B2F37] p-4">
                 <p className="text-sm text-[#E2E8F2] whitespace-pre-wrap leading-relaxed break-words">
                   {alert.description}
                 </p>

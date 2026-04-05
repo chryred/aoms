@@ -59,7 +59,7 @@ export function ContactListPage() {
           cta={{ label: '담당자 등록', onClick: () => navigate('/contacts/new') }}
         />
       ) : (
-        <div className="rounded-2xl bg-[#1E2127] shadow-[3px_3px_7px_#111317,-3px_-3px_7px_#2B2F37] overflow-hidden">
+        <div className="rounded-sm bg-[#1E2127] shadow-[3px_3px_7px_#111317,-3px_-3px_7px_#2B2F37] overflow-hidden">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-[#2B2F37]">
@@ -86,7 +86,7 @@ export function ContactListPage() {
       {confirmId !== null && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/40" onClick={() => setConfirmId(null)} />
-          <div className="relative bg-[#1E2127] rounded-2xl p-6 shadow-[3px_3px_7px_#111317,-3px_-3px_7px_#2B2F37] border border-[#2B2F37] max-w-sm w-full mx-4">
+          <div className="relative bg-[#1E2127] rounded-sm p-6 shadow-[3px_3px_7px_#111317,-3px_-3px_7px_#2B2F37] border border-[#2B2F37] max-w-sm w-full mx-4">
             <h3 className="text-base font-semibold text-[#E2E8F2] mb-2">담당자 삭제</h3>
             <p className="text-sm text-[#8B97AD] mb-4">
               이 담당자가 연결된 시스템에서 제거됩니다. 계속하시겠습니까?

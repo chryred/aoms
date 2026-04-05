@@ -131,8 +131,8 @@ export function SystemFormDrawer({ open, onClose, editTarget }: SystemFormDrawer
           <button
             onClick={onClose}
             aria-label="닫기"
-            className="rounded-lg p-1.5 text-[#8B97AD] hover:bg-[rgba(255,255,255,0.05)]
-                       focus:outline-none focus:ring-2 focus:ring-[#00D4FF]"
+            className="rounded-sm p-1.5 text-[#8B97AD] hover:bg-[rgba(255,255,255,0.05)]
+                       focus:outline-none focus:ring-1 focus:ring-[#00D4FF]"
           >
             <X className="w-5 h-5" />
           </button>

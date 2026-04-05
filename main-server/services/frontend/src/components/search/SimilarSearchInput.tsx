@@ -62,8 +62,8 @@ export function SimilarSearchInput({
             type="button"
             onClick={() => setCollection(opt.value)}
             className={cn(
-              'px-4 py-2 rounded-xl text-sm font-medium transition-all',
-              'focus:outline-none focus:ring-2 focus:ring-[#00D4FF] focus:ring-offset-2 focus:ring-offset-[#1E2127]',
+              'px-4 py-2 rounded-sm text-sm font-medium transition-all',
+              'focus:outline-none focus:ring-1 focus:ring-[#00D4FF] focus:ring-offset-2 focus:ring-offset-[#1E2127]',
               collection === opt.value
                 ? 'bg-[#00D4FF] text-[#1E2127] font-semibold shadow-[2px_2px_5px_#111317,-2px_-2px_5px_#2B2F37]'
                 : 'bg-[#1E2127] text-[#8B97AD] shadow-[2px_2px_5px_#111317,-2px_-2px_5px_#2B2F37] hover:text-[#E2E8F2]'
@@ -80,11 +80,11 @@ export function SimilarSearchInput({
         onChange={(e) => setQuery(e.target.value)}
         rows={4}
         className={cn(
-          'w-full rounded-xl bg-[#1E2127] px-4 py-3 text-sm text-[#E2E8F2]',
+          'w-full rounded-sm bg-[#1E2127] px-4 py-3 text-sm text-[#E2E8F2]',
           'shadow-[inset_2px_2px_5px_#111317,inset_-2px_-2px_5px_#2B2F37]',
           'border border-[#2B2F37]',
           'placeholder:text-[#5A6478] resize-none whitespace-pre-wrap',
-          'focus:outline-none focus:ring-2 focus:ring-[#00D4FF] focus:ring-offset-2 focus:ring-offset-[#1E2127]'
+          'focus:outline-none focus:ring-1 focus:ring-[#00D4FF] focus:ring-offset-2 focus:ring-offset-[#1E2127]'
         )}
         placeholder="예: CPU 사용률이 80%를 초과하며 응답시간이 급증한 패턴"
         aria-label="검색 쿼리 입력"
@@ -118,7 +118,7 @@ export function SimilarSearchInput({
           step={0.05}
           value={threshold}
           onChange={(e) => setThreshold(Number(e.target.value))}
-          className="w-full accent-[#00D4FF] focus:outline-none focus:ring-2 focus:ring-[#00D4FF] focus:ring-offset-2 focus:ring-offset-[#1E2127]"
+          className="w-full accent-[#00D4FF] focus:outline-none focus:ring-1 focus:ring-[#00D4FF] focus:ring-offset-2 focus:ring-offset-[#1E2127]"
           aria-label="유사도 기준값"
           aria-valuemin={0.5}
           aria-valuemax={1.0}

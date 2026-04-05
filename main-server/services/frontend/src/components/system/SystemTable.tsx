@@ -24,7 +24,7 @@ function ConfirmDialog({ open, name, onConfirm, onCancel }: ConfirmDialogProps) 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="absolute inset-0 bg-black/50" onClick={onCancel} />
-      <div className="relative z-10 rounded-2xl bg-[#1E2127] p-6 w-80 shadow-[3px_3px_7px_#111317,-3px_-3px_7px_#2B2F37]">
+      <div className="relative z-10 rounded-sm bg-[#1E2127] p-6 w-80 shadow-[3px_3px_7px_#111317,-3px_-3px_7px_#2B2F37]">
         <h3 className="text-base font-semibold text-[#E2E8F2]">시스템 삭제</h3>
         <p className="mt-2 text-sm text-[#8B97AD]">
           <strong className="text-[#E2E8F2]">{name}</strong> 시스템을 삭제하시겠습니까?<br />
@@ -130,16 +130,16 @@ export function SystemTable({ systems, onEdit, searchQuery = '' }: SystemTablePr
                     <button
                       onClick={() => onEdit(system)}
                       aria-label="수정"
-                      className="rounded-lg p-1.5 text-[#8B97AD] hover:bg-[rgba(0,212,255,0.06)] hover:text-[#00D4FF]
-                                 focus:outline-none focus:ring-2 focus:ring-[#00D4FF]"
+                      className="rounded-sm p-1.5 text-[#8B97AD] hover:bg-[rgba(0,212,255,0.06)] hover:text-[#00D4FF]
+                                 focus:outline-none focus:ring-1 focus:ring-[#00D4FF]"
                     >
                       <Pencil className="w-4 h-4" />
                     </button>
                     <button
                       onClick={() => setDeleteTarget(system)}
                       aria-label="삭제"
-                      className="rounded-lg p-1.5 text-[#EF4444] hover:bg-[rgba(239,68,68,0.08)]
-                                 focus:outline-none focus:ring-2 focus:ring-[#EF4444]"
+                      className="rounded-sm p-1.5 text-[#EF4444] hover:bg-[rgba(239,68,68,0.08)]
+                                 focus:outline-none focus:ring-1 focus:ring-[#EF4444]"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
@@ -163,7 +163,7 @@ export function SystemTable({ systems, onEdit, searchQuery = '' }: SystemTablePr
       />
       {isDeleting && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="rounded-xl bg-[#1E2127] px-6 py-4 shadow-[3px_3px_7px_#111317,-3px_-3px_7px_#2B2F37] text-sm text-[#8B97AD]">
+          <div className="rounded-sm bg-[#1E2127] px-6 py-4 shadow-[3px_3px_7px_#111317,-3px_-3px_7px_#2B2F37] text-sm text-[#8B97AD]">
             삭제 중...
           </div>
         </div>

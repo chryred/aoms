@@ -22,9 +22,9 @@ export function NeuButton({
     <button
       disabled={disabled || loading}
       className={cn(
-        'inline-flex items-center justify-center gap-2 rounded-xl font-medium',
+        'inline-flex items-center justify-center gap-2 rounded-sm font-medium',
         'transition-[box-shadow,background-color,opacity] duration-150',
-        'focus:outline-none focus:ring-2 focus:ring-[#00D4FF] focus:ring-offset-2 focus:ring-offset-[#1E2127]',
+        'focus:outline-none focus:ring-1 focus:ring-[#00D4FF] focus:ring-offset-2 focus:ring-offset-[#1E2127]',
         'disabled:opacity-40 disabled:cursor-not-allowed',
         size === 'sm' && 'px-3 py-1.5 text-sm',
         size === 'md' && 'px-4 py-2 text-sm',

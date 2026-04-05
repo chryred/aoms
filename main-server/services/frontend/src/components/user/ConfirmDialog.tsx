@@ -67,7 +67,7 @@ export function ConfirmDialog({
       />
 
       {/* 다이얼로그 */}
-      <div ref={dialogRef} className="relative z-10 w-full max-w-sm mx-4 bg-[#1E2127] rounded-2xl shadow-[3px_3px_7px_#111317,-3px_-3px_7px_#2B2F37] border border-[#2B2F37] p-6">
+      <div ref={dialogRef} className="relative z-10 w-full max-w-sm mx-4 bg-[#1E2127] rounded-sm shadow-[3px_3px_7px_#111317,-3px_-3px_7px_#2B2F37] border border-[#2B2F37] p-6">
         <h2
           id="confirm-dialog-title"
           className="text-base font-semibold text-[#E2E8F2] mb-2"

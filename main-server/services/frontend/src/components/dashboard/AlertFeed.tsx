@@ -60,7 +60,7 @@ export function AlertFeed({ alerts, loading }: AlertFeedProps) {
         <Link
           to="/alerts"
           className="flex items-center gap-1 text-sm text-[#00D4FF] hover:underline
-                     focus:outline-none focus:ring-2 focus:ring-[#00D4FF] rounded"
+                     focus:outline-none focus:ring-1 focus:ring-[#00D4FF] rounded"
         >
           전체 보기 <ArrowRight className="w-3.5 h-3.5" />
         </Link>

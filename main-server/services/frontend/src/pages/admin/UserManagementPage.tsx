@@ -80,13 +80,13 @@ export function UserManagementPage() {
       <PageHeader title="사용자 승인 관리" />
 
       {/* 탭 */}
-      <div className="flex gap-1 bg-[#1E2127] p-1 rounded-xl w-fit shadow-[inset_1px_1px_3px_#111317,inset_-1px_-1px_3px_#2B2F37]">
+      <div className="flex gap-1 bg-[#1E2127] p-1 rounded-sm w-fit shadow-[inset_1px_1px_3px_#111317,inset_-1px_-1px_3px_#2B2F37]">
         {tabs.map((tab) => (
           <button
             key={tab.key}
             onClick={() => setActiveTab(tab.key)}
             className={cn(
-              'relative px-4 py-1.5 rounded-lg text-sm font-medium transition-all',
+              'relative px-4 py-1.5 rounded-sm text-sm font-medium transition-all',
               activeTab === tab.key
                 ? 'bg-[#00D4FF] text-[#1E2127] font-semibold shadow-[2px_2px_4px_#111317]'
                 : 'text-[#8B97AD] hover:text-[#E2E8F2] hover:bg-[rgba(255,255,255,0.05)]'
@@ -109,7 +109,7 @@ export function UserManagementPage() {
       </div>
 
       {/* 테이블 */}
-      <div className="bg-[#1E2127] rounded-2xl shadow-[3px_3px_7px_#111317,-3px_-3px_7px_#2B2F37] overflow-hidden">
+      <div className="bg-[#1E2127] rounded-sm shadow-[3px_3px_7px_#111317,-3px_-3px_7px_#2B2F37] overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
@@ -153,7 +153,7 @@ export function UserManagementPage() {
                                 body: { role: e.target.value as 'admin' | 'operator' },
                               })
                             }
-                            className="text-xs rounded-lg border border-[#2B2F37] bg-[#1E2127] px-2 py-1 text-[#8B97AD] focus:outline-none focus:ring-2 focus:ring-[#00D4FF] [color-scheme:dark]"
+                            className="text-xs rounded-sm border border-[#2B2F37] bg-[#1E2127] px-2 py-1 text-[#8B97AD] focus:outline-none focus:ring-1 focus:ring-[#00D4FF] [color-scheme:dark]"
                           >
                             <option value="operator">운영자</option>
                             <option value="admin">관리자</option>

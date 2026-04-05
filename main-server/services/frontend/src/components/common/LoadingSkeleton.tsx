@@ -10,7 +10,7 @@ function SkeletonBox({ className }: { className?: string }) {
   return (
     <div
       className={cn(
-        'rounded-xl bg-[#2B2F37]',
+        'rounded-sm bg-[#2B2F37]',
         'animate-pulse',
         className
       )}
