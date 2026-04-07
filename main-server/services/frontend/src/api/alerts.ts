@@ -1,4 +1,4 @@
-import { adminApi } from '@/lib/ky-client'
+import { adminApi, filterParams } from '@/lib/ky-client'
 import type { AlertHistory, Severity, AlertType } from '@/types/alert'
 
 export interface AlertFilterParams {
@@ -13,11 +13,7 @@ export interface AlertFilterParams {
 export const alertsApi = {
   getAlerts: (params: AlertFilterParams = {}) =>
     adminApi
-      .get('api/v1/alerts', {
-        searchParams: Object.fromEntries(
-          Object.entries(params).filter(([, v]) => v !== undefined),
-        ) as Record<string, string | number | boolean>,
-      })
+      .get('api/v1/alerts', { searchParams: filterParams(params) })
       .json<AlertHistory[]>(),
 
   acknowledgeAlert: (id: number, body: { acknowledged_by: string }) =>

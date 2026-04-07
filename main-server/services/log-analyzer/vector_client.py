@@ -23,6 +23,10 @@ EMBED_MODEL = os.getenv("EMBED_MODEL", "bge-m3")
 QDRANT_URL  = os.getenv("QDRANT_URL",  "http://server-b:6333")
 COLLECTION  = "log_incidents"
 
+# 모듈 레벨 공유 클라이언트 — lifespan에서 aclose() 호출
+_ollama_http = httpx.AsyncClient(timeout=30.0)   # Ollama 임베딩 (느림)
+_qdrant_http  = httpx.AsyncClient(timeout=10.0)   # Qdrant (빠름)
+
 ANOMALY_STYLES = {
     "new":       {"color": "FF0000", "label": "신규 이상",  "alert": True},
     "recurring": {"color": "FF8C00", "label": "반복 이상",  "alert": True},
@@ -60,13 +64,12 @@ def compute_fingerprint(text: str) -> str:
 
 async def get_embedding(text: str) -> list[float]:
     """단건 임베딩 생성 (1024차원 float 리스트 반환)"""
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        resp = await client.post(
-            f"{OLLAMA_URL}/api/embeddings",
-            json={"model": EMBED_MODEL, "prompt": text},
-        )
-        resp.raise_for_status()
-        return resp.json()["embedding"]
+    resp = await _ollama_http.post(
+        f"{OLLAMA_URL}/api/embeddings",
+        json={"model": EMBED_MODEL, "prompt": text},
+    )
+    resp.raise_for_status()
+    return resp.json()["embedding"]
 
 
 # ── T4.11: Qdrant 유사도 검색 & 저장 ──────────────────────────────────────
@@ -83,23 +86,22 @@ async def search_similar_incidents(
     Returns:
         [{"score": float, "payload": {"log_pattern", "severity", "resolution", ...}}, ...]
     """
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        resp = await client.post(
-            f"{QDRANT_URL}/collections/{COLLECTION}/points/search",
-            json={
-                "vector": embedding,
-                "filter": {
-                    "must": [
-                        {"key": "system_name", "match": {"value": system_name}}
-                    ]
-                },
-                "limit": limit,
-                "with_payload": True,
-                "score_threshold": score_threshold,
+    resp = await _qdrant_http.post(
+        f"{QDRANT_URL}/collections/{COLLECTION}/points/search",
+        json={
+            "vector": embedding,
+            "filter": {
+                "must": [
+                    {"key": "system_name", "match": {"value": system_name}}
+                ]
             },
-        )
-        resp.raise_for_status()
-        return resp.json().get("result", [])
+            "limit": limit,
+            "with_payload": True,
+            "score_threshold": score_threshold,
+        },
+    )
+    resp.raise_for_status()
+    return resp.json().get("result", [])
 
 
 async def store_incident_vector(
@@ -124,12 +126,11 @@ async def store_incident_vector(
     }
 
     await ensure_collection(COLLECTION)
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        resp = await client.put(
-            f"{QDRANT_URL}/collections/{COLLECTION}/points",
-            json={"points": [{"id": point_id, "vector": embedding, "payload": payload}]},
-        )
-        resp.raise_for_status()
+    resp = await _qdrant_http.put(
+        f"{QDRANT_URL}/collections/{COLLECTION}/points",
+        json={"points": [{"id": point_id, "vector": embedding, "payload": payload}]},
+    )
+    resp.raise_for_status()
     return point_id
 
 
@@ -138,20 +139,19 @@ async def update_resolution(point_id: str, resolution: str, resolver: str) -> No
     피드백 등록 시 해당 벡터 포인트에 해결책 추가.
     phase4-llm.md T4.8 피드백 서버와 연동하여 호출.
     """
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        resp = await client.post(
-            f"{QDRANT_URL}/collections/{COLLECTION}/points/payload",
-            json={
-                "payload": {
-                    "resolution":  resolution,
-                    "resolver":    resolver,
-                    "resolved":    True,
-                    "resolved_at": datetime.now(timezone.utc).isoformat(),
-                },
-                "points": [point_id],
+    resp = await _qdrant_http.post(
+        f"{QDRANT_URL}/collections/{COLLECTION}/points/payload",
+        json={
+            "payload": {
+                "resolution":  resolution,
+                "resolver":    resolver,
+                "resolved":    True,
+                "resolved_at": datetime.now(timezone.utc).isoformat(),
             },
-        )
-        resp.raise_for_status()
+            "points": [point_id],
+        },
+    )
+    resp.raise_for_status()
 
 
 # ── T4.12: 이상 분류 ──────────────────────────────────────────────────────
@@ -316,24 +316,23 @@ async def search_similar_metrics(
     metric_baselines 컬렉션에서 유사한 과거 메트릭 이상 이력 검색.
     system_name + metric_name 이중 필터로 무관한 메트릭 간 간섭 방지.
     """
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        resp = await client.post(
-            f"{QDRANT_URL}/collections/{METRIC_COLLECTION}/points/search",
-            json={
-                "vector": embedding,
-                "filter": {
-                    "must": [
-                        {"key": "system_name", "match": {"value": system_name}},
-                        {"key": "metric_name", "match": {"value": metric_name}},
-                    ]
-                },
-                "limit": limit,
-                "with_payload": True,
-                "score_threshold": score_threshold,
+    resp = await _qdrant_http.post(
+        f"{QDRANT_URL}/collections/{METRIC_COLLECTION}/points/search",
+        json={
+            "vector": embedding,
+            "filter": {
+                "must": [
+                    {"key": "system_name", "match": {"value": system_name}},
+                    {"key": "metric_name", "match": {"value": metric_name}},
+                ]
             },
-        )
-        resp.raise_for_status()
-        return resp.json().get("result", [])
+            "limit": limit,
+            "with_payload": True,
+            "score_threshold": score_threshold,
+        },
+    )
+    resp.raise_for_status()
+    return resp.json().get("result", [])
 
 
 def classify_metric_anomaly(similar_results: list[dict]) -> dict:
@@ -389,12 +388,11 @@ async def store_metric_vector(
     }
 
     await ensure_collection(METRIC_COLLECTION)
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        resp = await client.put(
-            f"{QDRANT_URL}/collections/{METRIC_COLLECTION}/points",
-            json={"points": [{"id": point_id, "vector": embedding, "payload": payload}]},
-        )
-        resp.raise_for_status()
+    resp = await _qdrant_http.put(
+        f"{QDRANT_URL}/collections/{METRIC_COLLECTION}/points",
+        json={"points": [{"id": point_id, "vector": embedding, "payload": payload}]},
+    )
+    resp.raise_for_status()
     return point_id
 
 
@@ -470,28 +468,26 @@ async def ensure_collection(collection_name: str) -> bool:
     HNSW: m=16, ef_construct=200, ef=128 / 거리: Cosine
     store_* 함수에서 적재 전 항상 호출.
     """
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        check = await client.get(f"{QDRANT_URL}/collections/{collection_name}")
-        if check.status_code == 200:
-            return False
-        resp = await client.put(
-            f"{QDRANT_URL}/collections/{collection_name}",
-            json={
-                "vectors":     {"size": _VECTOR_SIZE, "distance": "Cosine"},
-                "hnsw_config": _HNSW_CONFIG,
-            },
-        )
-        resp.raise_for_status()
+    check = await _qdrant_http.get(f"{QDRANT_URL}/collections/{collection_name}")
+    if check.status_code == 200:
+        return False
+    resp = await _qdrant_http.put(
+        f"{QDRANT_URL}/collections/{collection_name}",
+        json={
+            "vectors":     {"size": _VECTOR_SIZE, "distance": "Cosine"},
+            "hnsw_config": _HNSW_CONFIG,
+        },
+    )
+    resp.raise_for_status()
     logger.info("컬렉션 생성: %s (m=16, ef_construct=200, ef=128)", collection_name)
     return True
 
 
 async def delete_collection(collection_name: str) -> None:
     """컬렉션 삭제. 미존재(404) 시 무시."""
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        resp = await client.delete(f"{QDRANT_URL}/collections/{collection_name}")
-        if resp.status_code not in (200, 404):
-            resp.raise_for_status()
+    resp = await _qdrant_http.delete(f"{QDRANT_URL}/collections/{collection_name}")
+    if resp.status_code not in (200, 404):
+        resp.raise_for_status()
     logger.info("컬렉션 삭제: %s", collection_name)
 
 
@@ -507,16 +503,15 @@ async def resolve_metric_vector(point_id: str) -> None:
     메트릭 알림 복구(resolved) 시 Qdrant metric_baselines 포인트 상태 업데이트.
     admin-api가 Alertmanager resolved 이벤트 수신 시 호출.
     """
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        resp = await client.post(
-            f"{QDRANT_URL}/collections/{METRIC_COLLECTION}/points/payload",
-            json={
-                "payload": {
-                    "resolved":    True,
-                    "resolved_at": datetime.now(timezone.utc).isoformat(),
-                },
-                "points": [point_id],
+    resp = await _qdrant_http.post(
+        f"{QDRANT_URL}/collections/{METRIC_COLLECTION}/points/payload",
+        json={
+            "payload": {
+                "resolved":    True,
+                "resolved_at": datetime.now(timezone.utc).isoformat(),
             },
-        )
-        resp.raise_for_status()
+            "points": [point_id],
+        },
+    )
+    resp.raise_for_status()
     logger.info("메트릭 벡터 복구 상태 업데이트: point_id=%s", point_id)

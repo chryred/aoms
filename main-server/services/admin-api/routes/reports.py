@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
 from models import AggregationReportHistory
+from routes.aggregations import _upsert
 from schemas import ReportHistoryCreate, ReportHistoryOut
 
 router = APIRouter(prefix="/api/v1/reports", tags=["reports"])
@@ -50,22 +51,9 @@ async def create_report(
     body: ReportHistoryCreate,
     db: AsyncSession = Depends(get_db),
 ):
-    """WF7-WF10 호출용 — 리포트 발송 기록 저장"""
-    # 동일 report_type + period_start 중복 방지
-    existing = await db.execute(
-        select(AggregationReportHistory).where(
-            AggregationReportHistory.report_type == body.report_type,
-            AggregationReportHistory.period_start == body.period_start,
-        )
-    )
-    row = existing.scalar_one_or_none()
-    if row:
-        # 이미 존재하면 상태만 업데이트
-        for field, value in body.model_dump(exclude_unset=True).items():
-            setattr(row, field, value)
-    else:
-        row = AggregationReportHistory(**body.model_dump())
-        db.add(row)
-    await db.commit()
-    await db.refresh(row)
+    """WF7-WF10 호출용 — 리포트 발송 기록 저장 (동일 report_type + period_start 중복 시 업데이트)"""
+    row = await _upsert(db, AggregationReportHistory, {
+        "report_type": body.report_type,
+        "period_start": body.period_start,
+    }, body)
     return ReportHistoryOut.model_validate(row)

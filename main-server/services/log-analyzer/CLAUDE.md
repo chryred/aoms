@@ -3,10 +3,21 @@
 ## 목적
 
 Loki 로그 수집 → LLM 분석 → Teams 알림 파이프라인의 실행 주체.
-- 5분 주기(또는 n8n 트리거)로 활성 시스템의 최근 ERROR/WARN/FATAL 로그 수집
+- **내부 스케줄러**로 n8n WF1~WF11 트리거를 대체 (n8n Docker는 WF2/WF3 webhook 처리용으로 유지)
 - PII 마스킹 → Ollama 임베딩 → Qdrant 유사도 검색으로 LLM 프롬프트 강화
 - 담당자별 LLM API 키로 분석 후 admin-api에 결과 전달
-- **Phase 5 (WF6~WF11 이관)**: n8n이 단순 트리거만 담당, 실제 집계·LLM·Teams 처리를 asyncio 병렬로 수행
+
+### 내부 스케줄러 (n8n 의존 제거)
+
+| 스케줄러 | 주기 | 대체 워크플로우 |
+|---|---|---|
+| `_scheduler()` | ANALYSIS_INTERVAL_SECONDS(기본 5분) | WF1 |
+| `_hourly_agg_scheduler()` | 매 시간 :05분 | WF6 |
+| `_daily_agg_scheduler()` | 매일 07:30 KST | WF7 |
+| `_weekly_agg_scheduler()` | 매주 월요일 08:00 KST | WF8 |
+| `_monthly_agg_scheduler()` | 매월 1일 08:00 KST | WF9 |
+| `_longperiod_agg_scheduler()` | 매월 1일 09:00 KST | WF10 |
+| `_trend_agg_scheduler()` | 4시간마다 | WF11 |
 
 ## 기술 스택
 
@@ -103,7 +114,7 @@ log-analyzer/
 
 ### 로그 분석 흐름
 ```
-n8n WF1 트리거 또는 내부 스케줄러
+내부 _scheduler() (ANALYSIS_INTERVAL_SECONDS마다)
   → analyzer.run_analysis()
     → admin-api GET /api/v1/systems 로 활성 시스템 목록 조회
     → 시스템별 Loki에서 최근 5분 ERROR/WARN/FATAL 수집
@@ -125,32 +136,28 @@ POST /metric/similarity
     score < 0.70 → new        ("신규 이상") → Qdrant에 저장
 ```
 
-### 집계 처리 흐름 (Phase 5 — WF6~WF11 이관)
+### 집계 처리 흐름 (Phase 5 — 내부 스케줄러)
 ```
-n8n WF6 (매시간 :05분)
-  → POST /aggregation/hourly/trigger
-    → aggregation_processor.run_hourly_aggregation()
-      → GET /api/v1/collector-config (활성 수집기 목록)
-      → asyncio.gather() — semaphore=20 병렬
-        → Prometheus avg_over_time[1h] 쿼리
-        → 이상 감지 (_detect_anomaly)
-        → POST /api/v1/aggregations/hourly (기본 저장)
-        → 이상이면: LLM → Qdrant → hourly 업데이트 → Teams 프로액티브 알림
+_hourly_agg_scheduler() (매 시간 :05분 KST)
+  → aggregation_processor.run_hourly_aggregation()
+    → GET /api/v1/collector-config (활성 수집기 목록)
+    → asyncio.gather() — semaphore=20 병렬
+      → Prometheus avg_over_time[1h] 쿼리
+      → 이상 감지 (_detect_anomaly)
+      → POST /api/v1/aggregations/hourly (기본 저장)
+      → 이상이면: LLM → Qdrant → hourly 업데이트 → Teams 프로액티브 알림
 
-n8n WF7 (매일 07:30)
-  → POST /aggregation/daily/trigger
-    → aggregation_processor.run_daily_aggregation()
-      → GET /api/v1/aggregations/hourly (전일 데이터)
-      → Python 그룹핑·집계
-      → POST /api/v1/aggregations/daily + Qdrant 저장
+_daily_agg_scheduler() (매일 07:30 KST)
+  → aggregation_processor.run_daily_aggregation()
+    → GET /api/v1/aggregations/hourly (전일 데이터)
+    → Python 그룹핑·집계
+    → POST /api/v1/aggregations/daily + Qdrant 저장
 
-n8n WF8~WF10 (주간/월간/장기)
-  → POST /aggregation/{weekly|monthly|longperiod}/trigger
-    → 기간별 집계 조회 → LLM 요약 → Teams 리포트
+_weekly/_monthly/_longperiod_agg_scheduler() (각 주기 KST)
+  → 기간별 집계 조회 → LLM 요약 → Teams 리포트
 
-n8n WF11 (4시간마다)
-  → POST /aggregation/trend/trigger
-    → aggregation_processor.run_trend_alert()
+_trend_agg_scheduler() (4시간마다)
+  → aggregation_processor.run_trend_alert()
       → GET /api/v1/aggregations/hourly (최근 8시간, warning/critical)
       → 시스템별 3시간 이상 이상 지속 감지
       → 병렬: LLM 추세 분석 → Teams (시스템별 webhook || 전역)

@@ -14,9 +14,7 @@ import os
 from datetime import datetime, timezone
 from uuid import uuid4
 
-import httpx
-
-from vector_client import get_embedding, ensure_collection, OLLAMA_URL, EMBED_MODEL, QDRANT_URL
+from vector_client import get_embedding, ensure_collection, OLLAMA_URL, EMBED_MODEL, QDRANT_URL, _qdrant_http
 
 logger = logging.getLogger(__name__)
 
@@ -62,14 +60,14 @@ async def store_hourly_pattern_vector(
         "pg_row_id":      pg_row_id,
         "stored_at":      datetime.now(timezone.utc).isoformat(),
     }
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        resp = await client.put(
-            f"{QDRANT_URL}/collections/{HOURLY_PATTERNS_COLLECTION}/points",
-            json={
-                "points": [{"id": point_id, "vector": embedding, "payload": payload}]
-            },
-        )
-        resp.raise_for_status()
+    resp = await _qdrant_http.put(
+        f"{QDRANT_URL}/collections/{HOURLY_PATTERNS_COLLECTION}/points",
+        json={
+            "points": [{"id": point_id, "vector": embedding, "payload": payload}]
+        },
+        timeout=15.0,
+    )
+    resp.raise_for_status()
     return point_id
 
 
@@ -95,14 +93,14 @@ async def store_aggregation_summary_vector(
         "pg_row_id":         pg_row_id,
         "stored_at":         datetime.now(timezone.utc).isoformat(),
     }
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        resp = await client.put(
-            f"{QDRANT_URL}/collections/{AGG_SUMMARIES_COLLECTION}/points",
-            json={
-                "points": [{"id": point_id, "vector": embedding, "payload": payload}]
-            },
-        )
-        resp.raise_for_status()
+    resp = await _qdrant_http.put(
+        f"{QDRANT_URL}/collections/{AGG_SUMMARIES_COLLECTION}/points",
+        json={
+            "points": [{"id": point_id, "vector": embedding, "payload": payload}]
+        },
+        timeout=15.0,
+    )
+    resp.raise_for_status()
     return point_id
 
 
@@ -133,13 +131,13 @@ async def search_similar_aggregations(
             "must": [{"key": "system_id", "match": {"value": system_id}}]
         }
 
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        resp = await client.post(
-            f"{QDRANT_URL}/collections/{collection}/points/search",
-            json=body,
-        )
-        resp.raise_for_status()
-        results = resp.json().get("result", [])
+    resp = await _qdrant_http.post(
+        f"{QDRANT_URL}/collections/{collection}/points/search",
+        json=body,
+        timeout=30.0,
+    )
+    resp.raise_for_status()
+    results = resp.json().get("result", [])
 
     return [
         {"score": r["score"], "payload": r["payload"], "id": r["id"]}
@@ -161,13 +159,13 @@ async def search_similar_by_vector(
         raise ValueError(f"지원하지 않는 컬렉션: {collection}")
 
     # point의 벡터 조회
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        resp = await client.get(
-            f"{QDRANT_URL}/collections/{collection}/points/{point_id}",
-            params={"with_vector": "true"},
-        )
-        resp.raise_for_status()
-        point_data = resp.json().get("result", {})
+    resp = await _qdrant_http.get(
+        f"{QDRANT_URL}/collections/{collection}/points/{point_id}",
+        params={"with_vector": "true"},
+        timeout=15.0,
+    )
+    resp.raise_for_status()
+    point_data = resp.json().get("result", {})
 
     vector = point_data.get("vector")
     if not vector:
@@ -184,13 +182,13 @@ async def search_similar_by_vector(
             "must": [{"key": "system_id", "match": {"value": system_id}}]
         }
 
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        resp = await client.post(
-            f"{QDRANT_URL}/collections/{collection}/points/search",
-            json=body,
-        )
-        resp.raise_for_status()
-        results = resp.json().get("result", [])
+    resp = await _qdrant_http.post(
+        f"{QDRANT_URL}/collections/{collection}/points/search",
+        json=body,
+        timeout=30.0,
+    )
+    resp.raise_for_status()
+    results = resp.json().get("result", [])
 
     # 자기 자신 제외
     return [
@@ -203,19 +201,18 @@ async def search_similar_by_vector(
 async def get_collections_info() -> dict:
     """UI 헬스/상태 확인용 — 두 컬렉션의 point 수 및 벡터 차원 반환"""
     info = {}
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        for name in (HOURLY_PATTERNS_COLLECTION, AGG_SUMMARIES_COLLECTION):
-            try:
-                resp = await client.get(f"{QDRANT_URL}/collections/{name}")
-                if resp.status_code == 200:
-                    data = resp.json().get("result", {})
-                    info[name] = {
-                        "points_count": data.get("points_count", 0),
-                        "vectors_count": data.get("vectors_count", 0),
-                        "status": data.get("status", "unknown"),
-                    }
-                else:
-                    info[name] = {"status": "not_found"}
-            except Exception as e:
-                info[name] = {"status": "error", "detail": str(e)}
+    for name in (HOURLY_PATTERNS_COLLECTION, AGG_SUMMARIES_COLLECTION):
+        try:
+            resp = await _qdrant_http.get(f"{QDRANT_URL}/collections/{name}")
+            if resp.status_code == 200:
+                data = resp.json().get("result", {})
+                info[name] = {
+                    "points_count": data.get("points_count", 0),
+                    "vectors_count": data.get("vectors_count", 0),
+                    "status": data.get("status", "unknown"),
+                }
+            else:
+                info[name] = {"status": "not_found"}
+        except Exception as e:
+            info[name] = {"status": "error", "detail": str(e)}
     return info

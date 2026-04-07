@@ -7,9 +7,10 @@ UI/n8n이 GET으로 조회한다.
 """
 
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Any
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -40,6 +41,30 @@ def _naive(dt: Optional[datetime]) -> Optional[datetime]:
     if dt is not None and dt.tzinfo is not None:
         return dt.replace(tzinfo=None)
     return dt
+
+
+async def _upsert(
+    db: AsyncSession,
+    model_cls: Any,
+    lookup: dict,
+    body: BaseModel,
+) -> Any:
+    """
+    lookup 조건으로 기존 행을 조회하여 있으면 갱신, 없으면 삽입.
+    commit + refresh 후 ORM 인스턴스 반환.
+    """
+    conditions = [getattr(model_cls, k) == v for k, v in lookup.items()]
+    existing = await db.execute(select(model_cls).where(and_(*conditions)))
+    row = existing.scalar_one_or_none()
+    if row:
+        for field, value in body.model_dump(exclude_unset=True).items():
+            setattr(row, field, value)
+    else:
+        row = model_cls(**body.model_dump())
+        db.add(row)
+    await db.commit()
+    await db.refresh(row)
+    return row
 
 
 # ── 1시간 집계 ──────────────────────────────────────────────────────────────
@@ -94,25 +119,12 @@ async def create_hourly(
     db: AsyncSession = Depends(get_db),
 ):
     """WF6 호출용 — 1시간 집계 저장 (중복 시 upsert)"""
-    existing = await db.execute(
-        select(MetricHourlyAggregation).where(
-            and_(
-                MetricHourlyAggregation.system_id == body.system_id,
-                MetricHourlyAggregation.hour_bucket == body.hour_bucket,
-                MetricHourlyAggregation.collector_type == body.collector_type,
-                MetricHourlyAggregation.metric_group == body.metric_group,
-            )
-        )
-    )
-    row = existing.scalar_one_or_none()
-    if row:
-        for field, value in body.model_dump(exclude_unset=True).items():
-            setattr(row, field, value)
-    else:
-        row = MetricHourlyAggregation(**body.model_dump())
-        db.add(row)
-    await db.commit()
-    await db.refresh(row)
+    row = await _upsert(db, MetricHourlyAggregation, {
+        "system_id": body.system_id,
+        "hour_bucket": body.hour_bucket,
+        "collector_type": body.collector_type,
+        "metric_group": body.metric_group,
+    }, body)
     return HourlyAggregationOut.model_validate(row)
 
 
@@ -196,25 +208,12 @@ async def create_daily(
     db: AsyncSession = Depends(get_db),
 ):
     """WF7 호출용 — 1일 집계 저장"""
-    existing = await db.execute(
-        select(MetricDailyAggregation).where(
-            and_(
-                MetricDailyAggregation.system_id == body.system_id,
-                MetricDailyAggregation.day_bucket == body.day_bucket,
-                MetricDailyAggregation.collector_type == body.collector_type,
-                MetricDailyAggregation.metric_group == body.metric_group,
-            )
-        )
-    )
-    row = existing.scalar_one_or_none()
-    if row:
-        for field, value in body.model_dump(exclude_unset=True).items():
-            setattr(row, field, value)
-    else:
-        row = MetricDailyAggregation(**body.model_dump())
-        db.add(row)
-    await db.commit()
-    await db.refresh(row)
+    row = await _upsert(db, MetricDailyAggregation, {
+        "system_id": body.system_id,
+        "day_bucket": body.day_bucket,
+        "collector_type": body.collector_type,
+        "metric_group": body.metric_group,
+    }, body)
     return DailyAggregationOut.model_validate(row)
 
 
@@ -249,25 +248,12 @@ async def create_weekly(
     db: AsyncSession = Depends(get_db),
 ):
     """WF8 호출용 — 7일 집계 저장"""
-    existing = await db.execute(
-        select(MetricWeeklyAggregation).where(
-            and_(
-                MetricWeeklyAggregation.system_id == body.system_id,
-                MetricWeeklyAggregation.week_start == body.week_start,
-                MetricWeeklyAggregation.collector_type == body.collector_type,
-                MetricWeeklyAggregation.metric_group == body.metric_group,
-            )
-        )
-    )
-    row = existing.scalar_one_or_none()
-    if row:
-        for field, value in body.model_dump(exclude_unset=True).items():
-            setattr(row, field, value)
-    else:
-        row = MetricWeeklyAggregation(**body.model_dump())
-        db.add(row)
-    await db.commit()
-    await db.refresh(row)
+    row = await _upsert(db, MetricWeeklyAggregation, {
+        "system_id": body.system_id,
+        "week_start": body.week_start,
+        "collector_type": body.collector_type,
+        "metric_group": body.metric_group,
+    }, body)
     return WeeklyAggregationOut.model_validate(row)
 
 
@@ -305,24 +291,11 @@ async def create_monthly(
     db: AsyncSession = Depends(get_db),
 ):
     """WF9/WF10 호출용 — 월/분기/반기/연간 집계 저장"""
-    existing = await db.execute(
-        select(MetricMonthlyAggregation).where(
-            and_(
-                MetricMonthlyAggregation.system_id == body.system_id,
-                MetricMonthlyAggregation.period_start == body.period_start,
-                MetricMonthlyAggregation.period_type == body.period_type,
-                MetricMonthlyAggregation.collector_type == body.collector_type,
-                MetricMonthlyAggregation.metric_group == body.metric_group,
-            )
-        )
-    )
-    row = existing.scalar_one_or_none()
-    if row:
-        for field, value in body.model_dump(exclude_unset=True).items():
-            setattr(row, field, value)
-    else:
-        row = MetricMonthlyAggregation(**body.model_dump())
-        db.add(row)
-    await db.commit()
-    await db.refresh(row)
+    row = await _upsert(db, MetricMonthlyAggregation, {
+        "system_id": body.system_id,
+        "period_start": body.period_start,
+        "period_type": body.period_type,
+        "collector_type": body.collector_type,
+        "metric_group": body.metric_group,
+    }, body)
     return MonthlyAggregationOut.model_validate(row)

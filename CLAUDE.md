@@ -107,22 +107,22 @@ ANALYSIS_INTERVAL_SECONDS   300
 
 ### n8n (포트 5678)
 
-12종 워크플로우 (WF1~WF12):
+> **WF1, WF6~WF11은 log-analyzer 내부 스케줄러로 이관됨** — n8n은 WF2/WF3/WF4/WF5/WF12만 운영.
 
-| WF | 파일 | 트리거 | 설명 |
-|---|---|---|---|
-| WF1 | WF1-log-analysis-trigger | 5분 주기 | `POST log-analyzer/analyze/trigger` |
-| WF2 | WF2-metric-vector-search | Alertmanager webhook | `POST log-analyzer/metric/similarity` → admin-api 알림 |
-| WF3 | WF3-feedback-processing | Teams 피드백 버튼 | 해결책 등록 → Qdrant 업데이트 |
-| WF4 | WF4-daily-report | 매일 08:00 | 전일 집계 요약 Teams 발송 (Phase 5 통합) |
-| WF5 | WF5-escalation | 30분 주기 | 미확인 알림 반복 에스컬레이션 |
-| WF6 | WF6-hourly-metric-aggregation | 매 시간 | Prometheus 집계 → LLM 이상 감지 → Qdrant 저장 → 프로액티브 알림 (Phase 5) |
-| WF7 | WF7-daily-aggregation | 매일 07:30 | 1시간 집계 → 일별 롤업 → admin-api 저장 (Phase 5) |
-| WF8 | WF8-weekly-report | 매주 | 7일 집계 → Teams 주간 리포트 (Phase 5) |
-| WF9 | WF9-monthly-report | 매월 | 월간 집계 → Teams 월간 리포트 (Phase 5) |
-| WF10 | WF10-long-period-report | 분기/반기/연간 | 장기 집계 리포트 (Phase 5) |
-| WF11 | WF11-proactive-trend-alert | 주기적 | trend-alert 조회 → 임박 장애 프로액티브 알림 (Phase 5) |
-| WF12 | WF12-aggregation-collection-setup | 수동/배포 시 1회 | `POST log-analyzer/aggregation/collections/setup` — 집계 컬렉션 초기화 (Phase 5) |
+| WF | 파일 | 트리거 | 설명 | 상태 |
+|---|---|---|---|---|
+| WF1 | WF1-log-analysis-trigger | 5분 주기 | `POST log-analyzer/analyze/trigger` | **이관** → log-analyzer `_scheduler()` |
+| WF2 | WF2-metric-vector-search | Alertmanager webhook | `POST log-analyzer/metric/similarity` → admin-api 알림 | 운영 중 |
+| WF3 | WF3-feedback-processing | Teams 피드백 버튼 | 해결책 등록 → Qdrant 업데이트 | 운영 중 |
+| WF4 | WF4-daily-report | 매일 08:00 | 전일 집계 요약 Teams 발송 | 운영 중 |
+| WF5 | WF5-escalation | 30분 주기 | 미확인 알림 반복 에스컬레이션 | 운영 중 |
+| WF6 | WF6-hourly-metric-aggregation | 매 시간 | Prometheus 집계 → LLM 이상 감지 → Qdrant 저장 → 프로액티브 알림 | **이관** → log-analyzer `_hourly_agg_scheduler()` |
+| WF7 | WF7-daily-aggregation | 매일 07:30 | 1시간 집계 → 일별 롤업 → admin-api 저장 | **이관** → log-analyzer `_daily_agg_scheduler()` |
+| WF8 | WF8-weekly-report | 매주 | 7일 집계 → Teams 주간 리포트 | **이관** → log-analyzer `_weekly_agg_scheduler()` |
+| WF9 | WF9-monthly-report | 매월 | 월간 집계 → Teams 월간 리포트 | **이관** → log-analyzer `_monthly_agg_scheduler()` |
+| WF10 | WF10-long-period-report | 분기/반기/연간 | 장기 집계 리포트 | **이관** → log-analyzer `_longperiod_agg_scheduler()` |
+| WF11 | WF11-proactive-trend-alert | 주기적 | trend-alert 조회 → 임박 장애 프로액티브 알림 | **이관** → log-analyzer `_trend_agg_scheduler()` |
+| WF12 | WF12-aggregation-collection-setup | 수동/배포 시 1회 | `POST log-analyzer/aggregation/collections/setup` — 집계 컬렉션 초기화 | 운영 중 |
 
 ---
 
@@ -156,10 +156,11 @@ aoms/
 │       │   └── tests/                 # pytest, SQLite in-memory
 │       └── log-analyzer/
 │           ├── CLAUDE.md              # log-analyzer 상세 가이드
-│           ├── main.py                # FastAPI 앱, 스케줄러, 모든 엔드포인트
-│           ├── analyzer.py            # 핵심 분석 로직 (Loki 조회 → LLM 호출 → admin-api 전송)
-│           ├── vector_client.py       # log_incidents / metric_baselines 컬렉션 관리
-│           └── aggregation_vector_client.py  # metric_hourly_patterns / aggregation_summaries (Phase 5)
+│           ├── main.py                        # FastAPI 앱, 내부 스케줄러(WF1/WF6~WF11 대체), 모든 엔드포인트
+│           ├── analyzer.py                    # 핵심 분석 로직 (Loki 조회 → LLM 호출 → admin-api 전송)
+│           ├── aggregation_processor.py       # Phase 5: WF6~WF11 집계 로직 (asyncio semaphore=20 병렬)
+│           ├── vector_client.py               # log_incidents / metric_baselines 컬렉션 관리
+│           └── aggregation_vector_client.py   # metric_hourly_patterns / aggregation_summaries (Phase 5)
 └── sub-server/
     └── docker-compose.yml             # Server B: Ollama + Qdrant
 ```
@@ -211,7 +212,7 @@ Prometheus 수집 → alert_rules.yml 평가
 
 ### LLM 로그 분석 흐름
 ```
-n8n 5분 트리거 → POST log-analyzer/analyze/trigger
+log-analyzer 내부 스케줄러 (ANALYSIS_INTERVAL_SECONDS마다, 기본 5분)
   → analyzer.run_analysis()
     → admin-api에서 활성 시스템 목록 조회
     → Loki에서 시스템별 최근 5분 ERROR/WARN/FATAL 수집

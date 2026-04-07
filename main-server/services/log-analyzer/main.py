@@ -1,17 +1,27 @@
 """
 AOMS Log Analyzer — FastAPI 앱
 
-- 백그라운드 스케줄러: ANALYSIS_INTERVAL_SECONDS마다 자동 분석
-- POST /analyze/trigger: n8n 등 외부 스케줄러에서 수동 트리거
-- GET  /analyze/status : 마지막 실행 결과 조회
-- GET  /health        : 헬스체크
+내부 스케줄러 (n8n WF1~WF11 대체):
+  - _scheduler()              : ANALYSIS_INTERVAL_SECONDS마다 로그 분석 (WF1)
+  - _hourly_agg_scheduler()   : 매 시간 :05분 hourly 집계 (WF6)
+  - _daily_agg_scheduler()    : 매일 07:30 daily 롤업 (WF7)
+  - _weekly_agg_scheduler()   : 매주 월요일 08:00 weekly 리포트 (WF8)
+  - _monthly_agg_scheduler()  : 매월 1일 08:00 monthly 리포트 (WF9)
+  - _longperiod_agg_scheduler(): 매월 1일 09:00 longperiod 리포트 (WF10)
+  - _trend_agg_scheduler()    : 4시간마다 trend 이상 알림 (WF11)
+
+수동 트리거 엔드포인트:
+  - POST /analyze/trigger      : 로그 분석 즉시 실행
+  - POST /aggregation/*/trigger: 집계 즉시 실행 (관리/테스트용)
+  - GET  /analyze/status       : 마지막 실행 결과 조회
+  - GET  /health               : 헬스체크
 """
 
 import asyncio
 import logging
 import os
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
@@ -28,6 +38,8 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 ANALYSIS_INTERVAL = int(os.getenv("ANALYSIS_INTERVAL_SECONDS", "300"))
+
+_KST = timezone(timedelta(hours=9))  # 집계 스케줄 기준 타임존
 
 _running = False
 _last_run: dict = {"started_at": None, "finished_at": None, "result": None}
@@ -65,15 +77,110 @@ async def _scheduler() -> None:
         await asyncio.sleep(ANALYSIS_INTERVAL)
 
 
+# ── 내부 집계 스케줄러 (WF6~WF11 대체) ──────────────────────────────────────
+
+def _seconds_until_next(hour: int, minute: int) -> float:
+    """다음 KST 지정 시각까지의 초 수"""
+    now = datetime.now(_KST)
+    target = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    if now >= target:
+        target += timedelta(days=1)
+    return (target - now).total_seconds()
+
+
+async def _hourly_agg_scheduler() -> None:
+    """WF6 대체 — 매 시간 :05분에 hourly 집계 트리거"""
+    await asyncio.sleep(30)
+    while True:
+        now = datetime.now(_KST)
+        target = now.replace(minute=5, second=0, microsecond=0)
+        if now >= target:
+            target += timedelta(hours=1)
+        await asyncio.sleep((target - now).total_seconds())
+        asyncio.create_task(_run_agg_task("hourly", aggregation_processor.run_hourly_aggregation))
+
+
+async def _daily_agg_scheduler() -> None:
+    """WF7 대체 — 매일 07:30에 daily 롤업 트리거"""
+    await asyncio.sleep(30)
+    while True:
+        await asyncio.sleep(_seconds_until_next(7, 30))
+        asyncio.create_task(_run_agg_task("daily", aggregation_processor.run_daily_aggregation))
+
+
+async def _trend_agg_scheduler() -> None:
+    """WF11 대체 — 4시간마다 trend 이상 알림 트리거"""
+    await asyncio.sleep(30)
+    while True:
+        await asyncio.sleep(4 * 3600)
+        asyncio.create_task(_run_agg_task("trend", aggregation_processor.run_trend_alert))
+
+
+async def _weekly_agg_scheduler() -> None:
+    """WF8 대체 — 매주 월요일 08:00에 weekly 리포트 트리거"""
+    await asyncio.sleep(30)
+    while True:
+        now = datetime.now(_KST)
+        target = now.replace(hour=8, minute=0, second=0, microsecond=0)
+        days_until_monday = (0 - now.weekday()) % 7  # 0 = 월요일
+        if days_until_monday == 0 and now >= target:
+            days_until_monday = 7
+        target += timedelta(days=days_until_monday)
+        await asyncio.sleep((target - now).total_seconds())
+        asyncio.create_task(_run_agg_task("weekly", aggregation_processor.run_weekly_report))
+
+
+async def _monthly_agg_scheduler() -> None:
+    """WF9 대체 — 매월 1일 08:00에 monthly 리포트 트리거"""
+    await asyncio.sleep(30)
+    while True:
+        now = datetime.now(_KST)
+        target = now.replace(day=1, hour=8, minute=0, second=0, microsecond=0)
+        if now >= target:
+            if target.month == 12:
+                target = target.replace(year=target.year + 1, month=1)
+            else:
+                target = target.replace(month=target.month + 1)
+        await asyncio.sleep((target - now).total_seconds())
+        asyncio.create_task(_run_agg_task("monthly", aggregation_processor.run_monthly_report))
+
+
+async def _longperiod_agg_scheduler() -> None:
+    """WF10 대체 — 매월 1일 09:00에 longperiod 리포트 트리거 (함수 내부에서 분기/반기/연간 판단)"""
+    await asyncio.sleep(30)
+    while True:
+        now = datetime.now(_KST)
+        target = now.replace(day=1, hour=9, minute=0, second=0, microsecond=0)
+        if now >= target:
+            if target.month == 12:
+                target = target.replace(year=target.year + 1, month=1)
+            else:
+                target = target.replace(month=target.month + 1)
+        await asyncio.sleep((target - now).total_seconds())
+        asyncio.create_task(_run_agg_task("longperiod", aggregation_processor.run_longperiod_report))
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    task = asyncio.create_task(_scheduler())
+    tasks = [
+        asyncio.create_task(_scheduler()),
+        asyncio.create_task(_hourly_agg_scheduler()),
+        asyncio.create_task(_daily_agg_scheduler()),
+        asyncio.create_task(_trend_agg_scheduler()),
+        asyncio.create_task(_weekly_agg_scheduler()),
+        asyncio.create_task(_monthly_agg_scheduler()),
+        asyncio.create_task(_longperiod_agg_scheduler()),
+    ]
     yield
-    task.cancel()
-    try:
-        await task
-    except asyncio.CancelledError:
-        pass
+    for t in tasks:
+        t.cancel()
+    await asyncio.gather(*tasks, return_exceptions=True)
+    # 모듈 레벨 httpx 클라이언트 정리
+    await vector_client._qdrant_http.aclose()
+    await vector_client._ollama_http.aclose()
+    await analyzer._admin_http.aclose()
+    await analyzer._loki_http.aclose()
+    await analyzer._llm_http.aclose()
 
 
 app = FastAPI(title="AOMS Log Analyzer", version="1.0.0", lifespan=lifespan)
@@ -91,7 +198,7 @@ async def health():
 
 @app.post("/analyze/trigger")
 async def trigger_analysis():
-    """n8n Schedule 워크플로우에서 호출하는 수동 트리거 엔드포인트"""
+    """수동 트리거 엔드포인트 — 외부 시스템 또는 테스트용 (내부 스케줄러가 자동 실행)"""
     if _running:
         return {"status": "already_running", "last_run": _last_run}
     asyncio.create_task(_run_analysis_task())
@@ -343,58 +450,48 @@ async def _run_agg_task(name: str, fn) -> None:
         _agg_last_run[name]["finished_at"] = datetime.now().isoformat()
 
 
+def _trigger_aggregation(task_key: str, coro_fn) -> dict:
+    """집계 트리거 공통 처리 — 실행 중이면 상태 반환, 아니면 백그라운드 태스크 시작"""
+    if _agg_running[task_key]:
+        return {"status": "already_running", "last_run": _agg_last_run[task_key]}
+    asyncio.create_task(_run_agg_task(task_key, coro_fn))
+    return {"status": "triggered"}
+
+
 @app.post("/aggregation/hourly/trigger")
 async def trigger_hourly():
     """WF6 호출용 — 1시간 메트릭 집계 트리거 (asyncio 병렬, semaphore=20)"""
-    if _agg_running["hourly"]:
-        return {"status": "already_running", "last_run": _agg_last_run["hourly"]}
-    asyncio.create_task(_run_agg_task("hourly", aggregation_processor.run_hourly_aggregation))
-    return {"status": "triggered"}
+    return _trigger_aggregation("hourly", aggregation_processor.run_hourly_aggregation)
 
 
 @app.post("/aggregation/daily/trigger")
 async def trigger_daily():
     """WF7 호출용 — 전일 시간별 집계 → 일별 롤업 트리거"""
-    if _agg_running["daily"]:
-        return {"status": "already_running", "last_run": _agg_last_run["daily"]}
-    asyncio.create_task(_run_agg_task("daily", aggregation_processor.run_daily_aggregation))
-    return {"status": "triggered"}
+    return _trigger_aggregation("daily", aggregation_processor.run_daily_aggregation)
 
 
 @app.post("/aggregation/weekly/trigger")
 async def trigger_weekly():
     """WF8 호출용 — 전주 일별 집계 → 주간 리포트 + Teams 발송 트리거"""
-    if _agg_running["weekly"]:
-        return {"status": "already_running", "last_run": _agg_last_run["weekly"]}
-    asyncio.create_task(_run_agg_task("weekly", aggregation_processor.run_weekly_report))
-    return {"status": "triggered"}
+    return _trigger_aggregation("weekly", aggregation_processor.run_weekly_report)
 
 
 @app.post("/aggregation/monthly/trigger")
 async def trigger_monthly():
     """WF9 호출용 — 전월 주별 집계 → 월간 리포트 + Teams 발송 트리거"""
-    if _agg_running["monthly"]:
-        return {"status": "already_running", "last_run": _agg_last_run["monthly"]}
-    asyncio.create_task(_run_agg_task("monthly", aggregation_processor.run_monthly_report))
-    return {"status": "triggered"}
+    return _trigger_aggregation("monthly", aggregation_processor.run_monthly_report)
 
 
 @app.post("/aggregation/longperiod/trigger")
 async def trigger_longperiod():
     """WF10 호출용 — 분기/반기/연간 리포트 + Teams 발송 트리거"""
-    if _agg_running["longperiod"]:
-        return {"status": "already_running", "last_run": _agg_last_run["longperiod"]}
-    asyncio.create_task(_run_agg_task("longperiod", aggregation_processor.run_longperiod_report))
-    return {"status": "triggered"}
+    return _trigger_aggregation("longperiod", aggregation_processor.run_longperiod_report)
 
 
 @app.post("/aggregation/trend/trigger")
 async def trigger_trend():
     """WF11 호출용 — 지속 이상 시스템 추세 분석 + Teams 프로액티브 알림 트리거"""
-    if _agg_running["trend"]:
-        return {"status": "already_running", "last_run": _agg_last_run["trend"]}
-    asyncio.create_task(_run_agg_task("trend", aggregation_processor.run_trend_alert))
-    return {"status": "triggered"}
+    return _trigger_aggregation("trend", aggregation_processor.run_trend_alert)
 
 
 @app.get("/aggregation/status")

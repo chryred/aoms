@@ -6,7 +6,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
-from models import LogAnalysisHistory, System, Contact, SystemContact
+from models import LogAnalysisHistory, System
+from routes.alerts import _get_system_and_contacts
 from schemas import LogAnalysisCreate, LogAnalysisOut
 from services.notification import TeamsNotifier
 
@@ -30,12 +31,7 @@ async def create_analysis(payload: LogAnalysisCreate, db: AsyncSession = Depends
 
     # warning/critical 또는 duplicate 분류 시 Teams 발송
     if payload.anomaly_type == "duplicate" or payload.severity in ("warning", "critical"):
-        contacts_result = await db.execute(
-            select(Contact)
-            .join(SystemContact, SystemContact.contact_id == Contact.id)
-            .where(SystemContact.system_id == system.id)
-        )
-        contacts = contacts_result.scalars().all()
+        _, contacts = await _get_system_and_contacts(db, system.system_name)
         contacts_data = [{"name": c.name, "teams_upn": c.teams_upn} for c in contacts]
 
         webhook_url = system.teams_webhook_url or DEFAULT_WEBHOOK_URL

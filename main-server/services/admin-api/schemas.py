@@ -263,122 +263,72 @@ class CollectorConfigOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class HourlyAggregationCreate(BaseModel):
+# ── 집계 공통 LLM 필드 믹스인 ─────────────────────────────────────────────────
+
+class _AggregationBase(BaseModel):
+    """Hourly/Daily/Weekly/Monthly 집계 스키마 공통 필드"""
     system_id: int
-    hour_bucket: datetime
     collector_type: str
     metric_group: str
     metrics_json: str                       # JSON string
     llm_summary: Optional[str] = None
     llm_severity: Optional[str] = None     # normal | warning | critical
     llm_trend: Optional[str] = None
+    qdrant_point_id: Optional[str] = None
+
+
+class _AggregationOutBase(_AggregationBase):
+    """집계 Out 스키마 공통 필드 (id, created_at 포함)"""
+    id: int
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+# ── 1시간 집계 ─────────────────────────────────────────────────────────────────
+
+class HourlyAggregationCreate(_AggregationBase):
+    hour_bucket: datetime
     llm_prediction: Optional[str] = None
     llm_model_used: Optional[str] = None
-    qdrant_point_id: Optional[str] = None
 
 
-class HourlyAggregationOut(BaseModel):
-    id: int
-    system_id: int
+class HourlyAggregationOut(_AggregationOutBase):
     hour_bucket: datetime
-    collector_type: str
-    metric_group: str
-    metrics_json: str
-    llm_summary: Optional[str]
-    llm_severity: Optional[str]
-    llm_trend: Optional[str]
     llm_prediction: Optional[str]
     llm_model_used: Optional[str]
-    qdrant_point_id: Optional[str]
-    created_at: datetime
-
-    model_config = {"from_attributes": True}
 
 
-class DailyAggregationCreate(BaseModel):
-    system_id: int
+# ── 1일 집계 ─────────────────────────────────────────────────────────────────
+
+class DailyAggregationCreate(_AggregationBase):
     day_bucket: datetime
-    collector_type: str
-    metric_group: str
-    metrics_json: str
-    llm_summary: Optional[str] = None
-    llm_severity: Optional[str] = None
-    llm_trend: Optional[str] = None
-    qdrant_point_id: Optional[str] = None
 
 
-class DailyAggregationOut(BaseModel):
-    id: int
-    system_id: int
+class DailyAggregationOut(_AggregationOutBase):
     day_bucket: datetime
-    collector_type: str
-    metric_group: str
-    metrics_json: str
-    llm_summary: Optional[str]
-    llm_severity: Optional[str]
-    llm_trend: Optional[str]
-    qdrant_point_id: Optional[str]
-    created_at: datetime
-
-    model_config = {"from_attributes": True}
 
 
-class WeeklyAggregationCreate(BaseModel):
-    system_id: int
+# ── 7일 집계 ─────────────────────────────────────────────────────────────────
+
+class WeeklyAggregationCreate(_AggregationBase):
     week_start: datetime
-    collector_type: str
-    metric_group: str
-    metrics_json: str
-    llm_summary: Optional[str] = None
-    llm_severity: Optional[str] = None
-    llm_trend: Optional[str] = None
-    qdrant_point_id: Optional[str] = None
 
 
-class WeeklyAggregationOut(BaseModel):
-    id: int
-    system_id: int
+class WeeklyAggregationOut(_AggregationOutBase):
     week_start: datetime
-    collector_type: str
-    metric_group: str
-    metrics_json: str
-    llm_summary: Optional[str]
-    llm_severity: Optional[str]
-    llm_trend: Optional[str]
-    qdrant_point_id: Optional[str]
-    created_at: datetime
-
-    model_config = {"from_attributes": True}
 
 
-class MonthlyAggregationCreate(BaseModel):
-    system_id: int
+# ── 월/분기/반기/연간 집계 ────────────────────────────────────────────────────
+
+class MonthlyAggregationCreate(_AggregationBase):
     period_start: datetime
     period_type: str                        # monthly | quarterly | half_year | annual
-    collector_type: str
-    metric_group: str
-    metrics_json: str
-    llm_summary: Optional[str] = None
-    llm_severity: Optional[str] = None
-    llm_trend: Optional[str] = None
-    qdrant_point_id: Optional[str] = None
 
 
-class MonthlyAggregationOut(BaseModel):
-    id: int
-    system_id: int
+class MonthlyAggregationOut(_AggregationOutBase):
     period_start: datetime
     period_type: str
-    collector_type: str
-    metric_group: str
-    metrics_json: str
-    llm_summary: Optional[str]
-    llm_severity: Optional[str]
-    llm_trend: Optional[str]
-    qdrant_point_id: Optional[str]
-    created_at: datetime
-
-    model_config = {"from_attributes": True}
 
 
 class ReportHistoryCreate(BaseModel):

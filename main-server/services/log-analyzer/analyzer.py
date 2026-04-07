@@ -35,6 +35,11 @@ LLM_API_KEY    = os.getenv("LLM_API_KEY",    "")        # 기본 API key (담당
 LLM_AGENT_CODE = os.getenv("LLM_AGENT_CODE", "")  # 기본 agent_code (담당자 미등록 시 사용)
 ADMIN_API_URL  = os.getenv("ADMIN_API_URL",  "http://admin-api:8080")
 
+# 모듈 레벨 공유 클라이언트 — lifespan에서 aclose() 호출
+_admin_http = httpx.AsyncClient(timeout=10.0)   # admin-api 호출
+_loki_http  = httpx.AsyncClient(timeout=30.0)   # Loki 로그 조회
+_llm_http   = httpx.AsyncClient(timeout=120.0)  # LLM API (느림)
+
 ANALYSIS_QUERY = """다음 서버 로그를 분석하여 반드시 아래 JSON 형식으로만 응답하세요. 추가 설명 없이 JSON만 출력하세요.
 
 시스템명: {system_name}
@@ -71,10 +76,9 @@ def _parse_llm_response(content: str) -> dict:
 
 async def get_systems() -> list[dict]:
     """Admin API에서 활성 시스템 목록 조회"""
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(f"{ADMIN_API_URL}/api/v1/systems", timeout=10)
-        resp.raise_for_status()
-        return resp.json()
+    resp = await _admin_http.get(f"{ADMIN_API_URL}/api/v1/systems")
+    resp.raise_for_status()
+    return resp.json()
 
 
 async def get_llm_config_for_system(system_name: str) -> tuple[str, str]:
@@ -86,17 +90,16 @@ async def get_llm_config_for_system(system_name: str) -> tuple[str, str]:
     2순위: 환경변수 LLM_API_KEY / LLM_AGENT_CODE (공용 기본값)
     """
     try:
-        async with httpx.AsyncClient() as client:
-            resp = await client.get(
-                f"{ADMIN_API_URL}/api/v1/systems/name/{system_name}/contacts",
-                timeout=5,
-            )
-            if resp.status_code == 200:
-                for contact in resp.json():
-                    if contact.get("role") == "primary":
-                        api_key = contact.get("llm_api_key") or LLM_API_KEY
-                        agent_code = contact.get("agent_code") or LLM_AGENT_CODE
-                        return api_key, agent_code
+        resp = await _admin_http.get(
+            f"{ADMIN_API_URL}/api/v1/systems/name/{system_name}/contacts",
+            timeout=5.0,
+        )
+        if resp.status_code == 200:
+            for contact in resp.json():
+                if contact.get("role") == "primary":
+                    api_key = contact.get("llm_api_key") or LLM_API_KEY
+                    agent_code = contact.get("agent_code") or LLM_AGENT_CODE
+                    return api_key, agent_code
     except Exception as e:
         logger.warning(f"LLM 설정 조회 실패 ({system_name}): {e}")
     return LLM_API_KEY, LLM_AGENT_CODE
@@ -126,12 +129,10 @@ async def fetch_logs_for_system(system_name: str) -> dict[str, list[dict]]:
     data = None
     for attempt in range(1, 4):
         try:
-            async with httpx.AsyncClient() as client:
-                resp = await client.get(
-                    f"{LOKI_URL}/loki/api/v1/query_range",
-                    params=params,
-                    timeout=30,
-                )
+            resp = await _loki_http.get(
+                f"{LOKI_URL}/loki/api/v1/query_range",
+                params=params,
+            )
             if resp.status_code == 400:
                 logger.error(f"Loki 쿼리 오류(400) [{system_name}]: {resp.text[:300]}")
                 return {}
@@ -176,10 +177,9 @@ async def _call_llm_api(prompt: str, api_key: str, agent_code: str) -> dict:
         "response_mode": "blocking",
     }
 
-    async with httpx.AsyncClient() as client:
-        resp = await client.post(LLM_API_URL, headers=headers, json=body, timeout=120.0)
-        resp.raise_for_status()
-        raw_res = resp.json()
+    resp = await _llm_http.post(LLM_API_URL, headers=headers, json=body)
+    resp.raise_for_status()
+    raw_res = resp.json()
 
     # DevX 응답 구조: external_response.dify_response.answer 또는 answer
     answer = (
@@ -342,14 +342,9 @@ async def submit_analysis(
     if has_solution      is not None: payload["has_solution"]      = has_solution
     if similar_incidents is not None: payload["similar_incidents"] = similar_incidents
 
-    async with httpx.AsyncClient() as client:
-        resp = await client.post(
-            f"{ADMIN_API_URL}/api/v1/analysis",
-            json=payload,
-            timeout=10,
-        )
-        resp.raise_for_status()
-        return resp.json()
+    resp = await _admin_http.post(f"{ADMIN_API_URL}/api/v1/analysis", json=payload)
+    resp.raise_for_status()
+    return resp.json()
 
 
 async def run_analysis() -> dict:

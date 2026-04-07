@@ -28,6 +28,30 @@ _ANOMALY_STYLES = {
 }
 
 
+def _build_mention_text(contacts: list[dict]) -> str:
+    """Teams @mention 텍스트 생성"""
+    return " ".join(f"<at>{c['name']}</at>" for c in contacts if c.get("teams_upn"))
+
+
+def _build_entities(contacts: list[dict]) -> list[dict]:
+    """Teams Adaptive Card msteams.entities 블록 생성"""
+    return [
+        {
+            "type": "mention",
+            "text": f"<at>{c['name']}</at>",
+            "mentioned": {"id": c["teams_upn"], "name": c["name"]},
+        }
+        for c in contacts if c.get("teams_upn")
+    ]
+
+
+async def _post_webhook(webhook_url: str, body: dict) -> bool:
+    """Teams Incoming Webhook POST 전송"""
+    async with httpx.AsyncClient(timeout=10.0, verify=_SSL_CONTEXT) as client:
+        resp = await client.post(webhook_url, json=body)
+        return resp.status_code == 200
+
+
 class TeamsNotifier:
     """Microsoft Teams Incoming Webhook 발송 서비스"""
 
@@ -92,10 +116,7 @@ class TeamsNotifier:
         theme_color = "FF0000" if severity == "critical" else "FF8C00"
         icon = "🔴" if severity == "critical" else "🟡"
 
-        mention_text = " ".join([
-            f"<at>{c['name']}</at>"
-            for c in contacts if c.get("teams_upn")
-        ])
+        mention_text = _build_mention_text(contacts)
 
         body = {
             "type": "message",
@@ -157,26 +178,12 @@ class TeamsNotifier:
                             ),
                         }
                     ],
-                    "msteams": {
-                        "entities": [
-                            {
-                                "type": "mention",
-                                "text": f"<at>{c['name']}</at>",
-                                "mentioned": {
-                                    "id": c["teams_upn"],
-                                    "name": c["name"]
-                                }
-                            }
-                            for c in contacts if c.get("teams_upn")
-                        ]
-                    }
+                    "msteams": {"entities": _build_entities(contacts)},
                 }
             }]
         }
 
-        async with httpx.AsyncClient(timeout=10.0, verify=_SSL_CONTEXT) as client:
-            resp = await client.post(webhook_url, json=body)
-            return resp.status_code == 200
+        return await _post_webhook(webhook_url, body)
 
     async def send_log_analysis_alert(
         self,
@@ -198,10 +205,7 @@ class TeamsNotifier:
         severity = analysis.get("severity", "warning")
         icon = "🔴" if severity == "critical" else ("🟡" if severity == "warning" else "🔵")
 
-        mention_text = " ".join([
-            f"<at>{c['name']}</at>"
-            for c in contacts if c.get("teams_upn")
-        ])
+        mention_text = _build_mention_text(contacts)
 
         card_body = [
             {
@@ -262,23 +266,12 @@ class TeamsNotifier:
                             ),
                         }
                     ],
-                    "msteams": {
-                        "entities": [
-                            {
-                                "type": "mention",
-                                "text": f"<at>{c['name']}</at>",
-                                "mentioned": {"id": c["teams_upn"], "name": c["name"]},
-                            }
-                            for c in contacts if c.get("teams_upn")
-                        ]
-                    },
+                    "msteams": {"entities": _build_entities(contacts)},
                 },
             }],
         }
 
-        async with httpx.AsyncClient(timeout=10.0, verify=_SSL_CONTEXT) as client:
-            resp = await client.post(webhook_url, json=body)
-            return resp.status_code == 200
+        return await _post_webhook(webhook_url, body)
 
     async def send_recovery_alert(
         self,
@@ -291,10 +284,7 @@ class TeamsNotifier:
         contacts: list[dict],
     ) -> bool:
         """정상 복구 알림 — 녹색 Adaptive Card"""
-        mention_text = " ".join([
-            f"<at>{c['name']}</at>"
-            for c in contacts if c.get("teams_upn")
-        ])
+        mention_text = _build_mention_text(contacts)
 
         card_body = [
             {
@@ -326,20 +316,9 @@ class TeamsNotifier:
                     "type": "AdaptiveCard",
                     "version": "1.4",
                     "body": card_body,
-                    "msteams": {
-                        "entities": [
-                            {
-                                "type": "mention",
-                                "text": f"<at>{c['name']}</at>",
-                                "mentioned": {"id": c["teams_upn"], "name": c["name"]},
-                            }
-                            for c in contacts if c.get("teams_upn")
-                        ]
-                    },
+                    "msteams": {"entities": _build_entities(contacts)},
                 },
             }],
         }
 
-        async with httpx.AsyncClient(timeout=10.0, verify=_SSL_CONTEXT) as client:
-            resp = await client.post(webhook_url, json=body)
-            return resp.status_code == 200
+        return await _post_webhook(webhook_url, body)
