@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { ROUTES } from '@/constants/routes'
-import { X } from 'lucide-react'
+import { BookOpen, X } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { PageHeader } from '@/components/common/PageHeader'
 import { NeuCard } from '@/components/neumorphic/NeuCard'
@@ -11,11 +11,20 @@ import { WizardProgress } from '@/components/collector/WizardProgress'
 import { WizardStepLayout } from '@/components/collector/WizardStepLayout'
 import { CollectorTypeCard } from '@/components/collector/CollectorTypeCard'
 import { MetricGroupChecklist } from '@/components/collector/MetricGroupChecklist'
+import { InstallGuideDrawer } from '@/components/collector/InstallGuideDrawer'
 import { useWizardStore } from '@/store/wizardStore'
 import { useCollectorTemplates } from '@/hooks/queries/useCollectorTemplates'
 import { useCreateConfig } from '@/hooks/mutations/useCreateConfig'
 import { useSystems } from '@/hooks/queries/useSystems'
 import type { CollectorType, CollectorTypeOption } from '@/types/collectorConfig'
+
+// 타입별 exporter 기본 포트
+const DEFAULT_PORTS: Record<string, number> = {
+  node_exporter: 9100,
+  jmx_exporter: 9404,
+  alloy: 12345,
+  db_exporter: 9187,
+}
 
 const COLLECTOR_TYPE_OPTIONS: CollectorTypeOption[] = [
   {
@@ -92,6 +101,16 @@ export default function CollectorWizardPage() {
   const [showCancelDialog, setShowCancelDialog] = useState(false)
   const [showConfigExpanded, setShowConfigExpanded] = useState(false)
 
+  // 설치 관련 필드 (Step 3)
+  const [instanceRole, setInstanceRole] = useState('was1')
+  const [exporterPort, setExporterPort] = useState<string>('')
+  const [javaVersion, setJavaVersion] = useState<8 | 11 | 17>(17)
+  const [jeusLogBase, setJeusLogBase] = useState('/apps/logs')
+
+  // 저장 성공 후 설치 가이드 표시
+  const [savedConfigId, setSavedConfigId] = useState<number | null>(null)
+  const [showPostSaveGuide, setShowPostSaveGuide] = useState(false)
+
   // beforeunload warning
   useEffect(() => {
     const handler = (e: BeforeUnloadEvent) => {
@@ -125,26 +144,46 @@ export default function CollectorWizardPage() {
   async function handleSave() {
     if (!collectorType || selectedMetricGroups.length === 0) return
 
+    // install 필드를 custom_config JSON에 병합
+    const autoConfig: Record<string, unknown> = {
+      instance_role: instanceRole.trim() || 'was1',
+      exporter_port: exporterPort ? Number(exporterPort) : (DEFAULT_PORTS[collectorType] ?? 9100),
+    }
+    if (collectorType === 'jmx_exporter') autoConfig.java_version = javaVersion
+    if (collectorType === 'alloy') autoConfig.jeus_log_base = jeusLogBase.trim() || '/apps/logs'
+
+    let userExtra: Record<string, unknown> = {}
+    if (customConfig.trim()) {
+      try {
+        userExtra = JSON.parse(customConfig)
+      } catch {
+        // invalid JSON already blocked by step 4 validation
+      }
+    }
+    const finalCustomConfig = JSON.stringify({ ...autoConfig, ...userExtra })
+
     let successCount = 0
+    let firstSavedId: number | null = null
     const failedGroups: string[] = []
 
     for (const metricGroup of selectedMetricGroups) {
       try {
-        await new Promise<void>((resolve, reject) => {
+        const result = await new Promise<{ id: number }>((resolve, reject) => {
           createMutation.mutate(
             {
               system_id: systemId,
               collector_type: collectorType,
               metric_group: metricGroup,
               prometheus_job: prometheusJob.trim() || undefined,
-              custom_config: customConfig.trim() || undefined,
+              custom_config: finalCustomConfig,
             },
             {
-              onSuccess: () => resolve(),
+              onSuccess: (data) => resolve(data),
               onError: (err) => reject(err),
             },
           )
         })
+        if (firstSavedId === null) firstSavedId = result.id
         successCount++
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : ''
@@ -157,8 +196,7 @@ export default function CollectorWizardPage() {
 
     if (successCount > 0) {
       toast.success(`수집기 설정 ${successCount}개가 등록되었습니다`)
-      reset()
-      navigate(ROUTES.COLLECTOR_CONFIGS)
+      setSavedConfigId(firstSavedId)
     }
   }
 
@@ -237,19 +275,54 @@ export default function CollectorWizardPage() {
         {step === 3 && (
           <WizardStepLayout onPrev={handlePrev} onNext={handleNext}>
             <p className="mb-4 text-sm text-[#8B97AD]">
-              Prometheus job label을 입력하면 해당 job 범위 내에서만 메트릭을 조회합니다
+              설치 정보를 입력하면 설치 명령어가 자동으로 생성됩니다
             </p>
-            <NeuInput
-              label="Prometheus Job (선택)"
-              placeholder="예: node_exporter_prod, was_jmx"
-              value={prometheusJob}
-              onChange={(e) => setPrometheusJob(e.target.value)}
-            />
-            <p className="mt-3 text-sm text-[#8B97AD]">
-              비워두면 시스템의 모든 Prometheus job에서 메트릭을 수집합니다.
-              <br />
-              Prometheus job 이름은 prometheus.yml의 job_name 값과 일치해야 합니다.
-            </p>
+            <div className="flex flex-col gap-4">
+              <NeuInput
+                label="서버 역할 (instance_role)"
+                placeholder="예: was1, db-primary"
+                value={instanceRole}
+                onChange={(e) => setInstanceRole(e.target.value)}
+              />
+              <NeuInput
+                label={`Exporter 포트 (기본값: ${DEFAULT_PORTS[collectorType ?? ''] ?? 9100})`}
+                placeholder={String(DEFAULT_PORTS[collectorType ?? ''] ?? 9100)}
+                value={exporterPort}
+                onChange={(e) => setExporterPort(e.target.value)}
+                type="number"
+              />
+              {collectorType === 'jmx_exporter' && (
+                <div className="flex flex-col gap-1.5">
+                  <label className="text-sm font-medium text-[#E2E8F2]">Java 버전</label>
+                  <select
+                    value={javaVersion}
+                    onChange={(e) => setJavaVersion(Number(e.target.value) as 8 | 11 | 17)}
+                    className="w-full rounded-sm border border-[#2B2F37] bg-[#1E2127] px-4 py-2.5 text-sm text-[#E2E8F2] shadow-[inset_2px_2px_5px_#111317,inset_-2px_-2px_5px_#2B2F37] focus:ring-1 focus:ring-[#00D4FF] focus:outline-none"
+                  >
+                    <option value={17}>Java 17+</option>
+                    <option value={11}>Java 11</option>
+                    <option value={8}>Java 8</option>
+                  </select>
+                </div>
+              )}
+              {collectorType === 'alloy' && (
+                <NeuInput
+                  label="JEUS 로그 경로 (jeus_log_base)"
+                  placeholder="예: /apps/logs"
+                  value={jeusLogBase}
+                  onChange={(e) => setJeusLogBase(e.target.value)}
+                />
+              )}
+              <div className="border-t border-[#2B2F37] pt-4">
+                <NeuInput
+                  label="Prometheus Job (선택)"
+                  placeholder="예: node_exporter_prod, was_jmx"
+                  value={prometheusJob}
+                  onChange={(e) => setPrometheusJob(e.target.value)}
+                />
+                <p className="mt-2 text-xs text-[#8B97AD]">비워두면 HTTP SD가 자동 등록합니다.</p>
+              </div>
+            </div>
           </WizardStepLayout>
         )}
 
@@ -340,18 +413,50 @@ export default function CollectorWizardPage() {
                 </SummaryRow>
               </div>
             </NeuCard>
-            <NeuButton
-              type="button"
-              onClick={handleSave}
-              disabled={createMutation.isPending}
-              loading={createMutation.isPending}
-              className="w-full"
-            >
-              수집기 등록
-            </NeuButton>
+            {savedConfigId === null ? (
+              <NeuButton
+                type="button"
+                onClick={handleSave}
+                disabled={createMutation.isPending}
+                loading={createMutation.isPending}
+                className="w-full"
+              >
+                수집기 등록
+              </NeuButton>
+            ) : (
+              <div className="flex flex-col gap-3">
+                <div className="rounded-sm border border-[rgba(34,197,94,0.2)] bg-[rgba(34,197,94,0.06)] px-4 py-3 text-sm text-[#22C55E]">
+                  수집기 설정이 등록되었습니다.
+                </div>
+                <div className="flex gap-2">
+                  <NeuButton
+                    type="button"
+                    onClick={() => setShowPostSaveGuide(true)}
+                    className="flex-1"
+                  >
+                    <BookOpen className="h-4 w-4" />
+                    설치 가이드 바로 보기
+                  </NeuButton>
+                  <NeuButton
+                    type="button"
+                    variant="ghost"
+                    onClick={() => {
+                      reset()
+                      navigate(ROUTES.COLLECTOR_CONFIGS)
+                    }}
+                  >
+                    완료
+                  </NeuButton>
+                </div>
+              </div>
+            )}
           </WizardStepLayout>
         )}
       </NeuCard>
+
+      {showPostSaveGuide && savedConfigId !== null && (
+        <InstallGuideDrawer configId={savedConfigId} onClose={() => setShowPostSaveGuide(false)} />
+      )}
 
       {/* Cancel confirm dialog */}
       {showCancelDialog && (

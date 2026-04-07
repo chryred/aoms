@@ -3,8 +3,10 @@ import type {
   CollectorConfig,
   CollectorConfigCreate,
   CollectorConfigUpdate,
+  CollectorStatus,
   CollectorTemplate,
   CollectorType,
+  InstallGuide,
 } from '@/types/collectorConfig'
 
 export interface CollectorConfigFilterParams {
@@ -31,4 +33,10 @@ export const collectorConfigApi = {
 
   getTemplates: (type: CollectorType) =>
     adminApi.get(`api/v1/collector-config/templates/${type}`).json<CollectorTemplate>(),
+
+  getInstallGuide: (id: number) =>
+    adminApi.get(`api/v1/collector-config/${id}/install-guide`).json<InstallGuide>(),
+
+  getStatus: (id: number) =>
+    adminApi.get(`api/v1/collector-config/${id}/status`).json<CollectorStatus>(),
 }

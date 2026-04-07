@@ -61,3 +61,33 @@ export interface WizardState {
   setCustomConfig: (config: string) => void
   reset: (systemId?: number) => void
 }
+
+// ── 설치 가이드 타입 ──────────────────────────────────────────────────────────
+
+export interface DownloadOption {
+  label: string
+  filename: string
+  download_url: string
+  note?: string
+}
+
+export interface RequiredFile {
+  filename: string
+  description: string
+  download_options: DownloadOption[]
+}
+
+export interface InstallGuide {
+  collector_type: string
+  system_name: string
+  host: string
+  install_command: string
+  required_files: RequiredFile[]
+  prometheus_scrape_snippet: string
+  jvm_args?: string
+}
+
+export interface CollectorStatus {
+  status: 'up' | 'down' | 'unknown'
+  last_scrape: string | null
+}

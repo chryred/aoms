@@ -9,6 +9,11 @@ services:
       - ./configs/prometheus/alert_rules.yml:/etc/prometheus/alert_rules.yml:ro,z
       - ./configs/prometheus/web.yml:/etc/prometheus/web.yml:ro,z   # Basic Auth
       - prometheus_data:/prometheus:z
+    # prometheus.yml에 다음 job 추가 필요 (동적 수집기 타겟 자동 등록):
+    #   - job_name: "aoms-dynamic"
+    #     http_sd_configs:
+    #       - url: http://admin-api:8080/api/v1/prometheus/targets
+    #         refresh_interval: 1m
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--web.config.file=/etc/prometheus/web.yml'                # Basic Auth 활성화

@@ -341,5 +341,6 @@ make test-api   # 단위 테스트 (인프라 불필요 — SQLite in-memory)
 | Phase 4c | 완료 | n8n 12종 워크플로우 (WF1~WF12) |
 | Phase 5 | 완료 | 계층적 메트릭 집계 (시간/일/주/월) + 장애 예방 시스템 (수집기 유연 레지스트리, 집계 벡터 검색, 프로액티브 알림) |
 | Frontend UI | 완료 | React + 뉴모피즘 프론트엔드 (20개 화면) — 분석 탭, 피드백 관리, 벡터 컬렉션 상태 포함 |
+| Phase 6a | 완료 | 수집기 설치 가이드 UI + Prometheus HTTP SD 자동 등록 + CPU 원인 추적 메트릭(process/gc_detail) + LLM 동적 메트릭 컨텍스트 |
 | Phase 4d | 계획 | Agentic LLM 2-tier (ReAct 루프) |
 | Phase 6 | 계획 | 대시보드 완성, Self-monitoring |
