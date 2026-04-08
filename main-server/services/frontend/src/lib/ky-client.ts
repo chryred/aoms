@@ -43,7 +43,9 @@ export const logAnalyzerApi = ky.create({
 })
 
 /** undefined / null 값을 제거한 searchParams 객체 반환 */
-export function filterParams<T extends object>(params: T): Record<string, string | number | boolean> {
+export function filterParams<T extends object>(
+  params: T,
+): Record<string, string | number | boolean> {
   return Object.fromEntries(
     Object.entries(params).filter(([, v]) => v !== undefined && v !== null),
   ) as Record<string, string | number | boolean>

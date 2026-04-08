@@ -200,7 +200,13 @@ export function App() {
           />
 
           {/* Admin 전용 */}
-          <Route element={<AdminGuard><Outlet /></AdminGuard>}>
+          <Route
+            element={
+              <AdminGuard>
+                <Outlet />
+              </AdminGuard>
+            }
+          >
             <Route
               path="/admin/users"
               element={

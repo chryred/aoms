@@ -12,9 +12,7 @@ export interface AlertFilterParams {
 
 export const alertsApi = {
   getAlerts: (params: AlertFilterParams = {}) =>
-    adminApi
-      .get('api/v1/alerts', { searchParams: filterParams(params) })
-      .json<AlertHistory[]>(),
+    adminApi.get('api/v1/alerts', { searchParams: filterParams(params) }).json<AlertHistory[]>(),
 
   acknowledgeAlert: (id: number, body: { acknowledged_by: string }) =>
     adminApi.post(`api/v1/alerts/${id}/acknowledge`, { json: body }).json<AlertHistory>(),
