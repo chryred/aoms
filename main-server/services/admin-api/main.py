@@ -1,3 +1,4 @@
+import asyncio
 import os
 from contextlib import asynccontextmanager
 
@@ -7,6 +8,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from database import engine, Base
 from routes import alerts, analysis, contacts, feedback, systems
 from routes import collector_config, aggregations, reports, auth as auth_router
+from routes import agents as agents_router
+from services.ssh_session import run_cleanup_loop
 
 
 @asynccontextmanager
@@ -14,7 +17,10 @@ async def lifespan(app: FastAPI):
     # 테이블 자동 생성 (운영에서는 init.sql / Alembic 사용 권장)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+    # SSH 세션 만료 정리 루프 시작
+    cleanup_task = asyncio.create_task(run_cleanup_loop())
     yield
+    cleanup_task.cancel()
 
 
 app = FastAPI(
@@ -46,6 +52,7 @@ app.include_router(feedback.router)
 app.include_router(collector_config.router)
 app.include_router(aggregations.router)
 app.include_router(reports.router)
+app.include_router(agents_router.router)
 
 
 @app.get("/health")

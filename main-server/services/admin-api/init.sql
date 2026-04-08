@@ -227,6 +227,40 @@ CREATE TABLE IF NOT EXISTS aggregation_report_history (
 
 CREATE INDEX IF NOT EXISTS idx_report_history_type_time ON aggregation_report_history(report_type, period_start DESC);
 
+-- ── 에이전트 인스턴스 (Phase 6) ──────────────────────────────────────
+CREATE TABLE IF NOT EXISTS agent_instances (
+    id           SERIAL PRIMARY KEY,
+    system_id    INTEGER REFERENCES systems(id) ON DELETE CASCADE,
+    host         VARCHAR(200) NOT NULL,
+    ssh_username VARCHAR(100) NOT NULL,      -- SSH 접속 계정 (password 저장 금지)
+    agent_type   VARCHAR(50)  NOT NULL,      -- alloy | node_exporter | jmx_exporter
+    install_path VARCHAR(500) NOT NULL,      -- 바이너리 경로
+    config_path  VARCHAR(500) NOT NULL,      -- 설정파일 경로
+    port         INTEGER,                    -- 메트릭 노출 포트
+    pid_file     VARCHAR(500),               -- PID 파일 경로
+    label_info   TEXT,                       -- JSON: system_name, instance_role 등
+    status       VARCHAR(20) DEFAULT 'unknown',  -- installed | running | stopped | unknown
+    created_at   TIMESTAMP DEFAULT NOW(),
+    updated_at   TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_agent_instances_system ON agent_instances(system_id, agent_type);
+CREATE INDEX IF NOT EXISTS idx_agent_instances_host   ON agent_instances(host);
+
+-- ── 에이전트 설치 Job 이력 (Phase 6) ──────────────────────────────────
+CREATE TABLE IF NOT EXISTS agent_install_jobs (
+    id         SERIAL PRIMARY KEY,
+    job_id     VARCHAR(36) UNIQUE NOT NULL,
+    agent_id   INTEGER REFERENCES agent_instances(id) ON DELETE SET NULL,
+    status     VARCHAR(20) DEFAULT 'pending',  -- pending | running | done | failed
+    logs       TEXT,
+    error      TEXT,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_install_jobs_job_id ON agent_install_jobs(job_id);
+
 -- ── 샘플 데이터 (선택) ────────────────────────────────────────────────
 -- INSERT INTO systems(system_name, display_name, host, os_type, system_type)
 -- VALUES ('customer-experience', '고객 경험 시스템', 'cx-was01', 'linux', 'was');

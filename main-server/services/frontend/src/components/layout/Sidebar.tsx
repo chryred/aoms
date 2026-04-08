@@ -16,6 +16,7 @@ import {
   Database,
   ChevronLeft,
   ChevronRight,
+  Terminal,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useUiStore } from '@/store/uiStore'
@@ -207,6 +208,13 @@ export function Sidebar() {
             to={ROUTES.COLLECTOR_CONFIGS}
             icon={<Settings className="h-4 w-4" />}
             label="수집기 설정"
+            collapsed={collapsed}
+            onNavigate={closeMobileSidebar}
+          />
+          <NavItem
+            to={ROUTES.AGENTS}
+            icon={<Terminal className="h-4 w-4" />}
+            label="에이전트 관리"
             collapsed={collapsed}
             onNavigate={closeMobileSidebar}
           />

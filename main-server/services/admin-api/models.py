@@ -273,6 +273,48 @@ class AggregationReportHistory(Base):
     )
 
 
+class AgentInstance(Base):
+    """설치된 수집기 인스턴스 메타정보 (계정 정보는 저장하지 않음)"""
+    __tablename__ = "agent_instances"
+
+    id           = Column(Integer, primary_key=True)
+    system_id    = Column(Integer, ForeignKey("systems.id", ondelete="CASCADE"), nullable=False)
+    host         = Column(String(200), nullable=False)          # 서버 IP
+    ssh_username = Column(String(100), nullable=False)          # SSH 접속 계정 (password 저장 금지)
+    agent_type   = Column(String(50), nullable=False)           # alloy | node_exporter | jmx_exporter
+    install_path = Column(String(500), nullable=False)          # 바이너리 경로
+    config_path  = Column(String(500), nullable=False)          # 설정파일 경로
+    port         = Column(Integer)                              # 메트릭 노출 포트
+    pid_file     = Column(String(500))                          # PID 파일 경로 (systemd 없으므로)
+    label_info   = Column(Text)                                 # JSON: system_name, instance_role 등
+    status       = Column(String(20), default="unknown")        # installed | running | stopped | unknown
+    created_at   = Column(DateTime, default=func.now())
+    updated_at   = Column(DateTime, default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        Index("idx_agent_instances_system", "system_id", "agent_type"),
+        Index("idx_agent_instances_host", "host"),
+    )
+
+
+class AgentInstallJob(Base):
+    """비동기 설치 Job 이력 (완료/실패 로그 보존용)"""
+    __tablename__ = "agent_install_jobs"
+
+    id           = Column(Integer, primary_key=True)
+    job_id       = Column(String(36), unique=True, nullable=False)   # UUID
+    agent_id     = Column(Integer, ForeignKey("agent_instances.id", ondelete="SET NULL"), nullable=True)
+    status       = Column(String(20), default="pending")             # pending | running | done | failed
+    logs         = Column(Text)                                      # 진행 로그 (누적 텍스트)
+    error        = Column(Text)
+    created_at   = Column(DateTime, default=func.now())
+    updated_at   = Column(DateTime, default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        Index("idx_install_jobs_job_id", "job_id"),
+    )
+
+
 class User(Base):
     """프론트엔드 인증 사용자 — role: admin | operator"""
     __tablename__ = "users"

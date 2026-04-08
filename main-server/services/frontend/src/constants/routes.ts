@@ -15,7 +15,9 @@ export const ROUTES = {
   ADMIN_USERS: '/admin/users',
   VECTOR_HEALTH: '/vector-health',
   COLLECTOR_CONFIGS: '/collector-configs',
+  AGENTS: '/agents',
   contactEdit: (id: number | string) => `/contacts/${id}/edit`,
   systemDetail: (id: number | string) => `/dashboard/${id}`,
   systemWizard: (id: number | string) => `/systems/${id}/wizard`,
+  agentDetail: (id: number | string) => `/agents/${id}`,
 }

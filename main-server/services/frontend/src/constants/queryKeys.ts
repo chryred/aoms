@@ -36,4 +36,11 @@ export const qk = {
     ['collector-configs', params] as const,
 
   collectorTemplates: (type: CollectorType) => ['collector-templates', type] as const,
+
+  agents: (params?: { system_id?: number; agent_type?: string }) =>
+    ['agents', params] as const,
+  agent: (id: number) => ['agents', id] as const,
+  agentStatus: (id: number) => ['agents', id, 'status'] as const,
+  agentConfig: (id: number) => ['agents', id, 'config'] as const,
+  installJob: (jobId: string) => ['agents', 'jobs', jobId] as const,
 }

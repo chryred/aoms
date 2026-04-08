@@ -30,6 +30,7 @@
 ```
 src/
 ├── api/           # API 호출 함수 (도메인별 파일)
+│   └── agents.ts      # SSH 세션 + 에이전트 CRUD + 제어 + 설치 Job (Phase 6)
 ├── components/
 │   ├── neumorphic/    # 기본 UI 컴포넌트 (NeuCard, NeuButton, NeuInput 등)
 │   ├── layout/        # AppLayout, AuthLayout, TopBar, AuthGuard
@@ -43,15 +44,20 @@ src/
 │   ├── search/        # SimilarSearchInput, SimilarResultCard
 │   ├── trends/        # CriticalTrendBanner, TrendAlertCard
 │   ├── system/        # SystemFormDrawer
+│   ├── agent/         # SSHSessionModal, AgentCard, AgentStatusBadge, AgentFormModal, InstallJobMonitor (Phase 6)
 │   └── user/
 ├── hooks/
-│   ├── queries/       # 조회 훅
+│   ├── queries/       # 조회 훅 (useAgents, useAgentStatus, useAgentConfig, useInstallJob)
 │   └── mutations/     # 변경 훅
 ├── pages/         # 라우트별 페이지 컴포넌트
-├── store/         # Zustand 스토어 (authStore, uiStore, wizardStore)
+│   ├── AgentListPage.tsx   # 에이전트 목록 (시스템별 그룹, SSH 세션 관리) (Phase 6)
+│   └── AgentDetailPage.tsx # 에이전트 제어 + 설정 파일 편집기 (Phase 6)
+├── store/         # Zustand 스토어 (authStore, uiStore, wizardStore, sshSessionStore)
+│   └── sshSessionStore.ts  # SSH 세션 토큰 인메모리 관리 (Phase 6)
 ├── types/         # TypeScript 타입 정의
+│   └── agent.ts       # AgentInstance, SSHSession, InstallJob 타입 (Phase 6)
 ├── lib/           # queryClient, ky-client, utils, metrics-transform
-└── constants/     # 앱 상수
+└── constants/     # 앱 상수 (routes.ts에 AGENTS, agentDetail 추가)
 ```
 
 ---

@@ -49,6 +49,12 @@ const FeedbackPage = lazy(() =>
 const VectorHealthPage = lazy(() =>
   import('@/pages/VectorHealthPage').then((m) => ({ default: m.VectorHealthPage })),
 )
+const AgentListPage = lazy(() =>
+  import('@/pages/AgentListPage').then((m) => ({ default: m.AgentListPage })),
+)
+const AgentDetailPage = lazy(() =>
+  import('@/pages/AgentDetailPage').then((m) => ({ default: m.AgentDetailPage })),
+)
 
 export function App() {
   return (
@@ -187,6 +193,22 @@ export function App() {
             element={
               <Suspense fallback={<LoadingSkeleton shape="card" count={3} />}>
                 <CollectorWizardPage />
+              </Suspense>
+            }
+          />
+          <Route
+            path="/agents"
+            element={
+              <Suspense fallback={<LoadingSkeleton shape="card" count={4} />}>
+                <AgentListPage />
+              </Suspense>
+            }
+          />
+          <Route
+            path="/agents/:id"
+            element={
+              <Suspense fallback={<LoadingSkeleton shape="card" count={3} />}>
+                <AgentDetailPage />
               </Suspense>
             }
           />

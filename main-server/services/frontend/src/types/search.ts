@@ -51,6 +51,7 @@ export interface CollectionStatus {
   points_count: number
   vectors_count: number
   status: string // "green" | "yellow" | "red" | "not_found" | "error"
+  detail?: string
 }
 
 export interface CollectionsInfo {

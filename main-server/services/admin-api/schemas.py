@@ -351,3 +351,88 @@ class ReportHistoryOut(BaseModel):
     system_count: Optional[int]
 
     model_config = {"from_attributes": True}
+
+
+# ── Agent (수집기 인스턴스) ──────────────────────────────────────────────────
+
+class SSHSessionCreate(BaseModel):
+    host: str
+    port: int = 22
+    username: str
+    password: str
+
+
+class SSHSessionOut(BaseModel):
+    session_token: str
+    host: str
+    port: int
+    username: str
+    expires_in: int   # 초 단위 (1800)
+
+
+class AgentInstanceCreate(BaseModel):
+    system_id: int
+    host: str
+    ssh_username: str
+    agent_type: str = Field(pattern="^(alloy|node_exporter|jmx_exporter)$")
+    install_path: str
+    config_path: str
+    port: Optional[int] = None
+    pid_file: Optional[str] = None
+    label_info: Optional[str] = None   # JSON string
+
+
+class AgentInstanceUpdate(BaseModel):
+    install_path: Optional[str] = None
+    config_path: Optional[str] = None
+    port: Optional[int] = None
+    pid_file: Optional[str] = None
+    label_info: Optional[str] = None
+    status: Optional[str] = None
+    ssh_username: Optional[str] = None
+
+
+class AgentInstanceOut(BaseModel):
+    id: int
+    system_id: int
+    host: str
+    ssh_username: str
+    agent_type: str
+    install_path: str
+    config_path: str
+    port: Optional[int]
+    pid_file: Optional[str]
+    label_info: Optional[str]
+    status: str
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class AgentInstallRequest(BaseModel):
+    agent_id: int
+    binary_url: Optional[str] = None   # 없으면 install_path에서 직접 실행 가정
+
+
+class AgentInstallJobOut(BaseModel):
+    job_id: str
+    agent_id: Optional[int]
+    status: str
+    logs: Optional[str]
+    error: Optional[str]
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class AgentConfigUpload(BaseModel):
+    config_content: str   # YAML / .alloy 파일 전체 내용
+
+
+class AgentStatusOut(BaseModel):
+    agent_id: int
+    status: str             # running | stopped | unknown
+    pid: Optional[int]
+    message: str

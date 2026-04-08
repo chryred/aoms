@@ -20,9 +20,9 @@
 
 ```
 admin-api/
-├── main.py              # FastAPI 앱 초기화, 라우터 등록, lifespan(테이블 자동 생성)
+├── main.py              # FastAPI 앱 초기화, 라우터 등록, lifespan(테이블 자동 생성 + SSH 세션 정리 루프)
 ├── database.py          # DB 엔진·세션 팩토리, get_db() 의존성
-├── models.py            # SQLAlchemy ORM 모델 (14개 테이블 — users 포함)
+├── models.py            # SQLAlchemy ORM 모델 (16개 테이블 — agent_instances, agent_install_jobs 포함)
 ├── schemas.py           # Pydantic 입출력 스키마 (ContactOut.llm_api_key 마스킹 포함)
 ├── auth.py              # JWT 발급/검증, bcrypt, get_current_user, require_admin Dependency
 ├── init.sql             # 최초 DB 스키마 생성용 SQL (운영 권장)
@@ -39,10 +39,12 @@ admin-api/
 │   ├── feedback.py          # /api/v1/feedback (해결책 폼 + n8n 연동)
 │   ├── collector_config.py  # /api/v1/collector-config (Phase 5)
 │   ├── aggregations.py      # /api/v1/aggregations (Phase 5)
-│   └── reports.py           # /api/v1/reports (Phase 5)
+│   ├── reports.py           # /api/v1/reports (Phase 5)
+│   └── agents.py            # /api/v1/ssh/session, /api/v1/agents (Phase 6)
 └── services/
     ├── cooldown.py      # 알림 중복 발송 방지 (5분 쿨다운)
-    └── notification.py  # TeamsNotifier — Adaptive Card 생성·발송
+    ├── notification.py  # TeamsNotifier — Adaptive Card 생성·발송
+    └── ssh_session.py   # SSH 세션 인메모리 관리 (30분 슬라이딩 TTL, DB 저장 금지)
 ```
 
 ## 데이터 모델
@@ -62,6 +64,8 @@ admin-api/
 | `metric_monthly_aggregations` | 월/분기/반기/연간 집계. `period_type`으로 구분 (Phase 5) |
 | `aggregation_report_history` | Teams 주기별 리포트 발송 이력. 중복 방지용 (Phase 5) |
 | `users` | 프론트엔드 인증 사용자. `role`: admin / operator. `is_approved`: admin 승인 여부 (Phase 0) |
+| `agent_instances` | 수집기 인스턴스 메타정보. `ssh_username` 저장, password 저장 금지 (Phase 6) |
+| `agent_install_jobs` | 비동기 설치 Job 이력. `status`: pending/running/done/failed (Phase 6) |
 
 ## API 엔드포인트
 
@@ -122,6 +126,28 @@ docker exec -it aoms-admin-api \
 - `GET /` — 발송된 리포트 이력 조회 (필터: `report_type`)
 - `GET /{id}` — 단건 조회
 - `POST /` — 리포트 발송 기록 저장 (WF7-WF10 호출, 동일 type + period_start 중복 시 업데이트)
+
+### SSH 세션 `/api/v1/ssh` (Phase 6)
+- `POST /session` — 계정 등록 → session_token 발급 (30분 슬라이딩 TTL, SSH 연결 사전 검증)
+- `DELETE /session` — 세션 삭제 (로그아웃). `X-SSH-Session` 헤더 필요
+
+### 에이전트 제어 `/api/v1/agents` (Phase 6)
+- `GET /` — 등록된 에이전트 목록 (필터: `system_id`, `agent_type`)
+- `POST /` — 에이전트 인스턴스 등록
+- `GET /{id}`, `PATCH /{id}`, `DELETE /{id}` — 조회/수정/삭제
+- `POST /install` — 설치 Job 생성 (비동기, 202 반환 + job_id)
+- `GET /jobs/{job_id}` — 설치 진행 상태 폴링 (실시간 로그 포함)
+- `POST /{id}/start` — 에이전트 실행 (nohup, PID 파일 기록)
+- `POST /{id}/stop` — 에이전트 종료 (PID 파일로 kill)
+- `POST /{id}/restart` — 종료 후 재실행
+- `GET /{id}/status` — 프로세스 상태 확인 (DB 상태 동기화)
+- `GET /{id}/config` — 원격 설정파일 내용 조회 (SFTP)
+- `POST /{id}/config` — 설정 업로드 + Reload (Alloy: SIGHUP, 나머지: 재시작)
+
+**제어 공통 규칙:**
+- 모든 제어 요청은 `X-SSH-Session: {token}` 헤더 필수
+- systemd 미사용 — nohup + PID 파일 방식
+- `agent_type`: `alloy` | `node_exporter` | `jmx_exporter`
 
 ## 핵심 로직
 
