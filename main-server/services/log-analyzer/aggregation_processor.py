@@ -21,8 +21,6 @@ import httpx
 
 import aggregation_vector_client
 import vector_client
-import prometheus_client as prom_client
-from prometheus_client import PROMQL_MAP, query_prometheus as _query_prometheus_fn
 
 logger = logging.getLogger(__name__)
 
@@ -35,12 +33,102 @@ LLM_API_KEY      = os.getenv("LLM_API_KEY",      "")
 LLM_AGENT_CODE   = os.getenv("LLM_AGENT_CODE",   "")
 TEAMS_WEBHOOK_URL = os.getenv("TEAMS_WEBHOOK_URL", "")
 
+# ── PromQL 매핑 ──────────────────────────────────────────────────────────────
+
+PROMQL_MAP: dict[str, dict[str, dict[str, str]]] = {
+    "node_exporter": {
+        "cpu": {
+            "cpu_avg": 'avg_over_time(node_cpu_usage_percent{{system_name="{sn}"}}[1h])',
+            "cpu_max": 'max_over_time(node_cpu_usage_percent{{system_name="{sn}"}}[1h])',
+            "cpu_min": 'min_over_time(node_cpu_usage_percent{{system_name="{sn}"}}[1h])',
+            "cpu_p95": 'quantile_over_time(0.95, node_cpu_usage_percent{{system_name="{sn}"}}[1h])',
+            "iowait":  'avg_over_time(node_cpu_iowait_percent{{system_name="{sn}"}}[1h])',
+        },
+        "memory": {
+            "mem_used_pct": 'avg_over_time(node_memory_used_percent{{system_name="{sn}"}}[1h])',
+            "mem_p95":      'quantile_over_time(0.95, node_memory_used_percent{{system_name="{sn}"}}[1h])',
+            "mem_avail_gb": 'min_over_time(node_memory_available_bytes{{system_name="{sn}"}}[1h]) / 1073741824',
+        },
+        "disk": {
+            "disk_util_pct":    'avg_over_time(node_disk_utilization_percent{{system_name="{sn}"}}[1h])',
+            "disk_read_iops":   'avg_over_time(node_disk_reads_completed_total{{system_name="{sn}"}}[1h])',
+            "disk_write_iops":  'avg_over_time(node_disk_writes_completed_total{{system_name="{sn}"}}[1h])',
+        },
+        "network": {
+            "net_rx_mb": 'avg_over_time(rate(node_network_receive_bytes_total{{system_name="{sn}"}}[5m])[1h:5m]) / 1048576',
+            "net_tx_mb": 'avg_over_time(rate(node_network_transmit_bytes_total{{system_name="{sn}"}}[5m])[1h:5m]) / 1048576',
+        },
+        "system": {
+            "load1":  'avg_over_time(node_load1{{system_name="{sn}"}}[1h])',
+            "load5":  'avg_over_time(node_load5{{system_name="{sn}"}}[1h])',
+            "load15": 'avg_over_time(node_load15{{system_name="{sn}"}}[1h])',
+        },
+    },
+    "jmx_exporter": {
+        "jvm_heap": {
+            "heap_used_pct": 'avg_over_time(jvm_heap_used_percent{{system_name="{sn}"}}[1h])',
+            "heap_p95":      'quantile_over_time(0.95, jvm_heap_used_percent{{system_name="{sn}"}}[1h])',
+            "gc_time_pct":   'avg_over_time(jvm_gc_time_percent{{system_name="{sn}"}}[1h])',
+        },
+        "thread_pool": {
+            "thread_active":    'avg_over_time(jvm_threads_active{{system_name="{sn}"}}[1h])',
+            "thread_max":       'max_over_time(jvm_threads_active{{system_name="{sn}"}}[1h])',
+            "rejection_count":  'sum_over_time(jvm_thread_pool_rejections_total{{system_name="{sn}"}}[1h])',
+        },
+        "request": {
+            "req_tps":        'avg_over_time(jvm_requests_per_second{{system_name="{sn}"}}[1h])',
+            "req_error_rate": 'avg_over_time(jvm_request_error_rate{{system_name="{sn}"}}[1h])',
+            "resp_p95_ms":    'quantile_over_time(0.95, jvm_response_time_ms{{system_name="{sn}"}}[1h])',
+        },
+        "connection_pool": {
+            "conn_active": 'avg_over_time(jvm_connection_pool_active{{system_name="{sn}"}}[1h])',
+            "conn_wait":   'max_over_time(jvm_connection_pool_waiting{{system_name="{sn}"}}[1h])',
+        },
+    },
+    "db_exporter": {
+        "db_connections": {
+            "conn_active_pct": 'avg_over_time(db_connections_active_percent{{system_name="{sn}"}}[1h])',
+            "conn_max":        'max_over_time(db_connections_active{{system_name="{sn}"}}[1h])',
+        },
+        "db_query": {
+            "tps":          'avg_over_time(db_transactions_per_second{{system_name="{sn}"}}[1h])',
+            "slow_queries": 'sum_over_time(db_slow_queries_total{{system_name="{sn}"}}[1h])',
+        },
+        "db_cache": {
+            "cache_hit_rate": 'avg_over_time(db_cache_hit_rate_percent{{system_name="{sn}"}}[1h])',
+        },
+        "db_replication": {
+            "repl_lag_sec": 'max_over_time(db_replication_lag_seconds{{system_name="{sn}"}}[1h])',
+        },
+    },
+}
+
 
 # ── 공통 헬퍼 ────────────────────────────────────────────────────────────────
 
 async def _query_prometheus(client: httpx.AsyncClient, promql: str) -> float | None:
-    """prometheus_client.query_prometheus 위임 (하위 호환 래퍼)"""
-    return await _query_prometheus_fn(client, promql)
+    """
+    Prometheus /api/v1/query 단건 호출.
+    결과의 첫 번째 value를 float으로 반환. 데이터 없으면 None.
+    """
+    try:
+        resp = await client.get(
+            f"{PROMETHEUS_URL}/api/v1/query",
+            params={"query": promql},
+            timeout=10.0,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        results = data.get("data", {}).get("result", [])
+        if not results:
+            return None
+        val = results[0].get("value", [None, None])[1]
+        if val is None:
+            return None
+        return round(float(val), 2)
+    except Exception as exc:
+        logger.debug("Prometheus 쿼리 실패: %s — %s", promql[:80], exc)
+        return None
 
 
 def _detect_anomaly(
@@ -68,9 +156,6 @@ def _detect_anomaly(
         elif metric_group == "disk":
             if metrics.get("disk_util_pct", 0) > 80:
                 return True, f"디스크 사용률 {metrics['disk_util_pct']}% > 80%"
-        elif metric_group == "process":
-            if metrics.get("top_cpu_process", 0) > 80:
-                return True, f"단일 프로세스 CPU {metrics['top_cpu_process']:.1f}% > 80%"
 
     elif collector_type == "jmx_exporter":
         if metrics.get("heap_p95", 0) > 85:
@@ -83,11 +168,6 @@ def _detect_anomaly(
             return True, f"요청 오류율 {metrics['req_error_rate']}% > 1%"
         if metrics.get("resp_p95_ms", 0) > 2000:
             return True, f"응답시간 p95 {metrics['resp_p95_ms']}ms > 2000ms"
-        if metric_group == "gc_detail":
-            if metrics.get("gc_young_ms", 0) > 200:
-                return True, f"Young GC {metrics['gc_young_ms']:.1f}ms > 200ms — CPU 폭주 원인 가능"
-            if metrics.get("gc_old_ms", 0) > 500:
-                return True, f"Full GC {metrics['gc_old_ms']:.1f}ms > 500ms — 힙 고갈 임박"
 
     elif collector_type == "db_exporter":
         if metrics.get("conn_active_pct", 0) > 80:

@@ -36,8 +36,4 @@ export const qk = {
     ['collector-configs', params] as const,
 
   collectorTemplates: (type: CollectorType) => ['collector-templates', type] as const,
-
-  installGuide: (id: number) => ['collector-configs', id, 'install-guide'] as const,
-
-  collectorStatus: (id: number) => ['collector-configs', id, 'status'] as const,
 }

@@ -351,33 +351,3 @@ class ReportHistoryOut(BaseModel):
     system_count: Optional[int]
 
     model_config = {"from_attributes": True}
-
-
-# ── 설치 가이드 스키마 ─────────────────────────────────────────────────────────
-
-class DownloadOption(BaseModel):
-    label: str              # "Java 17+" / "Linux amd64"
-    filename: str           # 스크립트가 기대하는 파일명
-    download_url: str       # GitHub releases URL
-    note: Optional[str] = None
-
-
-class RequiredFile(BaseModel):
-    filename: str           # 스크립트와 같은 디렉토리에 위치해야 하는 파일명
-    description: str
-    download_options: list[DownloadOption]
-
-
-class InstallGuideOut(BaseModel):
-    collector_type: str
-    system_name: str
-    host: str
-    install_command: str            # 복사하여 실행할 install-agents.sh 명령어
-    required_files: list[RequiredFile]
-    prometheus_scrape_snippet: str  # prometheus.yml scrape_configs에 추가할 YAML 스니펫
-    jvm_args: Optional[str] = None  # JMX 전용: JEUS JVM 옵션에 추가할 문자열
-
-
-class CollectorStatusOut(BaseModel):
-    status: str             # "up" | "down" | "unknown"
-    last_scrape: Optional[str] = None

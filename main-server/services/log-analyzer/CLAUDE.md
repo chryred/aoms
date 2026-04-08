@@ -34,7 +34,6 @@ log-analyzer/
 ├── main.py                      # FastAPI 앱, 백그라운드 스케줄러, 모든 엔드포인트
 ├── analyzer.py                  # 핵심 분석 로직 (Loki 조회 → PII 마스킹 → LLM 호출 → admin-api 전송)
 ├── aggregation_processor.py     # Phase 5: WF6~WF11 집계 로직 (asyncio 병렬, semaphore=20)
-├── prometheus_client.py         # PROMQL_MAP + query_prometheus + get_metric_snapshot (Phase 6a)
 ├── vector_client.py             # log_incidents / metric_baselines 컬렉션 관리
 ├── aggregation_vector_client.py # metric_hourly_patterns / aggregation_summaries 컬렉션 관리
 ├── Dockerfile
@@ -110,7 +109,6 @@ log-analyzer/
 | `EMBED_MODEL` | `bge-m3` |
 | `QDRANT_URL` | `http://{server-b}:6333` |
 | `ANALYSIS_INTERVAL_SECONDS` | `300` (기본 5분) |
-| `PROMETHEUS_URL` | `http://prometheus:9090` — LLM 메트릭 컨텍스트 + 집계 쿼리용 |
 
 ## 핵심 로직
 
@@ -123,10 +121,6 @@ log-analyzer/
     → PII 마스킹 (카드번호, 주민번호, 전화번호, 이메일)
     → normalize → Ollama 임베딩 → log_incidents 유사도 검색
     → 유사 이력 + 해결책으로 LLM 프롬프트 강화
-    → (Phase 6a) enabled collector_config 존재 시:
-        → prometheus_client.get_metric_snapshot() → Prometheus instant query
-        → 메트릭 컨텍스트를 LLM 프롬프트에 추가 ([로그 발생 시점 시스템 메트릭])
-        → 수집기 없는 시스템: 기존 방식 동일 (성능 영향 없음)
     → 담당자별 llm_api_key로 LLM API 호출
     → admin-api POST /api/v1/analysis 로 결과 전송
 ```
@@ -184,10 +178,3 @@ _trend_agg_scheduler() (4시간마다)
 ### aggregation_vector_client는 vector_client를 의존
 `aggregation_vector_client.py`는 `vector_client.py`의 `get_embedding`, `ensure_collection` 등을 import.
 `OLLAMA_URL`, `EMBED_MODEL`, `QDRANT_URL`도 `vector_client`에서 가져온다.
-
-### prometheus_client.py — 공유 Prometheus 클라이언트
-`aggregation_processor.py`에서 `PROMQL_MAP`과 `query_prometheus`를 추출하여 공통화.
-- `PROMQL_MAP`: `node_exporter/process`(CPU 프로세스 Top5), `jmx_exporter/gc_detail`(Young/Old GC) 추가
-- `get_metric_snapshot(system_name, system_id)`: enabled collector_config 조회 → Prometheus instant query → 스냅샷 반환
-- `analyzer.py`에서 LLM 프롬프트 강화에 사용: `_get_metric_context(system_id, system_name)`
-- `aggregation_processor.py`는 `from prometheus_client import PROMQL_MAP, query_prometheus as _query_prometheus_fn` 로 import

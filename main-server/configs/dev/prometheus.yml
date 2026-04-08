@@ -20,10 +20,3 @@ scrape_configs:
     static_configs:
       - targets: ["host.docker.internal:8080"]
     metrics_path: /metrics
-
-  # ── 동적 수집기 타겟 (admin-api DB 기반 자동 등록) ──────────────────────────
-  # collector_config에 등록된 enabled 수집기를 1분마다 자동 반영 (HTTP SD)
-  - job_name: "aoms-dynamic"
-    http_sd_configs:
-      - url: http://host.docker.internal:8080/api/v1/prometheus/targets
-        refresh_interval: 1m

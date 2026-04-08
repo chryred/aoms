@@ -108,15 +108,7 @@ docker exec -it aoms-admin-api \
 - `PATCH /{id}` — 설정 수정 (활성화/비활성화 포함)
 - `DELETE /{id}` — 설정 삭제
 - `GET /templates/{collector_type}` — 타입별 기본 metric_group 템플릿 반환
-  - 지원 타입: `node_exporter` (+ `process`), `jmx_exporter` (+ `gc_detail`), `db_exporter`, `custom`
-- `GET /{id}/install-guide` — 설치 가이드 반환 (install_command, required_files, prometheus_scrape_snippet, jvm_args)
-- `GET /{id}/status` — Prometheus `up` 메트릭 조회 → `up`/`down`/`unknown` 반환
-- `GET /install-script` — `install-agents.sh` 파일 다운로드 (`INSTALL_SCRIPT_PATH` 환경변수)
-
-### Prometheus HTTP SD `/api/v1/prometheus`
-- `GET /targets` — 인증 없음. enabled=True인 수집기를 Prometheus HTTP SD 표준 JSON으로 반환
-  - Prometheus가 `http_sd_configs` 설정으로 1분 주기 폴링 → 타겟 자동 등록
-  - `custom_config.exporter_port` 파싱, 기본값: node→9100, jmx→9404, alloy→12345, db→9187
+  - 지원 타입: `node_exporter`, `jmx_exporter`, `db_exporter`, `custom`
 
 ### 집계 데이터 `/api/v1/aggregations` (Phase 5)
 - `GET /hourly`, `POST /hourly` — 1시간 집계 조회·저장 (WF6 호출)
@@ -171,9 +163,6 @@ log-analyzer → POST /api/v1/analysis
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | `15` | Access Token 만료 시간(분) |
 | `REFRESH_TOKEN_EXPIRE_DAYS` | `7` | Refresh Token 만료 시간(일) |
 | `COOKIE_SECURE` | `false` | HTTPS 환경에서 `true`로 설정 |
-| `PROMETHEUS_URL` | `http://prometheus:9090` | Prometheus 조회용 (install-guide status, HTTP SD 경유 불필요) |
-| `MONITORING_SERVER_IP` | `""` | install-guide 명령어의 `--monitoring-server` 파라미터 |
-| `INSTALL_SCRIPT_PATH` | `/app/install-agents.sh` | install-script 다운로드 엔드포인트가 서빙하는 파일 경로 |
 
 ## DB 초기화
 

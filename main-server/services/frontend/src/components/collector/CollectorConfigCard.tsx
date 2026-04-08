@@ -1,10 +1,9 @@
 import { useState } from 'react'
-import { BookOpen, Pencil, Trash2 } from 'lucide-react'
+import { Pencil, Trash2 } from 'lucide-react'
 import { NeuCard } from '@/components/neumorphic/NeuCard'
 import { NeuButton } from '@/components/neumorphic/NeuButton'
 import { NeuInput } from '@/components/neumorphic/NeuInput'
 import { EnabledToggle } from './EnabledToggle'
-import { InstallGuideDrawer } from './InstallGuideDrawer'
 import { cn } from '@/lib/utils'
 import { useUpdateConfig } from '@/hooks/mutations/useUpdateConfig'
 import { useDeleteConfig } from '@/hooks/mutations/useDeleteConfig'
@@ -24,7 +23,6 @@ interface CollectorConfigCardProps {
 export function CollectorConfigCard({ config }: CollectorConfigCardProps) {
   const [showEdit, setShowEdit] = useState(false)
   const [showDelete, setShowDelete] = useState(false)
-  const [showInstallGuide, setShowInstallGuide] = useState(false)
   const [editPrometheusJob, setEditPrometheusJob] = useState(config.prometheus_job ?? '')
   const [editCustomConfig, setEditCustomConfig] = useState(config.custom_config ?? '')
 
@@ -84,15 +82,6 @@ export function CollectorConfigCard({ config }: CollectorConfigCardProps) {
           <EnabledToggle configId={config.id} enabled={config.enabled} />
           <button
             type="button"
-            onClick={() => setShowInstallGuide(true)}
-            className="rounded-sm p-1.5 text-[#8B97AD] hover:bg-[rgba(0,212,255,0.06)] hover:text-[#00D4FF] focus:ring-1 focus:ring-[#00D4FF] focus:ring-offset-2 focus:ring-offset-[#1E2127] focus:outline-none"
-            aria-label="설치 가이드"
-            title="설치 가이드"
-          >
-            <BookOpen className="h-4 w-4" />
-          </button>
-          <button
-            type="button"
             onClick={() => {
               setEditPrometheusJob(config.prometheus_job ?? '')
               setEditCustomConfig(config.custom_config ?? '')
@@ -113,10 +102,6 @@ export function CollectorConfigCard({ config }: CollectorConfigCardProps) {
           </button>
         </div>
       </NeuCard>
-
-      {showInstallGuide && (
-        <InstallGuideDrawer configId={config.id} onClose={() => setShowInstallGuide(false)} />
-      )}
 
       {/* Edit modal */}
       {showEdit && (
