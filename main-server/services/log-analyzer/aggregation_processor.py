@@ -1,5 +1,5 @@
 """
-AOMS Phase 5 — 집계 처리기 (WF6~WF11 이관)
+Synapse Phase 5 — 집계 처리기 (WF6~WF11 이관)
 
 n8n WF6~WF11의 처리 로직을 Python asyncio 병렬 처리로 이관.
 각 run_* 함수가 admin-api + Prometheus + LLM + Teams를 직접 호출.

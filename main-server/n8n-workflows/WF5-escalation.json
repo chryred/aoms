@@ -31,8 +31,8 @@
       "position": [460, 300],
       "credentials": {
         "postgres": {
-          "id": "postgres-aoms",
-          "name": "AOMS PostgreSQL"
+          "id": "postgres-synapse",
+          "name": "Synapse PostgreSQL"
         }
       }
     },
@@ -103,8 +103,8 @@
       "position": [1340, 400],
       "credentials": {
         "postgres": {
-          "id": "postgres-aoms",
-          "name": "AOMS PostgreSQL"
+          "id": "postgres-synapse",
+          "name": "Synapse PostgreSQL"
         }
       }
     }
@@ -146,5 +146,5 @@
   "versionId": "wf5-v1",
   "meta": { "instanceId": "local" },
   "id": "wf5-escalation",
-  "tags": [{"id": "aoms", "name": "AOMS"}]
+  "tags": [{"id": "synapse", "name": "Synapse"}]
 }

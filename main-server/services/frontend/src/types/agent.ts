@@ -1,4 +1,4 @@
-export type AgentType = 'alloy' | 'node_exporter' | 'jmx_exporter'
+export type AgentType = 'alloy' | 'node_exporter' | 'jmx_exporter' | 'synapse_agent'
 export type AgentStatus = 'installed' | 'running' | 'stopped' | 'unknown'
 export type InstallJobStatus = 'pending' | 'running' | 'done' | 'failed'
 
@@ -81,4 +81,16 @@ export interface AgentConfigResponse {
   agent_id: number
   config_path: string
   content: string
+}
+
+export type AgentLiveStatus = 'collecting' | 'delayed' | 'stale' | 'no_data'
+
+export interface AgentLiveStatusOut {
+  agent_id: number
+  type: AgentType
+  status: AgentStatus
+  live: boolean
+  live_status?: AgentLiveStatus
+  last_seen?: string | null
+  collectors_active?: string[]
 }

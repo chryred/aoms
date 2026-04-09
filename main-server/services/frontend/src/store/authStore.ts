@@ -20,7 +20,7 @@ export const useAuthStore = create<AuthState>()(
       setToken: (token) => set({ token }),
     }),
     {
-      name: 'aoms-auth',
+      name: 'synapse-auth',
       storage: createJSONStorage(() => sessionStorage),
       partialize: (s) => ({ user: s.user, token: s.token }),
     },

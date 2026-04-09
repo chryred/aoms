@@ -1,6 +1,6 @@
 #!/bin/bash
 # ============================================================
-# AOMS 배포 검증 스크립트
+# Synapse 배포 검증 스크립트
 # 사용법: ./verify-deploy.sh [SERVER_B_IP]
 # 예시:   ./verify-deploy.sh 192.168.10.6
 # ============================================================
@@ -19,15 +19,15 @@ section() { echo -e "\n${BLUE}━━━ $1 ━━━${NC}"; }
 section "1. Docker 컨테이너 상태"
 
 CONTAINERS=(
-  "aoms-prometheus"
-  "aoms-alertmanager"
-  "aoms-loki"
-  "aoms-grafana"
-  "aoms-postgres"
-  "aoms-admin-api"
-  "aoms-log-analyzer"
-  "aoms-frontend"
-  "aoms-n8n"
+  "synapse-prometheus"
+  "synapse-alertmanager"
+  "synapse-loki"
+  "synapse-grafana"
+  "synapse-postgres"
+  "synapse-admin-api"
+  "synapse-log-analyzer"
+  "synapse-frontend"
+  "synapse-n8n"
 )
 
 for c in "${CONTAINERS[@]}"; do
@@ -65,7 +65,7 @@ check_http "n8n"              "http://localhost:5678/healthz"
 # ──────────────────────────────────────────────────────────────
 section "3. PostgreSQL 연결 및 테이블 확인"
 
-TABLE_COUNT=$(docker exec aoms-postgres psql -U aoms -d aoms -t -c \
+TABLE_COUNT=$(docker exec synapse-postgres psql -U synapse -d synapse -t -c \
   "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='public';" 2>/dev/null | tr -d ' \n')
 
 if [[ "$TABLE_COUNT" =~ ^[0-9]+$ ]] && [[ "$TABLE_COUNT" -ge 10 ]]; then
@@ -74,7 +74,7 @@ else
   fail "PostgreSQL 테이블 수 이상: '${TABLE_COUNT}'"
 fi
 
-N8N_SCHEMA=$(docker exec aoms-postgres psql -U aoms -d aoms -t -c \
+N8N_SCHEMA=$(docker exec synapse-postgres psql -U synapse -d synapse -t -c \
   "SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name='n8n';" 2>/dev/null | tr -d ' \n')
 [[ "$N8N_SCHEMA" -ge 1 ]] && ok "n8n 스키마 존재" || fail "n8n 스키마 없음"
 
@@ -142,7 +142,7 @@ if [[ -n "$SERVER_B_IP" ]]; then
     ok "Ollama 응답 OK (모델 ${OLLAMA_MODELS}개)"
     if [[ "$OLLAMA_MODELS" -eq 0 ]]; then
       warn "  → bge-m3 모델이 없습니다"
-      warn "     docker exec aoms-ollama ollama pull bge-m3"
+      warn "     docker exec dev-ollama ollama pull bge-m3"
     else
       # bge-m3 모델 존재 여부
       BGE_OK=$(curl -s --max-time 5 "http://${SERVER_B_IP}:11434/api/tags" 2>/dev/null | \
@@ -190,8 +190,8 @@ if [[ "$FAIL" -gt 0 ]]; then
   echo ""
   echo "  위 오류를 확인하세요:"
   echo "    - 로그 확인: docker logs <컨테이너명> --tail 50"
-  echo "    - 재시작:    cd /app/aoms && docker compose up -d"
-  echo "    - 가이드:    /app/aoms/deploy-guide.md 섹션 7 참조"
+  echo "    - 재시작:    cd /app/synapse && docker compose up -d"
+  echo "    - 가이드:    /app/synapse/deploy-guide.md 섹션 7 참조"
   exit 1
 else
   echo -e "  ${GREEN}모든 검증 통과 ✓${NC}"

@@ -1,5 +1,5 @@
--- AOMS PostgreSQL 초기 스키마
--- Phase 1 (T1.9)에서 실행: docker exec -i aoms-postgres psql -U aoms -d aoms < init.sql
+-- Synapse PostgreSQL 초기 스키마
+-- Phase 1 (T1.9)에서 실행: docker exec -i synapse-postgres psql -U synapse -d synapse < init.sql
 
 -- ── 시스템 정보 ────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS systems (

@@ -1,0 +1,279 @@
+# =============================================================================
+# synapse-agent 설정 샘플 — 1개 인프라에 여러 WAS 서비스가 있는 경우
+#
+# [배포 구조]
+#
+#  물리 서버 192.168.10.100
+#  ├── (root/infra 계정)  synapse-agent  →  /opt/synapse-agent/config.toml
+#  │     역할: cpu / memory / disk / network / tcp / process 수집
+#  │
+#  ├── (jeussic 계정)     synapse-agent  →  /home/jeussic/synapse-agent/config.toml
+#  │     역할: 고객경험시스템 로그 + WebtoB access log 수집
+#  │
+#  └── (jeuserp 계정)     synapse-agent  →  /home/jeuserp/synapse-agent/config.toml
+#        역할: ERP시스템 로그 수집
+#
+# [왜 계정을 분리하는가]
+#
+#   JEUS/WebtoB 로그 파일은 서비스 기동 계정 소유(예: jeussic:jeussic, 0640).
+#   synapse-agent가 다른 계정으로 실행되면 읽기 권한 없음 → 로그 수집 불가.
+#
+#   선택지 A (권장) — 계정별 별도 에이전트 인스턴스
+#     각 서비스 계정이 자신의 synapse-agent를 직접 실행.
+#     OS 권한 모델을 그대로 유지, sudo/setfacl 불필요.
+#     → 이 파일의 방식
+#
+#   선택지 B — 단일 에이전트 + ACL
+#     인프라 에이전트 계정(synapse)에 setfacl로 타 계정 로그 읽기 권한 부여.
+#     에이전트 1개로 관리가 단순하나, ACL 누락 시 수집 중단.
+#     → setfacl -m u:synapse:r /home/jeussic/logs/*.log
+#
+# [교차 분석 연결 원리]
+#
+#   Prometheus label: host = "192.168.10.100"
+#   세 에이전트가 모두 동일한 host 값을 발행 → 동일 서버임을 인식.
+#
+#   system_name은 각 서비스를 구분하는 admin-api 식별자.
+#   PostgreSQL systems 테이블의 system_name 컬럼과 반드시 일치해야 함.
+#   불일치 시: 알림 수신은 되지만 담당자 조회 실패 → Teams 알림 미발송.
+#
+#     에이전트 system_name  ←→  systems.system_name (PostgreSQL)
+#     ──────────────────────────────────────────────────────────
+#     "server-a"               서버 전체 인프라 시스템 등록
+#     "jeussic"                고객경험시스템 등록
+#     "jeuserp"                ERP시스템 등록
+#
+# [파일 구성]
+#   이 파일은 세 가지 설정을 하나의 샘플에 담았습니다.
+#   실제 배포 시 각 계정 home 디렉토리에 config.toml 을 분리해서 사용하세요.
+#   → 케이스 1만 활성, 케이스 2/3은 주석 처리
+# =============================================================================
+
+
+# =============================================================================
+# 케이스 1: 인프라 에이전트 (root 또는 전용 infra 계정으로 실행)
+#
+# 파일 위치: /opt/synapse-agent/config.toml
+# 실행: nohup /opt/synapse-agent/synapse-agent /opt/synapse-agent/config.toml &
+#       또는 systemd: ExecStart=/opt/synapse-agent/synapse-agent /opt/synapse-agent/config.toml
+# =============================================================================
+
+[agent]
+system_name           = "server-a"          # PostgreSQL systems.system_name 과 일치 필수
+display_name          = "서버A (인프라)"     # Teams 알림 표시명
+instance_role         = "infra"             # 메트릭 레이블 구분용
+host                  = "192.168.10.100"    # 교차 분석 연결 키 — 세 에이전트 모두 동일값
+collect_interval_secs = 15
+top_process_count     = 20                  # CPU 상위 N개 프로세스 추적
+
+[remote_write]
+endpoint            = "http://192.168.10.1:9090/api/v1/write"
+batch_size          = 500
+timeout_secs        = 10
+wal_dir             = "/opt/synapse-agent/wal"
+wal_retention_hours = 2
+
+[collectors]
+cpu             = true    # ✅ 서버 전체 CPU (per-core + load avg)
+memory          = true    # ✅ 서버 전체 메모리
+disk            = true    # ✅ 서버 전체 디스크 I/O
+network         = true    # ✅ 서버 전체 네트워크
+process         = true    # ✅ 전체 프로세스 top-N (services 매핑 포함)
+tcp_connections = true    # ✅ TCP 연결 상태 (ESTABLISHED / TIME_WAIT 등)
+log_monitor     = false   # ❌ 로그는 각 WAS 계정 에이전트가 담당
+web_servers     = false   # ❌ 웹 access log도 WAS 계정 에이전트 담당
+preprocessor    = false
+heartbeat       = true
+
+[log_monitor]
+# log_monitor = false 이므로 아래 설정은 무시됨 (형식 참고용)
+paths    = []
+keywords = ["ERROR", "CRITICAL", "PANIC", "Fatal", "Exception"]
+log_type = "app"
+
+# 인프라 에이전트의 process 수집기가 서비스 프로세스를 식별하기 위해 등록.
+# process_match: /proc/[pid]/cmdline 에 포함된 문자열로 매칭
+# → cpu_usage_percent / process_memory_bytes 에 service_name 레이블이 붙음
+[[services]]
+name          = "jeussic-domain"
+display_name  = "고객경험시스템 도메인"
+process_match = "jeussic"
+
+[[services]]
+name          = "jeuserp-domain"
+display_name  = "ERP시스템 도메인"
+process_match = "jeuserp"
+
+[[services]]
+name          = "webtob"
+display_name  = "WebtoB 웹서버"
+process_match = "wsadmin"
+
+
+# =============================================================================
+# 케이스 2: WAS 에이전트 — 고객경험시스템 (jeussic 계정으로 실행)
+#
+# 파일 위치: /home/jeussic/synapse-agent/config.toml
+# 실행: nohup ~/synapse-agent/synapse-agent ~/synapse-agent/config.toml &
+#
+# 이 에이전트는 jeussic 계정 권한으로 실행되므로 jeussic 소유 로그만 읽을 수 있음.
+# CPU/메모리 등 시스템 메트릭은 인프라 에이전트(케이스 1)가 담당.
+# =============================================================================
+
+# [agent]
+# system_name           = "jeussic"
+# display_name          = "고객경험시스템"
+# instance_role         = "was"
+# host                  = "192.168.10.100"    # ← 인프라 에이전트와 동일 → Prometheus 교차 분석 연결
+# collect_interval_secs = 15
+# top_process_count     = 0                   # WAS 에이전트는 프로세스 top-N 불필요
+#
+# [remote_write]
+# endpoint            = "http://192.168.10.1:9090/api/v1/write"
+# batch_size          = 500
+# timeout_secs        = 10
+# wal_dir             = "/home/jeussic/synapse-agent/wal"
+# wal_retention_hours = 2
+#
+# [collectors]
+# cpu             = false   # ❌ 인프라 에이전트가 수집 (중복 방지)
+# memory          = false   # ❌ 인프라 에이전트가 수집
+# disk            = false   # ❌ 인프라 에이전트가 수집
+# network         = false   # ❌ 인프라 에이전트가 수집
+# process         = false   # ❌ 인프라 에이전트가 수집
+# tcp_connections = false
+# log_monitor     = true    # ✅ jeussic 계정 권한 내 로그만 수집
+# web_servers     = true    # ✅ WebtoB access log (jeussic 권한으로 읽을 수 있는 경우)
+# preprocessor    = false
+# heartbeat       = true
+#
+# [log_monitor]
+# paths = [
+#   "/home/jeussic/logs/JeusServer.log",        # JEUS 서버 로그
+#   "/home/jeussic/logs/JeusContainer.log",     # JEUS 컨테이너 로그
+#   "/home/jeussic/logs/application.log",       # 애플리케이션 로그
+#   "/home/jeussic/logs/*.log",                 # glob 패턴도 지원
+# ]
+# keywords = ["ERROR", "CRITICAL", "PANIC", "Fatal", "Exception", "OOM"]
+# log_type = "app"
+#
+# # log_monitor services: log_error_total 메트릭에 service_name 레이블로 매핑됨
+# [[services]]
+# name          = "jeussic-was1"
+# display_name  = "고객경험 WAS-1"
+# process_match = "jeussic_was1"
+#
+# [[services]]
+# name          = "jeussic-was2"
+# display_name  = "고객경험 WAS-2"
+# process_match = "jeussic_was2"
+#
+# # web_servers: was_services 는 위 [[services]].name 과 일치해야 함
+# # → http_request_total{was_service="jeussic-was1"} 처럼 레이블 붙음
+# [[web_servers]]
+# name              = "webtob-jeussic"
+# display_name      = "고객경험 웹서버"
+# type              = "webtob"               # nginx | apache | webtob
+# log_path          = "/home/jeussic/webtob/logs/access.log"
+# log_format        = "combined"             # combined | clf | nginx_json
+# was_services      = ["jeussic-was1", "jeussic-was2"]
+# slow_threshold_ms = 2000
+# url_patterns = [
+#   { pattern = "/api/customers",  display = "고객조회" },
+#   { pattern = "/api/orders",     display = "주문처리" },
+#   { pattern = "/api/payments",   display = "결제처리" },
+# ]
+
+
+# =============================================================================
+# 케이스 3: WAS 에이전트 — ERP시스템 (jeuserp 계정으로 실행)
+#
+# 파일 위치: /home/jeuserp/synapse-agent/config.toml
+# 실행: nohup ~/synapse-agent/synapse-agent ~/synapse-agent/config.toml &
+# =============================================================================
+
+# [agent]
+# system_name           = "jeuserp"
+# display_name          = "ERP시스템"
+# instance_role         = "was"
+# host                  = "192.168.10.100"    # ← 동일 host 값
+# collect_interval_secs = 15
+# top_process_count     = 0
+#
+# [remote_write]
+# endpoint            = "http://192.168.10.1:9090/api/v1/write"
+# batch_size          = 500
+# timeout_secs        = 10
+# wal_dir             = "/home/jeuserp/synapse-agent/wal"
+# wal_retention_hours = 2
+#
+# [collectors]
+# cpu             = false
+# memory          = false
+# disk            = false
+# network         = false
+# process         = false
+# tcp_connections = false
+# log_monitor     = true    # ✅ jeuserp 계정 권한 내 로그만 수집
+# web_servers     = false
+# preprocessor    = false
+# heartbeat       = true
+#
+# [log_monitor]
+# paths = [
+#   "/home/jeuserp/logs/JeusServer.log",
+#   "/home/jeuserp/logs/erp-application.log",
+#   "/home/jeuserp/logs/batch-error.log",
+# ]
+# keywords = ["ERROR", "CRITICAL", "PANIC", "Fatal", "Exception", "Deadlock", "Timeout"]
+# log_type = "app"
+#
+# [[services]]
+# name          = "jeuserp-was1"
+# display_name  = "ERP WAS-1"
+# process_match = "jeuserp_was1"
+#
+# [[services]]
+# name          = "jeuserp-was2"
+# display_name  = "ERP WAS-2"
+# process_match = "jeuserp_was2"
+
+
+# =============================================================================
+# [에이전트 간 관계 요약]
+#
+#  레이블           인프라 에이전트    jeussic 에이전트   jeuserp 에이전트
+#  ─────────────────────────────────────────────────────────────────────────
+#  system_name      "server-a"         "jeussic"          "jeuserp"
+#  instance_role    "infra"            "was"              "was"
+#  host             "192.168.10.100"   "192.168.10.100"   "192.168.10.100"  ← 교차 분석 키
+#
+#  수집 메트릭
+#  ─────────────────────────────────────────────────────────────────────────
+#  cpu_usage_percent     ✅              ❌                 ❌
+#  memory_used_bytes     ✅              ❌                 ❌
+#  disk_bytes_total      ✅              ❌                 ❌
+#  process_cpu_percent   ✅ (서비스 매핑 포함)  ❌           ❌
+#  log_error_total       ❌              ✅ (jeussic 로그)  ✅ (jeuserp 로그)
+#  http_request_total    ❌              ✅ (webtob)        ❌
+#  agent_heartbeat       ✅              ✅                 ✅
+#
+# [PostgreSQL systems 테이블 등록 예시]
+#
+#   INSERT INTO systems (system_name, display_name, teams_webhook_url) VALUES
+#     ('server-a', '서버A 인프라',   'https://outlook.office.com/webhook/...'),
+#     ('jeussic',  '고객경험시스템', 'https://outlook.office.com/webhook/...'),
+#     ('jeuserp',  'ERP시스템',      'https://outlook.office.com/webhook/...');
+#
+# [Prometheus 교차 분석 쿼리 예시]
+#
+#   # 서버 A 전체 CPU
+#   cpu_usage_percent{host="192.168.10.100", core="total"}
+#
+#   # 동일 서버의 jeussic 로그 에러율 (분당)
+#   sum(rate(log_error_total{host="192.168.10.100", system_name="jeussic"}[5m])) * 60
+#
+#   # CPU 85% 초과 시점의 jeussic 에러 상관 (LLM이 이 패턴을 분석함)
+#   rate(log_error_total{host="192.168.10.100", system_name="jeussic"}[5m])
+#     and on() cpu_usage_percent{host="192.168.10.100", core="total"} > 85
+# =============================================================================

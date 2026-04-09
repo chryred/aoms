@@ -1,6 +1,6 @@
 #!/bin/bash
 # ============================================================
-# AOMS Docker 이미지 빌드 스크립트
+# Synapse Docker 이미지 빌드 스크립트
 # 사용법:
 #   ./build-images.sh           # 빌드
 #   ./build-images.sh clean     # 이미지 삭제
@@ -16,9 +16,9 @@ SERVICES_DIR="$SCRIPT_DIR/main-server/services"
 OUTPUT_DIR="$SCRIPT_DIR/main-server"
 
 IMAGES=(
-  "aoms-admin-api:$TAG:$SERVICES_DIR/admin-api"
-  "aoms-log-analyzer:$TAG:$SERVICES_DIR/log-analyzer"
-  "aoms-frontend:$TAG:$SERVICES_DIR/frontend"
+  "synapse-admin-api:$TAG:$SERVICES_DIR/admin-api"
+  "synapse-log-analyzer:$TAG:$SERVICES_DIR/log-analyzer"
+  "synapse-frontend:$TAG:$SERVICES_DIR/frontend"
 )
 
 # ── 색상 출력 ────────────────────────────────────────────────
@@ -65,9 +65,9 @@ do_build() {
   done
   echo ""
   echo "Linux 서버 배포 명령어:"
-  echo "  docker load < aoms-admin-api-${TAG}.tar.gz"
-  echo "  docker load < aoms-log-analyzer-${TAG}.tar.gz"
-  echo "  docker load < aoms-frontend-${TAG}.tar.gz"
+  echo "  docker load < synapse-admin-api-${TAG}.tar.gz"
+  echo "  docker load < synapse-log-analyzer-${TAG}.tar.gz"
+  echo "  docker load < synapse-frontend-${TAG}.tar.gz"
 }
 
 # ── 삭제 ────────────────────────────────────────────────────

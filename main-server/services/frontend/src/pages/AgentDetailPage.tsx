@@ -11,6 +11,7 @@ import {
   Lock,
   ArrowLeft,
   Download,
+  Activity,
 } from 'lucide-react'
 import { PageHeader } from '@/components/common/PageHeader'
 import { LoadingSkeleton } from '@/components/common/LoadingSkeleton'
@@ -22,6 +23,7 @@ import { AgentStatusBadge } from '@/components/agent/AgentStatusBadge'
 import { SSHSessionModal } from '@/components/agent/SSHSessionModal'
 import { InstallJobMonitor } from '@/components/agent/InstallJobMonitor'
 import { agentsApi } from '@/api/agents'
+import type { AgentLiveStatus } from '@/types/agent'
 import { useSSHSessionStore } from '@/store/sshSessionStore'
 import { qk } from '@/constants/queryKeys'
 import { ROUTES } from '@/constants/routes'
@@ -30,6 +32,30 @@ const AGENT_TYPE_LABEL: Record<string, string> = {
   alloy: 'Alloy',
   node_exporter: 'Node Exporter',
   jmx_exporter: 'JMX Exporter',
+  synapse_agent: 'Synapse Agent',
+}
+
+const LIVE_STATUS_CONFIG: Record<
+  AgentLiveStatus,
+  { label: string; color: string; dot: string }
+> = {
+  collecting: { label: '수집 중', color: 'text-[#22C55E]', dot: 'bg-[#22C55E]' },
+  delayed: { label: '데이터 지연', color: 'text-[#F59E0B]', dot: 'bg-[#F59E0B]' },
+  stale: { label: '수집 중단', color: 'text-[#EF4444]', dot: 'bg-[#EF4444]' },
+  no_data: { label: '데이터 없음', color: 'text-[#8B97AD]', dot: 'bg-[#8B97AD]' },
+}
+
+const COLLECTOR_LABELS: Record<string, string> = {
+  cpu: 'CPU',
+  memory: '메모리',
+  disk: '디스크',
+  network: '네트워크',
+  process: '프로세스',
+  tcp_connections: 'TCP',
+  log_monitor: '로그',
+  web_servers: '웹 서버',
+  preprocessor: '전처리기',
+  heartbeat: 'Heartbeat',
 }
 
 export function AgentDetailPage() {
@@ -59,6 +85,14 @@ export function AgentDetailPage() {
     queryKey: qk.agent(agentId),
     queryFn: () => agentsApi.getAgent(agentId),
     staleTime: 30_000,
+  })
+
+  const { data: liveStatus } = useQuery({
+    queryKey: qk.agentLiveStatus(agentId),
+    queryFn: () => agentsApi.getLiveStatus(agentId),
+    enabled: agent?.agent_type === 'synapse_agent',
+    refetchInterval: 30_000,
+    staleTime: 25_000,
   })
 
   function showMsg(type: 'success' | 'error', text: string) {
@@ -326,6 +360,61 @@ export function AgentDetailPage() {
           </NeuCard>
         )}
       </div>
+
+      {/* Synapse Agent 라이브 상태 */}
+      {agent.agent_type === 'synapse_agent' && (
+        <NeuCard className="mt-6">
+          <div className="mb-4 flex items-center gap-2">
+            <Activity className="h-4 w-4 text-[#00D4FF]" />
+            <h2 className="text-sm font-semibold text-[#E2E8F2]">수집 상태 (Prometheus)</h2>
+            {liveStatus?.live_status && (
+              <span className="flex items-center gap-1.5 ml-auto">
+                <span
+                  className={`h-2 w-2 rounded-full ${LIVE_STATUS_CONFIG[liveStatus.live_status].dot}`}
+                />
+                <span
+                  className={`text-xs font-medium ${LIVE_STATUS_CONFIG[liveStatus.live_status].color}`}
+                >
+                  {LIVE_STATUS_CONFIG[liveStatus.live_status].label}
+                </span>
+              </span>
+            )}
+          </div>
+
+          {liveStatus ? (
+            <div className="space-y-3">
+              {liveStatus.last_seen && (
+                <p className="text-xs text-[#8B97AD]">
+                  마지막 수신:{' '}
+                  <span className="text-[#E2E8F2]">
+                    {new Date(liveStatus.last_seen).toLocaleString('ko-KR')}
+                  </span>
+                </p>
+              )}
+              {liveStatus.collectors_active && liveStatus.collectors_active.length > 0 && (
+                <div>
+                  <p className="mb-2 text-xs text-[#8B97AD]">활성 수집기</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {liveStatus.collectors_active.map((c) => (
+                      <span
+                        key={c}
+                        className="rounded-full bg-[rgba(34,197,94,0.1)] px-2.5 py-0.5 text-xs font-medium text-[#22C55E]"
+                      >
+                        {COLLECTOR_LABELS[c] ?? c}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {(!liveStatus.collectors_active || liveStatus.collectors_active.length === 0) && (
+                <p className="text-xs text-[#8B97AD]">활성 수집기 정보 없음</p>
+              )}
+            </div>
+          ) : (
+            <p className="text-xs text-[#8B97AD]">Prometheus에서 상태를 조회 중입니다...</p>
+          )}
+        </NeuCard>
+      )}
 
       {showSSHModal && (
         <SSHSessionModal

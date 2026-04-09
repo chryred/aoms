@@ -168,5 +168,5 @@
   "versionId": "wf2-v1",
   "meta": { "instanceId": "local" },
   "id": "wf2-metric-vector-search",
-  "tags": [{"id": "aoms", "name": "AOMS"}]
+  "tags": [{"id": "synapse", "name": "Synapse"}]
 }

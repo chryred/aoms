@@ -1,6 +1,6 @@
 #!/bin/bash
 # ============================================================
-# AOMS Linux 에이전트 자동 설치 스크립트 (폐쇄망용)
+# Synapse Linux 에이전트 자동 설치 스크립트 (폐쇄망용)
 # 대상 OS: RedHat 8.9 / CentOS 8 (x86_64)
 #
 # 사용법:
@@ -21,7 +21,7 @@
 #     --instance-role was1 \
 #     --host cx-was01 \
 #     --monitoring-server 192.168.10.5 \
-#     --install-dir /opt/aoms-agents \
+#     --install-dir /opt/synapse-agents \
 #     --jeus-log-base /apps/logs \
 #     --type all \
 #     --jmx-port 9404
@@ -29,7 +29,7 @@
 set -euo pipefail
 
 # ── 기본값 설정 ──────────────────────────────────────────────
-INSTALL_DIR="/opt/aoms-agents"
+INSTALL_DIR="/opt/synapse-agents"
 AGENT_TYPE="all"
 JMX_PORT=9404
 NODE_EXPORTER_PORT=9100
@@ -67,7 +67,7 @@ done
 [[ -z "${MONITORING_SERVER:-}" ]] && error "--monitoring-server 필수"
 [[ -z "${JEUS_LOG_BASE:-}"     ]] && error "--jeus-log-base 필수 (예: /apps/logs)"
 
-info "=== AOMS 에이전트 설치 시작 ==="
+info "=== Synapse 에이전트 설치 시작 ==="
 info "시스템명       : $SYSTEM_NAME"
 info "서버 역할      : $INSTANCE_ROLE"
 info "호스트명       : $HOST_NAME"
@@ -101,7 +101,7 @@ install_node_exporter() {
 
     sudo tee "$SERVICE_FILE" > /dev/null << EOF
 [Unit]
-Description=AOMS Node Exporter
+Description=Synapse Node Exporter
 Documentation=https://github.com/prometheus/node_exporter
 After=network.target
 
@@ -419,7 +419,7 @@ ALLOY
     # ── 공통 헤더 (Loki 전송 설정) ──
     sudo tee "$CONFIG_FILE" > /dev/null << EOF
 // ================================================================
-// AOMS Grafana Alloy 설정 — 로그 수집 → Loki
+// Synapse Grafana Alloy 설정 — 로그 수집 → Loki
 // 시스템명: ${SYSTEM_NAME} | 역할: ${INSTANCE_ROLE} | 호스트: ${HOST_NAME}
 // ================================================================
 
@@ -567,7 +567,7 @@ EOF
     # ── Systemd 서비스 등록 ──
     sudo tee "$SERVICE_FILE" > /dev/null << EOF
 [Unit]
-Description=AOMS Grafana Alloy (Log Collector)
+Description=Synapse Grafana Alloy (Log Collector)
 Documentation=https://grafana.com/docs/alloy/latest/
 After=network.target
 

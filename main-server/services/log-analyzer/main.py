@@ -1,5 +1,5 @@
 """
-AOMS Log Analyzer — FastAPI 앱
+Synapse Log Analyzer — FastAPI 앱
 
 내부 스케줄러 (n8n WF1~WF11 대체):
   - _scheduler()              : ANALYSIS_INTERVAL_SECONDS마다 로그 분석 (WF1)
@@ -183,7 +183,7 @@ async def lifespan(app: FastAPI):
     await analyzer._llm_http.aclose()
 
 
-app = FastAPI(title="AOMS Log Analyzer", version="1.0.0", lifespan=lifespan)
+app = FastAPI(title="Synapse Log Analyzer", version="1.0.0", lifespan=lifespan)
 
 
 @app.get("/health")

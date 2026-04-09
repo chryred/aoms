@@ -4,7 +4,7 @@ import os
 
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
-    "postgresql+asyncpg://aoms:aoms@localhost:5432/aoms"
+    "postgresql+asyncpg://synapse:synapse@localhost:5432/synapse"
 )
 
 engine = create_async_engine(DATABASE_URL, echo=False, pool_pre_ping=True)

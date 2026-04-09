@@ -24,6 +24,9 @@ SSH 인증:
 """
 
 import asyncio
+import json
+import os
+import textwrap
 import uuid
 from datetime import datetime
 from typing import Optional
@@ -530,6 +533,60 @@ async def _run_install(
                     f"mkdir -p {pid_dir}",
                 )
 
+            # synapse_agent 타입: config.toml 자동생성 및 SFTP 업로드
+            if agent.agent_type == "synapse_agent" and agent.config_path:
+                _log("[3.5/4] synapse_agent config.toml 생성 중...")
+                label_info = {}
+                if agent.label_info:
+                    try:
+                        label_info = json.loads(agent.label_info)
+                    except Exception:
+                        pass
+                system_name = label_info.get("system_name", "unknown")
+                display_name = label_info.get("display_name", system_name)
+                instance_role = label_info.get("instance_role", "default")
+                prometheus_url = os.environ.get("PROMETHEUS_URL", "http://prometheus:9090")
+                wal_dir = os.path.dirname(agent.config_path) + "/wal"
+                config_content = textwrap.dedent(f"""
+                    [agent]
+                    system_name = "{system_name}"
+                    display_name = "{display_name}"
+                    instance_role = "{instance_role}"
+                    host = "{agent.host}"
+                    collect_interval_secs = 15
+                    top_process_count = 20
+
+                    [remote_write]
+                    endpoint = "{prometheus_url}/api/v1/write"
+                    batch_size = 500
+                    timeout_secs = 10
+                    wal_dir = "{wal_dir}"
+                    wal_retention_hours = 2
+
+                    [collectors]
+                    cpu = true
+                    memory = true
+                    disk = true
+                    network = true
+                    process = true
+                    tcp_connections = true
+                    log_monitor = true
+                    web_servers = false
+                    preprocessor = false
+                    heartbeat = true
+
+                    [log_monitor]
+                    paths = ["/var/log/messages"]
+                    keywords = ["ERROR", "CRITICAL", "PANIC", "Fatal", "Exception"]
+                    log_type = "app"
+                """).strip()
+                await asyncio.to_thread(
+                    ssh_put_file,
+                    session["host"], session["port"], session["username"], session["password"],
+                    agent.config_path, config_content,
+                )
+                _log(f"  → config.toml 업로드 완료: {agent.config_path}")
+
             _log("[4/4] 설치 완료.")
             await db.execute(
                 update(AgentInstance).where(AgentInstance.id == agent.id).values(status="installed")
@@ -562,3 +619,93 @@ async def _run_install(
                 )
             )
             await db.commit()
+
+
+# ── Live Status (Prometheus heartbeat 기반) ───────────────────────────────────
+
+@router.get("/agents/{agent_id}/live-status")
+async def get_agent_live_status(
+    agent_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """
+    synapse_agent 전용: Prometheus에서 agent_up/agent_heartbeat 메트릭을 조회하여
+    에이전트의 실제 수집 상태를 반환한다.
+    다른 타입은 DB status를 그대로 반환한다.
+    """
+    import httpx
+    import time
+
+    result = await db.execute(select(AgentInstance).where(AgentInstance.id == agent_id))
+    agent = result.scalar_one_or_none()
+    if not agent:
+        raise HTTPException(404, "에이전트를 찾을 수 없습니다.")
+
+    if agent.agent_type != "synapse_agent":
+        return {"agent_id": agent_id, "type": agent.agent_type, "status": agent.status, "live": False}
+
+    label_info = {}
+    if agent.label_info:
+        try:
+            label_info = json.loads(agent.label_info)
+        except Exception:
+            pass
+    system_name = label_info.get("system_name", "")
+    host = agent.host
+
+    prometheus_url = os.environ.get("PROMETHEUS_URL", "http://prometheus:9090")
+    query = f'agent_up{{system_name="{system_name}",host="{host}"}}'
+
+    results = []
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(
+                f"{prometheus_url}/api/v1/query",
+                params={"query": query},
+            )
+        data = resp.json()
+        results = data.get("data", {}).get("result", [])
+    except Exception:
+        pass
+
+    if results:
+        from datetime import timezone
+        ts = float(results[0]["value"][0])
+        last_seen = datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
+        age_secs = time.time() - ts
+        if age_secs < 30:
+            live_status = "collecting"
+        elif age_secs < 90:
+            live_status = "delayed"
+        else:
+            live_status = "stale"
+    else:
+        last_seen = None
+        live_status = "no_data"
+
+    collectors_active = []
+    try:
+        collectors_query = f'agent_heartbeat{{system_name="{system_name}",host="{host}"}}'
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(
+                f"{prometheus_url}/api/v1/query",
+                params={"query": collectors_query},
+            )
+        cdata = resp.json()
+        for r in cdata.get("data", {}).get("result", []):
+            collector = r.get("metric", {}).get("collector", "")
+            if collector:
+                collectors_active.append(collector)
+    except Exception:
+        pass
+
+    return {
+        "agent_id": agent_id,
+        "type": "synapse_agent",
+        "status": agent.status,
+        "live": live_status in ("collecting", "delayed"),
+        "live_status": live_status,
+        "last_seen": last_seen,
+        "collectors_active": collectors_active,
+    }

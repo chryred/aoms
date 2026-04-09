@@ -281,7 +281,7 @@ class AgentInstance(Base):
     system_id    = Column(Integer, ForeignKey("systems.id", ondelete="CASCADE"), nullable=False)
     host         = Column(String(200), nullable=False)          # 서버 IP
     ssh_username = Column(String(100), nullable=False)          # SSH 접속 계정 (password 저장 금지)
-    agent_type   = Column(String(50), nullable=False)           # alloy | node_exporter | jmx_exporter
+    agent_type   = Column(String(50), nullable=False)           # alloy | node_exporter | jmx_exporter | synapse_agent
     install_path = Column(String(500), nullable=False)          # 바이너리 경로
     config_path  = Column(String(500), nullable=False)          # 설정파일 경로
     port         = Column(Integer)                              # 메트릭 노출 포트

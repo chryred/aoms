@@ -4,7 +4,7 @@
     ADMIN_EMAIL=admin@company.com ADMIN_PASSWORD=changeme python scripts/create_admin.py
 
 Docker 환경:
-    docker exec -it aoms-admin-api \\
+    docker exec -it synapse-admin-api \\
       ADMIN_EMAIL=admin@company.com ADMIN_PASSWORD=changeme \\
       python scripts/create_admin.py
 """
@@ -29,7 +29,7 @@ async def main() -> None:
     name = os.getenv("ADMIN_NAME", "관리자")
     database_url = os.getenv(
         "DATABASE_URL",
-        "postgresql+asyncpg://aoms:aoms@localhost:5432/aoms",
+        "postgresql+asyncpg://synapse:synapse@localhost:5432/synapse",
     )
 
     if not email or not password:

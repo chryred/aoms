@@ -7,6 +7,7 @@ import type {
   AgentInstallRequest,
   AgentStatusOut,
   AgentConfigResponse,
+  AgentLiveStatusOut,
   SSHSessionCreate,
   SSHSessionOut,
 } from '@/types/agent'
@@ -81,4 +82,8 @@ export const agentsApi = {
 
   getInstallJob: (jobId: string) =>
     adminApi.get(`api/v1/agents/jobs/${jobId}`).json<AgentInstallJob>(),
+
+  // ── 라이브 상태 (synapse_agent 전용) ────────────────────────────
+  getLiveStatus: (id: number) =>
+    adminApi.get(`api/v1/agents/${id}/live-status`).json<AgentLiveStatusOut>(),
 }

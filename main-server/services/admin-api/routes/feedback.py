@@ -32,7 +32,7 @@ async def feedback_form(
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AOMS 해결책 등록</title>
+  <title>Synapse 해결책 등록</title>
   <style>
     body  {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
              background: #f0f2f5; display: flex; justify-content: center;

@@ -342,4 +342,6 @@ make test-api   # 단위 테스트 (인프라 불필요 — SQLite in-memory)
 | Phase 5 | 완료 | 계층적 메트릭 집계 (시간/일/주/월) + 장애 예방 시스템 (수집기 유연 레지스트리, 집계 벡터 검색, 프로액티브 알림) |
 | Frontend UI | 완료 | React + 뉴모피즘 프론트엔드 (20개 화면) — 분석 탭, 피드백 관리, 벡터 컬렉션 상태 포함 |
 | Phase 4d | 계획 | Agentic LLM 2-tier (ReAct 루프) |
-| Phase 6 | 계획 | 대시보드 완성, Self-monitoring |
+| Phase 6 (aoms_agent) | 완료 | Rust 단일 바이너리 수집기 (CPU/메모리/디스크/네트워크/프로세스/로그/웹서버 access log), Prometheus Remote Write, WAL 2h 버퍼 |
+| Phase 6 (admin-api) | 완료 | aoms_agent install 자동화 (config.toml SFTP 업로드), live-status API (Prometheus 쿼리), prometheus_analyzer.py 자동 분석 루프 |
+| Phase 6 (frontend) | 완료 | AgentDetailPage live-status 카드 — 수집기별 활성 뱃지, last_seen 표시 |

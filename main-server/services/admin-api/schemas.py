@@ -374,7 +374,7 @@ class AgentInstanceCreate(BaseModel):
     system_id: int
     host: str
     ssh_username: str
-    agent_type: str = Field(pattern="^(alloy|node_exporter|jmx_exporter)$")
+    agent_type: str = Field(pattern="^(alloy|node_exporter|jmx_exporter|synapse_agent)$")
     install_path: str
     config_path: str
     port: Optional[int] = None

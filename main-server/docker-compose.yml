@@ -1,7 +1,7 @@
 services:
   prometheus:
     image: prom/prometheus:v3.10.0
-    container_name: aoms-prometheus
+    container_name: synapse-prometheus
     ports:
       - "9090:9090"
     volumes:
@@ -15,15 +15,16 @@ services:
       - '--storage.tsdb.retention.time=15d'
       - '--storage.tsdb.retention.size=15GB'
       - '--web.enable-lifecycle'
+      - '--web.enable-remote-write-receiver'
     mem_limit: 2560m
     cpus: '1.0'
     restart: unless-stopped
     networks:
-      - aoms-net
+      - synapse-net
 
   alertmanager:
     image: prom/alertmanager:main
-    container_name: aoms-alertmanager
+    container_name: synapse-alertmanager
     ports:
       - "9093:9093"
     volumes:
@@ -32,11 +33,11 @@ services:
     cpus: '0.2'
     restart: unless-stopped
     networks:
-      - aoms-net
+      - synapse-net
 
   loki:
     image: grafana/loki:main-26d9031
-    container_name: aoms-loki
+    container_name: synapse-loki
     ports:
       - "3100:3100"
     volumes:
@@ -47,18 +48,18 @@ services:
     cpus: '0.5'
     restart: unless-stopped
     networks:
-      - aoms-net
+      - synapse-net
 
   grafana:
     image: grafana/grafana:12.4.0
-    container_name: aoms-grafana
+    container_name: synapse-grafana
     ports:
       - "3000:3000"
     volumes:
       - ./configs/grafana/provisioning:/etc/grafana/provisioning:ro,z
       - ./configs/grafana/dashboards:/var/lib/grafana/dashboards:ro,z
       - grafana_data:/var/lib/grafana:z
-      - /app/aoms/ssl:/etc/grafana/ssl:ro,z                        # HTTPS 인증서
+      - /app/synapse/ssl:/etc/grafana/ssl:ro,z                      # HTTPS 인증서
     environment:
       # 인증 설정
       - GF_SECURITY_ADMIN_USER=admin
@@ -86,15 +87,15 @@ services:
     depends_on: [prometheus, loki]
     restart: unless-stopped
     networks:
-      - aoms-net
+      - synapse-net
 
   postgres:
     image: postgres:16-alpine
-    container_name: aoms-postgres
+    container_name: synapse-postgres
     ports:
       - "5432:5432"
     environment:
-      - POSTGRES_DB=aoms
+      - POSTGRES_DB=synapse
       - POSTGRES_USER=${DB_USER}
       - POSTGRES_PASSWORD=${DB_PASSWORD}
       - PGDATA=/var/lib/postgresql/data/pgdata
@@ -106,21 +107,21 @@ services:
     mem_limit: 512m
     cpus: '0.3'
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U aoms -d aoms"]
+      test: ["CMD-SHELL", "pg_isready -U synapse -d synapse"]
       interval: 5s
       timeout: 5s
       retries: 5
     restart: unless-stopped
     networks:
-      - aoms-net
+      - synapse-net
 
   admin-api:
-    image: aoms-admin-api:1.0       # 사전 빌드 후 load된 이미지
-    container_name: aoms-admin-api
+    image: synapse-admin-api:1.0       # 사전 빌드 후 load된 이미지
+    container_name: synapse-admin-api
     ports:
       - "8080:8080"
     environment:
-      - DATABASE_URL=postgresql://aoms:${DB_PASSWORD}@postgres:5432/aoms
+      - DATABASE_URL=postgresql://synapse:${DB_PASSWORD}@postgres:5432/synapse
       - TEAMS_WEBHOOK_URL=${TEAMS_WEBHOOK_URL}
       - LLM_API_URL=${LLM_API_URL}
       - LOG_ANALYZER_URL=http://log-analyzer:8000
@@ -134,11 +135,11 @@ services:
         condition: service_started
     restart: unless-stopped
     networks:
-      - aoms-net
+      - synapse-net
 
   log-analyzer:
-    image: aoms-log-analyzer:1.0    # 사전 빌드 후 load된 이미지
-    container_name: aoms-log-analyzer
+    image: synapse-log-analyzer:1.0    # 사전 빌드 후 load된 이미지
+    container_name: synapse-log-analyzer
     ports:
       - "8000:8000"
     environment:
@@ -160,10 +161,10 @@ services:
     depends_on: [loki, admin-api]
     restart: unless-stopped
     networks:
-      - aoms-net
+      - synapse-net
   frontend:
-    image: aoms-frontend:1.0           # 사전 빌드 후 load된 이미지
-    container_name: aoms-frontend
+    image: synapse-frontend:1.0           # 사전 빌드 후 load된 이미지
+    container_name: synapse-frontend
     ports:
       - "3001:80"
     mem_limit: 64m
@@ -171,11 +172,11 @@ services:
     depends_on: [admin-api, log-analyzer]
     restart: unless-stopped
     networks:
-      - aoms-net
+      - synapse-net
 
   n8n:
     image: n8nio/n8n:1.44.0
-    container_name: aoms-n8n
+    container_name: synapse-n8n
     ports:
       - "5678:5678"
     environment:
@@ -189,7 +190,7 @@ services:
       - DB_TYPE=postgresdb
       - DB_POSTGRESDB_HOST=postgres
       - DB_POSTGRESDB_PORT=5432
-      - DB_POSTGRESDB_DATABASE=aoms
+      - DB_POSTGRESDB_DATABASE=synapse
       - DB_POSTGRESDB_USER=${DB_USER}
       - DB_POSTGRESDB_PASSWORD=${DB_PASSWORD}
       - DB_POSTGRESDB_SCHEMA=n8n
@@ -215,7 +216,7 @@ services:
         condition: service_healthy
     restart: unless-stopped
     networks:
-      - aoms-net
+      - synapse-net
 
 volumes:
   prometheus_data:
@@ -225,5 +226,5 @@ volumes:
   n8n_data:
 
 networks:
-  aoms-net:
+  synapse-net:
     driver: bridge

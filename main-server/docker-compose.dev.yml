@@ -12,14 +12,14 @@ services:
     ports:
       - "5432:5432"
     environment:
-      - POSTGRES_DB=aoms
-      - POSTGRES_USER=aoms
-      - POSTGRES_PASSWORD=aoms
+      - POSTGRES_DB=synapse
+      - POSTGRES_USER=synapse
+      - POSTGRES_PASSWORD=synapse
     volumes:
       - postgres_dev_data:/var/lib/postgresql/data
       - ./services/admin-api/init.sql:/docker-entrypoint-initdb.d/01_init.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U aoms -d aoms"]
+      test: ["CMD-SHELL", "pg_isready -U synapse -d synapse"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -53,6 +53,7 @@ services:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.retention.time=3d'
       - '--web.enable-lifecycle'
+      - '--web.enable-remote-write-receiver'
     extra_hosts:
       - "host.docker.internal:host-gateway"   # Mac에서 호스트 접근
     restart: unless-stopped
@@ -100,9 +101,9 @@ services:
       - DB_TYPE=postgresdb
       - DB_POSTGRESDB_HOST=postgres
       - DB_POSTGRESDB_PORT=5432
-      - DB_POSTGRESDB_DATABASE=aoms
-      - DB_POSTGRESDB_USER=aoms
-      - DB_POSTGRESDB_PASSWORD=aoms
+      - DB_POSTGRESDB_DATABASE=synapse
+      - DB_POSTGRESDB_USER=synapse
+      - DB_POSTGRESDB_PASSWORD=synapse
       - DB_POSTGRESDB_SCHEMA=n8n
       - GENERIC_TIMEZONE=Asia/Seoul
       - N8N_LOG_LEVEL=info
@@ -129,7 +130,7 @@ services:
       - dev-net
 
   frontend:
-    image: aoms-frontend:1.0
+    image: synapse-frontend:1.0
     container_name: dev-frontend
     ports:
       - "3001:80"

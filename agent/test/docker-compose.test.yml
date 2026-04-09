@@ -1,0 +1,32 @@
+# synapse_agent 로컬 테스트 컴포즈
+# 사용법:
+#   cd synapse/agent
+#   docker compose -f test/docker-compose.test.yml up --build
+#
+# Prometheus: http://localhost:9090
+# 확인 쿼리:
+#   cpu_usage_percent{system_name="test-system"}
+#   log_error_count{system_name="test-system"}
+#   heartbeat{system_name="test-system"}
+
+services:
+  synapse-agent-test:
+    build:
+      context: ..        # agent/ 루트 (Cargo.toml 위치)
+      dockerfile: test/Dockerfile
+    container_name: synapse-agent-test
+    volumes:
+      - ./config.toml:/etc/synapse-agent/config.toml:ro
+      - agent_wal:/var/lib/synapse-agent/wal
+      - agent_logs:/var/log/app
+    networks:
+      - main-server_dev-net   # 기존 dev-net에 연결 → dev-prometheus 접근
+    restart: unless-stopped
+
+volumes:
+  agent_wal:
+  agent_logs:
+
+networks:
+  main-server_dev-net:
+    external: true    # docker-compose.dev.yml 에서 생성된 네트워크

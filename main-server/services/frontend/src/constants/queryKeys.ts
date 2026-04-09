@@ -43,4 +43,5 @@ export const qk = {
   agentStatus: (id: number) => ['agents', id, 'status'] as const,
   agentConfig: (id: number) => ['agents', id, 'config'] as const,
   installJob: (jobId: string) => ['agents', 'jobs', jobId] as const,
+  agentLiveStatus: (id: number) => ['agents', id, 'live-status'] as const,
 }

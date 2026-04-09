@@ -1,0 +1,67 @@
+[agent]
+system_name = "crm"
+display_name = "고객관리시스템"
+instance_role = "web"
+host = "192.168.x.x"
+collect_interval_secs = 15
+top_process_count = 20
+
+[remote_write]
+endpoint = "http://<main-server>:9090/api/v1/write"
+batch_size = 500
+timeout_secs = 10
+wal_dir = "/var/lib/synapse-agent/wal"
+wal_retention_hours = 2
+
+[collectors]
+cpu = true
+memory = true
+disk = true
+network = true
+process = true
+tcp_connections = true
+log_monitor = true
+web_servers = true
+preprocessor = false
+heartbeat = true
+
+[log_monitor]
+paths = ["/var/log/messages", "/opt/app/logs/*.log"]
+keywords = ["ERROR", "CRITICAL", "PANIC", "Fatal", "Exception"]
+log_type = "app"
+
+[[services]]
+name = "jeus-was1"
+display_name = "업무서버-1"
+process_match = "was1"
+
+[[services]]
+name = "jeus-was2"
+display_name = "업무서버-2"
+process_match = "was2"
+
+[[web_servers]]
+name = "nginx-main"
+display_name = "메인 웹서버"
+type = "nginx"
+log_path = "/var/log/nginx/access.log"
+log_format = "nginx_json"
+was_services = ["jeus-was1", "jeus-was2"]
+slow_threshold_ms = 2000
+url_patterns = [
+  { pattern = "/api/customers", display = "고객조회" },
+  { pattern = "/api/orders", display = "주문처리" },
+]
+
+[[web_servers]]
+name = "webtob-api"
+display_name = "API 웹서버"
+type = "webtob"
+log_path = "/opt/webtob/logs/access.log"
+log_format = "combined"
+was_services = ["jeus-was3"]
+slow_threshold_ms = 3000
+url_patterns = []
+
+[preprocessor]
+summary_intervals_secs = [60, 300]

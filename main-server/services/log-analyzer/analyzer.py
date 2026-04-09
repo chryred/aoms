@@ -1,5 +1,5 @@
 """
-AOMS Log Analyzer — 핵심 분석 로직
+Synapse Log Analyzer — 핵심 분석 로직
 
 흐름:
   1. Admin API에서 활성 시스템 목록 조회

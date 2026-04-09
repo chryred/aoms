@@ -32,7 +32,7 @@
       "credentials": {
         "postgres": {
           "id": "REPLACE_WITH_POSTGRES_CRED_ID",
-          "name": "AOMS PostgreSQL"
+          "name": "Synapse PostgreSQL"
         }
       }
     },
@@ -50,7 +50,7 @@
       "credentials": {
         "postgres": {
           "id": "REPLACE_WITH_POSTGRES_CRED_ID",
-          "name": "AOMS PostgreSQL"
+          "name": "Synapse PostgreSQL"
         }
       }
     },
@@ -68,7 +68,7 @@
       "credentials": {
         "postgres": {
           "id": "REPLACE_WITH_POSTGRES_CRED_ID",
-          "name": "AOMS PostgreSQL"
+          "name": "Synapse PostgreSQL"
         }
       }
     },
@@ -86,7 +86,7 @@
       "credentials": {
         "postgres": {
           "id": "REPLACE_WITH_POSTGRES_CRED_ID",
-          "name": "AOMS PostgreSQL"
+          "name": "Synapse PostgreSQL"
         }
       }
     },
@@ -104,13 +104,13 @@
       "credentials": {
         "postgres": {
           "id": "REPLACE_WITH_POSTGRES_CRED_ID",
-          "name": "AOMS PostgreSQL"
+          "name": "Synapse PostgreSQL"
         }
       }
     },
     {
       "parameters": {
-        "jsCode": "// 모든 쿼리 결과 통합 및 LLM 프롬프트 구성 (Phase 5 강화)\nconst stats    = $('이상 유형별 통계').all().map(i => i.json);\nconst top5     = $('Top5 시스템 조회').all().map(i => i.json);\nconst critical = $('미처리 Critical 조회').first().json;\nconst metricAlerts = $('메트릭 이상 집계 조회').all().map(i => i.json);\nconst predictions  = $('장애 예측 항목 조회').all().map(i => i.json);\n\nconst today = new Date().toLocaleDateString('ko-KR', { timeZone: 'Asia/Seoul' });\n\n// 로그 이상 유형별 집계\nconst typeSummary = {};\nstats.forEach(r => {\n  typeSummary[r.anomaly_type] = (typeSummary[r.anomaly_type] || 0) + parseInt(r.cnt, 10);\n});\nconst totalLogAlerts = Object.values(typeSummary).reduce((a, b) => a + b, 0);\n\nconst statsText = [\n  `신규(new): ${typeSummary.new || 0}건`,\n  `반복(recurring): ${typeSummary.recurring || 0}건`,\n  `유사(related): ${typeSummary.related || 0}건`,\n  `중복(duplicate): ${typeSummary.duplicate || 0}건`\n].join(', ');\n\nconst top5Text = top5.map((r, i) =>\n  `${i + 1}. ${r.display_name}(${r.system_name}): ${r.cnt}건`\n).join('\\n');\n\n// 메트릭 이상 요약\nconst metricText = metricAlerts.length\n  ? metricAlerts.map(r =>\n      `  - ${r.display_name}: ${r.collector_type}/${r.metric_group} [${r.llm_severity}]`\n    ).join('\\n')\n  : '  없음';\n\n// 장애 예측 요약\nconst predText = predictions.length\n  ? predictions.map(r =>\n      `  - ${r.display_name} (${r.collector_type}/${r.metric_group}): ${r.llm_prediction}`\n    ).join('\\n')\n  : '  없음';\n\nconst prompt = `오늘(${today}) AOMS 모니터링 일일 리포트를 작성해 주세요.\n\n[로그 이상 탐지 통계]\n- 총 알림: ${totalLogAlerts}건\n- ${statsText}\n\n[주요 발생 시스템 Top 5]\n${top5Text || '없음'}\n\n[메트릭 이상 시스템]\n${metricText}\n\n[향후 12시간 내 장애 예측]\n${predText}\n\n[미처리 Critical]: ${critical.unresolved_critical || 0}건\n\n3~4문장으로 오늘의 핵심 요약, 가장 주의가 필요한 시스템, 예방 조치 권고를 작성해 주세요. 한국어로 답변하세요.`;\n\nreturn [{\n  json: {\n    prompt, today, totalLogAlerts, typeSummary, top5,\n    metricAlerts, predictions,\n    unresolvedCritical: critical.unresolved_critical || 0\n  }\n}];\n"
+        "jsCode": "// 모든 쿼리 결과 통합 및 LLM 프롬프트 구성 (Phase 5 강화)\nconst stats    = $('이상 유형별 통계').all().map(i => i.json);\nconst top5     = $('Top5 시스템 조회').all().map(i => i.json);\nconst critical = $('미처리 Critical 조회').first().json;\nconst metricAlerts = $('메트릭 이상 집계 조회').all().map(i => i.json);\nconst predictions  = $('장애 예측 항목 조회').all().map(i => i.json);\n\nconst today = new Date().toLocaleDateString('ko-KR', { timeZone: 'Asia/Seoul' });\n\n// 로그 이상 유형별 집계\nconst typeSummary = {};\nstats.forEach(r => {\n  typeSummary[r.anomaly_type] = (typeSummary[r.anomaly_type] || 0) + parseInt(r.cnt, 10);\n});\nconst totalLogAlerts = Object.values(typeSummary).reduce((a, b) => a + b, 0);\n\nconst statsText = [\n  `신규(new): ${typeSummary.new || 0}건`,\n  `반복(recurring): ${typeSummary.recurring || 0}건`,\n  `유사(related): ${typeSummary.related || 0}건`,\n  `중복(duplicate): ${typeSummary.duplicate || 0}건`\n].join(', ');\n\nconst top5Text = top5.map((r, i) =>\n  `${i + 1}. ${r.display_name}(${r.system_name}): ${r.cnt}건`\n).join('\\n');\n\n// 메트릭 이상 요약\nconst metricText = metricAlerts.length\n  ? metricAlerts.map(r =>\n      `  - ${r.display_name}: ${r.collector_type}/${r.metric_group} [${r.llm_severity}]`\n    ).join('\\n')\n  : '  없음';\n\n// 장애 예측 요약\nconst predText = predictions.length\n  ? predictions.map(r =>\n      `  - ${r.display_name} (${r.collector_type}/${r.metric_group}): ${r.llm_prediction}`\n    ).join('\\n')\n  : '  없음';\n\nconst prompt = `오늘(${today}) Synapse 모니터링 일일 리포트를 작성해 주세요.\n\n[로그 이상 탐지 통계]\n- 총 알림: ${totalLogAlerts}건\n- ${statsText}\n\n[주요 발생 시스템 Top 5]\n${top5Text || '없음'}\n\n[메트릭 이상 시스템]\n${metricText}\n\n[향후 12시간 내 장애 예측]\n${predText}\n\n[미처리 Critical]: ${critical.unresolved_critical || 0}건\n\n3~4문장으로 오늘의 핵심 요약, 가장 주의가 필요한 시스템, 예방 조치 권고를 작성해 주세요. 한국어로 답변하세요.`;\n\nreturn [{\n  json: {\n    prompt, today, totalLogAlerts, typeSummary, top5,\n    metricAlerts, predictions,\n    unresolvedCritical: critical.unresolved_critical || 0\n  }\n}];\n"
       },
       "id": "wf4-node-05",
       "name": "리포트 데이터 통합",
@@ -136,7 +136,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const llmResp = $input.first().json;\nconst data    = $('리포트 데이터 통합').first().json;\nconst llmText = llmResp?.choices?.[0]?.message?.content \n  || llmResp?.response \n  || llmResp?.content \n  || '요약 생성 실패';\n\nconst today = data.today;\nconst ts    = data.typeSummary;\nconst top5  = data.top5 || [];\nconst metricAlerts = data.metricAlerts || [];\nconst predictions  = data.predictions || [];\n\nconst facts = [\n  { title: '🆕 신규',  value: `${ts.new       || 0}건` },\n  { title: '🔁 반복',  value: `${ts.recurring || 0}건` },\n  { title: '🔗 유사',  value: `${ts.related   || 0}건` },\n  { title: '🔄 중복',  value: `${ts.duplicate || 0}건` },\n  { title: '⚠️ 미처리 Critical', value: `${data.unresolvedCritical}건` }\n];\n\nconst top5Facts = top5.map((r, i) => ({\n  title: `${i+1}위`,\n  value: `${r.display_name}: ${r.cnt}건`\n}));\n\nconst metricFacts = metricAlerts.slice(0, 5).map(r => ({\n  title: r.display_name,\n  value: `${r.collector_type}/${r.metric_group} [${r.llm_severity}]`\n}));\n\nconst predFacts = predictions.slice(0, 3).map(r => ({\n  title: r.display_name,\n  value: r.llm_prediction?.substring(0, 60) || '-'\n}));\n\nconst body = [\n  { type: 'TextBlock', text: `📊 AOMS 일일 모니터링 리포트 (${today})`, weight: 'Bolder', size: 'Large' },\n  { type: 'TextBlock', text: '로그 이상 분류 통계', weight: 'Bolder', size: 'Small', spacing: 'Medium' },\n  { type: 'FactSet', facts },\n  { type: 'TextBlock', text: '주요 발생 시스템 Top 5', weight: 'Bolder', size: 'Small', spacing: 'Medium' },\n  { type: 'FactSet', facts: top5Facts.length ? top5Facts : [{ title: '-', value: '데이터 없음' }] }\n];\n\nif (metricFacts.length) {\n  body.push({ type: 'TextBlock', text: '⚡ 메트릭 이상 시스템', weight: 'Bolder', size: 'Small', spacing: 'Medium' });\n  body.push({ type: 'FactSet', facts: metricFacts });\n}\n\nif (predFacts.length) {\n  body.push({ type: 'TextBlock', text: '🔮 향후 장애 예측', weight: 'Bolder', size: 'Small', spacing: 'Medium', color: 'Warning' });\n  body.push({ type: 'FactSet', facts: predFacts });\n}\n\nbody.push({ type: 'TextBlock', text: '🤖 AI 요약', weight: 'Bolder', size: 'Small', spacing: 'Medium' });\nbody.push({ type: 'TextBlock', text: llmText, wrap: true });\n\nreturn [{\n  json: {\n    card: JSON.stringify({\n      type: 'message',\n      attachments: [{\n        contentType: 'application/vnd.microsoft.card.adaptive',\n        content: {\n          '$schema': 'http://adaptivecards.io/schemas/adaptive-card.json',\n          type: 'AdaptiveCard',\n          version: '1.4',\n          body\n        }\n      }]\n    }),\n    llm_summary: llmText,\n    system_count: top5.length\n  }\n}];\n"
+        "jsCode": "const llmResp = $input.first().json;\nconst data    = $('리포트 데이터 통합').first().json;\nconst llmText = llmResp?.choices?.[0]?.message?.content \n  || llmResp?.response \n  || llmResp?.content \n  || '요약 생성 실패';\n\nconst today = data.today;\nconst ts    = data.typeSummary;\nconst top5  = data.top5 || [];\nconst metricAlerts = data.metricAlerts || [];\nconst predictions  = data.predictions || [];\n\nconst facts = [\n  { title: '🆕 신규',  value: `${ts.new       || 0}건` },\n  { title: '🔁 반복',  value: `${ts.recurring || 0}건` },\n  { title: '🔗 유사',  value: `${ts.related   || 0}건` },\n  { title: '🔄 중복',  value: `${ts.duplicate || 0}건` },\n  { title: '⚠️ 미처리 Critical', value: `${data.unresolvedCritical}건` }\n];\n\nconst top5Facts = top5.map((r, i) => ({\n  title: `${i+1}위`,\n  value: `${r.display_name}: ${r.cnt}건`\n}));\n\nconst metricFacts = metricAlerts.slice(0, 5).map(r => ({\n  title: r.display_name,\n  value: `${r.collector_type}/${r.metric_group} [${r.llm_severity}]`\n}));\n\nconst predFacts = predictions.slice(0, 3).map(r => ({\n  title: r.display_name,\n  value: r.llm_prediction?.substring(0, 60) || '-'\n}));\n\nconst body = [\n  { type: 'TextBlock', text: `📊 Synapse 일일 모니터링 리포트 (${today})`, weight: 'Bolder', size: 'Large' },\n  { type: 'TextBlock', text: '로그 이상 분류 통계', weight: 'Bolder', size: 'Small', spacing: 'Medium' },\n  { type: 'FactSet', facts },\n  { type: 'TextBlock', text: '주요 발생 시스템 Top 5', weight: 'Bolder', size: 'Small', spacing: 'Medium' },\n  { type: 'FactSet', facts: top5Facts.length ? top5Facts : [{ title: '-', value: '데이터 없음' }] }\n];\n\nif (metricFacts.length) {\n  body.push({ type: 'TextBlock', text: '⚡ 메트릭 이상 시스템', weight: 'Bolder', size: 'Small', spacing: 'Medium' });\n  body.push({ type: 'FactSet', facts: metricFacts });\n}\n\nif (predFacts.length) {\n  body.push({ type: 'TextBlock', text: '🔮 향후 장애 예측', weight: 'Bolder', size: 'Small', spacing: 'Medium', color: 'Warning' });\n  body.push({ type: 'FactSet', facts: predFacts });\n}\n\nbody.push({ type: 'TextBlock', text: '🤖 AI 요약', weight: 'Bolder', size: 'Small', spacing: 'Medium' });\nbody.push({ type: 'TextBlock', text: llmText, wrap: true });\n\nreturn [{\n  json: {\n    card: JSON.stringify({\n      type: 'message',\n      attachments: [{\n        contentType: 'application/vnd.microsoft.card.adaptive',\n        content: {\n          '$schema': 'http://adaptivecards.io/schemas/adaptive-card.json',\n          type: 'AdaptiveCard',\n          version: '1.4',\n          body\n        }\n      }]\n    }),\n    llm_summary: llmText,\n    system_count: top5.length\n  }\n}];\n"
       },
       "id": "wf4-node-07",
       "name": "리포트 카드 생성",
@@ -208,5 +208,5 @@
   "versionId": "wf4-v2",
   "meta": { "instanceId": "local" },
   "id": "wf4-daily-report",
-  "tags": [{ "id": "aoms", "name": "AOMS" }]
+  "tags": [{ "id": "synapse", "name": "Synapse" }]
 }

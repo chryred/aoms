@@ -47,8 +47,8 @@
       ],
       "credentials": {
         "postgres": {
-          "id": "postgres-aoms",
-          "name": "AOMS PostgreSQL"
+          "id": "postgres-synapse",
+          "name": "Synapse PostgreSQL"
         }
       }
     },
@@ -68,8 +68,8 @@
       ],
       "credentials": {
         "postgres": {
-          "id": "postgres-aoms",
-          "name": "AOMS PostgreSQL"
+          "id": "postgres-synapse",
+          "name": "Synapse PostgreSQL"
         }
       }
     },
@@ -313,8 +313,8 @@
   "id": "wf3-feedback-processing",
   "tags": [
     {
-      "id": "aoms",
-      "name": "AOMS"
+      "id": "synapse",
+      "name": "Synapse"
     }
   ]
 }

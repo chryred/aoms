@@ -1,4 +1,4 @@
-# AOMS — Prometheus Alert Rules
+# Synapse — Prometheus Alert Rules
 #
 # 감지 유형 3가지:
 #   spike     — 5분 평균이 1시간 평균 대비 30% 급등 (for 2m)

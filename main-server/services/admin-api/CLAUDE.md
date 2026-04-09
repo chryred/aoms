@@ -20,7 +20,7 @@
 
 ```
 admin-api/
-├── main.py              # FastAPI 앱 초기화, 라우터 등록, lifespan(테이블 자동 생성 + SSH 세션 정리 루프)
+├── main.py              # FastAPI 앱 초기화, 라우터 등록, lifespan(테이블 자동 생성 + SSH 세션 정리 루프 + Prometheus 분석 루프)
 ├── database.py          # DB 엔진·세션 팩토리, get_db() 의존성
 ├── models.py            # SQLAlchemy ORM 모델 (16개 테이블 — agent_instances, agent_install_jobs 포함)
 ├── schemas.py           # Pydantic 입출력 스키마 (ContactOut.llm_api_key 마스킹 포함)
@@ -42,9 +42,10 @@ admin-api/
 │   ├── reports.py           # /api/v1/reports (Phase 5)
 │   └── agents.py            # /api/v1/ssh/session, /api/v1/agents (Phase 6)
 └── services/
-    ├── cooldown.py      # 알림 중복 발송 방지 (5분 쿨다운)
-    ├── notification.py  # TeamsNotifier — Adaptive Card 생성·발송
-    └── ssh_session.py   # SSH 세션 인메모리 관리 (30분 슬라이딩 TTL, DB 저장 금지)
+    ├── cooldown.py              # 알림 중복 발송 방지 (5분 쿨다운)
+    ├── notification.py          # TeamsNotifier — Adaptive Card 생성·발송
+    ├── ssh_session.py           # SSH 세션 인메모리 관리 (30분 슬라이딩 TTL, DB 저장 금지)
+    └── prometheus_analyzer.py  # Prometheus PromQL 이상 감지 → LLM 분석 → Teams 알림 (Phase F)
 ```
 
 ## 데이터 모델
@@ -147,7 +148,8 @@ docker exec -it aoms-admin-api \
 **제어 공통 규칙:**
 - 모든 제어 요청은 `X-SSH-Session: {token}` 헤더 필수
 - systemd 미사용 — nohup + PID 파일 방식
-- `agent_type`: `alloy` | `node_exporter` | `jmx_exporter`
+- `agent_type`: `alloy` | `node_exporter` | `jmx_exporter` | `aoms_agent`
+- `GET /{id}/live-status` — aoms_agent 전용: Prometheus `agent_up` 쿼리 → last_seen, live_status, collectors_active 반환
 
 ## 핵심 로직
 
@@ -189,6 +191,12 @@ log-analyzer → POST /api/v1/analysis
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | `15` | Access Token 만료 시간(분) |
 | `REFRESH_TOKEN_EXPIRE_DAYS` | `7` | Refresh Token 만료 시간(일) |
 | `COOKIE_SECURE` | `false` | HTTPS 환경에서 `true`로 설정 |
+| `PROMETHEUS_URL` | `""` | Prometheus HTTP API URL (설정 시 Phase F 자동 분석 활성화) |
+| `PROMETHEUS_ANALYZE_INTERVAL_SECONDS` | `300` | Prometheus 이상 감지 주기(초) |
+| `PROM_ALERT_CPU_THRESHOLD` | `85.0` | CPU 이상 감지 임계치(%) |
+| `PROM_ALERT_HTTP_SLOW_MS` | `3000.0` | HTTP 응답 지연 임계치(ms) |
+| `PROM_ALERT_MEM_THRESHOLD` | `85.0` | 메모리 이상 감지 임계치(%) |
+| `PROM_ALERT_LOG_ERROR_RATE` | `5.0` | 로그 에러 급증 임계치(건/분) |
 
 ## DB 초기화
 

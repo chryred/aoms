@@ -10,6 +10,7 @@ from routes import alerts, analysis, contacts, feedback, systems
 from routes import collector_config, aggregations, reports, auth as auth_router
 from routes import agents as agents_router
 from services.ssh_session import run_cleanup_loop
+from services.prometheus_analyzer import run_prometheus_analyzer_loop
 
 
 @asynccontextmanager
@@ -19,12 +20,15 @@ async def lifespan(app: FastAPI):
         await conn.run_sync(Base.metadata.create_all)
     # SSH 세션 만료 정리 루프 시작
     cleanup_task = asyncio.create_task(run_cleanup_loop())
+    # Prometheus 메트릭 자동 분석 루프 (PROMETHEUS_URL 설정 시 활성화)
+    analyzer_task = asyncio.create_task(run_prometheus_analyzer_loop())
     yield
     cleanup_task.cancel()
+    analyzer_task.cancel()
 
 
 app = FastAPI(
-    title="AOMS Admin API",
+    title="Synapse Admin API",
     description="백화점 통합 모니터링 시스템 - 관리 API",
     version="1.0.0",
     lifespan=lifespan,

@@ -1,5 +1,5 @@
 """
-AOMS Phase 4b — 벡터 임베딩 & Qdrant 유사도 검색 클라이언트
+Synapse Phase 4b — 벡터 임베딩 & Qdrant 유사도 검색 클라이언트
 
 T4.10: 로그 정규화 및 Ollama 임베딩
 T4.11: Qdrant 유사도 검색 및 저장

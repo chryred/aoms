@@ -75,7 +75,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const body = $input.first().json.body || {};\nconst status = body.status || 'unknown';\nconst errMsg = body.detail || JSON.stringify(body);\n\nreturn [{\n  json: {\n    type: 'message',\n    attachments: [{\n      contentType: 'application/vnd.microsoft.card.adaptive',\n      content: {\n        type: 'AdaptiveCard',\n        version: '1.4',\n        body: [\n          {\n            type: 'TextBlock',\n            text: '⚠️ AOMS 로그 분석 실행 오류',\n            weight: 'Bolder',\n            size: 'Medium',\n            color: 'Attention'\n          },\n          {\n            type: 'FactSet',\n            facts: [\n              { title: '상태', value: status },\n              { title: '오류 내용', value: errMsg },\n              { title: '발생 시각', value: new Date().toLocaleString('ko-KR', {timeZone: 'Asia/Seoul'}) }\n            ]\n          }\n        ]\n      }\n    }]\n  }\n}];"
+        "jsCode": "const body = $input.first().json.body || {};\nconst status = body.status || 'unknown';\nconst errMsg = body.detail || JSON.stringify(body);\n\nreturn [{\n  json: {\n    type: 'message',\n    attachments: [{\n      contentType: 'application/vnd.microsoft.card.adaptive',\n      content: {\n        type: 'AdaptiveCard',\n        version: '1.4',\n        body: [\n          {\n            type: 'TextBlock',\n            text: '⚠️ Synapse 로그 분석 실행 오류',\n            weight: 'Bolder',\n            size: 'Medium',\n            color: 'Attention'\n          },\n          {\n            type: 'FactSet',\n            facts: [\n              { title: '상태', value: status },\n              { title: '오류 내용', value: errMsg },\n              { title: '발생 시각', value: new Date().toLocaleString('ko-KR', {timeZone: 'Asia/Seoul'}) }\n            ]\n          }\n        ]\n      }\n    }]\n  }\n}];"
       },
       "id": "wf1-node-05",
       "name": "오류 카드 생성",
@@ -134,5 +134,5 @@
     "instanceId": "local"
   },
   "id": "wf1-log-analysis-trigger",
-  "tags": [{"id": "aoms", "name": "AOMS"}]
+  "tags": [{"id": "synapse", "name": "Synapse"}]
 }
