@@ -1,7 +1,7 @@
 [agent]
 system_name = "crm"
 display_name = "고객관리시스템"
-instance_role = "web"
+instance_role = "was1"   # HA 이중화 식별자 (was1/was2, db-primary/db-standby 등)
 host = "192.168.x.x"
 collect_interval_secs = 15
 top_process_count = 20
@@ -25,8 +25,14 @@ web_servers = true
 preprocessor = false
 heartbeat = true
 
-[log_monitor]
-paths = ["/var/log/messages", "/opt/app/logs/*.log"]
+# 다중 로그 소스 — 각 [[log_monitor]] 섹션은 독립적인 log_type 라벨을 가짐
+[[log_monitor]]
+paths = ["/home/jeus/logs/JeusServer.log", "/home/jeus/logs/JeusContainer.log"]
+keywords = ["ERROR", "CRITICAL", "PANIC", "Fatal", "Exception"]
+log_type = "jeus"
+
+[[log_monitor]]
+paths = ["/opt/app/logs/*.log"]
 keywords = ["ERROR", "CRITICAL", "PANIC", "Fatal", "Exception"]
 log_type = "app"
 

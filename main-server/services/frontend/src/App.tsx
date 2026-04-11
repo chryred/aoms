@@ -26,6 +26,9 @@ const ContactFormPage = lazy(() =>
 const SystemDetailPage = lazy(() =>
   import('@/pages/SystemDetailPage').then((m) => ({ default: m.SystemDetailPage })),
 )
+const DashboardSystemDetailPage = lazy(() =>
+  import('@/pages/DashboardSystemDetailPage').then((m) => ({ default: m.DashboardSystemDetailPage })),
+)
 const ReportPage = lazy(() => import('@/pages/ReportPage').then((m) => ({ default: m.ReportPage })))
 const ReportHistoryPage = lazy(() =>
   import('@/pages/ReportHistoryPage').then((m) => ({ default: m.ReportHistoryPage })),
@@ -136,7 +139,7 @@ export function App() {
             path="/dashboard/:systemId"
             element={
               <Suspense fallback={<LoadingSkeleton shape="card" count={3} />}>
-                <SystemDetailPage />
+                <DashboardSystemDetailPage />
               </Suspense>
             }
           />

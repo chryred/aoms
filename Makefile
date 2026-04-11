@@ -21,7 +21,7 @@ help:
 	@echo "AOMS 로컬 개발 명령어"
 	@echo "────────────────────────────────────────────────"
 	@echo "  인프라"
-	@echo "    make dev-up         로컬 인프라 시작 (postgres, loki, qdrant 등)"
+	@echo "    make dev-up         로컬 인프라 시작 (postgres, prometheus, qdrant 등)"
 	@echo "    make dev-down       로컬 인프라 중지"
 	@echo "    make dev-restart    로컬 인프라 재시작"
 	@echo "    make dev-clean      인프라 중지 + 볼륨 삭제 (DB 초기화)"
@@ -41,11 +41,10 @@ help:
 	@echo "    make seed-db            테스트 시스템+담당자 DB 등록 (1회)"
 	@echo "    make test-metric        Alertmanager 형식 메트릭 알림 주입"
 	@echo "    make reset-cooldown     5분 쿨다운 초기화 (test-metric 재실행용)"
-	@echo "    make push-logs          Loki에 ERROR 로그 직접 주입"
 	@echo "    make trigger-analysis   log-analyzer 분석 수동 트리거"
-	@echo "    make inject-analysis    분석 결과 직접 주입 (LLM/Loki 우회)"
+	@echo "    make inject-analysis    분석 결과 직접 주입 (LLM 우회)"
 	@echo "    make test-metric-alert  seed-db + test-metric 합성"
-	@echo "    make test-log-pipeline  seed-db + push-logs + trigger-analysis 합성"
+	@echo "    make test-log-pipeline  seed-db + trigger-analysis 합성"
 	@echo "    make test-inject        seed-db + inject-analysis 합성"
 	@echo "    make test-all-inject    전체 파이프라인 순차 실행"
 	@echo ""
@@ -83,7 +82,6 @@ dev-up:
 	cd $(MAIN_SERVER) && docker compose -f docker-compose.dev.yml up -d
 	@echo "✓ 완료"
 	@echo "  postgres    : localhost:5432"
-	@echo "  loki        : localhost:3100"
 	@echo "  prometheus  : localhost:9090"
 	@echo "  alertmanager: localhost:9093"
 	@echo "  qdrant      : localhost:6333"
@@ -180,13 +178,13 @@ health:
 # 사용 순서:
 #   1. make seed-db          → 테스트 시스템 + 담당자 생성 (1회)
 #   2a. make test-metric     → 메트릭 알림 파이프라인
-#   2b. make push-logs && make trigger-analysis  → 로그 분석 파이프라인
-#   2c. make inject-analysis → 직접 분석 결과 주입 (LLM/Loki 우회)
+#   2b. make trigger-analysis → 로그 분석 트리거 (synapse_agent → Prometheus → log-analyzer)
+#   2c. make inject-analysis → 직접 분석 결과 주입 (LLM 우회)
+#   ※ 로그 분석 테스트: synapse_agent가 log_error_total 메트릭을 Prometheus에 전송해야 함
 
 SEED_SYSTEM_NAME := was-server
 SEED_API         := http://localhost:8080
 ANALYZER_API     := http://localhost:8000
-LOKI_API         := http://localhost:3100
 
 .PHONY: seed-db
 seed-db:
@@ -245,30 +243,12 @@ reset-cooldown:
 	  -c "DELETE FROM alert_cooldown WHERE alert_key LIKE '$(SEED_SYSTEM_NAME):%';"
 	@echo "✓ 완료"
 
-.PHONY: push-logs
-push-logs:
-	@echo "════════════════════════════════════════"
-	@echo "  [TEST] Loki 가짜 ERROR 로그 주입"
-	@echo "  경로: Loki /loki/api/v1/push"
-	@echo "════════════════════════════════════════"
-	@TS=$$(python3 -c "import time; print(int(time.time()) * 1_000_000_000)"); \
-	echo "→ 타임스탬프(ns): $$TS"; \
-	HTTP_CODE=$$(curl -s -o /dev/null -w "%{http_code}" -X POST $(LOKI_API)/loki/api/v1/push \
-	  -H "Content-Type: application/json" \
-	  -d "{\"streams\":[{\"stream\":{\"system_name\":\"$(SEED_SYSTEM_NAME)\",\"instance_role\":\"was1\",\"host\":\"test-host\",\"log_type\":\"app\",\"level\":\"ERROR\"},\"values\":[[\"$$TS\",\"ERROR: OutOfMemoryError at heap space\\nException in thread \\\"main\\\" java.lang.OutOfMemoryError: Java heap space\"],[\"$$TS\",\"ERROR: Database connection pool exhausted after 30s timeout\"],[\"$$TS\",\"FATAL: Uncaught exception in request handler - NullPointerException at UserService.java:142\"]]}]}"); \
-	if [ "$$HTTP_CODE" = "204" ]; then \
-	  echo "✓ push-logs 완료 — 로그 3건 주입 (HTTP 204)"; \
-	else \
-	  echo "✗ push-logs 실패 (HTTP $$HTTP_CODE) — Loki가 실행 중인지 확인: make dev-up"; \
-	fi
-	@echo "→ trigger-analysis 로 분석 트리거: make trigger-analysis"
-
 .PHONY: trigger-analysis
 trigger-analysis:
 	@echo "════════════════════════════════════════"
 	@echo "  [TEST] 로그 분석 트리거 (비동기)"
 	@echo "  경로: log-analyzer /analyze/trigger"
-	@echo "        → Loki 최근 5분 조회 → LLM 분석"
+	@echo "        → Prometheus log_error_total 조회 → LLM 분석"
 	@echo "        → admin-api /api/v1/analysis"
 	@echo "════════════════════════════════════════"
 	@curl -s -X POST $(ANALYZER_API)/analyze/trigger | python3 -m json.tool
@@ -280,7 +260,7 @@ trigger-analysis:
 .PHONY: inject-analysis
 inject-analysis:
 	@echo "════════════════════════════════════════"
-	@echo "  [TEST] 직접 분석 결과 주입 (LLM/Loki 우회)"
+	@echo "  [TEST] 직접 분석 결과 주입 (LLM 우회)"
 	@echo "  경로: admin-api /api/v1/analysis"
 	@echo "        → Teams Adaptive Card 발송"
 	@echo "════════════════════════════════════════"
@@ -305,13 +285,13 @@ inject-analysis:
 test-metric-alert: seed-db test-metric
 
 .PHONY: test-log-pipeline
-test-log-pipeline: seed-db push-logs trigger-analysis
+test-log-pipeline: seed-db trigger-analysis
 
 .PHONY: test-inject
 test-inject: seed-db inject-analysis
 
 .PHONY: test-all-inject
-test-all-inject: seed-db test-metric push-logs trigger-analysis inject-analysis
+test-all-inject: seed-db test-metric trigger-analysis inject-analysis
 	@echo ""
 	@echo "════════════════════════════════════════"
 	@echo "✓ 전체 테스트 데이터 주입 완료"

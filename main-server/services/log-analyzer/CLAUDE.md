@@ -2,7 +2,8 @@
 
 ## 목적
 
-Loki 로그 수집 → LLM 분석 → Teams 알림 파이프라인의 실행 주체.
+synapse_agent → Prometheus 로그 메트릭 수집 → LLM 분석 → Teams 알림 파이프라인의 실행 주체.
+(Loki 의존성 완전 제거 — 로그는 `log_error_total` Prometheus 메트릭으로 수집)
 - **내부 스케줄러**로 n8n WF1~WF11 트리거를 대체 (n8n Docker는 WF2/WF3 webhook 처리용으로 유지)
 - PII 마스킹 → Ollama 임베딩 → Qdrant 유사도 검색으로 LLM 프롬프트 강화
 - 담당자별 LLM API 키로 분석 후 admin-api에 결과 전달
@@ -22,7 +23,7 @@ Loki 로그 수집 → LLM 분석 → Teams 알림 파이프라인의 실행 주
 ## 기술 스택
 
 - **Runtime**: Python 3.11, FastAPI (async)
-- **로그 수집**: Loki 3.x HTTP API
+- **로그 수집**: Prometheus HTTP API (`log_error_total` 메트릭, synapse_agent 수집)
 - **임베딩**: Ollama bge-m3 (Server B)
 - **벡터 DB**: Qdrant (Server B)
 - **포트**: 8000 (Docker)
@@ -100,7 +101,7 @@ log-analyzer/
 
 | 변수 | 설명 |
 |---|---|
-| `LOKI_URL` | `http://loki:3100` |
+| `PROMETHEUS_URL` | `http://prometheus:9090` (log_error_total 쿼리용) |
 | `ADMIN_API_URL` | `http://admin-api:8080` |
 | `LLM_API_URL` | 내부 LLM API 엔드포인트 |
 | `LLM_API_KEY` | 기본 API 키 (담당자별 키 미등록 시 사용) |
@@ -117,7 +118,9 @@ log-analyzer/
 내부 _scheduler() (ANALYSIS_INTERVAL_SECONDS마다)
   → analyzer.run_analysis()
     → admin-api GET /api/v1/systems 로 활성 시스템 목록 조회
-    → 시스템별 Loki에서 최근 5분 ERROR/WARN/FATAL 수집
+    → 시스템별 Prometheus에서 최근 5분 log_error_total 메트릭 조회
+      (sum_over_time(log_error_total{system_name="..."}[5m]) > 0)
+      → instance_role별 그룹화, template 라벨로 로그 내용 추출
     → PII 마스킹 (카드번호, 주민번호, 전화번호, 이메일)
     → normalize → Ollama 임베딩 → log_incidents 유사도 검색
     → 유사 이력 + 해결책으로 LLM 프롬프트 강화

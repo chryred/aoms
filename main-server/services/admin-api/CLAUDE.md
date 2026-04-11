@@ -40,7 +40,9 @@ admin-api/
 │   ├── collector_config.py  # /api/v1/collector-config (Phase 5)
 │   ├── aggregations.py      # /api/v1/aggregations (Phase 5)
 │   ├── reports.py           # /api/v1/reports (Phase 5)
-│   └── agents.py            # /api/v1/ssh/session, /api/v1/agents (Phase 6)
+│   ├── agents.py            # /api/v1/ssh/session, /api/v1/agents (Phase 6)
+│   ├── dashboard.py         # /api/v1/dashboard (통합 대시보드 API - Phase 8)
+│   └── websocket.py         # /ws/dashboard (실시간 알림 스트리밍 - Phase 8)
 └── services/
     ├── cooldown.py              # 알림 중복 발송 방지 (5분 쿨다운)
     ├── notification.py          # TeamsNotifier — Adaptive Card 생성·발송
@@ -150,6 +152,38 @@ docker exec -it aoms-admin-api \
 - systemd 미사용 — nohup + PID 파일 방식
 - `agent_type`: `alloy` | `node_exporter` | `jmx_exporter` | `aoms_agent`
 - `GET /{id}/live-status` — aoms_agent 전용: Prometheus `agent_up` 쿼리 → last_seen, live_status, collectors_active 반환
+
+### 통합 대시보드 `/api/v1/dashboard` (Phase 8)
+- `GET /system-health` — 전체 시스템 상태 종합 조회
+  - 응답: `{ summary: { total_systems, critical_systems, warning_systems, normal_systems, total_metric_alerts, total_log_critical, total_log_warning, last_updated }, systems: [...] }`
+  - 상태 판정 기준: 메트릭 알림 (critical/warning) + 로그분석 (critical/warning, 최근 1시간) + 수집기 활성 여부
+- `GET /systems/{id}/detailed` — 시스템 상세 정보 조회
+  - 응답: `{ system_id, display_name, metric_alerts: [...], log_analysis: { latest_count, critical_count, warning_count, incidents: [...] }, contacts: [...], last_updated }`
+  - 메트릭 알림, 로그분석 결과 (최근 1시간, 5개), 담당자 정보 포함
+
+### WebSocket 실시간 알림 `/ws/dashboard` (Phase 8)
+- **연결**: `WebSocket ws://host:8080/api/v1/ws/dashboard`
+- **메시지 형식**:
+  ```json
+  {
+    "type": "alert_fired" | "alert_resolved" | "log_analysis_complete",
+    "timestamp": "2026-04-11T12:34:56.789000",
+    "data": { "system_id": "...", "alert_name": "...", ... }
+  }
+  ```
+- **Heartbeat**: 클라이언트에서 30초마다 "ping" 전송, 서버는 "pong" 응답
+- **자동 재연결**: 클라이언트에서 exponential backoff (3s, 6s, 12s, 24s, 48s) 지원
+- **브로드캐스트**: Alertmanager 또는 log-analyzer에서 알림 발생 시 모든 연결 클라이언트에게 즉시 전파
+
+### WebSocket 브로드캐스트 트리거
+- **alerts.py** — `POST /receive`에서 alert 저장 후 `notify_alert_fired()` / `notify_alert_resolved()` 호출
+- **analysis.py** — `POST /` 분석 결과 저장 후 severity가 warning/critical일 때 `notify_log_analysis()` 호출
+
+### 예방적 패턴 감지
+- `MetricHourlyAggregation.llm_prediction` 필드가 있는 최근 8시간 집계 항목을 조회
+- `llm_severity` 가 warning/critical인 항목만 포함
+- 대시보드 카드에 "예방 N건" 뱃지 표시 + 상세 페이지에 트렌드/예측 내용 노출
+- 데이터 생성 주체: log-analyzer `_hourly_agg_scheduler()` → LLM 이상 분석 → `llm_trend` / `llm_prediction` 저장
 
 ## 핵심 로직
 

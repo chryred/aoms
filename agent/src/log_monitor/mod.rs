@@ -11,8 +11,8 @@ use std::sync::{Arc, Mutex};
 /// Thread-safe log error counter
 #[derive(Clone)]
 pub struct LogCounter {
-    /// key: (level, template, service_name) → count
-    counts: Arc<Mutex<HashMap<(String, String, String), u64>>>,
+    /// key: (log_type, level, template, service_name) → count
+    counts: Arc<Mutex<HashMap<(String, String, String, String), u64>>>,
 }
 
 impl LogCounter {
@@ -22,9 +22,10 @@ impl LogCounter {
         }
     }
 
-    pub fn increment(&self, level: &str, template: &str, service_name: &str) {
+    pub fn increment(&self, log_type: &str, level: &str, template: &str, service_name: &str) {
         let mut m = self.counts.lock().unwrap();
         *m.entry((
+            log_type.to_string(),
             level.to_string(),
             template.to_string(),
             service_name.to_string(),
@@ -33,11 +34,7 @@ impl LogCounter {
     }
 
     /// Drain current counts and return as MetricSamples
-    pub fn drain_as_samples(
-        &self,
-        cfg: &AgentConfig,
-        log_type: &str,
-    ) -> Vec<MetricSample> {
+    pub fn drain_as_samples(&self, cfg: &AgentConfig) -> Vec<MetricSample> {
         let mut m = self.counts.lock().unwrap();
         let base = base_labels(
             &cfg.system_name,
@@ -47,9 +44,9 @@ impl LogCounter {
         );
 
         let mut samples = Vec::new();
-        for ((level, tmpl, svc_name), count) in m.drain() {
+        for ((log_type, level, tmpl, svc_name), count) in m.drain() {
             let mut lbs = base.clone();
-            lbs.push(("log_type".to_string(), log_type.to_string()));
+            lbs.push(("log_type".to_string(), log_type));
             lbs.push(("level".to_string(), level));
             lbs.push(("service_name".to_string(), svc_name));
             lbs.push(("template".to_string(), tmpl));

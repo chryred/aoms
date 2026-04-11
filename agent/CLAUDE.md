@@ -101,10 +101,10 @@ pub struct MetricSample {
 
 ### `Config` (`config.rs`)
 ```toml
-[agent]       # system_name, display_name, instance_role, host, collect_interval_secs
+[agent]       # system_name, display_name, instance_role (HA 식별자: was1/was2 등), host, collect_interval_secs
 [remote_write] # endpoint, wal_dir, wal_retention_hours, timeout_secs
 [collectors]  # cpu/memory/disk/network/process/tcp_connections/log_monitor/web_servers/preprocessor/heartbeat
-[log_monitor] # paths (glob 지원), keywords, log_type
+[[log_monitor]] # paths (glob 지원), keywords, log_type  ← Vec: 여러 섹션으로 다중 log_type 지원
 [[services]]  # name, display_name, process_match (cmdline 매칭)
 [[web_servers]] # name, display_name, type, log_path, log_format, was_services, slow_threshold_ms
 [preprocessor] # summary_intervals_secs, corr_window_secs, cpu_threshold, memory_threshold

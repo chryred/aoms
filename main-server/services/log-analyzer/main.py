@@ -179,7 +179,7 @@ async def lifespan(app: FastAPI):
     await vector_client._qdrant_http.aclose()
     await vector_client._ollama_http.aclose()
     await analyzer._admin_http.aclose()
-    await analyzer._loki_http.aclose()
+    await analyzer._prom_http.aclose()
     await analyzer._llm_http.aclose()
 
 

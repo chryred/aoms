@@ -4,7 +4,7 @@ import type { ButtonHTMLAttributes, ReactNode } from 'react'
 
 interface NeuButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   children: ReactNode
-  variant?: 'primary' | 'glass' | 'ghost' | 'danger'
+  variant?: 'primary' | 'secondary' | 'glass' | 'ghost' | 'danger'
   size?: 'sm' | 'md' | 'lg'
   loading?: boolean
 }
@@ -34,6 +34,12 @@ export function NeuButton({
           'shadow-[2px_2px_5px_#111317,-2px_-2px_5px_#2B2F37]',
           'hover:bg-[#00B8E0]',
           'active:bg-[#00B8E0] active:shadow-[inset_2px_2px_6px_rgba(0,0,0,0.3)]',
+        ],
+        variant === 'secondary' && [
+          'bg-[#2A3447]/60 text-[#E2E8F2]',
+          'shadow-[2px_2px_5px_#111317,-2px_-2px_5px_#2B2F37]',
+          'hover:bg-[#2A3447]/80 hover:text-[#E2E8F2]',
+          'active:bg-[#2A3447]/90 active:shadow-[inset_1px_1px_4px_rgba(0,0,0,0.2)]',
         ],
         variant === 'glass' && [
           'bg-[rgba(0,212,255,0.08)] text-[#00D4FF]',

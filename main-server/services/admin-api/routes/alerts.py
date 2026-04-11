@@ -13,6 +13,7 @@ from models import AlertHistory, System, Contact, SystemContact
 from schemas import AlertHistoryOut, AlertmanagerPayload, AcknowledgeRequest
 from services.cooldown import is_in_cooldown, make_alert_key, record_sent
 from services.notification import TeamsNotifier
+from .websocket import notify_alert_fired, notify_alert_resolved
 
 logger = logging.getLogger(__name__)
 LOG_ANALYZER_URL = os.getenv("LOG_ANALYZER_URL", "http://log-analyzer:8000")
@@ -117,6 +118,16 @@ async def receive_alertmanager(
             )
             db.add(history)
             await db.commit()
+
+            # WebSocket 브로드캐스트 (클라이언트 실시간 업데이트)
+            await notify_alert_resolved({
+                "system_id": str(system.id) if system else None,
+                "system_name": system_name,
+                "alertname": alertname,
+                "severity": severity,
+                "status": "resolved",
+            })
+
             processed.append({"alertname": alertname, "status": "resolved"})
             continue
 
@@ -211,6 +222,16 @@ async def receive_alertmanager(
         )
         db.add(history)
         await db.commit()
+
+        # WebSocket 브로드캐스트 (클라이언트 실시간 업데이트)
+        await notify_alert_fired({
+            "system_id": str(system.id) if system else None,
+            "system_name": system_name,
+            "alertname": alertname,
+            "severity": severity,
+            "anomaly_type": anomaly["type"],
+            "similarity_score": anomaly["score"],
+        })
 
         processed.append({"alertname": alertname, "status": "sent" if sent else "no_webhook"})
 

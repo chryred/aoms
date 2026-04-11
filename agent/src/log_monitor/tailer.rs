@@ -22,6 +22,7 @@ use tracing::{debug, info, warn};
 /// `stop`: set to `true` to signal this tailer to exit on the next poll cycle.
 pub fn start_tailer(
     path: String,
+    log_type: String,
     matcher: KeywordMatcher,
     services: Vec<ServiceConfig>,
     counter: LogCounter,
@@ -109,7 +110,7 @@ pub fn start_tailer(
             // ── New data written to the active log file ─────────────────────
             EventKind::Modify(_) => {
                 if let Some(ref mut f) = file {
-                    read_new_lines(f, &path, &matcher, &services, &counter);
+                    read_new_lines(f, &path, &log_type, &matcher, &services, &counter);
                 }
             }
 
@@ -123,7 +124,7 @@ pub fn start_tailer(
                         // Read from the beginning of the new file
                         let _ = br.seek(SeekFrom::Start(0));
                         info!("Log rotation detected, re-opened: {}", path);
-                        read_new_lines(&mut br, &path, &matcher, &services, &counter);
+                        read_new_lines(&mut br, &path, &log_type, &matcher, &services, &counter);
                         file = Some(br);
                     }
                     Err(e) => warn!("Failed to re-open after rotation {}: {}", path, e),
@@ -145,6 +146,7 @@ pub fn start_tailer(
 fn read_new_lines(
     file: &mut BufReader<File>,
     path: &str,
+    log_type: &str,
     matcher: &KeywordMatcher,
     services: &[ServiceConfig],
     counter: &LogCounter,
@@ -159,7 +161,7 @@ fn read_new_lines(
                 if let Some(level) = matcher.find_level(trimmed) {
                     let template = extract_template(trimmed);
                     let svc_name = find_service(trimmed, services);
-                    counter.increment(level, &template, &svc_name);
+                    counter.increment(log_type, level, &template, &svc_name);
                     debug!("Log hit: level={} svc={}", level, svc_name);
                 }
             }

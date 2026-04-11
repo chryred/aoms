@@ -47,10 +47,13 @@ pub fn collect(cfg: &AgentConfig) -> Vec<MetricSample> {
     for (iface, curr) in &current_map {
         let prev = prev_guard.get(iface).copied().unwrap_or([0; 4]);
 
+        let rx_bytes = curr[0].saturating_sub(prev[0]) as f64;
+        let tx_bytes = curr[2].saturating_sub(prev[2]) as f64;
+
         let deltas = [
-            ("rx".to_string(), "bytes".to_string(), curr[0].saturating_sub(prev[0]) as f64),
+            ("rx".to_string(), "bytes".to_string(), rx_bytes),
             ("rx".to_string(), "errors".to_string(), curr[1].saturating_sub(prev[1]) as f64),
-            ("tx".to_string(), "bytes".to_string(), curr[2].saturating_sub(prev[2]) as f64),
+            ("tx".to_string(), "bytes".to_string(), tx_bytes),
             ("tx".to_string(), "errors".to_string(), curr[3].saturating_sub(prev[3]) as f64),
         ];
 
@@ -64,6 +67,31 @@ pub fn collect(cfg: &AgentConfig) -> Vec<MetricSample> {
                 "network_errors_total"
             };
             samples.push(MetricSample::new(name, lbs, val));
+        }
+
+        // 링크 속도 및 사용률
+        // /sys/class/net/{iface}/speed → Mbps (-1 이면 미지원)
+        let speed_mbps = std::fs::read_to_string(format!("/sys/class/net/{}/speed", iface))
+            .ok()
+            .and_then(|s| s.trim().parse::<i64>().ok())
+            .filter(|&v| v > 0);
+
+        if let Some(speed) = speed_mbps {
+            let mut lbs_speed = base.clone();
+            lbs_speed.push(("interface".to_string(), iface.clone()));
+            samples.push(MetricSample::new("network_speed_mbps", lbs_speed, speed as f64));
+
+            // 사용률(%) = 수집 주기 내 전송 bits / (링크속도 bps * 수집주기)
+            let link_bps = speed as f64 * 1_000_000.0;
+            let interval = cfg.collect_interval_secs as f64;
+
+            for (direction, bytes_delta) in [("rx", rx_bytes), ("tx", tx_bytes)] {
+                let utilization = (bytes_delta * 8.0) / (link_bps * interval) * 100.0;
+                let mut lbs_util = base.clone();
+                lbs_util.push(("interface".to_string(), iface.clone()));
+                lbs_util.push(("direction".to_string(), direction.to_string()));
+                samples.push(MetricSample::new("network_utilization_percent", lbs_util, utilization));
+            }
         }
     }
 

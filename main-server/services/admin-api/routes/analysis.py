@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from database import get_db
 from models import LogAnalysisHistory, System
 from routes.alerts import _get_system_and_contacts
+from routes.websocket import notify_log_analysis
 from schemas import LogAnalysisCreate, LogAnalysisOut
 from services.notification import TeamsNotifier
 
@@ -62,6 +63,19 @@ async def create_analysis(payload: LogAnalysisCreate, db: AsyncSession = Depends
 
     await db.commit()
     await db.refresh(record)
+
+    # WebSocket 브로드캐스트 — warning/critical 분석 결과만 실시간 전파
+    if payload.severity in ("warning", "critical"):
+        await notify_log_analysis({
+            "system_id": str(system.id),
+            "system_name": system.system_name,
+            "display_name": system.display_name,
+            "severity": payload.severity,
+            "anomaly_type": payload.anomaly_type,
+            "similarity_score": payload.similarity_score,
+            "analysis_id": str(record.id),
+        })
+
     return record
 
 

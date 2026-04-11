@@ -35,21 +35,6 @@ services:
     networks:
       - synapse-net
 
-  loki:
-    image: grafana/loki:main-26d9031
-    container_name: synapse-loki
-    ports:
-      - "3100:3100"
-    volumes:
-      - ./configs/loki/loki-config.yml:/etc/loki/local-config.yaml:ro,z
-      - loki_data:/loki:z
-    command: -config.file=/etc/loki/local-config.yaml
-    mem_limit: 1536m
-    cpus: '0.5'
-    restart: unless-stopped
-    networks:
-      - synapse-net
-
   grafana:
     image: grafana/grafana:12.4.0
     container_name: synapse-grafana
@@ -84,7 +69,7 @@ services:
       - PROM_PASS=${PROM_PASS}
     mem_limit: 512m
     cpus: '0.3'
-    depends_on: [prometheus, loki]
+    depends_on: [prometheus]
     restart: unless-stopped
     networks:
       - synapse-net
@@ -143,7 +128,7 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - LOKI_URL=http://loki:3100
+      - PROMETHEUS_URL=http://prometheus:9090
       - LLM_API_URL=${LLM_API_URL}
       - LLM_API_KEY=${LLM_API_KEY}         # 기본 API key (담당자별 key 미등록 시 사용)
       - LLM_AGENT_CODE=${LLM_AGENT_CODE}
@@ -158,7 +143,7 @@ services:
       - QDRANT_URL=${QDRANT_URL}
     mem_limit: 256m
     cpus: '0.3'
-    depends_on: [loki, admin-api]
+    depends_on: [admin-api]
     restart: unless-stopped
     networks:
       - synapse-net
@@ -220,7 +205,6 @@ services:
 
 volumes:
   prometheus_data:
-  loki_data:
   grafana_data:
   postgres_data:
   n8n_data:

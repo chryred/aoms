@@ -11,3 +11,4 @@ venv/
 *.pyo
 .playwright/
 .playwright-mcp/
+agent/target/debug/*

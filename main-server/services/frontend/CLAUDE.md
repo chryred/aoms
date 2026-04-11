@@ -35,7 +35,7 @@ src/
 │   ├── neumorphic/    # 기본 UI 컴포넌트 (NeuCard, NeuButton, NeuInput 등)
 │   ├── layout/        # AppLayout, AuthLayout, TopBar, AuthGuard
 │   ├── common/        # EmptyState, LoadingSkeleton, ErrorCard, PageHeader
-│   ├── dashboard/     # SystemStatusCard, AlertFeed
+│   ├── dashboard/     # DashboardSummary, SystemHealthGrid, EnhancedSystemCard, AlertFeed
 │   ├── alert/         # AlertTable, AlertDetailPanel, AnomalyTypeBadge
 │   ├── charts/        # MetricChart, SeverityBadge
 │   ├── reports/       # PeriodToggle, AggregationCard
@@ -47,11 +47,14 @@ src/
 │   ├── agent/         # SSHSessionModal, AgentCard, AgentStatusBadge, AgentFormModal, InstallJobMonitor (Phase 6)
 │   └── user/
 ├── hooks/
-│   ├── queries/       # 조회 훅 (useAgents, useAgentStatus, useAgentConfig, useInstallJob)
-│   └── mutations/     # 변경 훅
+│   ├── queries/       # 조회 훅 (useDashboardHealth, useSystemDetailHealth, useAgents, useAgentStatus, useAgentConfig, useInstallJob)
+│   ├── mutations/     # 변경 훅
+│   └── useWebSocket.ts  # WebSocket 실시간 알림 (자동 재연결, heartbeat, React Query 동기화)
 ├── pages/         # 라우트별 페이지 컴포넌트
-│   ├── AgentListPage.tsx   # 에이전트 목록 (시스템별 그룹, SSH 세션 관리) (Phase 6)
-│   └── AgentDetailPage.tsx # 에이전트 제어 + 설정 파일 편집기 (Phase 6)
+│   ├── DashboardPage.tsx              # 통합 대시보드 (하이브리드: 상단 통계 + 하단 시스템 카드)
+│   ├── DashboardSystemDetailPage.tsx  # 시스템 상세 (활성 알림 + 로그분석 + 담당자)
+│   ├── AgentListPage.tsx             # 에이전트 목록 (시스템별 그룹, SSH 세션 관리) (Phase 6)
+│   └── AgentDetailPage.tsx           # 에이전트 제어 + 설정 파일 편집기 (Phase 6)
 ├── store/         # Zustand 스토어 (authStore, uiStore, wizardStore, sshSessionStore)
 │   └── sshSessionStore.ts  # SSH 세션 토큰 인메모리 관리 (Phase 6)
 ├── types/         # TypeScript 타입 정의

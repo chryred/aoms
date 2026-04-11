@@ -177,9 +177,7 @@ async fn main() {
 
         // Log error metrics (from background tailers)
         if cfg.collectors.log_monitor {
-            all_samples.extend(
-                log_counter.drain_as_samples(&cfg.agent, &cfg.log_monitor.log_type),
-            );
+            all_samples.extend(log_counter.drain_as_samples(&cfg.agent));
         }
 
         // HTTP metrics (from background tailers)
@@ -334,22 +332,25 @@ fn start_log_tailers(
     if !cfg.collectors.log_monitor {
         return;
     }
-    for raw_path in &cfg.log_monitor.paths {
-        for path in expand_glob(raw_path) {
-            if stops.contains_key(&path) {
-                continue; // already running
+    for lm_cfg in &cfg.log_monitor {
+        for raw_path in &lm_cfg.paths {
+            for path in expand_glob(raw_path) {
+                if stops.contains_key(&path) {
+                    continue; // already running
+                }
+                let stop = Arc::new(AtomicBool::new(false));
+                let matcher = KeywordMatcher::new(&lm_cfg.keywords);
+                let log_type = lm_cfg.log_type.clone();
+                let services = cfg.services.clone();
+                let counter_clone = counter.clone();
+                let stop_clone = stop.clone();
+                let path_clone = path.clone();
+                std::thread::spawn(move || {
+                    start_tailer(path_clone, log_type, matcher, services, counter_clone, stop_clone);
+                });
+                info!("Log tailer spawned: {} (log_type={})", path, lm_cfg.log_type);
+                stops.insert(path, stop);
             }
-            let stop = Arc::new(AtomicBool::new(false));
-            let matcher = KeywordMatcher::new(&cfg.log_monitor.keywords);
-            let services = cfg.services.clone();
-            let counter_clone = counter.clone();
-            let stop_clone = stop.clone();
-            let path_clone = path.clone();
-            std::thread::spawn(move || {
-                start_tailer(path_clone, matcher, services, counter_clone, stop_clone);
-            });
-            info!("Log tailer spawned: {}", path);
-            stops.insert(path, stop);
         }
     }
 }
@@ -391,19 +392,19 @@ fn reconcile_log_tailers(
 ) {
     let old_paths: HashSet<String> = old_cfg
         .log_monitor
-        .paths
         .iter()
-        .flat_map(|p| expand_glob(p))
-        .collect();
-    let new_paths: HashSet<String> = new_cfg
-        .log_monitor
-        .paths
-        .iter()
+        .flat_map(|lm| lm.paths.iter())
         .flat_map(|p| expand_glob(p))
         .collect();
 
     // Stop tailers for removed paths
-    for removed in old_paths.difference(&new_paths) {
+    let new_all_paths: HashSet<String> = new_cfg
+        .log_monitor
+        .iter()
+        .flat_map(|lm| lm.paths.iter())
+        .flat_map(|p| expand_glob(p))
+        .collect();
+    for removed in old_paths.difference(&new_all_paths) {
         if let Some(stop) = stops.remove(removed) {
             stop.store(true, Ordering::Relaxed);
             info!("Log tailer stop requested: {}", removed);
@@ -412,21 +413,26 @@ fn reconcile_log_tailers(
 
     // Start tailers for new paths (if log_monitor is enabled)
     if new_cfg.collectors.log_monitor {
-        for added in new_paths.difference(&old_paths) {
-            if stops.contains_key(added) {
-                continue;
+        for lm_cfg in &new_cfg.log_monitor {
+            for raw_path in &lm_cfg.paths {
+                for added in expand_glob(raw_path) {
+                    if stops.contains_key(&added) || old_paths.contains(&added) {
+                        continue;
+                    }
+                    let stop = Arc::new(AtomicBool::new(false));
+                    let matcher = KeywordMatcher::new(&lm_cfg.keywords);
+                    let log_type = lm_cfg.log_type.clone();
+                    let services = new_cfg.services.clone();
+                    let counter_clone = counter.clone();
+                    let stop_clone = stop.clone();
+                    let path_clone = added.clone();
+                    std::thread::spawn(move || {
+                        start_tailer(path_clone, log_type, matcher, services, counter_clone, stop_clone);
+                    });
+                    info!("Log tailer spawned (hot-reload): {} (log_type={})", added, lm_cfg.log_type);
+                    stops.insert(added, stop);
+                }
             }
-            let stop = Arc::new(AtomicBool::new(false));
-            let matcher = KeywordMatcher::new(&new_cfg.log_monitor.keywords);
-            let services = new_cfg.services.clone();
-            let counter_clone = counter.clone();
-            let stop_clone = stop.clone();
-            let path_clone = added.clone();
-            std::thread::spawn(move || {
-                start_tailer(path_clone, matcher, services, counter_clone, stop_clone);
-            });
-            info!("Log tailer spawned (hot-reload): {}", added);
-            stops.insert(added.clone(), stop);
         }
     }
 

@@ -8,7 +8,7 @@ pub struct Config {
     #[serde(default)]
     pub collectors: CollectorsConfig,
     #[serde(default)]
-    pub log_monitor: LogMonitorConfig,
+    pub log_monitor: Vec<LogMonitorConfig>,
     #[serde(default)]
     pub services: Vec<ServiceConfig>,
     #[serde(default)]
@@ -114,7 +114,7 @@ fn default_false() -> bool {
     false
 }
 
-#[derive(Debug, Deserialize, Clone, Default)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct LogMonitorConfig {
     #[serde(default)]
     pub paths: Vec<String>,
@@ -251,6 +251,25 @@ endpoint = "http://localhost:9090/api/v1/write"
     fn test_multiple_services() {
         let cfg = Config::load("config.example.toml").unwrap();
         assert!(cfg.services.len() >= 2);
+    }
+
+    // C-N-07: 다중 [[log_monitor]] 로드
+    #[test]
+    fn test_multiple_log_monitors() {
+        let cfg = Config::load("config.example.toml").unwrap();
+        assert!(cfg.log_monitor.len() >= 2, "config.example.toml should have at least 2 [[log_monitor]] sections");
+        // 각 log_type이 다름
+        let types: Vec<&str> = cfg.log_monitor.iter().map(|lm| lm.log_type.as_str()).collect();
+        assert!(types.contains(&"jeus"), "expected log_type 'jeus'");
+        assert!(types.contains(&"app"), "expected log_type 'app'");
+    }
+
+    // C-N-08: [[log_monitor]] 빈 배열 (MINIMAL_TOML)
+    #[test]
+    fn test_empty_log_monitors() {
+        let f = write_toml(MINIMAL_TOML);
+        let cfg = Config::load(f.path().to_str().unwrap()).unwrap();
+        assert!(cfg.log_monitor.is_empty());
     }
 
     // C-N-03: 다중 web_servers 로드

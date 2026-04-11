@@ -14,12 +14,11 @@
 [ Server A — Main Server ]                [ Server B — AI/Vector ]
   Prometheus  ──scrape──▶  대상 서버들       Ollama (bge-m3 임베딩)
   Alertmanager ──webhook──▶ admin-api        Qdrant (벡터 DB)
-  Loki        ◀──push───   Grafana Alloy
-  Grafana     ──read───▶   Prometheus, Loki
+  Grafana     ──read───▶   Prometheus
   admin-api   ──read───▶   PostgreSQL
               ──http───▶   Teams Webhook
               ◀──http───   log-analyzer
-  log-analyzer ──read──▶   Loki
+  log-analyzer ──query──▶  Prometheus (log_error_total 메트릭)
                ──http──▶   admin-api
                ──http──▶   LLM API
                ──http──▶   Ollama (Server B)
@@ -240,26 +239,59 @@ anomaly type:
 ### `system_name` 일관성
 Prometheus label의 `system_name`과 PostgreSQL `systems.system_name`이 반드시 일치해야 한다. 불일치 시 알림은 수신되지만 담당자 조회 실패 → Teams 알림 미발송.
 
+### `instance_role` 의미 — HA 이중화 식별자
+`instance_role`은 에이전트 타입(infra/was)이 아닌 **이중화 인스턴스를 식별**하는 값이다.
+
+```
+system_name = "customer_experience"   ← DB systems.system_name
+instance_role = "was1"                 ← HA 이중화 구분 (was1/was2, db-primary/db-standby)
+host = "10.0.1.5"                      ← 물리 서버 IP
+```
+
+- 같은 서버의 동일 서비스 이중화: `was1`, `was2`
+- DB HA: `db-primary`, `db-standby`
+- 단일 인스턴스: `main` 또는 그냥 비워두면 기본값 `default`
+
+### 다중 로그 소스 — `[[log_monitor]]` 배열
+한 에이전트에서 여러 로그 파일을 각기 다른 `log_type` 라벨로 수집할 때 `[[log_monitor]]` 섹션을 여러 개 정의한다.
+
+```toml
+[[log_monitor]]
+paths = ["/home/jeus/logs/JeusServer.log"]
+keywords = ["ERROR", "Fatal", "Exception"]
+log_type = "jeus"
+
+[[log_monitor]]
+paths = ["/opt/app/logs/*.log"]
+keywords = ["ERROR", "CRITICAL"]
+log_type = "app"
+```
+
+**담당자/채널 분리**가 필요한 경우 (서비스별 Teams webhook, 별도 LLM 비용):
+→ 서비스마다 별도 `system_name`을 DB에 등록하고 에이전트 인스턴스도 분리.
+
+**같은 팀이 여러 로그 파일 수집**만 필요한 경우:
+→ 하나의 에이전트에 `[[log_monitor]]` 다중 정의.
+
 ### 담당자별 LLM API 키
 `contacts.llm_api_key`가 있으면 해당 키로 LLM 호출, 없으면 환경변수 `LLM_API_KEY` 사용. AI 비용을 시스템 담당자별로 분리 청구하는 구조.
 
 ### Teams Webhook URL 우선순위
 `systems.teams_webhook_url` (시스템별) → `TEAMS_WEBHOOK_URL` 환경변수 (전역). 시스템별 알림 채널 분리 가능.
 
-### 로그 수집 에이전트 — Grafana Alloy
-Promtail v3.x는 glibc 2.34+를 요구하지만 대상 서버(RHEL 8.9)는 glibc 2.28이므로 **Grafana Alloy**로 대체.
+### 로그 수집 에이전트 — synapse_agent (Rust)
+Phase 6에서 Grafana Alloy + node_exporter + Loki를 **synapse_agent 단일 바이너리**로 대체.
+로그는 Loki로 push하지 않고 `log_error_total` Prometheus 메트릭으로 Remote Write한다.
 
-- **설치 스크립트**: `install-agents.sh --type all|node|alloy|jmx`
-- **설정 파일 형식**: `.alloy` (YAML 아님, River 언어)
-- **포트**: 12345 (Alloy 내부 서버)
-- **서비스 사용자**: `alloy` (systemd)
-- **JEUS 로그 접근**: ACL(`setfacl`)로 `alloy` 사용자에게 읽기 권한 부여
-- **라벨**: `system_name`, `instance_role`, `host`, `log_type`, `level`
-- **필터링**: ERROR/WARN/FATAL/CRITICAL 키워드 포함 로그만 Loki로 전송 (RE2 정규식)
+- **설치**: admin-api `/api/v1/agents/install` → config.toml SFTP 업로드 → nohup 실행
+- **설정 파일**: `config.toml` (`[[log_monitor]]` 다중 섹션으로 여러 로그 소스 지정)
+- **WAL**: `/var/lib/synapse-agent/wal` (2시간 버퍼)
+- **라벨**: `system_name`, `instance_role`, `host`, `log_type`, `level`, `service_name`, `template`
+- **필터링**: `[[log_monitor]].keywords` 기반 AhoCorasick 매칭 → PII 마스킹 → `log_error_total` 메트릭
 
 ### 폐쇄망 배포
 - Docker 이미지: Mac에서 `build-images.sh`로 `linux/amd64` 빌드 → `.tar.gz` 저장 → scp 전송 → `docker load`
-- Alloy 바이너리: `alloy-linux-amd64.zip` 사전 다운로드 → 서버 전송
+- synapse_agent 바이너리: `cargo build --release --target x86_64-unknown-linux-musl` → scp 전송
 - Python 패키지: `requirements/` 디렉토리에 버전 고정. 운영 Dockerfile은 `prod.txt`만 설치.
 
 ### 로컬 개발
@@ -332,9 +364,9 @@ make test-api   # 단위 테스트 (인프라 불필요 — SQLite in-memory)
 
 | Phase | 상태 | 내용 |
 |---|---|---|
-| Phase 1 | 완료 | 인프라 (Prometheus, Loki, Grafana, Alertmanager, Postgres) |
+| Phase 1 | 완료 | 인프라 (Prometheus, Grafana, Alertmanager, Postgres) — Loki 제거 |
 | Phase 2 | 완료 | admin-api, Teams 알림 |
-| Phase 3 | 완료 | 에이전트 배포 (node_exporter, Grafana Alloy, jmx_exporter) |
+| Phase 3 | 완료 | 에이전트 배포 (node_exporter, Grafana Alloy, jmx_exporter) — 레거시 |
 | Phase 4 | 완료 | log-analyzer, LLM 분석 |
 | Server B | 완료 | Ollama + Qdrant 배포 |
 | Phase 4b | 완료 | 벡터 유사도 분석 (log_incidents 컬렉션) |
@@ -345,3 +377,5 @@ make test-api   # 단위 테스트 (인프라 불필요 — SQLite in-memory)
 | Phase 6 (aoms_agent) | 완료 | Rust 단일 바이너리 수집기 (CPU/메모리/디스크/네트워크/프로세스/로그/웹서버 access log), Prometheus Remote Write, WAL 2h 버퍼 |
 | Phase 6 (admin-api) | 완료 | aoms_agent install 자동화 (config.toml SFTP 업로드), live-status API (Prometheus 쿼리), prometheus_analyzer.py 자동 분석 루프 |
 | Phase 6 (frontend) | 완료 | AgentDetailPage live-status 카드 — 수집기별 활성 뱃지, last_seen 표시 |
+| Phase 7 | 완료 | `instance_role` HA 의미 재정립, `[[log_monitor]]` 다중 log_type 지원, log-analyzer Loki→Prometheus 마이그레이션, Loki 컨테이너 완전 제거 |
+| Phase 8 (dashboard) | 완료 | 통합 운영 대시보드 — 하이브리드 레이아웃(통계+카드), 시스템 상태 종합 판정(메트릭+로그분석+예방패턴), WebSocket 실시간 알림 스트리밍, 예방적 패턴 감지 연동, 단위 테스트 13개 |

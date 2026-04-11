@@ -27,19 +27,6 @@ services:
     networks:
       - dev-net
 
-  loki:
-    image: grafana/loki:main-26d9031
-    container_name: dev-loki
-    ports:
-      - "3100:3100"
-    volumes:
-      - ./configs/dev/loki.yml:/etc/loki/local-config.yaml:ro
-      - loki_dev_data:/loki
-    command: -config.file=/etc/loki/local-config.yaml
-    restart: unless-stopped
-    networks:
-      - dev-net
-
   prometheus:
     image: prom/prometheus:v3.10.0
     container_name: dev-prometheus
@@ -154,7 +141,6 @@ services:
 
 volumes:
   postgres_dev_data:
-  loki_dev_data:
   prometheus_dev_data:
   qdrant_dev_data:
   n8n_dev_data:

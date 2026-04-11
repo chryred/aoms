@@ -547,6 +547,27 @@ async def _run_install(
                 instance_role = label_info.get("instance_role", "default")
                 prometheus_url = os.environ.get("PROMETHEUS_URL", "http://prometheus:9090")
                 wal_dir = os.path.dirname(agent.config_path) + "/wal"
+
+                # 다중 log_monitor 지원: label_info.log_monitors 배열 우선, 없으면 기본값
+                log_monitors = label_info.get("log_monitors", [])
+                if not log_monitors:
+                    log_monitors = [{
+                        "paths": ["/var/log/messages"],
+                        "keywords": ["ERROR", "CRITICAL", "PANIC", "Fatal", "Exception"],
+                        "log_type": "app",
+                    }]
+
+                log_monitor_toml = ""
+                for lm in log_monitors:
+                    paths_str = ", ".join(f'"{p}"' for p in lm.get("paths", []))
+                    kw_str = ", ".join(f'"{k}"' for k in lm.get("keywords", ["ERROR", "CRITICAL", "PANIC", "Fatal", "Exception"]))
+                    log_monitor_toml += f"""
+[[log_monitor]]
+paths = [{paths_str}]
+keywords = [{kw_str}]
+log_type = "{lm.get('log_type', 'app')}"
+"""
+
                 config_content = textwrap.dedent(f"""
                     [agent]
                     system_name = "{system_name}"
@@ -574,12 +595,7 @@ async def _run_install(
                     web_servers = false
                     preprocessor = false
                     heartbeat = true
-
-                    [log_monitor]
-                    paths = ["/var/log/messages"]
-                    keywords = ["ERROR", "CRITICAL", "PANIC", "Fatal", "Exception"]
-                    log_type = "app"
-                """).strip()
+                """).strip() + log_monitor_toml
                 await asyncio.to_thread(
                     ssh_put_file,
                     session["host"], session["port"], session["username"], session["password"],

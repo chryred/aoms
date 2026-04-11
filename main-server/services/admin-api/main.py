@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from database import engine, Base
 from routes import alerts, analysis, contacts, feedback, systems
 from routes import collector_config, aggregations, reports, auth as auth_router
-from routes import agents as agents_router
+from routes import agents as agents_router, dashboard, websocket
 from services.ssh_session import run_cleanup_loop
 from services.prometheus_analyzer import run_prometheus_analyzer_loop
 
@@ -57,6 +57,8 @@ app.include_router(collector_config.router)
 app.include_router(aggregations.router)
 app.include_router(reports.router)
 app.include_router(agents_router.router)
+app.include_router(dashboard.router)
+app.include_router(websocket.router)
 
 
 @app.get("/health")

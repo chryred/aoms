@@ -19,4 +19,4 @@ venv/
 # 락 파일 (코드 작업에 불필요)
 **/package-lock.json
 
-**/config.sample.toml
+**/target/debug/*

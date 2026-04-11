@@ -19,8 +19,8 @@ pub fn collect(cfg: &AgentConfig, services: &[ServiceConfig]) -> Vec<MetricSampl
     // Map: service_name → (display_name, total_cpu_ticks, total_rss_kb)
     let mut service_stats: std::collections::HashMap<String, (String, u64, u64)> =
         std::collections::HashMap::new();
-    // Unmatched top-N by cpu
-    let mut unmatched: Vec<(String, u64, u64)> = Vec::new();
+    // Unmatched top-N by cpu — (proc_name, pid, cmdline, cpu_ticks, rss_kb)
+    let mut unmatched: Vec<(String, u32, String, u64, u64)> = Vec::new();
 
     let clk_tck = procfs::ticks_per_second() as f64;
 
@@ -57,7 +57,12 @@ pub fn collect(cfg: &AgentConfig, services: &[ServiceConfig]) -> Vec<MetricSampl
             }
         }
         if !matched {
-            unmatched.push((proc_name, cpu_ticks, rss_kb));
+            let cmd_truncated = if cmdline.len() > 200 {
+                cmdline[..200].to_string()
+            } else {
+                cmdline
+            };
+            unmatched.push((proc_name, stat.pid as u32, cmd_truncated, cpu_ticks, rss_kb));
         }
     }
 
@@ -88,13 +93,15 @@ pub fn collect(cfg: &AgentConfig, services: &[ServiceConfig]) -> Vec<MetricSampl
     }
 
     // Top-N unmatched processes by cpu
-    unmatched.sort_by(|a, b| b.1.cmp(&a.1));
-    for (proc_name, cpu_ticks, rss_kb) in unmatched.iter().take(cfg.top_process_count) {
+    unmatched.sort_by(|a, b| b.3.cmp(&a.3));
+    for (proc_name, pid, cmdline, cpu_ticks, rss_kb) in unmatched.iter().take(cfg.top_process_count) {
         let cpu_percent = (*cpu_ticks as f64 / clk_tck / cfg.collect_interval_secs as f64 * 100.0)
             .clamp(0.0, 400.0);
 
         let mut lbs_cpu = base.clone();
         lbs_cpu.push(("process".to_string(), proc_name.clone()));
+        lbs_cpu.push(("pid".to_string(), pid.to_string()));
+        lbs_cpu.push(("command".to_string(), cmdline.clone()));
         lbs_cpu.push(("service_name".to_string(), "".to_string()));
         lbs_cpu.push(("service_display".to_string(), "".to_string()));
 
