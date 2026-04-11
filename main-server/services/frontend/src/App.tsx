@@ -23,9 +23,6 @@ const ContactListPage = lazy(() =>
 const ContactFormPage = lazy(() =>
   import('@/pages/ContactFormPage').then((m) => ({ default: m.ContactFormPage })),
 )
-const SystemDetailPage = lazy(() =>
-  import('@/pages/SystemDetailPage').then((m) => ({ default: m.SystemDetailPage })),
-)
 const DashboardSystemDetailPage = lazy(() =>
   import('@/pages/DashboardSystemDetailPage').then((m) => ({ default: m.DashboardSystemDetailPage })),
 )

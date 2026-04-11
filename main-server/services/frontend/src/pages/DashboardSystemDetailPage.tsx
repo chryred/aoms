@@ -182,7 +182,7 @@ export function DashboardSystemDetailPage() {
           </NeuCard>
         ) : (
           <div className="grid gap-3">
-            {detail.log_analysis.incidents.map((incident, idx) => {
+            {detail.log_analysis.incidents.map((incident) => {
               const config = severityConfig[incident.severity as keyof typeof severityConfig]
               const Icon = config.icon
               return (

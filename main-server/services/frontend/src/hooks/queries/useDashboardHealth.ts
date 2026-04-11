@@ -114,7 +114,7 @@ export function useSystemDetailHealth(systemId: string | undefined) {
 
 // WebSocket 실시간 알림 업데이트 hook (향후)
 export function useDashboardRealtimeAlerts() {
-  const queryClient = useQueryClient()
+  const _queryClient = useQueryClient()
 
   // WebSocket connection setup (Phase 8)
   // const [wsConnected, setWsConnected] = useState(false)

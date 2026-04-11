@@ -11,10 +11,11 @@ export function cn(...inputs: ClassValue[]) {
 // UTC → KST (UTC+9) 변환
 export function formatKST(
   utcDate: string | Date,
-  format: 'datetime' | 'date' | 'HH:mm' = 'datetime',
+  format: 'datetime' | 'date' | 'HH:mm' | 'HH:mm:ss' = 'datetime',
 ): string {
   const d = new Date(utcDate)
   const kst = new Date(d.getTime() + 9 * 60 * 60 * 1000)
+  if (format === 'HH:mm:ss') return kst.toISOString().slice(11, 19)
   if (format === 'HH:mm') return kst.toISOString().slice(11, 16)
   if (format === 'date') return kst.toISOString().slice(0, 10)
   return kst.toISOString().slice(0, 16).replace('T', ' ')
