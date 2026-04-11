@@ -40,6 +40,15 @@ _TEMPLATES: dict[str, list[dict]] = {
         {"metric_group": "db_cache",       "description": "Cache hit rate %"},
         {"metric_group": "db_replication", "description": "Replication lag seconds"},
     ],
+    # Phase 6 — synapse_agent 단일 바이너리 수집기
+    "synapse_agent": [
+        {"metric_group": "cpu",     "description": "CPU avg/max/p95%, load avg 1/5m"},
+        {"metric_group": "memory",  "description": "Memory used%, p95%"},
+        {"metric_group": "disk",    "description": "Disk read/write MB, I/O time ms"},
+        {"metric_group": "network", "description": "Network rx/tx MB"},
+        {"metric_group": "log",     "description": "Log error count (total/ERROR level)"},
+        {"metric_group": "web",     "description": "HTTP requests total, slow count, avg response ms"},
+    ],
     "custom": [
         {"metric_group": "custom", "description": "custom_config JSON으로 직접 정의"},
     ],

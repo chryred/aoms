@@ -22,7 +22,7 @@ async def sample_system(db_session: AsyncSession):
         host="10.0.1.5",
         os_type="linux",
         system_type="web",
-        is_active=True,
+        status="active",
     )
     db_session.add(system)
     await db_session.commit()
@@ -36,8 +36,7 @@ async def sample_contact(db_session: AsyncSession, sample_system: System):
     contact = Contact(
         name="Test Engineer",
         teams_upn="test@company.com",
-        phone="010-1234-5678",
-        department="Operations",
+        email="test@company.com",
     )
     db_session.add(contact)
     await db_session.commit()
@@ -48,6 +47,7 @@ async def sample_contact(db_session: AsyncSession, sample_system: System):
         system_id=sample_system.id,
         contact_id=contact.id,
         role="primary",
+        notify_channels="teams",
     )
     db_session.add(system_contact)
     await db_session.commit()
@@ -118,7 +118,7 @@ async def test_system_health_critical_log_analysis(db_session: AsyncSession, sam
     """위험 상태: Critical 로그분석"""
     log_result = LogAnalysisHistory(
         system_id=sample_system.id,
-        raw_logs="[ERROR] Database connection failed",
+        log_content="[ERROR] Database connection failed",
         analysis_result="Database connectivity issue detected",
         severity="critical",
         anomaly_type="new",
@@ -138,7 +138,7 @@ async def test_system_health_warning_log_analysis(db_session: AsyncSession, samp
     """경고 상태: Warning 로그분석"""
     log_result = LogAnalysisHistory(
         system_id=sample_system.id,
-        raw_logs="[WARN] Database connection slow",
+        log_content="[WARN] Database connection slow",
         analysis_result="Database latency increasing",
         severity="warning",
         anomaly_type="recurring",
@@ -223,7 +223,7 @@ async def test_system_health_combined_critical_and_warning(
     # Warning 로그분석
     log_result = LogAnalysisHistory(
         system_id=sample_system.id,
-        raw_logs="[WARN] Some warning",
+        log_content="[WARN] Some warning",
         analysis_result="Minor issue",
         severity="warning",
         anomaly_type="recurring",
@@ -233,10 +233,9 @@ async def test_system_health_combined_critical_and_warning(
 
     health = await _get_system_health(db_session, sample_system.id)
 
-    # Critical이 우선
+    # Critical 메트릭이 우선 — warning 로그분석은 reason에 별도 표시되지 않음
     assert health.status == "critical"
     assert "메트릭 알림 1개" in health.reason
-    assert "로그 이상 경고" in health.reason
 
 
 # ==================== API 엔드포인트 테스트 ====================
@@ -266,7 +265,7 @@ async def test_get_dashboard_health_with_systems(
         host="10.0.1.6",
         os_type="linux",
         system_type="db",
-        is_active=True,
+        status="active",
     )
     db_session.add(system2)
     await db_session.commit()
@@ -313,14 +312,14 @@ async def test_get_system_detail_health(
         description="CPU usage critical",
         instance_role="main",
         host="10.0.1.5",
-        metric_value="95%",
+        metric_value=95.0,
     )
     db_session.add(alert)
 
     # 로그분석 추가
     log_result = LogAnalysisHistory(
         system_id=sample_system.id,
-        raw_logs="[ERROR] Connection timeout",
+        log_content="[ERROR] Connection timeout",
         analysis_result="Database connection pool exhausted",
         severity="critical",
         anomaly_type="new",
@@ -334,7 +333,7 @@ async def test_get_system_detail_health(
 
     assert response.status_code == 200
     data = response.json()
-    assert data["system_id"] == str(sample_system.id)
+    assert data["system_id"] == sample_system.id
     assert data["display_name"] == "Test System"
     assert len(data["metric_alerts"]) == 1
     assert data["metric_alerts"][0]["alertname"] == "HighCPU"

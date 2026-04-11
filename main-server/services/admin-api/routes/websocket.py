@@ -11,9 +11,9 @@ from typing import Set
 from fastapi import WebSocketException, APIRouter, WebSocketDisconnect, WebSocket, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..database import get_db
-from ..auth import get_current_user
-from ..models import AlertHistory, System, Contact
+from database import get_db
+from auth import get_current_user
+from models import AlertHistory, System, Contact
 
 router = APIRouter(prefix="/api/v1", tags=["websocket"])
 

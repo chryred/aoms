@@ -375,7 +375,8 @@ make test-api   # 단위 테스트 (인프라 불필요 — SQLite in-memory)
 | Frontend UI | 완료 | React + 뉴모피즘 프론트엔드 (20개 화면) — 분석 탭, 피드백 관리, 벡터 컬렉션 상태 포함 |
 | Phase 4d | 계획 | Agentic LLM 2-tier (ReAct 루프) |
 | Phase 6 (aoms_agent) | 완료 | Rust 단일 바이너리 수집기 (CPU/메모리/디스크/네트워크/프로세스/로그/웹서버 access log), Prometheus Remote Write, WAL 2h 버퍼 |
-| Phase 6 (admin-api) | 완료 | aoms_agent install 자동화 (config.toml SFTP 업로드), live-status API (Prometheus 쿼리), prometheus_analyzer.py 자동 분석 루프 |
+| Phase 6 (admin-api) | 완료 | aoms_agent install 자동화 (config.toml SFTP 업로드), live-status API (Prometheus 쿼리), prometheus_analyzer.py 자동 분석 루프. collector_config._TEMPLATES에 synapse_agent 추가 |
 | Phase 6 (frontend) | 완료 | AgentDetailPage live-status 카드 — 수집기별 활성 뱃지, last_seen 표시 |
+| Phase 6 (log-analyzer) | 완료 | aggregation_processor.PROMQL_MAP에 synapse_agent 추가 (cpu/memory/disk/network/log/web). _detect_anomaly synapse_agent 조건 추가. analyze_with_llm() dead code 제거 |
 | Phase 7 | 완료 | `instance_role` HA 의미 재정립, `[[log_monitor]]` 다중 log_type 지원, log-analyzer Loki→Prometheus 마이그레이션, Loki 컨테이너 완전 제거 |
 | Phase 8 (dashboard) | 완료 | 통합 운영 대시보드 — 하이브리드 레이아웃(통계+카드), 시스템 상태 종합 판정(메트릭+로그분석+예방패턴), WebSocket 실시간 알림 스트리밍, 예방적 패턴 감지 연동, 단위 테스트 13개 |

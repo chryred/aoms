@@ -140,13 +140,20 @@ POST /metric/similarity
 ```
 
 ### 집계 처리 흐름 (Phase 5 — 내부 스케줄러)
+
+**PROMQL_MAP 수집기별 지원 현황:**
+- `synapse_agent`: cpu / memory / disk / network / log / web (Phase 6, 기본 수집기)
+- `node_exporter`: cpu / memory / disk / network / system (레거시)
+- `jmx_exporter`: jvm_heap / thread_pool / request / connection_pool
+- `db_exporter`: db_connections / db_query / db_cache / db_replication
+
 ```
 _hourly_agg_scheduler() (매 시간 :05분 KST)
   → aggregation_processor.run_hourly_aggregation()
     → GET /api/v1/collector-config (활성 수집기 목록)
     → asyncio.gather() — semaphore=20 병렬
-      → Prometheus avg_over_time[1h] 쿼리
-      → 이상 감지 (_detect_anomaly)
+      → PROMQL_MAP[collector_type][metric_group] 으로 Prometheus avg_over_time[1h] 쿼리
+      → 이상 감지 (_detect_anomaly — synapse_agent / node_exporter / jmx_exporter / db_exporter 지원)
       → POST /api/v1/aggregations/hourly (기본 저장)
       → 이상이면: LLM → Qdrant → hourly 업데이트 → Teams 프로액티브 알림
 

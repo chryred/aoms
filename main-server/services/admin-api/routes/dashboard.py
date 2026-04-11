@@ -255,7 +255,7 @@ async def get_system_detail_health(
                 "id":         contact.id,
                 "name":       contact.name,
                 "teams_upn":  contact.teams_upn,
-                "phone":      contact.phone,
+                "email":      contact.email,
                 "role":       sc.role,
             })
 
@@ -283,7 +283,7 @@ async def get_system_detail_health(
             "incidents": [
                 {
                     "id":              a.id,
-                    "log_message":     (a.raw_logs or "")[:500],
+                    "log_message":     (a.log_content or "")[:500],
                     "analysis_result": (a.analysis_result or "")[:300],
                     "severity":        a.severity,
                     "anomaly_type":    a.anomaly_type,

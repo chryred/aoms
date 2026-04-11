@@ -101,6 +101,38 @@ PROMQL_MAP: dict[str, dict[str, dict[str, str]]] = {
             "repl_lag_sec": 'max_over_time(db_replication_lag_seconds{{system_name="{sn}"}}[1h])',
         },
     },
+    # Phase 6 — synapse_agent 단일 바이너리 수집기 (node_exporter 대체)
+    "synapse_agent": {
+        "cpu": {
+            "cpu_avg": 'avg_over_time(cpu_usage_percent{{system_name="{sn}",core="total"}}[1h])',
+            "cpu_max": 'max_over_time(cpu_usage_percent{{system_name="{sn}",core="total"}}[1h])',
+            "cpu_p95": 'quantile_over_time(0.95, cpu_usage_percent{{system_name="{sn}",core="total"}}[1h])',
+            "load1":   'avg_over_time(cpu_load_avg{{system_name="{sn}",interval="1m"}}[1h])',
+            "load5":   'avg_over_time(cpu_load_avg{{system_name="{sn}",interval="5m"}}[1h])',
+        },
+        "memory": {
+            "mem_used_pct": 'avg_over_time(memory_used_bytes{{system_name="{sn}",type="used"}}[1h]) / avg_over_time(memory_used_bytes{{system_name="{sn}",type="total"}}[1h]) * 100',
+            "mem_p95":      'quantile_over_time(0.95, memory_used_bytes{{system_name="{sn}",type="used"}}[1h]) / avg_over_time(memory_used_bytes{{system_name="{sn}",type="total"}}[1h]) * 100',
+        },
+        "disk": {
+            "disk_read_mb":  'avg_over_time(rate(disk_bytes_total{{system_name="{sn}",direction="read"}}[5m])[1h:5m]) / 1048576',
+            "disk_write_mb": 'avg_over_time(rate(disk_bytes_total{{system_name="{sn}",direction="write"}}[5m])[1h:5m]) / 1048576',
+            "disk_io_ms":    'avg_over_time(disk_io_time_ms{{system_name="{sn}"}}[1h])',
+        },
+        "network": {
+            "net_rx_mb": 'avg_over_time(rate(network_bytes_total{{system_name="{sn}",direction="rx"}}[5m])[1h:5m]) / 1048576',
+            "net_tx_mb": 'avg_over_time(rate(network_bytes_total{{system_name="{sn}",direction="tx"}}[5m])[1h:5m]) / 1048576',
+        },
+        "log": {
+            "log_errors":     'sum_over_time(increase(log_error_total{{system_name="{sn}"}}[5m])[1h:5m])',
+            "log_errors_err": 'sum_over_time(increase(log_error_total{{system_name="{sn}",level="ERROR"}}[5m])[1h:5m])',
+        },
+        "web": {
+            "req_total":   'sum_over_time(increase(http_request_total{{system_name="{sn}"}}[5m])[1h:5m])',
+            "req_slow":    'sum_over_time(increase(http_request_slow_total{{system_name="{sn}"}}[5m])[1h:5m])',
+            "resp_avg_ms": 'avg_over_time(http_request_duration_ms{{system_name="{sn}"}}[1h])',
+        },
+    },
 }
 
 
@@ -168,6 +200,28 @@ def _detect_anomaly(
             return True, f"요청 오류율 {metrics['req_error_rate']}% > 1%"
         if metrics.get("resp_p95_ms", 0) > 2000:
             return True, f"응답시간 p95 {metrics['resp_p95_ms']}ms > 2000ms"
+
+    elif collector_type == "synapse_agent":
+        if metric_group == "cpu":
+            if metrics.get("cpu_p95", 0) > 75:
+                return True, f"CPU p95 {metrics['cpu_p95']}% > 75%"
+            if metrics.get("cpu_avg", 0) > 65:
+                return True, f"CPU avg {metrics['cpu_avg']}% > 65%"
+        elif metric_group == "memory":
+            if metrics.get("mem_p95", 0) > 85:
+                return True, f"Memory p95 {metrics['mem_p95']}% > 85%"
+            if metrics.get("mem_used_pct", 0) > 80:
+                return True, f"Memory avg {metrics['mem_used_pct']}% > 80%"
+        elif metric_group == "log":
+            if metrics.get("log_errors_err", 0) > 10:
+                return True, f"ERROR 로그 {int(metrics['log_errors_err'])}건 발생"
+        elif metric_group == "web":
+            if metrics.get("req_slow", 0) > 0 and metrics.get("req_total", 0) > 0:
+                slow_rate = metrics["req_slow"] / metrics["req_total"] * 100
+                if slow_rate > 5:
+                    return True, f"슬로우 요청 {slow_rate:.1f}% > 5%"
+            if metrics.get("resp_avg_ms", 0) > 2000:
+                return True, f"평균 응답시간 {metrics['resp_avg_ms']}ms > 2000ms"
 
     elif collector_type == "db_exporter":
         if metrics.get("conn_active_pct", 0) > 80:

@@ -198,27 +198,6 @@ async def _call_llm_api(prompt: str, api_key: str, agent_code: str) -> dict:
     return _parse_llm_response(answer)
 
 
-async def analyze_with_llm(
-    system_name: str,
-    instance_role: str,
-    host: str,
-    logs: list[dict],
-    api_key: str,
-    agent_code: str,
-) -> dict:
-    """DevX API로 로그 분석 요청 후 결과 반환 (벡터 컨텍스트 없음)"""
-    log_content = mask_sensitive_data("\n".join(entry["line"] for entry in logs[:50]))
-
-    query = ANALYSIS_QUERY.format(
-        system_name=system_name,
-        instance_role=instance_role,
-        host=host,
-        count=len(logs),
-        log_content=log_content,
-    )
-    return await _call_llm_api(query, api_key, agent_code)
-
-
 async def analyze_with_vector_context(
     system_name: str,
     instance_role: str,
