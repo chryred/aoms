@@ -151,7 +151,7 @@ async def get_dashboard_health(
         "normal_systems":     0,
         "proactive_systems":  0,   # 예방 패턴 감지된 시스템 수
         "total_metric_alerts": 0,
-        "last_updated":       datetime.utcnow().isoformat(),
+        "last_updated":       datetime.utcnow().isoformat() + "Z",
     }
 
     for sys in systems:
@@ -163,8 +163,6 @@ async def get_dashboard_health(
             "system_name":    sys.system_name,
             "status":         health.status,
             "reason":         health.reason,
-            "system_type":    sys.system_type,
-            "os_type":        sys.os_type,
             "proactive_count": health.proactive_count,
         })
 
@@ -205,7 +203,7 @@ async def get_system_detail_health(
     one_hour_ago   = datetime.utcnow() - timedelta(hours=1)
     eight_hours_ago = datetime.utcnow() - timedelta(hours=8)
 
-    # 1. 활성 메트릭 알림 (최근 1h)
+    # 1. 활성 알림 (최근 1h) — 메트릭 알림
     result = await db.execute(
         select(AlertHistory).where(
             and_(
@@ -216,6 +214,19 @@ async def get_system_detail_health(
         ).order_by(desc(AlertHistory.created_at))
     )
     metric_alerts = result.scalars().all()
+
+    # 1-b. 로그 분석 알림 (최근 1h, critical/warning 건만)
+    result = await db.execute(
+        select(LogAnalysisHistory).where(
+            and_(
+                LogAnalysisHistory.system_id == system_id,
+                LogAnalysisHistory.severity.in_(["critical", "warning"]),
+                LogAnalysisHistory.alert_sent == True,
+                LogAnalysisHistory.created_at >= one_hour_ago,
+            )
+        ).order_by(desc(LogAnalysisHistory.created_at))
+    )
+    log_alerts = result.scalars().all()
 
     # 2. 최근 로그분석 결과 (최근 1h, 5건)
     result = await db.execute(
@@ -263,18 +274,32 @@ async def get_system_detail_health(
         "system_id":    system.id,
         "display_name": system.display_name,
         "system_name":  system.system_name,
-        "system_type":  system.system_type,
 
-        "metric_alerts": [
-            {
-                "id":          a.id,
-                "alertname":   a.alertname,
-                "severity":    a.severity,
-                "value":       a.metric_value,
-                "created_at":  a.created_at.isoformat(),
-            }
-            for a in metric_alerts
-        ],
+        "metric_alerts": sorted(
+            [
+                {
+                    "id":          a.id,
+                    "alert_type":  "metric",
+                    "alertname":   a.alertname,
+                    "severity":    a.severity,
+                    "value":       a.metric_value,
+                    "created_at":  a.created_at.isoformat() + "Z",
+                }
+                for a in metric_alerts
+            ] + [
+                {
+                    "id":          a.id,
+                    "alert_type":  "log_analysis",
+                    "alertname":   (a.log_content or "")[:80],
+                    "severity":    a.severity,
+                    "value":       None,
+                    "created_at":  a.created_at.isoformat() + "Z",
+                }
+                for a in log_alerts
+            ],
+            key=lambda x: x["created_at"],
+            reverse=True,
+        ),
 
         "log_analysis": {
             "latest_count":   len(log_analyses),
@@ -288,7 +313,7 @@ async def get_system_detail_health(
                     "severity":        a.severity,
                     "anomaly_type":    a.anomaly_type,
                     "recommendation":  a.recommendation,
-                    "created_at":      a.created_at.isoformat(),
+                    "created_at":      a.created_at.isoformat() + "Z",
                 }
                 for a in log_analyses
             ],
@@ -300,7 +325,7 @@ async def get_system_detail_health(
                 "id":             p.id,
                 "collector_type": p.collector_type,
                 "metric_group":   p.metric_group,
-                "hour_bucket":    p.hour_bucket.isoformat(),
+                "hour_bucket":    p.hour_bucket.isoformat() + "Z",
                 "llm_severity":   p.llm_severity,
                 "llm_trend":      p.llm_trend,
                 "llm_prediction": p.llm_prediction,
@@ -309,5 +334,5 @@ async def get_system_detail_health(
         ],
 
         "contacts":     contacts,
-        "last_updated": datetime.utcnow().isoformat(),
+        "last_updated": datetime.utcnow().isoformat() + "Z",
     }

@@ -28,6 +28,11 @@ export function SystemListPage() {
     setDrawerOpen(true)
   }
 
+  const handleCreated = (newSystem: System) => {
+    // 등록 직후 수정 모드로 전환 → 담당자 연결 패널 바로 노출
+    setEditTarget(newSystem)
+  }
+
   const closeDrawer = () => {
     setDrawerOpen(false)
     setEditTarget(undefined)
@@ -67,7 +72,12 @@ export function SystemListPage() {
         </NeuCard>
       )}
 
-      <SystemFormDrawer open={drawerOpen} onClose={closeDrawer} editTarget={editTarget} />
+      <SystemFormDrawer
+        open={drawerOpen}
+        onClose={closeDrawer}
+        onCreated={handleCreated}
+        editTarget={editTarget}
+      />
     </>
   )
 }

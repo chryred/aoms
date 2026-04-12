@@ -36,55 +36,7 @@ TEAMS_WEBHOOK_URL = os.getenv("TEAMS_WEBHOOK_URL", "")
 # ── PromQL 매핑 ──────────────────────────────────────────────────────────────
 
 PROMQL_MAP: dict[str, dict[str, dict[str, str]]] = {
-    "node_exporter": {
-        "cpu": {
-            "cpu_avg": 'avg_over_time(node_cpu_usage_percent{{system_name="{sn}"}}[1h])',
-            "cpu_max": 'max_over_time(node_cpu_usage_percent{{system_name="{sn}"}}[1h])',
-            "cpu_min": 'min_over_time(node_cpu_usage_percent{{system_name="{sn}"}}[1h])',
-            "cpu_p95": 'quantile_over_time(0.95, node_cpu_usage_percent{{system_name="{sn}"}}[1h])',
-            "iowait":  'avg_over_time(node_cpu_iowait_percent{{system_name="{sn}"}}[1h])',
-        },
-        "memory": {
-            "mem_used_pct": 'avg_over_time(node_memory_used_percent{{system_name="{sn}"}}[1h])',
-            "mem_p95":      'quantile_over_time(0.95, node_memory_used_percent{{system_name="{sn}"}}[1h])',
-            "mem_avail_gb": 'min_over_time(node_memory_available_bytes{{system_name="{sn}"}}[1h]) / 1073741824',
-        },
-        "disk": {
-            "disk_util_pct":    'avg_over_time(node_disk_utilization_percent{{system_name="{sn}"}}[1h])',
-            "disk_read_iops":   'avg_over_time(node_disk_reads_completed_total{{system_name="{sn}"}}[1h])',
-            "disk_write_iops":  'avg_over_time(node_disk_writes_completed_total{{system_name="{sn}"}}[1h])',
-        },
-        "network": {
-            "net_rx_mb": 'avg_over_time(rate(node_network_receive_bytes_total{{system_name="{sn}"}}[5m])[1h:5m]) / 1048576',
-            "net_tx_mb": 'avg_over_time(rate(node_network_transmit_bytes_total{{system_name="{sn}"}}[5m])[1h:5m]) / 1048576',
-        },
-        "system": {
-            "load1":  'avg_over_time(node_load1{{system_name="{sn}"}}[1h])',
-            "load5":  'avg_over_time(node_load5{{system_name="{sn}"}}[1h])',
-            "load15": 'avg_over_time(node_load15{{system_name="{sn}"}}[1h])',
-        },
-    },
-    "jmx_exporter": {
-        "jvm_heap": {
-            "heap_used_pct": 'avg_over_time(jvm_heap_used_percent{{system_name="{sn}"}}[1h])',
-            "heap_p95":      'quantile_over_time(0.95, jvm_heap_used_percent{{system_name="{sn}"}}[1h])',
-            "gc_time_pct":   'avg_over_time(jvm_gc_time_percent{{system_name="{sn}"}}[1h])',
-        },
-        "thread_pool": {
-            "thread_active":    'avg_over_time(jvm_threads_active{{system_name="{sn}"}}[1h])',
-            "thread_max":       'max_over_time(jvm_threads_active{{system_name="{sn}"}}[1h])',
-            "rejection_count":  'sum_over_time(jvm_thread_pool_rejections_total{{system_name="{sn}"}}[1h])',
-        },
-        "request": {
-            "req_tps":        'avg_over_time(jvm_requests_per_second{{system_name="{sn}"}}[1h])',
-            "req_error_rate": 'avg_over_time(jvm_request_error_rate{{system_name="{sn}"}}[1h])',
-            "resp_p95_ms":    'quantile_over_time(0.95, jvm_response_time_ms{{system_name="{sn}"}}[1h])',
-        },
-        "connection_pool": {
-            "conn_active": 'avg_over_time(jvm_connection_pool_active{{system_name="{sn}"}}[1h])',
-            "conn_wait":   'max_over_time(jvm_connection_pool_waiting{{system_name="{sn}"}}[1h])',
-        },
-    },
+    # node_exporter, jmx_exporter는 synapse_agent로 대체됨 → 제거
     "db_exporter": {
         "db_connections": {
             "conn_active_pct": 'avg_over_time(db_connections_active_percent{{system_name="{sn}"}}[1h])',
@@ -111,8 +63,9 @@ PROMQL_MAP: dict[str, dict[str, dict[str, str]]] = {
             "load5":   'avg_over_time(cpu_load_avg{{system_name="{sn}",interval="5m"}}[1h])',
         },
         "memory": {
-            "mem_used_pct": 'avg_over_time(memory_used_bytes{{system_name="{sn}",type="used"}}[1h]) / avg_over_time(memory_used_bytes{{system_name="{sn}",type="total"}}[1h]) * 100',
-            "mem_p95":      'quantile_over_time(0.95, memory_used_bytes{{system_name="{sn}",type="used"}}[1h]) / avg_over_time(memory_used_bytes{{system_name="{sn}",type="total"}}[1h]) * 100',
+            # type 라벨이 달라 ignoring(type)으로 label 매칭 무시 후 나눗셈
+            "mem_used_pct": 'avg_over_time(memory_used_bytes{{system_name="{sn}",type="used"}}[1h]) / ignoring(type) avg_over_time(memory_used_bytes{{system_name="{sn}",type="total"}}[1h]) * 100',
+            "mem_p95":      'quantile_over_time(0.95, memory_used_bytes{{system_name="{sn}",type="used"}}[1h]) / ignoring(type) avg_over_time(memory_used_bytes{{system_name="{sn}",type="total"}}[1h]) * 100',
         },
         "disk": {
             "disk_read_mb":  'avg_over_time(rate(disk_bytes_total{{system_name="{sn}",direction="read"}}[5m])[1h:5m]) / 1048576',
@@ -124,8 +77,10 @@ PROMQL_MAP: dict[str, dict[str, dict[str, str]]] = {
             "net_tx_mb": 'avg_over_time(rate(network_bytes_total{{system_name="{sn}",direction="tx"}}[5m])[1h:5m]) / 1048576',
         },
         "log": {
-            "log_errors":     'sum_over_time(increase(log_error_total{{system_name="{sn}"}}[5m])[1h:5m])',
-            "log_errors_err": 'sum_over_time(increase(log_error_total{{system_name="{sn}",level="ERROR"}}[5m])[1h:5m])',
+            # synapse_agent는 에러 로그 1건마다 별도 시계열(value=1)을 생성
+            # increase() 대신 count()로 현재 활성 시계열(= 에러 건수) 집계
+            "log_errors":     'count(log_error_total{{system_name="{sn}"}})',
+            "log_errors_err": 'count(log_error_total{{system_name="{sn}",level="ERROR"}})',
         },
         "web": {
             "req_total":   'sum_over_time(increase(http_request_total{{system_name="{sn}"}}[5m])[1h:5m])',

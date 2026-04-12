@@ -6,9 +6,16 @@ interface SSHSessionState {
   port: number | null
   username: string | null
   expiresAt: number | null // Unix timestamp (ms)
-  setSession: (token: string, host: string, port: number, username: string, expiresIn: number) => void
+  setSession: (
+    token: string,
+    host: string,
+    port: number,
+    username: string,
+    expiresIn: number,
+  ) => void
   clearSession: () => void
   isValid: () => boolean
+  refreshExpiry: () => void // 서버 슬라이딩 TTL과 동기화 (30분 리셋)
 }
 
 export const useSSHSessionStore = create<SSHSessionState>((set, get) => ({
@@ -33,5 +40,11 @@ export const useSSHSessionStore = create<SSHSessionState>((set, get) => ({
   isValid: () => {
     const { token, expiresAt } = get()
     return !!token && !!expiresAt && Date.now() < expiresAt
+  },
+
+  refreshExpiry: () => {
+    const { token } = get()
+    if (!token) return
+    set({ expiresAt: Date.now() + 30 * 60 * 1000 })
   },
 }))

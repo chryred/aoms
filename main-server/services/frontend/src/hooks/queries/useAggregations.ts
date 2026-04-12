@@ -1,7 +1,28 @@
 import { useQuery } from '@tanstack/react-query'
 import { aggregationsApi, type HourlyParams } from '@/api/aggregations'
+import { adminApi } from '@/lib/ky-client'
 import { qk } from '@/constants/queryKeys'
 import type { PeriodType } from '@/types/aggregation'
+
+interface CollectorConfig {
+  id: number
+  system_id: number
+  collector_type: string
+  metric_group: string
+  enabled: boolean
+}
+
+export function useCollectorConfigs(system_id: number | undefined) {
+  return useQuery<CollectorConfig[]>({
+    queryKey: ['collectorConfigs', system_id],
+    queryFn: () =>
+      adminApi
+        .get('api/v1/collector-config', { searchParams: { system_id } })
+        .json<CollectorConfig[]>(),
+    enabled: !!system_id,
+    staleTime: 300_000,
+  })
+}
 
 export function useHourlyAggregations(params: HourlyParams) {
   return useQuery({

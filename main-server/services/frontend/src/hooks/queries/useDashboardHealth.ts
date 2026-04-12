@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { apiClient } from '@/lib/api'
+import { adminApi } from '@/lib/ky-client'
 
 export interface SystemHealthData {
   system_id: string
@@ -7,9 +7,7 @@ export interface SystemHealthData {
   system_name: string
   status: 'normal' | 'warning' | 'critical'
   reason: string
-  system_type: string
-  os_type: string
-  proactive_count: number  // 예방 패턴 감지 건수
+  proactive_count: number // 예방 패턴 감지 건수
 }
 
 export interface DashboardSummary {
@@ -17,7 +15,7 @@ export interface DashboardSummary {
   critical_systems: number
   warning_systems: number
   normal_systems: number
-  proactive_systems: number  // 예방 패턴 감지된 시스템 수
+  proactive_systems: number // 예방 패턴 감지된 시스템 수
   total_metric_alerts: number
   total_log_critical: number
   total_log_warning: number
@@ -33,10 +31,7 @@ export interface DashboardHealthResponse {
 export function useDashboardHealth() {
   return useQuery<DashboardHealthResponse>({
     queryKey: ['dashboardHealth'],
-    queryFn: async () => {
-      const response = await apiClient.get('/api/v1/dashboard/system-health')
-      return response.data
-    },
+    queryFn: () => adminApi.get('api/v1/dashboard/system-health').json<DashboardHealthResponse>(),
     refetchInterval: 60000, // 60초마다 자동 새로고침
     staleTime: 30000, // 30초 동안 fresh 유지
   })
@@ -44,9 +39,10 @@ export function useDashboardHealth() {
 
 export interface MetricAlert {
   id: string
+  alert_type: 'metric' | 'log_analysis'
   alertname: string
   severity: string
-  value: string
+  value: string | null
   created_at: string
 }
 
@@ -88,10 +84,9 @@ export interface SystemDetailResponse {
   system_id: string
   display_name: string
   system_name: string
-  system_type: string
   metric_alerts: MetricAlert[]
   log_analysis: LogAnalysisSummary
-  proactive_alerts: ProactiveAlert[]  // 예방적 패턴 감지
+  proactive_alerts: ProactiveAlert[] // 예방적 패턴 감지
   contacts: SystemContact[]
   last_updated: string
 }
@@ -99,13 +94,8 @@ export interface SystemDetailResponse {
 export function useSystemDetailHealth(systemId: string | undefined) {
   return useQuery<SystemDetailResponse>({
     queryKey: ['systemDetailHealth', systemId],
-    queryFn: async () => {
-      if (!systemId) throw new Error('systemId required')
-      const response = await apiClient.get(
-        `/api/v1/dashboard/systems/${systemId}/detailed`
-      )
-      return response.data
-    },
+    queryFn: () =>
+      adminApi.get(`api/v1/dashboard/systems/${systemId}/detailed`).json<SystemDetailResponse>(),
     enabled: !!systemId,
     refetchInterval: 30000, // 30초마다 새로고침
     staleTime: 15000,
@@ -114,7 +104,7 @@ export function useSystemDetailHealth(systemId: string | undefined) {
 
 // WebSocket 실시간 알림 업데이트 hook (향후)
 export function useDashboardRealtimeAlerts() {
-  const _queryClient = useQueryClient()
+  useQueryClient()
 
   // WebSocket connection setup (Phase 8)
   // const [wsConnected, setWsConnected] = useState(false)

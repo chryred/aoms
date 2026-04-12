@@ -13,27 +13,15 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
-from models import SystemCollectorConfig
+from models import System, SystemCollectorConfig
 from schemas import CollectorConfigCreate, CollectorConfigOut, CollectorConfigUpdate
 
 router = APIRouter(prefix="/api/v1/collector-config", tags=["collector-config"])
 
 
 # collector_type별 기본 metric_group 템플릿
+# node_exporter, jmx_exporter는 synapse_agent로 대체됨 → 제거
 _TEMPLATES: dict[str, list[dict]] = {
-    "node_exporter": [
-        {"metric_group": "cpu",     "description": "CPU avg/max/min/p95, iowait%, steal%"},
-        {"metric_group": "memory",  "description": "Memory used%, available_gb, cached_gb"},
-        {"metric_group": "disk",    "description": "Disk read/write IOPS, throughput, utilization%, await_ms"},
-        {"metric_group": "network", "description": "Network rx/tx MB, errors, drops"},
-        {"metric_group": "system",  "description": "Load avg 1/5/15m, context_switches"},
-    ],
-    "jmx_exporter": [
-        {"metric_group": "jvm_heap",       "description": "JVM Heap used/max MB, GC time%, GC count"},
-        {"metric_group": "thread_pool",    "description": "Thread pool active/max, queue_size, rejection_count"},
-        {"metric_group": "request",        "description": "TPS, error_rate%, avg/p95/p99 response_ms"},
-        {"metric_group": "connection_pool","description": "Connection pool active/max, wait_count, avg_wait_ms"},
-    ],
     "db_exporter": [
         {"metric_group": "db_connections", "description": "Active/idle/max connections, connection_pct"},
         {"metric_group": "db_query",       "description": "TPS, slow_query_count, avg_query_ms"},
@@ -61,15 +49,26 @@ async def list_collector_configs(
     collector_type: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
 ):
-    """시스템별 수집기 설정 목록 조회"""
-    stmt = select(SystemCollectorConfig)
+    """시스템별 수집기 설정 목록 조회 (system_name / display_name 포함)"""
+    stmt = (
+        select(SystemCollectorConfig, System.system_name, System.display_name)
+        .join(System, System.id == SystemCollectorConfig.system_id)
+    )
     if system_id is not None:
         stmt = stmt.where(SystemCollectorConfig.system_id == system_id)
     if collector_type:
         stmt = stmt.where(SystemCollectorConfig.collector_type == collector_type)
-    result = await db.execute(stmt.order_by(SystemCollectorConfig.system_id, SystemCollectorConfig.collector_type))
-    configs = result.scalars().all()
-    return [CollectorConfigOut.model_validate(c) for c in configs]
+    stmt = stmt.order_by(SystemCollectorConfig.system_id, SystemCollectorConfig.collector_type)
+    result = await db.execute(stmt)
+    rows = result.all()
+    return [
+        {
+            **CollectorConfigOut.model_validate(cfg).model_dump(),
+            "system_name":  sn,
+            "display_name": dn,
+        }
+        for cfg, sn, dn in rows
+    ]
 
 
 @router.post("", status_code=201)

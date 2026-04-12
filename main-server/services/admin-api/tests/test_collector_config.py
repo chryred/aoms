@@ -10,9 +10,6 @@ from httpx import AsyncClient
 SYSTEM_PAYLOAD = {
     "system_name": "config-test-server",
     "display_name": "Config Test Server",
-    "host": "10.0.0.1",
-    "os_type": "linux",
-    "system_type": "was",
 }
 
 
@@ -129,24 +126,24 @@ async def test_delete_collector_config_not_found(client: AsyncClient):
 
 
 # ── 템플릿 ────────────────────────────────────────────────────────────────────
+# node_exporter, jmx_exporter는 synapse_agent로 대체되어 제거됨
 
-async def test_get_template_node_exporter(client: AsyncClient):
-    resp = await client.get("/api/v1/collector-config/templates/node_exporter")
+async def test_get_template_db_exporter(client: AsyncClient):
+    resp = await client.get("/api/v1/collector-config/templates/db_exporter")
     assert resp.status_code == 200
     data = resp.json()
-    assert data["collector_type"] == "node_exporter"
+    assert data["collector_type"] == "db_exporter"
     groups = [g["metric_group"] for g in data["metric_groups"]]
-    assert "cpu" in groups
-    assert "memory" in groups
-    assert "disk" in groups
+    assert "db_connections" in groups
+    assert "db_query" in groups
 
 
-async def test_get_template_jmx_exporter(client: AsyncClient):
-    resp = await client.get("/api/v1/collector-config/templates/jmx_exporter")
+async def test_get_template_synapse_agent(client: AsyncClient):
+    resp = await client.get("/api/v1/collector-config/templates/synapse_agent")
     assert resp.status_code == 200
     groups = [g["metric_group"] for g in resp.json()["metric_groups"]]
-    assert "jvm_heap" in groups
-    assert "thread_pool" in groups
+    assert "cpu" in groups
+    assert "memory" in groups
 
 
 async def test_get_template_unknown_type(client: AsyncClient):

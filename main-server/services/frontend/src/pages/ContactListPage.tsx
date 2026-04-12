@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ROUTES } from '@/constants/routes'
-import { Pencil, Trash2, Users } from 'lucide-react'
+import { Pencil, Trash2, Users, X } from 'lucide-react'
 import { PageHeader } from '@/components/common/PageHeader'
 import { NeuButton } from '@/components/neumorphic/NeuButton'
 import { NeuInput } from '@/components/neumorphic/NeuInput'
@@ -11,7 +11,55 @@ import { LoadingSkeleton } from '@/components/common/LoadingSkeleton'
 import { useContacts } from '@/hooks/queries/useContacts'
 import { useDeleteContact } from '@/hooks/mutations/useDeleteContact'
 import { formatKST } from '@/lib/utils'
-import type { Contact } from '@/types/contact'
+import type { Contact, ContactSystem } from '@/types/contact'
+
+function SystemsCell({ systems }: { systems: ContactSystem[] }) {
+  const [popupOpen, setPopupOpen] = useState(false)
+
+  if (systems.length === 0) return <span className="text-[#5A6478]">-</span>
+
+  // 1개: 뱃지 그대로 표시
+  if (systems.length === 1) {
+    return <NeuBadge variant="muted">{systems[0].display_name}</NeuBadge>
+  }
+
+  // 2개 이상: "보기" 버튼 + 팝업
+  return (
+    <>
+      <button
+        onClick={() => setPopupOpen(true)}
+        className="rounded-sm bg-[#2B2F37] px-2.5 py-1 text-xs text-[#8B97AD] transition-colors hover:bg-[#353A44] hover:text-[#E2E8F2]"
+      >
+        보기 ({systems.length})
+      </button>
+
+      {popupOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setPopupOpen(false)} />
+          <div className="relative mx-4 w-full max-w-xs rounded-sm border border-[#2B2F37] bg-[#1E2127] p-5 shadow-[3px_3px_7px_#111317,-3px_-3px_7px_#2B2F37]">
+            <div className="mb-3 flex items-center justify-between">
+              <p className="text-sm font-semibold text-[#E2E8F2]">연결된 시스템</p>
+              <button
+                onClick={() => setPopupOpen(false)}
+                className="text-[#8B97AD] hover:text-[#E2E8F2]"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="space-y-1.5">
+              {systems.map((s) => (
+                <div key={s.id} className="flex flex-col">
+                  <span className="text-sm text-[#E2E8F2]">{s.display_name}</span>
+                  <span className="text-xs text-[#5A6478]">{s.system_name}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  )
+}
 
 export function ContactListPage() {
   const navigate = useNavigate()
@@ -23,8 +71,15 @@ export function ContactListPage() {
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase()
+    if (!q) return contacts
     return contacts.filter(
-      (c) => c.name.toLowerCase().includes(q) || (c.email ?? '').toLowerCase().includes(q),
+      (c) =>
+        c.name.toLowerCase().includes(q) ||
+        (c.email ?? '').toLowerCase().includes(q) ||
+        c.systems.some(
+          (s) =>
+            s.display_name.toLowerCase().includes(q) || s.system_name.toLowerCase().includes(q),
+        ),
     )
   }, [contacts, search])
 
@@ -43,7 +98,7 @@ export function ContactListPage() {
 
       <div className="mb-4 max-w-xs">
         <NeuInput
-          placeholder="이름 또는 이메일 검색"
+          placeholder="이름, 이메일, 시스템 검색"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
@@ -60,11 +115,16 @@ export function ContactListPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-[#2B2F37]">
-                {['이름', '이메일', 'Teams UPN', '알림 채널', 'LLM 키', '등록일', ''].map((h) => (
-                  <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-[#8B97AD]">
-                    {h}
-                  </th>
-                ))}
+                {['이름', '이메일', 'Teams UPN', '연결된 시스템', 'LLM 키', '등록일', ''].map(
+                  (h) => (
+                    <th
+                      key={h}
+                      className="px-4 py-3 text-left text-xs font-semibold text-[#8B97AD]"
+                    >
+                      {h}
+                    </th>
+                  ),
+                )}
               </tr>
             </thead>
             <tbody>
@@ -124,11 +184,7 @@ function ContactRow({
       <td className="px-4 py-3 text-[#8B97AD]">{contact.email ?? '-'}</td>
       <td className="px-4 py-3 text-[#8B97AD]">{contact.teams_upn ?? '-'}</td>
       <td className="px-4 py-3">
-        <div className="flex flex-wrap gap-1">
-          {contact.webhook_url && <NeuBadge variant="normal">Webhook</NeuBadge>}
-          {contact.teams_upn && <NeuBadge variant="info">Teams</NeuBadge>}
-          {!contact.webhook_url && !contact.teams_upn && <span className="text-[#5A6478]">-</span>}
-        </div>
+        <SystemsCell systems={contact.systems} />
       </td>
       <td className="px-4 py-3 text-[#8B97AD]">
         {contact.llm_api_key ? contact.llm_api_key : '-'}

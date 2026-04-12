@@ -14,7 +14,7 @@ function CollectionInfoBar() {
   const { data, isLoading } = useCollectionInfo()
 
   if (isLoading) return <div className="mb-4 text-sm text-[#8B97AD]">컬렉션 정보 로딩 중...</div>
-  if (!data) return null
+  if (!data || !data.metric_hourly_patterns || !data.aggregation_summaries) return null
 
   const statusColor = (s: string) => {
     if (s === 'green') return 'text-[#22C55E]'
@@ -28,13 +28,13 @@ function CollectionInfoBar() {
       <span>
         시간별 패턴:{' '}
         <span className={statusColor(data.metric_hourly_patterns.status)}>
-          {data.metric_hourly_patterns.points_count.toLocaleString()}건
+          {(data.metric_hourly_patterns.points_count ?? 0).toLocaleString()}건
         </span>
       </span>
       <span>
         기간별 요약:{' '}
         <span className={statusColor(data.aggregation_summaries.status)}>
-          {data.aggregation_summaries.points_count.toLocaleString()}건
+          {(data.aggregation_summaries.points_count ?? 0).toLocaleString()}건
         </span>
       </span>
     </div>

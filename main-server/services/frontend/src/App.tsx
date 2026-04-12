@@ -24,7 +24,9 @@ const ContactFormPage = lazy(() =>
   import('@/pages/ContactFormPage').then((m) => ({ default: m.ContactFormPage })),
 )
 const DashboardSystemDetailPage = lazy(() =>
-  import('@/pages/DashboardSystemDetailPage').then((m) => ({ default: m.DashboardSystemDetailPage })),
+  import('@/pages/DashboardSystemDetailPage').then((m) => ({
+    default: m.DashboardSystemDetailPage,
+  })),
 )
 const ReportPage = lazy(() => import('@/pages/ReportPage').then((m) => ({ default: m.ReportPage })))
 const ReportHistoryPage = lazy(() =>
@@ -32,8 +34,6 @@ const ReportHistoryPage = lazy(() =>
 )
 const SimilarSearchPage = lazy(() => import('@/pages/SimilarSearchPage'))
 const TrendAlertsPage = lazy(() => import('@/pages/TrendAlertsPage'))
-const CollectorWizardPage = lazy(() => import('@/pages/CollectorWizardPage'))
-const CollectorConfigListPage = lazy(() => import('@/pages/CollectorConfigListPage'))
 const RegisterPage = lazy(() =>
   import('@/pages/auth/RegisterPage').then((m) => ({ default: m.RegisterPage })),
 )
@@ -177,22 +177,6 @@ export function App() {
             element={
               <Suspense fallback={<LoadingSkeleton shape="card" count={4} />}>
                 <FeedbackPage />
-              </Suspense>
-            }
-          />
-          <Route
-            path="/collector-configs"
-            element={
-              <Suspense fallback={<LoadingSkeleton shape="card" count={4} />}>
-                <CollectorConfigListPage />
-              </Suspense>
-            }
-          />
-          <Route
-            path="/systems/:id/wizard"
-            element={
-              <Suspense fallback={<LoadingSkeleton shape="card" count={3} />}>
-                <CollectorWizardPage />
               </Suspense>
             }
           />

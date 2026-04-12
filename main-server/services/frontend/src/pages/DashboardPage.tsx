@@ -3,11 +3,15 @@ import { useNavigate } from 'react-router-dom'
 import { RefreshCw, Wifi, WifiOff } from 'lucide-react'
 import { ROUTES } from '@/constants/routes'
 import { useDashboardHealth } from '@/hooks/queries/useDashboardHealth'
+import { useAgentHealthSummary } from '@/hooks/queries/useAgents'
 import { useWebSocketDashboard } from '@/hooks/useWebSocket'
 import { PageHeader } from '@/components/common/PageHeader'
 import { LoadingSkeleton } from '@/components/common/LoadingSkeleton'
 import { ErrorCard } from '@/components/common/ErrorCard'
-import { DashboardSummaryStats, DashboardLogAnalysisSummary } from '@/components/dashboard/DashboardSummary'
+import {
+  DashboardSummaryStats,
+  DashboardLogAnalysisSummary,
+} from '@/components/dashboard/DashboardSummary'
 import { SystemHealthGrid } from '@/components/dashboard/SystemHealthGrid'
 import { NeuButton } from '@/components/neumorphic/NeuButton'
 import { formatKST, cn } from '@/lib/utils'
@@ -17,12 +21,8 @@ export function DashboardPage() {
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [lastAlertUpdate, setLastAlertUpdate] = useState<Date | null>(null)
 
-  const {
-    data: dashboardData,
-    isLoading,
-    error,
-    refetch,
-  } = useDashboardHealth()
+  const { data: dashboardData, isLoading, error, refetch } = useDashboardHealth()
+  const { data: agentHealth } = useAgentHealthSummary()
 
   // WebSocket 연결 (실시간 알림 수신)
   const { isConnected: wsConnected, isConnecting: wsConnecting } = useWebSocketDashboard({
@@ -46,24 +46,24 @@ export function DashboardPage() {
 
   const summary = dashboardData?.summary
   const systems = dashboardData?.systems ?? []
-  const lastUpdated = summary?.last_updated
-    ? new Date(summary.last_updated)
-    : new Date()
+  const lastUpdated = summary?.last_updated ? new Date(summary.last_updated) : new Date()
 
   return (
     <div className="space-y-8">
       {/* 헤더 + WebSocket 상태 */}
       <div className="flex items-start justify-between gap-3">
-        <div className="flex-1 min-w-0">
+        <div className="min-w-0 flex-1">
           <PageHeader
             title="운영 대시보드"
             description={`마지막 갱신: ${formatKST(lastUpdated.toISOString(), 'HH:mm:ss')}`}
           />
           {/* WebSocket 상태 표시 */}
-          <div className={cn(
-            '-mt-4 flex flex-wrap items-center gap-1.5 text-xs',
-            wsConnected ? 'text-green-500' : 'text-[#8B97AD]'
-          )}>
+          <div
+            className={cn(
+              '-mt-4 flex flex-wrap items-center gap-1.5 text-xs',
+              wsConnected ? 'text-green-500' : 'text-[#8B97AD]',
+            )}
+          >
             {wsConnected ? (
               <>
                 <Wifi className="h-3 w-3 flex-shrink-0" />
@@ -76,7 +76,7 @@ export function DashboardPage() {
               </>
             ) : wsConnecting ? (
               <>
-                <Wifi className="h-3 w-3 animate-pulse flex-shrink-0" />
+                <Wifi className="h-3 w-3 flex-shrink-0 animate-pulse" />
                 <span>실시간 연결 중...</span>
               </>
             ) : (
@@ -92,7 +92,7 @@ export function DashboardPage() {
           size="sm"
           onClick={handleRefresh}
           disabled={isRefreshing}
-          className="flex items-center gap-2 whitespace-nowrap flex-shrink-0 mt-1"
+          className="mt-1 flex flex-shrink-0 items-center gap-2 whitespace-nowrap"
         >
           <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
           새로고침
@@ -110,11 +110,9 @@ export function DashboardPage() {
         <>
           {/* 상단: 통계 */}
           <section className="space-y-6">
-            <div>
-              <h2 className="mb-4 text-lg font-semibold text-[#E2E8F2]">
-                시스템 상태 요약
-              </h2>
-              <DashboardSummaryStats summary={summary} />
+            <div className="space-y-4">
+              <h2 className="text-lg font-semibold text-[#E2E8F2]">시스템 상태 요약</h2>
+              <DashboardSummaryStats summary={summary} agentSummary={agentHealth} />
             </div>
 
             <div>
@@ -129,9 +127,7 @@ export function DashboardPage() {
           <section className="space-y-4">
             <h2 className="text-lg font-semibold text-[#E2E8F2]">
               모니터링 시스템
-              <span className="ml-2 text-sm font-normal text-[#8B97AD]">
-                ({systems.length}개)
-              </span>
+              <span className="ml-2 text-sm font-normal text-[#8B97AD]">({systems.length}개)</span>
             </h2>
             <SystemHealthGrid systems={systems} onAddSystem={handleAddSystem} />
           </section>

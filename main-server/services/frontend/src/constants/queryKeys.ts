@@ -2,8 +2,6 @@ import type { AlertFilterParams } from '@/api/alerts'
 import type { HourlyParams } from '@/api/aggregations'
 import type { PeriodType } from '@/types/aggregation'
 import type { ReportType } from '@/types/report'
-import type { CollectorConfigFilterParams } from '@/api/collectorConfig'
-import type { CollectorType } from '@/types/collectorConfig'
 
 export const qk = {
   systems: () => ['systems'] as const,
@@ -32,16 +30,12 @@ export const qk = {
     aggregationStatus: () => ['search', 'aggregation-status'] as const,
   },
 
-  collectorConfigs: (params?: CollectorConfigFilterParams) =>
-    ['collector-configs', params] as const,
-
-  collectorTemplates: (type: CollectorType) => ['collector-templates', type] as const,
-
-  agents: (params?: { system_id?: number; agent_type?: string }) =>
-    ['agents', params] as const,
+  agents: (params?: { system_id?: number; agent_type?: string }) => ['agents', params] as const,
   agent: (id: number) => ['agents', id] as const,
   agentStatus: (id: number) => ['agents', id, 'status'] as const,
   agentConfig: (id: number) => ['agents', id, 'config'] as const,
   installJob: (jobId: string) => ['agents', 'jobs', jobId] as const,
   agentLiveStatus: (id: number) => ['agents', id, 'live-status'] as const,
+  agentSystemLive: (systemId: number) => ['agents', 'system-live', systemId] as const,
+  agentHealthSummary: ['agents', 'health-summary'] as const,
 }

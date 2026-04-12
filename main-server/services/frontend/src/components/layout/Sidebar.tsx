@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 import { ROUTES } from '@/constants/routes'
 import {
@@ -6,7 +6,6 @@ import {
   Bell,
   Server,
   Users,
-  Settings,
   TrendingUp,
   BarChart3,
   Search,
@@ -16,6 +15,7 @@ import {
   Database,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
   Terminal,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -93,16 +93,24 @@ export function Sidebar() {
   const user = useAuthStore((s) => s.user)
   const { pathname } = useLocation()
 
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false)
+
   const { data: unackAlerts } = useAlerts({ acknowledged: false, limit: 100 })
   const unackCount = unackAlerts?.length ?? 0
 
   const { data: allUsers } = useUsers()
   const pendingCount = allUsers?.filter((u) => toUserStatus(u) === 'pending').length ?? 0
 
-  // Close mobile sidebar on navigation
+  // Close mobile sidebar and account menu on navigation
   useEffect(() => {
     closeMobileSidebar()
+    setAccountMenuOpen(false)
   }, [pathname]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Close account menu when sidebar collapses
+  useEffect(() => {
+    if (collapsed) setAccountMenuOpen(false)
+  }, [collapsed])
 
   return (
     <aside
@@ -191,6 +199,13 @@ export function Sidebar() {
 
         <NavGroup label="관리" collapsed={collapsed}>
           <NavItem
+            to={ROUTES.AGENTS}
+            icon={<Terminal className="h-4 w-4" />}
+            label="에이전트 관리"
+            collapsed={collapsed}
+            onNavigate={closeMobileSidebar}
+          />
+          <NavItem
             to={ROUTES.SYSTEMS}
             icon={<Server className="h-4 w-4" />}
             label="시스템 관리"
@@ -204,51 +219,82 @@ export function Sidebar() {
             collapsed={collapsed}
             onNavigate={closeMobileSidebar}
           />
-          <NavItem
-            to={ROUTES.COLLECTOR_CONFIGS}
-            icon={<Settings className="h-4 w-4" />}
-            label="수집기 설정"
-            collapsed={collapsed}
-            onNavigate={closeMobileSidebar}
-          />
-          <NavItem
-            to={ROUTES.AGENTS}
-            icon={<Terminal className="h-4 w-4" />}
-            label="에이전트 관리"
-            collapsed={collapsed}
-            onNavigate={closeMobileSidebar}
-          />
         </NavGroup>
       </nav>
 
-      {/* 계정 */}
-      <div className="space-y-0.5 border-t border-[#2B2F37] px-2 py-3">
-        <NavItem
-          to={ROUTES.PROFILE}
-          icon={<UserCircle className="h-4 w-4" />}
-          label="내 프로필"
-          collapsed={collapsed}
-          onNavigate={closeMobileSidebar}
-        />
-        {user?.role === 'admin' && (
-          <>
+      {/* 계정 — 접이식 메뉴 */}
+      <div className="relative border-t border-[#2B2F37] px-2 py-2">
+        {/* 슬라이드업 서브메뉴 */}
+        <div
+          className={cn(
+            'absolute right-0 bottom-full left-0 overflow-hidden transition-all duration-200 ease-in-out',
+            accountMenuOpen ? 'max-h-[200px] opacity-100' : 'pointer-events-none max-h-0 opacity-0',
+          )}
+        >
+          <div className="space-y-0.5 border-t border-[#2B2F37] bg-[#252932] px-2 pt-1 pb-1">
             <NavItem
-              to={ROUTES.ADMIN_USERS}
-              icon={<ShieldCheck className="h-4 w-4" />}
-              label="사용자 관리"
-              badge={pendingCount}
+              to={ROUTES.PROFILE}
+              icon={<UserCircle className="h-4 w-4" />}
+              label="내 프로필"
               collapsed={collapsed}
               onNavigate={closeMobileSidebar}
             />
-            <NavItem
-              to={ROUTES.VECTOR_HEALTH}
-              icon={<Database className="h-4 w-4" />}
-              label="벡터 상태"
-              collapsed={collapsed}
-              onNavigate={closeMobileSidebar}
-            />
-          </>
-        )}
+            {user?.role === 'admin' && (
+              <>
+                <NavItem
+                  to={ROUTES.ADMIN_USERS}
+                  icon={<ShieldCheck className="h-4 w-4" />}
+                  label="사용자 관리"
+                  badge={pendingCount}
+                  collapsed={collapsed}
+                  onNavigate={closeMobileSidebar}
+                />
+                <NavItem
+                  to={ROUTES.VECTOR_HEALTH}
+                  icon={<Database className="h-4 w-4" />}
+                  label="벡터 상태"
+                  collapsed={collapsed}
+                  onNavigate={closeMobileSidebar}
+                />
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* 토글 버튼 */}
+        <button
+          type="button"
+          onClick={() => setAccountMenuOpen((prev) => !prev)}
+          className={cn(
+            'flex w-full items-center gap-3 rounded-sm px-3 py-3 text-sm font-medium transition-[background-color,color] duration-150',
+            'min-h-[44px] focus:ring-1 focus:ring-[#00D4FF] focus:outline-none',
+            accountMenuOpen
+              ? 'bg-[rgba(0,212,255,0.06)] text-[#E2E8F2]'
+              : 'text-[#8B97AD] hover:bg-[rgba(0,212,255,0.06)] hover:text-[#E2E8F2]',
+            collapsed && 'justify-center px-2',
+          )}
+          title={collapsed ? '계정' : undefined}
+        >
+          <span className="relative shrink-0">
+            <UserCircle className="h-4 w-4" />
+            {pendingCount > 0 && (
+              <span className="absolute -top-1 -right-1 h-2 w-2 rounded-full bg-[#EF4444]" />
+            )}
+          </span>
+          {!collapsed && (
+            <>
+              <span className="flex-1 truncate text-left">
+                {user?.name || user?.email || '계정'}
+              </span>
+              <ChevronUp
+                className={cn(
+                  'h-3.5 w-3.5 shrink-0 transition-transform duration-200',
+                  accountMenuOpen ? 'rotate-0' : 'rotate-180',
+                )}
+              />
+            </>
+          )}
+        </button>
       </div>
     </aside>
   )

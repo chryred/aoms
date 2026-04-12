@@ -7,6 +7,7 @@ import type {
   AgentInstallRequest,
   AgentStatusOut,
   AgentConfigResponse,
+  AgentHealthSummary,
   AgentLiveStatusOut,
   SSHSessionCreate,
   SSHSessionOut,
@@ -27,8 +28,7 @@ export const agentsApi = {
   createSession: (body: SSHSessionCreate) =>
     adminApi.post('api/v1/ssh/session', { json: body }).json<SSHSessionOut>(),
 
-  deleteSession: (token: string) =>
-    adminApi.delete('api/v1/ssh/session', withSession(token)),
+  deleteSession: (token: string) => adminApi.delete('api/v1/ssh/session', withSession(token)),
 
   // ── 에이전트 CRUD ─────────────────────────────────────────
   getAgents: (params?: AgentFilterParams) =>
@@ -38,8 +38,7 @@ export const agentsApi = {
       })
       .json<AgentInstance[]>(),
 
-  getAgent: (id: number) =>
-    adminApi.get(`api/v1/agents/${id}`).json<AgentInstance>(),
+  getAgent: (id: number) => adminApi.get(`api/v1/agents/${id}`).json<AgentInstance>(),
 
   createAgent: (body: AgentInstanceCreate) =>
     adminApi.post('api/v1/agents', { json: body }).json<AgentInstance>(),
@@ -83,7 +82,15 @@ export const agentsApi = {
   getInstallJob: (jobId: string) =>
     adminApi.get(`api/v1/agents/jobs/${jobId}`).json<AgentInstallJob>(),
 
-  // ── 라이브 상태 (synapse_agent 전용) ────────────────────────────
+  // ── 라이브 상태 (synapse_agent / oracle_db) ─────────────────────
   getLiveStatus: (id: number) =>
     adminApi.get(`api/v1/agents/${id}/live-status`).json<AgentLiveStatusOut>(),
+
+  getSystemLiveStatus: (systemId: number) =>
+    adminApi
+      .get(`api/v1/agents/system-live/${systemId}`)
+      .json<{ is_live: boolean; agent_count: number }>(),
+
+  getHealthSummary: () =>
+    adminApi.get('api/v1/agents/health-summary').json<AgentHealthSummary>(),
 }

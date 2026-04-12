@@ -10,6 +10,7 @@ export function useAddSystemContact(systemId: number) {
     mutationFn: (body: SystemContactCreate) => contactsApi.addSystemContact(systemId, body),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: qk.systemContacts(systemId) })
+      qc.invalidateQueries({ queryKey: qk.contacts() })
       toast.success('담당자가 시스템에 연결되었습니다')
     },
     onError: () => toast.error('담당자 연결에 실패했습니다'),

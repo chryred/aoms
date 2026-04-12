@@ -9,6 +9,7 @@ export function useRemoveSystemContact(systemId: number) {
     mutationFn: (contactId: number) => contactsApi.removeSystemContact(systemId, contactId),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: qk.systemContacts(systemId) })
+      qc.invalidateQueries({ queryKey: qk.contacts() })
       toast.success('담당자 연결이 해제되었습니다')
     },
     onError: () => toast.error('담당자 연결 해제에 실패했습니다'),

@@ -110,6 +110,7 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   color-scheme: dark;
+  scroll-behavior: smooth;
 }
 
 /* 스크롤바 */

@@ -34,21 +34,33 @@ export function useWebSocketDashboard(options: UseWebSocketOptions = {}) {
     reconnectDelay = 3000,
   } = options
 
+  // 콜백을 ref에 저장 — connect의 useCallback 의존성에서 제외해 재연결 루프 방지
+  const onMessageRef = useRef(onMessage)
+  const onConnectRef = useRef(onConnect)
+  const onDisconnectRef = useRef(onDisconnect)
+  useEffect(() => {
+    onMessageRef.current = onMessage
+    onConnectRef.current = onConnect
+    onDisconnectRef.current = onDisconnect
+  })
+
   const wsRef = useRef<WebSocket | null>(null)
   const [isConnected, setIsConnected] = useState(false)
   const [isConnecting, setIsConnecting] = useState(false)
   const reconnectCountRef = useRef(0)
-  const heartbeatIntervalRef = useRef<NodeJS.Timeout | null>(null)
+  const heartbeatIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const queryClient = useQueryClient()
 
   // WebSocket URL 결정 (개발/운영 환경)
-  const wsUrl = url || (() => {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const host = window.location.host
-    return `${protocol}//${host}/api/v1/ws/dashboard`
-  })()
+  const wsUrl =
+    url ||
+    (() => {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+      const host = window.location.host
+      return `${protocol}//${host}/api/v1/ws/dashboard`
+    })()
 
-  // 연결 함수
+  // 연결 함수 — 콜백 ref 사용으로 의존성 최소화
   const connect = useCallback(() => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       return
@@ -63,7 +75,7 @@ export function useWebSocketDashboard(options: UseWebSocketOptions = {}) {
         setIsConnected(true)
         setIsConnecting(false)
         reconnectCountRef.current = 0
-        onConnect?.()
+        onConnectRef.current?.()
 
         // Heartbeat 시작 (30초마다 ping)
         heartbeatIntervalRef.current = setInterval(() => {
@@ -74,25 +86,20 @@ export function useWebSocketDashboard(options: UseWebSocketOptions = {}) {
       }
 
       ws.onmessage = (event) => {
+        // pong 응답 무시
+        if (event.data === 'pong') return
+
         try {
-          const message: WebSocketMessage = JSON.parse(event.data)
+          const message: WebSocketMessage = JSON.parse(event.data as string)
           console.log('[WebSocket] Message:', message.type)
 
-          // 콜백 실행
-          onMessage?.(message)
+          onMessageRef.current?.(message)
 
           // React Query 자동 갱신 (타입별)
           if (message.type === 'alert_fired' || message.type === 'alert_resolved') {
-            // 대시보드 데이터 갱신
-            queryClient.invalidateQueries({
-              queryKey: ['dashboardHealth'],
-              exact: true,
-            })
+            queryClient.invalidateQueries({ queryKey: ['dashboardHealth'], exact: true })
           } else if (message.type === 'log_analysis_complete') {
-            // 시스템 상세 페이지 갱신
-            queryClient.invalidateQueries({
-              queryKey: ['systemDetailHealth'],
-            })
+            queryClient.invalidateQueries({ queryKey: ['systemDetailHealth'] })
           }
         } catch (err) {
           console.error('[WebSocket] Failed to parse message:', err)
@@ -108,7 +115,7 @@ export function useWebSocketDashboard(options: UseWebSocketOptions = {}) {
         console.log('[WebSocket] Disconnected')
         setIsConnected(false)
         setIsConnecting(false)
-        onDisconnect?.()
+        onDisconnectRef.current?.()
 
         // Heartbeat 정리
         if (heartbeatIntervalRef.current) {
@@ -116,13 +123,10 @@ export function useWebSocketDashboard(options: UseWebSocketOptions = {}) {
         }
 
         // 자동 재연결
-        if (
-          autoReconnect &&
-          reconnectCountRef.current < reconnectAttempts
-        ) {
+        if (autoReconnect && reconnectCountRef.current < reconnectAttempts) {
           const delay = reconnectDelay * Math.pow(2, reconnectCountRef.current)
           console.log(
-            `[WebSocket] Reconnecting in ${delay}ms (attempt ${reconnectCountRef.current + 1}/${reconnectAttempts})`
+            `[WebSocket] Reconnecting in ${delay}ms (attempt ${reconnectCountRef.current + 1}/${reconnectAttempts})`,
           )
           reconnectCountRef.current += 1
           setTimeout(() => connect(), delay)
@@ -134,7 +138,7 @@ export function useWebSocketDashboard(options: UseWebSocketOptions = {}) {
       console.error('[WebSocket] Failed to connect:', err)
       setIsConnecting(false)
     }
-  }, [wsUrl, onMessage, onConnect, onDisconnect, autoReconnect, reconnectAttempts, reconnectDelay, queryClient])
+  }, [wsUrl, autoReconnect, reconnectAttempts, reconnectDelay, queryClient])
 
   // 연결 해제 함수
   const disconnect = useCallback(() => {

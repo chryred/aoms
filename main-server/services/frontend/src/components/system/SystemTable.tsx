@@ -1,20 +1,11 @@
 import { useState } from 'react'
-import { Pencil, Trash2, Monitor, Terminal } from 'lucide-react'
+import { Pencil, Trash2, Terminal } from 'lucide-react'
 import { NeuButton } from '@/components/neumorphic/NeuButton'
-import { NeuBadge } from '@/components/neumorphic/NeuBadge'
 import { EmptyState } from '@/components/common/EmptyState'
 import { useDeleteSystem } from '@/hooks/mutations/useDeleteSystem'
 import { formatKST } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 import type { System } from '@/types/system'
-
-const TYPE_LABELS: Record<string, string> = {
-  web: 'Web',
-  was: 'WAS',
-  db: 'DB',
-  middleware: 'Middleware',
-  other: '기타',
-}
 
 interface ConfirmDialogProps {
   open: boolean
@@ -59,11 +50,7 @@ export function SystemTable({ systems, onEdit, searchQuery = '' }: SystemTablePr
 
   const filtered = systems.filter((s) => {
     const q = searchQuery.toLowerCase()
-    return (
-      s.display_name.toLowerCase().includes(q) ||
-      s.system_name.toLowerCase().includes(q) ||
-      s.host.toLowerCase().includes(q)
-    )
+    return s.display_name.toLowerCase().includes(q) || s.system_name.toLowerCase().includes(q)
   })
 
   if (filtered.length === 0) {
@@ -82,7 +69,7 @@ export function SystemTable({ systems, onEdit, searchQuery = '' }: SystemTablePr
         <table className="w-full">
           <thead>
             <tr className="border-b border-[#2B2F37]">
-              {['시스템명', '호스트', '타입', 'OS', '상태', '등록일', ''].map((h) => (
+              {['시스템명', '상태', '등록일', ''].map((h) => (
                 <th key={h} className="type-label px-4 py-3 text-left">
                   {h}
                 </th>
@@ -95,22 +82,6 @@ export function SystemTable({ systems, onEdit, searchQuery = '' }: SystemTablePr
                 <td className="px-4 py-3">
                   <p className="font-medium text-[#E2E8F2]">{system.display_name}</p>
                   <p className="font-mono text-xs text-[#8B97AD]">{system.system_name}</p>
-                </td>
-                <td className="px-4 py-3 font-mono text-sm text-[#8B97AD]">{system.host}</td>
-                <td className="px-4 py-3">
-                  <NeuBadge variant="info">
-                    {TYPE_LABELS[system.system_type] ?? system.system_type}
-                  </NeuBadge>
-                </td>
-                <td className="px-4 py-3">
-                  <span className="flex items-center gap-1 text-sm text-[#8B97AD]">
-                    {system.os_type === 'linux' ? (
-                      <Terminal className="h-3.5 w-3.5" />
-                    ) : (
-                      <Monitor className="h-3.5 w-3.5" />
-                    )}
-                    {system.os_type}
-                  </span>
                 </td>
                 <td className="px-4 py-3">
                   <span

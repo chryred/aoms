@@ -43,6 +43,13 @@ def _naive(dt: Optional[datetime]) -> Optional[datetime]:
     return dt
 
 
+def _strip_tz(v: Any) -> Any:
+    """timezone-aware datetime을 naive UTC로 변환 (DB 컬럼이 TIMESTAMP WITHOUT TIME ZONE)"""
+    if isinstance(v, datetime) and v.tzinfo is not None:
+        return v.replace(tzinfo=None)
+    return v
+
+
 async def _upsert(
     db: AsyncSession,
     model_cls: Any,
@@ -53,14 +60,17 @@ async def _upsert(
     lookup 조건으로 기존 행을 조회하여 있으면 갱신, 없으면 삽입.
     commit + refresh 후 ORM 인스턴스 반환.
     """
+    # timezone-aware datetime → naive 변환 (DB 컬럼이 TIMESTAMP WITHOUT TIME ZONE)
+    lookup = {k: _strip_tz(v) for k, v in lookup.items()}
     conditions = [getattr(model_cls, k) == v for k, v in lookup.items()]
     existing = await db.execute(select(model_cls).where(and_(*conditions)))
     row = existing.scalar_one_or_none()
     if row:
         for field, value in body.model_dump(exclude_unset=True).items():
-            setattr(row, field, value)
+            setattr(row, field, _strip_tz(value))
     else:
-        row = model_cls(**body.model_dump())
+        data = {k: _strip_tz(v) for k, v in body.model_dump().items()}
+        row = model_cls(**data)
         db.add(row)
     await db.commit()
     await db.refresh(row)

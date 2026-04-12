@@ -67,10 +67,18 @@ export function LoginPage() {
       setLoginDone(true)
       setTimeout(() => navigate(ROUTES.DASHBOARD, { replace: true }), 700)
     },
-    onError: (err: unknown) => {
-      const status = (err as { response?: { status: number } })?.response?.status
+    onError: async (err: unknown) => {
+      const resp = (err as { response?: Response })?.response
+      const status = resp?.status
       if (status === 401) {
         setError('password', { message: '이메일 또는 비밀번호가 올바르지 않습니다' })
+      } else if (status === 403) {
+        const data = (await resp?.json().catch(() => ({}))) as { detail?: string }
+        if (data?.detail?.includes('승인')) {
+          setError('email', { message: '관리자 승인 대기 중인 계정입니다' })
+        } else {
+          setError('email', { message: '비활성화된 계정입니다. 관리자에게 문의하세요' })
+        }
       } else {
         toast.error('로그인 중 오류가 발생했습니다')
       }
@@ -160,7 +168,18 @@ export function LoginPage() {
         </NeuButton>
       </form>
 
-      <p className="font-lora mt-6 text-center text-xs text-[#5A6478] italic">
+      <p className="mt-6 text-center text-sm text-[#8B97AD]">
+        계정이 없으신가요?{' '}
+        <button
+          type="button"
+          onClick={() => navigate(ROUTES.REGISTER)}
+          className="font-medium text-[#00D4FF] hover:underline"
+        >
+          사용자 신청
+        </button>
+      </p>
+
+      <p className="font-lora mt-4 text-center text-xs text-[#5A6478] italic">
         © 2026 Synapse-V. All rights reserved.
       </p>
     </NeuCard>

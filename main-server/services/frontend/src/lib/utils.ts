@@ -13,7 +13,12 @@ export function formatKST(
   utcDate: string | Date,
   format: 'datetime' | 'date' | 'HH:mm' | 'HH:mm:ss' = 'datetime',
 ): string {
-  const d = new Date(utcDate)
+  // 타임존 정보 없는 문자열(Z, +, - 없음)은 UTC로 해석 (naive UTC)
+  const normalized =
+    typeof utcDate === 'string' && !utcDate.endsWith('Z') && !/[+-]\d{2}:?\d{2}$/.test(utcDate)
+      ? utcDate + 'Z'
+      : utcDate
+  const d = new Date(normalized)
   const kst = new Date(d.getTime() + 9 * 60 * 60 * 1000)
   if (format === 'HH:mm:ss') return kst.toISOString().slice(11, 19)
   if (format === 'HH:mm') return kst.toISOString().slice(11, 16)

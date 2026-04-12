@@ -98,22 +98,6 @@ export function SystemDetailPage() {
         }
       />
 
-      {/* 시스템 정보 카드 */}
-      <NeuCard className="mb-4 grid grid-cols-3 gap-4 text-sm">
-        <div>
-          <p className="text-xs text-[#8B97AD]">호스트</p>
-          <p className="font-medium text-[#E2E8F2]">{system.host}</p>
-        </div>
-        <div>
-          <p className="text-xs text-[#8B97AD]">OS</p>
-          <p className="font-medium text-[#E2E8F2]">{system.os_type}</p>
-        </div>
-        <div>
-          <p className="text-xs text-[#8B97AD]">유형</p>
-          <p className="font-medium text-[#E2E8F2]">{system.system_type}</p>
-        </div>
-      </NeuCard>
-
       {/* TrendAlert 배너 */}
       {systemTrends.length > 0 && (
         <div

@@ -1,6 +1,12 @@
 export type ContactRole = 'primary' | 'secondary' | 'escalation'
 export type NotifyChannel = 'teams' | 'webhook'
 
+export interface ContactSystem {
+  id: number
+  system_name: string
+  display_name: string
+}
+
 export interface Contact {
   id: number
   name: string
@@ -11,6 +17,7 @@ export interface Contact {
   agent_code: string | null
   created_at: string
   updated_at: string
+  systems: ContactSystem[]
 }
 
 export interface ContactCreate {
