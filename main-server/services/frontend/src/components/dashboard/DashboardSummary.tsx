@@ -108,7 +108,6 @@ export const DashboardSummaryStats = memo(function DashboardSummaryStats({
       <StatCell
         label="위험"
         value={summary.critical_systems}
-        total={summary.total_systems}
         icon={AlertCircle}
         color="text-red-500"
         glowClass={GLOW_RED}
@@ -118,7 +117,6 @@ export const DashboardSummaryStats = memo(function DashboardSummaryStats({
       <StatCell
         label="경고"
         value={summary.warning_systems}
-        total={summary.total_systems}
         icon={AlertTriangle}
         color="text-yellow-500"
         glowClass={GLOW_YELLOW}
@@ -128,7 +126,6 @@ export const DashboardSummaryStats = memo(function DashboardSummaryStats({
       <StatCell
         label="정상"
         value={summary.normal_systems}
-        total={summary.total_systems}
         icon={CheckCircle}
         color="text-green-500"
       />
