@@ -26,8 +26,10 @@ interface StatItem {
 }
 
 /**
- * Compact stat bar — 1행으로 전체 상태를 한눈에 파악.
- * Bloomberg Terminal 스타일의 dense 정보 표시.
+ * Compact stat bar — 시스템 상태 + 로그분석을 2행으로 그룹화.
+ *
+ * 1행: 시스템 상태 (위험/경고/정상/예방/알림/에이전트)
+ * 2행: 로그 분석 (Critical/Warning)
  */
 export const DashboardSummaryStats = memo(function DashboardSummaryStats({
   summary,
@@ -73,87 +75,131 @@ export const DashboardSummaryStats = memo(function DashboardSummaryStats({
     },
   ]
 
-  // 에이전트 상태
   const agentCollecting = agentSummary?.collecting ?? 0
   const agentTotal = agentSummary?.total ?? 0
   const agentAllOk = agentTotal > 0 && agentCollecting === agentTotal
   const agentHasStale = (agentSummary?.stale ?? 0) > 0
 
   return (
-    <div className="flex flex-wrap gap-px rounded-sm border border-[#2B2F37] bg-[#2B2F37] overflow-hidden">
-      {stats.map((stat) => {
-        const Icon = stat.icon
-        const isZero = stat.value === 0
-        return (
+    <div className="space-y-2">
+      {/* 1행: 시스템 상태 */}
+      <div className="flex gap-px overflow-hidden rounded-sm border border-[#2B2F37] bg-[#2B2F37]">
+        {stats.map((stat) => {
+          const Icon = stat.icon
+          const isZero = stat.value === 0
+          return (
+            <div
+              key={stat.label}
+              className={cn(
+                'flex min-w-[90px] flex-1 items-center gap-2.5 bg-[#1E2127] px-3.5 py-3',
+                stat.accentBorder && 'border-b-2',
+                stat.accentBorder,
+              )}
+            >
+              <Icon
+                className={cn(
+                  'h-3.5 w-3.5 flex-shrink-0',
+                  isZero ? 'text-[#5A6478]' : stat.color,
+                )}
+              />
+              <div className="flex items-baseline gap-1.5">
+                <span
+                  className={cn(
+                    'text-lg font-bold tabular-nums',
+                    isZero ? 'text-[#5A6478]' : stat.color,
+                  )}
+                >
+                  {stat.value}
+                </span>
+                {stat.total !== undefined && (
+                  <span className="text-xs text-[#5A6478]">/{stat.total}</span>
+                )}
+              </div>
+              <span className="whitespace-nowrap text-xs text-[#8B97AD]">{stat.label}</span>
+            </div>
+          )
+        })}
+
+        {/* 에이전트 */}
+        {agentTotal > 0 && (
           <div
-            key={stat.label}
             className={cn(
-              'flex min-w-[100px] flex-1 items-center gap-2.5 bg-[#1E2127] px-3.5 py-3',
-              stat.accentBorder && 'border-b-2',
-              stat.accentBorder,
+              'flex min-w-[90px] flex-1 items-center gap-2.5 bg-[#1E2127] px-3.5 py-3',
+              agentHasStale && 'border-b-2 border-red-500/40',
             )}
           >
-            <Icon className={cn('h-3.5 w-3.5 flex-shrink-0', isZero ? 'text-[#5A6478]' : stat.color)} />
-            <div className="flex items-baseline gap-1.5">
-              <span className={cn('text-lg font-bold tabular-nums', isZero ? 'text-[#5A6478]' : stat.color)}>
-                {stat.value}
-              </span>
-              {stat.total !== undefined && (
-                <span className="text-xs text-[#5A6478]">/{stat.total}</span>
+            <Radio
+              className={cn(
+                'h-3.5 w-3.5 flex-shrink-0',
+                agentAllOk ? 'text-green-500' : agentHasStale ? 'text-red-500' : 'text-yellow-500',
               )}
+            />
+            <div className="flex items-baseline gap-1.5">
+              <span
+                className={cn(
+                  'text-lg font-bold tabular-nums',
+                  agentAllOk
+                    ? 'text-green-500'
+                    : agentHasStale
+                      ? 'text-red-500'
+                      : 'text-yellow-500',
+                )}
+              >
+                {agentCollecting}
+              </span>
+              <span className="text-xs text-[#5A6478]">/{agentTotal}</span>
             </div>
-            <span className="whitespace-nowrap text-xs text-[#8B97AD]">{stat.label}</span>
+            <span className="whitespace-nowrap text-xs text-[#8B97AD]">에이전트</span>
           </div>
-        )
-      })}
+        )}
+      </div>
 
-      {/* 에이전트 */}
-      {agentTotal > 0 && (
+      {/* 2행: 로그분석 통계 */}
+      <div className="flex gap-px overflow-hidden rounded-sm border border-[#2B2F37] bg-[#2B2F37]">
         <div
           className={cn(
-            'flex min-w-[100px] flex-1 items-center gap-2.5 bg-[#1E2127] px-3.5 py-3',
-            agentHasStale && 'border-b-2 border-red-500/40',
+            'flex min-w-[90px] flex-1 items-center gap-2.5 bg-[#1E2127] px-3.5 py-2.5',
+            summary.total_log_critical > 0 && 'border-b-2 border-red-500/40',
           )}
         >
-          <Radio className={cn('h-3.5 w-3.5 flex-shrink-0', agentAllOk ? 'text-green-500' : agentHasStale ? 'text-red-500' : 'text-yellow-500')} />
-          <div className="flex items-baseline gap-1.5">
-            <span className={cn('text-lg font-bold tabular-nums', agentAllOk ? 'text-green-500' : agentHasStale ? 'text-red-500' : 'text-yellow-500')}>
-              {agentCollecting}
-            </span>
-            <span className="text-xs text-[#5A6478]">/{agentTotal}</span>
-          </div>
-          <span className="whitespace-nowrap text-xs text-[#8B97AD]">에이전트</span>
-        </div>
-      )}
-
-      {/* 로그분석 통계 — 통합 */}
-      <div
-        className={cn(
-          'flex min-w-[100px] flex-1 items-center gap-2.5 bg-[#1E2127] px-3.5 py-3',
-          summary.total_log_critical > 0 && 'border-b-2 border-red-500/40',
-        )}
-      >
-        <FileWarning className={cn('h-3.5 w-3.5 flex-shrink-0', summary.total_log_critical > 0 ? 'text-red-500' : 'text-[#5A6478]')} />
-        <div className="flex items-baseline gap-1.5">
-          <span className={cn('text-lg font-bold tabular-nums', summary.total_log_critical > 0 ? 'text-red-500' : 'text-[#5A6478]')}>
+          <FileWarning
+            className={cn(
+              'h-3.5 w-3.5 flex-shrink-0',
+              summary.total_log_critical > 0 ? 'text-red-500' : 'text-[#5A6478]',
+            )}
+          />
+          <span
+            className={cn(
+              'text-lg font-bold tabular-nums',
+              summary.total_log_critical > 0 ? 'text-red-500' : 'text-[#5A6478]',
+            )}
+          >
             {summary.total_log_critical}
           </span>
+          <span className="whitespace-nowrap text-xs text-[#8B97AD]">로그분석 Critical</span>
         </div>
-        <span className="text-xs text-[#8B97AD]">로그C</span>
-      </div>
-      <div
-        className={cn(
-          'flex min-w-[100px] flex-1 items-center gap-2.5 bg-[#1E2127] px-3.5 py-3',
-          summary.total_log_warning > 0 && 'border-b-2 border-yellow-500/40',
-        )}
-      >
-        <AlertTriangle className={cn('h-3.5 w-3.5 flex-shrink-0', summary.total_log_warning > 0 ? 'text-yellow-500' : 'text-[#5A6478]')} />
-        <div className="flex items-baseline gap-1.5">
-          <span className={cn('text-lg font-bold tabular-nums', summary.total_log_warning > 0 ? 'text-yellow-500' : 'text-[#5A6478]')}>
+        <div
+          className={cn(
+            'flex min-w-[90px] flex-1 items-center gap-2.5 bg-[#1E2127] px-3.5 py-2.5',
+            summary.total_log_warning > 0 && 'border-b-2 border-yellow-500/40',
+          )}
+        >
+          <AlertTriangle
+            className={cn(
+              'h-3.5 w-3.5 flex-shrink-0',
+              summary.total_log_warning > 0 ? 'text-yellow-500' : 'text-[#5A6478]',
+            )}
+          />
+          <span
+            className={cn(
+              'text-lg font-bold tabular-nums',
+              summary.total_log_warning > 0 ? 'text-yellow-500' : 'text-[#5A6478]',
+            )}
+          >
             {summary.total_log_warning}
           </span>
+          <span className="whitespace-nowrap text-xs text-[#8B97AD]">로그분석 Warning</span>
         </div>
-        <span className="text-xs text-[#8B97AD]">로그W</span>
       </div>
     </div>
   )
