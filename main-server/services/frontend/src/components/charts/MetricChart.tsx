@@ -22,6 +22,38 @@ interface MetricChartProps {
 
 const LINE_COLORS = ['#00D4FF', '#22C55E', '#F59E0B', '#EC4899', '#14B8A6']
 
+// 특정 키에 대한 색상 고정 오버라이드 (LINE_COLORS 순서에 관계없이 항상 이 색상 사용)
+const KEY_COLOR_OVERRIDE: Record<string, string> = {
+  net_max_mbps: '#EF4444',
+}
+
+const KEY_LABELS: Record<string, string> = {
+  cpu_avg: '평균',
+  cpu_max: '최대',
+  cpu_p95: 'P95',
+  load1: '부하(1분)',
+  load5: '부하(5분)',
+  mem_used_pct: '사용률',
+  mem_p95: 'P95',
+  disk_read_mb: '읽기',
+  disk_write_mb: '쓰기',
+  disk_io_ms: 'I/O 지연',
+  net_rx_mb: '수신',
+  net_tx_mb: '송신',
+  net_max_mbps: '최대 대역폭',
+  log_errors: '오류',
+  log_errors_err: 'ERROR',
+  req_total: '요청',
+  req_slow: '지연 요청',
+  resp_avg_ms: '응답시간',
+  conn_active_pct: '활성 커넥션',
+  conn_max: '최대 커넥션',
+  tps: 'TPS',
+  slow_queries: '슬로우쿼리',
+  cache_hit_rate: '캐시 적중률',
+  repl_lag_sec: '복제 지연',
+}
+
 interface TooltipPayloadEntry {
   name: string
   value: number | string
@@ -115,12 +147,13 @@ export function MetricChart({
             {metricKeys.map((key, i) => (
               <Line
                 key={key}
+                name={KEY_LABELS[key] ?? key}
                 type="monotone"
                 dataKey={key}
-                stroke={LINE_COLORS[i % LINE_COLORS.length]}
-                strokeDasharray={key.includes('max') ? '5 5' : undefined}
+                stroke={KEY_COLOR_OVERRIDE[key] ?? LINE_COLORS[i % LINE_COLORS.length]}
+                strokeDasharray={key in KEY_COLOR_OVERRIDE ? '6 3' : key.includes('max') ? '5 5' : undefined}
                 dot={false}
-                strokeWidth={1.5}
+                strokeWidth={key in KEY_COLOR_OVERRIDE ? 1.5 : 1.5}
               />
             ))}
             {warningPoints.map((ts) => (

@@ -65,3 +65,32 @@ export function useTrendAlerts() {
     refetchInterval: 300_000,
   })
 }
+
+export interface MetricsRangeParams {
+  system_id: number
+  collector_type: string
+  metric_group: string
+  start_dt: string
+  end_dt: string
+  step?: number
+}
+
+export function useMetricsRange(params: MetricsRangeParams | null) {
+  return useQuery({
+    queryKey: ['metrics-range', params],
+    queryFn: () => aggregationsApi.getMetricsRange(params!),
+    enabled: !!params,
+    staleTime: 300_000,
+    gcTime: 600_000,
+  })
+}
+
+export function useMetricsLiveSummary(systemId: number | null, collectorType: string | null) {
+  return useQuery({
+    queryKey: ['metrics-live-summary', systemId, collectorType],
+    queryFn: () => aggregationsApi.getMetricsLiveSummary(systemId!, collectorType!),
+    enabled: !!systemId && !!collectorType,
+    refetchInterval: 60_000,
+    staleTime: 30_000,
+  })
+}

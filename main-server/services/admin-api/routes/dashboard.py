@@ -4,9 +4,12 @@
 - 시스템별 상세 정보 조회 (활성 알림, 로그분석, 권장조치, 예방 패턴)
 """
 
+import logging
+import os
 from datetime import datetime, timedelta
 from typing import Optional
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import and_, desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,8 +22,12 @@ from models import (
     LogAnalysisHistory,
     MetricHourlyAggregation,
     System,
+    SystemCollectorConfig,
     SystemContact,
 )
+
+logger = logging.getLogger(__name__)
+_PROMETHEUS_URL = os.getenv("PROMETHEUS_URL", "").rstrip("/")
 
 router = APIRouter(prefix="/api/v1/dashboard", tags=["dashboard"])
 
@@ -35,29 +42,115 @@ class _SystemHealth:
         self.metric_alerts_count: int = 0
         self.log_analysis_severity: Optional[str] = None
         self.proactive_count: int = 0        # 예방 패턴 감지 건수
+        self.live_metric_severity: Optional[str] = None  # Prometheus 라이브 판정
+        self.live_metric_reasons: list[str] = []
 
 
 # ==================== 헬퍼 ====================
 
-async def _get_system_health(db: AsyncSession, system_id: int) -> _SystemHealth:
+async def _query_live_metric_status(
+    system_name: str,
+    db: AsyncSession,
+    system_id: int,
+) -> tuple[Optional[str], list[str]]:
+    """Prometheus live-summary로 시스템 메트릭 상태 판정 (avg_over_time[5m])
+
+    Returns: (severity, reasons) — severity: None | "warning" | "critical"
+    """
+    if not _PROMETHEUS_URL:
+        return None, []
+
+    from routes.aggregations import PCT_PROMQL, METRIC_THRESHOLDS
+
+    # 시스템에 등록된 collector_config 조회
+    result = await db.execute(
+        select(SystemCollectorConfig).where(
+            and_(
+                SystemCollectorConfig.system_id == system_id,
+                SystemCollectorConfig.enabled == True,
+            )
+        )
+    )
+    configs = result.scalars().all()
+    collector_types = {c.collector_type for c in configs}
+    if not collector_types:
+        collector_types = {"synapse_agent"}  # 기본값
+
+    worst: Optional[str] = None
+    reasons: list[str] = []
+
+    async with httpx.AsyncClient(timeout=5.0) as client:
+        for ct in collector_types:
+            thresholds = METRIC_THRESHOLDS.get(ct, {})
+            promql_map = PCT_PROMQL.get(ct, {})
+            for group, thresh in thresholds.items():
+                query = promql_map.get(group)
+                if not query:
+                    continue
+                try:
+                    resp = await client.get(
+                        f"{_PROMETHEUS_URL}/api/v1/query",
+                        params={"query": query.format(sn=system_name)},
+                    )
+                    data = resp.json().get("data", {}).get("result", [])
+                    if not data:
+                        continue
+                    value = float(data[0]["value"][1])
+                except Exception:
+                    continue
+
+                direction = thresh.get("direction", 1)
+                if direction == 1:  # high_bad
+                    if value > thresh["critical"]:
+                        severity = "critical"
+                    elif value > thresh["warning"]:
+                        severity = "warning"
+                    else:
+                        continue
+                else:  # low_bad (lower is worse)
+                    if value < thresh["warning"]:
+                        severity = "critical"
+                    elif value < thresh["critical"]:
+                        severity = "warning"
+                    else:
+                        continue
+
+                GROUP_LABELS = {
+                    "cpu": "CPU", "memory": "메모리",
+                    "db_connections": "DB 커넥션", "db_cache": "DB 캐시",
+                }
+                label = GROUP_LABELS.get(group, group)
+                reasons.append(f"{label} {value:.0f}%")
+
+                if severity == "critical":
+                    worst = "critical"
+                elif worst != "critical":
+                    worst = "warning"
+
+    return worst, reasons
+
+async def _get_system_health(
+    db: AsyncSession, system_id: int, system_name: str = "",
+) -> _SystemHealth:
     """시스템 상태 종합 판정
 
-    판정 기준 (우선순위):
-      1. 최근 1h 메트릭 알림 critical/warning
-      2. 최근 1h 로그분석 LLM 결과 critical/warning
-      3. 예방 패턴 (MetricHourlyAggregation.llm_prediction)
+    판정 기준 (worst-wins):
+      1. Prometheus 라이브 메트릭 (avg_over_time[5m]) — 임계치 기반
+      2. 최근 10분 메트릭 알림 critical/warning
+      3. 최근 10분 로그분석 LLM 결과 critical/warning
+      4. 예방 패턴 (MetricHourlyAggregation.llm_prediction)
     """
     health = _SystemHealth()
-    one_hour_ago = datetime.utcnow() - timedelta(hours=1)
+    ten_minutes_ago = datetime.utcnow() - timedelta(minutes=10)
     eight_hours_ago = datetime.utcnow() - timedelta(hours=8)
 
-    # 1. 메트릭 알림 (최근 1시간)
+    # 1. 메트릭 알림 (최근 10분)
     result = await db.execute(
         select(AlertHistory).where(
             and_(
                 AlertHistory.system_id == system_id,
                 AlertHistory.alert_type == "metric",
-                AlertHistory.created_at >= one_hour_ago,
+                AlertHistory.created_at >= ten_minutes_ago,
             )
         )
     )
@@ -67,12 +160,12 @@ async def _get_system_health(db: AsyncSession, system_id: int) -> _SystemHealth:
     warning_count  = sum(1 for a in recent_alerts if a.severity == "warning")
     health.metric_alerts_count = critical_count + warning_count
 
-    # 2. 로그분석 (최근 1시간)
+    # 2. 로그분석 (최근 10분)
     result = await db.execute(
         select(LogAnalysisHistory).where(
             and_(
                 LogAnalysisHistory.system_id == system_id,
-                LogAnalysisHistory.created_at >= one_hour_ago,
+                LogAnalysisHistory.created_at >= ten_minutes_ago,
             )
         ).order_by(desc(LogAnalysisHistory.created_at)).limit(5)
     )
@@ -99,25 +192,50 @@ async def _get_system_health(db: AsyncSession, system_id: int) -> _SystemHealth:
     proactive_rows = result.scalars().all()
     health.proactive_count = len(proactive_rows)
 
-    # 최종 상태 판정
+    # 4. Prometheus 라이브 메트릭 판정 (avg_over_time[5m])
+    if system_name:
+        try:
+            live_sev, live_reasons = await _query_live_metric_status(
+                system_name, db, system_id,
+            )
+            health.live_metric_severity = live_sev
+            health.live_metric_reasons = live_reasons
+        except Exception as exc:
+            logger.warning("라이브 메트릭 조회 실패 (system_id=%s): %s", system_id, exc)
+
+    # 최종 상태 판정 (worst-wins: 라이브 메트릭 + 알림 + 로그분석)
     reasons: list[str] = []
 
-    if critical_count > 0 or health.log_analysis_severity == "critical":
+    is_critical = (
+        critical_count > 0
+        or health.log_analysis_severity == "critical"
+        or health.live_metric_severity == "critical"
+    )
+    is_warning = (
+        warning_count > 0
+        or health.log_analysis_severity == "warning"
+        or health.live_metric_severity == "warning"
+    )
+
+    if is_critical:
         health.status = "critical"
+        if health.live_metric_severity == "critical":
+            reasons.extend(health.live_metric_reasons)
         if critical_count > 0:
-            reasons.append(f"메트릭 알림 {critical_count}개")
+            reasons.append(f"수집 알림 {critical_count}개")
         if health.log_analysis_severity == "critical":
             reasons.append("로그 이상 감지")
 
-    elif warning_count > 0 or health.log_analysis_severity == "warning":
+    elif is_warning:
         health.status = "warning"
+        if health.live_metric_severity == "warning":
+            reasons.extend(health.live_metric_reasons)
         if warning_count > 0:
-            reasons.append(f"메트릭 알림 {warning_count}개")
+            reasons.append(f"수집 알림 {warning_count}개")
         if health.log_analysis_severity == "warning":
             reasons.append("로그 이상 경고")
 
     elif health.proactive_count > 0:
-        # 현재는 정상이지만 예방 패턴 감지 시 proactive 표시
         health.status = "normal"
         reasons.append(f"예방 패턴 {health.proactive_count}건 감지")
 
@@ -151,11 +269,24 @@ async def get_dashboard_health(
         "normal_systems":     0,
         "proactive_systems":  0,   # 예방 패턴 감지된 시스템 수
         "total_metric_alerts": 0,
+        "total_log_critical": 0,
+        "total_log_warning":  0,
         "last_updated":       datetime.utcnow().isoformat() + "Z",
     }
 
+    # 로그분석 통계 (전체 시스템, 최근 10분)
+    _ten_min_ago = datetime.utcnow() - timedelta(minutes=10)
+    _log_stat_result = await db.execute(
+        select(LogAnalysisHistory).where(
+            LogAnalysisHistory.created_at >= _ten_min_ago
+        )
+    )
+    _log_stat_rows = _log_stat_result.scalars().all()
+    summary["total_log_critical"] = sum(1 for r in _log_stat_rows if r.severity == "critical")
+    summary["total_log_warning"]  = sum(1 for r in _log_stat_rows if r.severity == "warning")
+
     for sys in systems:
-        health = await _get_system_health(db, sys.id)
+        health = await _get_system_health(db, sys.id, sys.system_name)
 
         system_list.append({
             "system_id":      sys.id,
@@ -191,8 +322,8 @@ async def get_system_detail_health(
     """시스템 상세 정보 — 상세 페이지 전용
 
     포함 데이터:
-      metric_alerts    : 최근 1h 활성 메트릭 알림
-      log_analysis     : 최근 1h 로그분석 결과 (5건)
+      metric_alerts    : 최근 10분 활성 메트릭 알림
+      log_analysis     : 최근 10분 로그분석 결과 (5건)
       proactive_alerts : 최근 8h 예방적 패턴 (llm_prediction 있는 항목)
       contacts         : 담당자 목록
     """
@@ -200,40 +331,40 @@ async def get_system_detail_health(
     if not system:
         raise HTTPException(status_code=404, detail="System not found")
 
-    one_hour_ago   = datetime.utcnow() - timedelta(hours=1)
+    ten_minutes_ago = datetime.utcnow() - timedelta(minutes=10)
     eight_hours_ago = datetime.utcnow() - timedelta(hours=8)
 
-    # 1. 활성 알림 (최근 1h) — 메트릭 알림
+    # 1. 활성 알림 (최근 10분) — 메트릭 알림
     result = await db.execute(
         select(AlertHistory).where(
             and_(
                 AlertHistory.system_id == system_id,
                 AlertHistory.alert_type == "metric",
-                AlertHistory.created_at >= one_hour_ago,
+                AlertHistory.created_at >= ten_minutes_ago,
             )
         ).order_by(desc(AlertHistory.created_at))
     )
     metric_alerts = result.scalars().all()
 
-    # 1-b. 로그 분석 알림 (최근 1h, critical/warning 건만)
+    # 1-b. 로그 분석 알림 (최근 10분, critical/warning 건만)
     result = await db.execute(
         select(LogAnalysisHistory).where(
             and_(
                 LogAnalysisHistory.system_id == system_id,
                 LogAnalysisHistory.severity.in_(["critical", "warning"]),
                 LogAnalysisHistory.alert_sent == True,
-                LogAnalysisHistory.created_at >= one_hour_ago,
+                LogAnalysisHistory.created_at >= ten_minutes_ago,
             )
         ).order_by(desc(LogAnalysisHistory.created_at))
     )
     log_alerts = result.scalars().all()
 
-    # 2. 최근 로그분석 결과 (최근 1h, 5건)
+    # 2. 최근 로그분석 결과 (최근 10분, 5건)
     result = await db.execute(
         select(LogAnalysisHistory).where(
             and_(
                 LogAnalysisHistory.system_id == system_id,
-                LogAnalysisHistory.created_at >= one_hour_ago,
+                LogAnalysisHistory.created_at >= ten_minutes_ago,
             )
         ).order_by(desc(LogAnalysisHistory.created_at)).limit(5)
     )
@@ -281,6 +412,7 @@ async def get_system_detail_health(
                     "id":          a.id,
                     "alert_type":  "metric",
                     "alertname":   a.alertname,
+                    "title":       a.title,
                     "severity":    a.severity,
                     "value":       a.metric_value,
                     "created_at":  a.created_at.isoformat() + "Z",
@@ -291,6 +423,7 @@ async def get_system_detail_health(
                     "id":          a.id,
                     "alert_type":  "log_analysis",
                     "alertname":   (a.log_content or "")[:80],
+                    "title":       (a.log_content or "")[:80],
                     "severity":    a.severity,
                     "value":       None,
                     "created_at":  a.created_at.isoformat() + "Z",

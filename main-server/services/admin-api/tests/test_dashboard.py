@@ -84,7 +84,7 @@ async def test_system_health_critical_metric(db_session: AsyncSession, sample_sy
     health = await _get_system_health(db_session, sample_system.id)
 
     assert health.status == "critical"
-    assert "메트릭 알림 1개" in health.reason
+    assert "수집 알림 1개" in health.reason
     assert health.metric_alerts_count == 1
 
 
@@ -107,7 +107,7 @@ async def test_system_health_warning_metric(db_session: AsyncSession, sample_sys
     health = await _get_system_health(db_session, sample_system.id)
 
     assert health.status == "warning"
-    assert "메트릭 알림 1개" in health.reason
+    assert "수집 알림 1개" in health.reason
 
 
 @pytest.mark.asyncio
@@ -171,12 +171,12 @@ async def test_system_health_multiple_alerts(db_session: AsyncSession, sample_sy
     # critical 1개 + warning 2개
     assert health.status == "critical"
     assert health.metric_alerts_count == 3
-    assert "메트릭 알림 1개" in health.reason  # critical 우선
+    assert "수집 알림 1개" in health.reason  # critical 우선
 
 
 @pytest.mark.asyncio
 async def test_system_health_ignores_old_alerts(db_session: AsyncSession, sample_system: System):
-    """1시간 이상 된 알림은 무시"""
+    """10분 이상 된 알림은 무시"""
     # 과거 2시간 전 알림
     old_alert = AlertHistory(
         system_id=sample_system.id,
@@ -194,7 +194,7 @@ async def test_system_health_ignores_old_alerts(db_session: AsyncSession, sample
 
     health = await _get_system_health(db_session, sample_system.id)
 
-    # 1시간 이내의 알림이 없으므로 normal
+    # 10분 이내의 알림이 없으므로 normal
     assert health.status == "normal"
     assert health.metric_alerts_count == 0
 
@@ -232,7 +232,7 @@ async def test_system_health_combined_critical_and_warning(
 
     # Critical 메트릭이 우선 — warning 로그분석은 reason에 별도 표시되지 않음
     assert health.status == "critical"
-    assert "메트릭 알림 1개" in health.reason
+    assert "수집 알림 1개" in health.reason
 
 
 # ==================== API 엔드포인트 테스트 ====================

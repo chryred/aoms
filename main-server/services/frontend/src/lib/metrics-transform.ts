@@ -2,20 +2,11 @@ import type { HourlyAggregation, MetricsPayload, ChartDataPoint } from '@/types/
 import { formatKST } from '@/lib/utils'
 
 export const COLLECTOR_METRIC_KEYS: Record<string, Record<string, string[]>> = {
-  node_exporter: {
-    cpu: ['cpu_avg', 'cpu_max'],
-    memory: ['mem_avg', 'mem_max'],
-    disk: ['disk_avg', 'disk_max'],
-  },
-  jmx_exporter: {
-    jvm_heap: ['heap_avg', 'heap_max'],
-    gc: ['gc_count', 'gc_time_avg'],
-  },
   synapse_agent: {
     cpu: ['cpu_avg', 'cpu_max', 'cpu_p95', 'load1', 'load5'],
     memory: ['mem_used_pct', 'mem_p95'],
     disk: ['disk_read_mb', 'disk_write_mb', 'disk_io_ms'],
-    network: ['net_rx_mb', 'net_tx_mb'],
+    network: ['net_rx_mb', 'net_tx_mb', 'net_max_mbps'],
     log: ['log_errors', 'log_errors_err'],
     web: ['req_total', 'req_slow', 'resp_avg_ms'],
   },

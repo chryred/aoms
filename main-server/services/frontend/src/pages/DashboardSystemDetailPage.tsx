@@ -11,7 +11,12 @@ import {
   X,
 } from 'lucide-react'
 import { useSystemDetailHealth } from '@/hooks/queries/useDashboardHealth'
-import { useHourlyAggregations, useCollectorConfigs } from '@/hooks/queries/useAggregations'
+import {
+  useHourlyAggregations,
+  useCollectorConfigs,
+  useMetricsRange,
+  useMetricsLiveSummary,
+} from '@/hooks/queries/useAggregations'
 import { useSystemLiveStatus } from '@/hooks/queries/useAgents'
 import { LoadingSkeleton } from '@/components/common/LoadingSkeleton'
 import { ErrorCard } from '@/components/common/ErrorCard'
@@ -20,10 +25,27 @@ import { NeuBadge } from '@/components/neumorphic/NeuBadge'
 import { MetricChart } from '@/components/charts/MetricChart'
 import { getMetricKeys } from '@/lib/metrics-transform'
 import { formatKST, cn } from '@/lib/utils'
-import type { HourlyAggregation } from '@/types/aggregation'
 
 type TimeRange = '6h' | '12h' | '24h' | '48h'
 const HOURS_MAP: Record<TimeRange, number> = { '6h': 6, '12h': 12, '24h': 24, '48h': 48 }
+
+const GROUP_ORDER = [
+  'cpu',
+  'memory',
+  'disk',
+  'network',
+  'log',
+  'web',
+  'db_connections',
+  'db_query',
+  'db_cache',
+  'db_replication',
+]
+
+const COLLECTOR_SECTION_LABELS: Record<string, string> = {
+  synapse_agent: '수집기',
+  db_exporter: 'DB',
+}
 
 const CHART_TITLES: Record<string, string> = {
   cpu: 'CPU 사용률',
@@ -47,83 +69,91 @@ const UNIT_MAP: Record<string, string | undefined> = {
   db_replication: 's',
 }
 
-/** 수집 여부 기본 판정 (hourly 데이터 또는 live 에이전트 기준) */
-function isCollecting(aggs: HourlyAggregation[], isSystemLive: boolean): boolean {
-  if (aggs.length === 0) return isSystemLive
-  // hour_bucket은 DB에서 UTC naive로 저장되므로 'Z'를 붙여 UTC로 파싱
-  const latest = Math.max(...aggs.map((a) => new Date(a.hour_bucket + 'Z').getTime()))
-  return Date.now() - latest < 2 * 3_600_000
-}
-
-/** 퍼센트 기반 상태 판정에 사용할 대표 키 */
-const PCT_KEY: Record<string, Record<string, string>> = {
-  synapse_agent: { cpu: 'cpu_avg', memory: 'mem_used_pct' },
-  node_exporter: { cpu: 'cpu_avg', memory: 'mem_avg', disk: 'disk_avg' },
-  db_exporter:   { db_connections: 'conn_active_pct', db_cache: 'cache_hit_rate' },
-}
-
-function computeAvgPct(
-  aggs: HourlyAggregation[],
-  collectorType: string,
-  group: string,
-): number | null {
-  const key = PCT_KEY[collectorType]?.[group]
-  if (!key || aggs.length === 0) return null
-  const values = aggs
-    .map((a) => {
-      try {
-        const m = JSON.parse(a.metrics_json) as Record<string, number>
-        return typeof m[key] === 'number' ? m[key] : null
-      } catch {
-        return null
-      }
-    })
-    .filter((v): v is number => v !== null)
-  if (values.length === 0) return null
-  return values.reduce((s, v) => s + v, 0) / values.length
-}
-
 type MetricStatus = 'inactive' | 'collecting' | 'normal' | 'warning' | 'critical'
 
 const STATUS_CFG: Record<MetricStatus, { label: string; color: string; dot: string }> = {
-  inactive:   { label: '미수집',  color: 'text-[#8B97AD]', dot: 'text-[#8B97AD]' },
+  inactive: { label: '미수집', color: 'text-[#8B97AD]', dot: 'text-[#8B97AD]' },
   collecting: { label: '수집 중', color: 'text-[#22C55E]', dot: 'text-[#22C55E]' },
-  normal:     { label: '정상',    color: 'text-[#22C55E]', dot: 'text-[#22C55E]' },
-  warning:    { label: '경고',    color: 'text-[#F59E0B]', dot: 'text-[#F59E0B]' },
-  critical:   { label: '심각',    color: 'text-[#EF4444]', dot: 'text-[#EF4444]' },
+  normal: { label: '정상', color: 'text-[#22C55E]', dot: 'text-[#22C55E]' },
+  warning: { label: '경고', color: 'text-[#F59E0B]', dot: 'text-[#F59E0B]' },
+  critical: { label: '위험', color: 'text-[#EF4444]', dot: 'text-[#EF4444]' },
 }
 
+/**
+ * 수치 상태 판정 방향:
+ *  high_bad — 높을수록 나쁨 (cpu, memory, db_connections)
+ *  low_bad  — 낮을수록 나쁨 (db_cache: 캐시 적중률)
+ */
+const STATUS_BY_VALUE: Record<string, Record<string, 'high_bad' | 'low_bad'>> = {
+  synapse_agent: { cpu: 'high_bad', memory: 'high_bad' },
+  db_exporter: { db_connections: 'high_bad', db_cache: 'low_bad' },
+}
+
+/**
+ * Prometheus live-summary 값을 기반으로 카드 상태 판정.
+ *
+ * liveValue === null      : API가 이 그룹을 쿼리했으나 Prometheus에 데이터 없음
+ *                           → 실제로 수집이 안 됨 → "미수집"
+ * liveValue === undefined : PCT_PROMQL에 없는 그룹 (쿼리 대상이 아님)
+ *                           → collector_config 등록 여부로 판단
+ * liveValue === number    : 데이터 있음 → 수치로 상태 판정
+ */
 function getMetricStatus(
-  aggs: HourlyAggregation[],
+  liveValue: number | null | undefined,
   isSystemLive: boolean,
   collectorType: string,
   group: string,
+  isGroupConfigured: boolean,
 ): { status: MetricStatus; avg: number | null } {
-  if (!isCollecting(aggs, isSystemLive)) return { status: 'inactive', avg: null }
-  if (aggs.length === 0) return { status: 'collecting', avg: null }
-  const avg = computeAvgPct(aggs, collectorType, group)
-  if (avg === null) return { status: 'collecting', avg: null }
-  if (avg <= 60) return { status: 'normal', avg }
-  if (avg <= 80) return { status: 'warning', avg }
-  return { status: 'critical', avg }
+  // 에이전트 오프라인
+  if (!isSystemLive) return { status: 'inactive', avg: null }
+
+  if (liveValue === null) {
+    // Prometheus에 쿼리했으나 데이터 없음 = 실제로 수집 안 됨 → 미수집
+    return { status: 'inactive', avg: null }
+  }
+
+  if (liveValue === undefined) {
+    // PCT_PROMQL에 쿼리 대상이 없는 그룹 → collector_config 기반으로 판단
+    return { status: isGroupConfigured ? 'collecting' : 'inactive', avg: null }
+  }
+
+  // 데이터 있음 → 수치 판정 가능한 그룹만 상태 표시
+  const direction = STATUS_BY_VALUE[collectorType]?.[group]
+  if (!direction) return { status: 'collecting', avg: null }
+
+  if (direction === 'high_bad') {
+    if (liveValue <= 60) return { status: 'normal', avg: liveValue }
+    if (liveValue <= 80) return { status: 'warning', avg: liveValue }
+    return { status: 'critical', avg: liveValue }
+  } else {
+    // low_bad: 높을수록 좋음 (db_cache)
+    if (liveValue >= 95) return { status: 'normal', avg: liveValue }
+    if (liveValue >= 80) return { status: 'warning', avg: liveValue }
+    return { status: 'critical', avg: liveValue }
+  }
 }
 
 export function DashboardSystemDetailPage() {
   const { systemId } = useParams<{ systemId: string }>()
   const navigate = useNavigate()
 
-  const [timeRange, setTimeRange] = useState<TimeRange>('24h')
-  const [collectorType, setCollectorType] = useState<string | undefined>(undefined)
-  const [chartPopup, setChartPopup] = useState<{ group: string; aggs: HourlyAggregation[] } | null>(null)
+  const [timeRange, setTimeRange] = useState<TimeRange>('6h')
+  const [chartPopup, setChartPopup] = useState<{ group: string; collectorType: string } | null>(
+    null,
+  )
 
   const { data: detail, isLoading, error, refetch } = useSystemDetailHealth(systemId)
 
   const numericId = Number(systemId)
-  const { fromDt, toDt } = useMemo(() => {
+  // chartPopup 변경 시에도 현재 시각 기준으로 재계산 (팝업 열 때마다 최신 시간 반영)
+  const { fromDt, toDt, adaptiveStep } = useMemo(() => {
     const to = new Date()
     const from = new Date(to.getTime() - HOURS_MAP[timeRange] * 3_600_000)
-    return { fromDt: from.toISOString(), toDt: to.toISOString() }
-  }, [timeRange])
+    const step = Math.max(60, Math.round((HOURS_MAP[timeRange] * 3600) / 480))
+    return { fromDt: from.toISOString(), toDt: to.toISOString(), adaptiveStep: step }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [timeRange, chartPopup])
 
   const { data: hourly = [] } = useHourlyAggregations({
     system_id: numericId,
@@ -133,6 +163,33 @@ export function DashboardSystemDetailPage() {
   const { data: collectorConfigs = [] } = useCollectorConfigs(numericId || undefined)
   const { data: systemLive } = useSystemLiveStatus(numericId || undefined)
   const isSystemLive = systemLive?.is_live ?? false
+
+  const { data: minuteData = [], isLoading: minuteLoading } = useMetricsRange(
+    chartPopup
+      ? {
+          system_id: numericId,
+          collector_type: chartPopup.collectorType,
+          metric_group: chartPopup.group,
+          start_dt: fromDt,
+          end_dt: toDt,
+          step: adaptiveStep,
+        }
+      : null,
+  )
+
+  const { data: synapseAgentLiveSummary = {} } = useMetricsLiveSummary(
+    numericId || null,
+    'synapse_agent',
+  )
+  const { data: dbExporterLiveSummary = {} } = useMetricsLiveSummary(
+    numericId || null,
+    'db_exporter',
+  )
+
+  const liveSummaryByCt: Record<string, Record<string, number | null>> = {
+    synapse_agent: synapseAgentLiveSummary as Record<string, number | null>,
+    db_exporter: dbExporterLiveSummary as Record<string, number | null>,
+  }
 
   if (!systemId) {
     return (
@@ -156,30 +213,30 @@ export function DashboardSystemDetailPage() {
   }
 
   // collector-config 기반으로 수집기 목록 결정 (hourly 데이터 없어도 항목 표시)
+  // synapse_agent → db_exporter 순으로 고정 정렬
+  const COLLECTOR_ORDER = ['synapse_agent', 'db_exporter']
   const configuredCollectors = [...new Set(collectorConfigs.map((c) => c.collector_type))]
   const hourlyCollectors = [...new Set(hourly.map((a) => a.collector_type))]
-  const availableCollectors = configuredCollectors.length > 0 ? configuredCollectors : hourlyCollectors
+  const availableCollectors = (
+    configuredCollectors.length > 0 ? configuredCollectors : hourlyCollectors
+  ).sort((a, b) => {
+    const ai = COLLECTOR_ORDER.indexOf(a)
+    const bi = COLLECTOR_ORDER.indexOf(b)
+    return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi)
+  })
 
-  const activeCollector =
-    collectorType && availableCollectors.includes(collectorType)
-      ? collectorType
-      : (availableCollectors[0] ?? '')
-
-  // activeCollector의 설정된 metric_group 목록 (데이터 없는 항목도 포함)
-  const configuredGroups = collectorConfigs
-    .filter((c) => c.collector_type === activeCollector && c.enabled)
-    .map((c) => c.metric_group)
-
-  // hourly 데이터를 metric_group별로 그룹화
-  const filteredHourly = hourly.filter((a) => a.collector_type === activeCollector)
-  const groupedMetrics = filteredHourly.reduce<Record<string, HourlyAggregation[]>>((acc, agg) => {
-    if (!acc[agg.metric_group]) acc[agg.metric_group] = []
-    acc[agg.metric_group].push(agg)
-    return acc
-  }, {})
-
-  // 표시할 전체 metric_group: 설정된 항목 + 데이터가 있는 항목 합집합
-  const allGroups = [...new Set([...configuredGroups, ...Object.keys(groupedMetrics)])]
+  // 수집기별 그룹 계산 함수
+  function getGroupsForCt(ct: string): string[] {
+    const configured = collectorConfigs
+      .filter((c) => c.collector_type === ct && c.enabled)
+      .map((c) => c.metric_group)
+    const fromHourly = hourly.filter((a) => a.collector_type === ct).map((a) => a.metric_group)
+    return [...new Set([...configured, ...fromHourly])].sort((a, b) => {
+      const ai = GROUP_ORDER.indexOf(a)
+      const bi = GROUP_ORDER.indexOf(b)
+      return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi)
+    })
+  }
 
   const severityConfig = {
     critical: {
@@ -220,9 +277,9 @@ export function DashboardSystemDetailPage() {
         </div>
       </div>
 
-      {/* 메트릭 추이 */}
+      {/* 수집 현황 */}
       <section className="space-y-4">
-        <h2 className="text-lg font-semibold text-[#E2E8F2]">메트릭 추이</h2>
+        <h2 className="text-lg font-semibold text-[#E2E8F2]">수집 현황</h2>
 
         {/* 시간 범위 선택 */}
         <div className="flex w-fit gap-1 rounded-sm bg-[#1E2127] p-1 shadow-[inset_1px_1px_3px_#111317,inset_-1px_-1px_3px_#2B2F37]">
@@ -242,83 +299,71 @@ export function DashboardSystemDetailPage() {
           ))}
         </div>
 
-        {/* 수집기 타입 선택 — 복수일 때만 */}
-        {availableCollectors.length > 1 && (
-          <div className="flex w-fit flex-wrap gap-1 rounded-sm bg-[#1E2127] p-1 shadow-[inset_1px_1px_3px_#111317,inset_-1px_-1px_3px_#2B2F37]">
-            {availableCollectors.map((ct) => (
-              <button
-                key={ct}
-                onClick={() => setCollectorType(ct)}
-                className={cn(
-                  'rounded-sm px-3 py-1 text-xs font-medium transition-all',
-                  activeCollector === ct
-                    ? 'bg-[#00D4FF] font-semibold text-[#1E2127] shadow-[2px_2px_4px_#111317]'
-                    : 'text-[#8B97AD] hover:bg-white/5 hover:text-[#E2E8F2]',
-                )}
-              >
-                {ct}
-              </button>
-            ))}
-          </div>
-        )}
-
-        {/* 수집 현황 — 항상 표시 */}
-        {allGroups.length === 0 ? (
+        {/* 수집 현황 — 수집기별 섹션 */}
+        {availableCollectors.length === 0 ? (
           <NeuCard className="py-6 text-center text-sm text-[#8B97AD]">
             수집기 설정이 없습니다
           </NeuCard>
         ) : (
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-            {allGroups.map((group) => {
-              const aggs = groupedMetrics[group] ?? []
-              const { status, avg } = getMetricStatus(aggs, isSystemLive, activeCollector, group)
-              const cfg = STATUS_CFG[status]
-              const clickable = status !== 'inactive'
+          <div className="space-y-4">
+            {availableCollectors.map((ct) => {
+              const ctGroups = getGroupsForCt(ct)
+              const ctLiveSummary = liveSummaryByCt[ct] ?? {}
+              const ctConfiguredGroups = collectorConfigs
+                .filter((c) => c.collector_type === ct && c.enabled)
+                .map((c) => c.metric_group)
               return (
-                <div
-                  key={group}
-                  onClick={() => clickable && setChartPopup({ group, aggs })}
-                  className={cn(
-                    'flex items-center justify-between rounded-sm bg-[#1E2127] px-3 py-2 shadow-[2px_2px_5px_#111317,-2px_-2px_5px_#2B2F37] transition-colors',
-                    clickable && 'cursor-pointer hover:bg-[#252932]',
-                  )}
-                >
-                  <span className="text-xs font-medium text-[#A8B5C3]">
-                    {CHART_TITLES[group] ?? group}
-                  </span>
-                  <span className={cn('flex items-center gap-1 text-xs font-medium', cfg.color)}>
-                    <span className={cn('text-[8px]', cfg.dot)}>●</span>
-                    {cfg.label}
-                    {avg !== null && (
-                      <span className="font-mono text-[10px] opacity-80">({avg.toFixed(0)}%)</span>
-                    )}
-                  </span>
-                </div>
-              )
-            })}
-          </div>
-        )}
-
-        {/* 차트 — 데이터 있는 항목만 */}
-        {Object.keys(groupedMetrics).length > 0 && (
-          <div className="flex flex-col gap-4">
-            {Object.entries(groupedMetrics).map(([group, aggs]) => {
-              const keys = getMetricKeys(activeCollector, group, aggs[0]?.metrics_json)
-              return (
-                <div
-                  key={group}
-                  className="rounded-sm bg-[#1E2127] p-4 shadow-[3px_3px_7px_#111317,-3px_-3px_7px_#2B2F37]"
-                >
-                  <h3 className="mb-3 text-sm font-semibold text-[#E2E8F2]">
-                    {CHART_TITLES[group] ?? group}
-                    {UNIT_MAP[group] && ` (${UNIT_MAP[group]})`}
+                <div key={ct} className="space-y-2">
+                  <h3 className="text-xs font-semibold tracking-wide text-[#8B97AD] uppercase">
+                    {COLLECTOR_SECTION_LABELS[ct] ?? ct}
                   </h3>
-                  <MetricChart
-                    aggregations={aggs}
-                    metricKeys={keys}
-                    title=""
-                    unit={UNIT_MAP[group]}
-                  />
+                  {ctGroups.length === 0 ? (
+                    <p className="text-xs text-[#8B97AD]">수집 항목 없음</p>
+                  ) : (
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      {ctGroups.map((group) => {
+                        const isGroupConfigured = ctConfiguredGroups.includes(group)
+                        const liveValue = ctLiveSummary[group]
+                        const { status, avg } = getMetricStatus(
+                          liveValue,
+                          isSystemLive,
+                          ct,
+                          group,
+                          isGroupConfigured,
+                        )
+                        const cfg = STATUS_CFG[status]
+                        const clickable = status !== 'inactive'
+                        return (
+                          <div
+                            key={group}
+                            onClick={() => clickable && setChartPopup({ group, collectorType: ct })}
+                            className={cn(
+                              'flex items-center justify-between rounded-sm bg-[#1E2127] px-3 py-2 shadow-[2px_2px_5px_#111317,-2px_-2px_5px_#2B2F37] transition-colors',
+                              clickable && 'cursor-pointer hover:bg-[#252932]',
+                            )}
+                          >
+                            <span className="text-xs font-medium text-[#A8B5C3]">
+                              {CHART_TITLES[group] ?? group}
+                            </span>
+                            <span
+                              className={cn(
+                                'flex items-center gap-1 text-xs font-medium',
+                                cfg.color,
+                              )}
+                            >
+                              <span className={cn('text-[8px]', cfg.dot)}>●</span>
+                              {cfg.label}
+                              {avg !== null && (
+                                <span className="font-mono text-[10px] opacity-80">
+                                  ({avg.toFixed(0)}%)
+                                </span>
+                              )}
+                            </span>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
                 </div>
               )
             })}
@@ -340,7 +385,10 @@ export function DashboardSystemDetailPage() {
         ) : (
           <div className="grid gap-3">
             {detail.metric_alerts.map((alert) => (
-              <div key={`${alert.alert_type}-${alert.id}`} className="transition-all duration-150 hover:shadow-lg">
+              <div
+                key={`${alert.alert_type}-${alert.id}`}
+                className="transition-all duration-150 hover:shadow-lg"
+              >
                 <NeuCard
                   className={cn(
                     'border-l-4 transition-all duration-150',
@@ -357,7 +405,7 @@ export function DashboardSystemDetailPage() {
                         </span>
                       </div>
                       <h3 className="line-clamp-2 leading-tight font-semibold break-words text-[#E2E8F2]">
-                        {alert.alertname}
+                        {alert.title || alert.alertname}
                       </h3>
                       <div className="mt-1.5 flex items-center gap-2 text-xs text-[#8B97AD]">
                         <Clock className="h-3 w-3 flex-shrink-0" />
@@ -627,7 +675,10 @@ export function DashboardSystemDetailPage() {
                     </span>
                   )}
                 </h3>
-                <p className="mt-0.5 text-xs text-[#8B97AD]">최근 {timeRange} 추이</p>
+                <p className="mt-0.5 text-xs text-[#8B97AD]">
+                  최근 {timeRange} 추이 ·{' '}
+                  {adaptiveStep < 60 ? `${adaptiveStep}초` : `${adaptiveStep / 60}분`} 간격
+                </p>
               </div>
               <button
                 onClick={() => setChartPopup(null)}
@@ -637,19 +688,21 @@ export function DashboardSystemDetailPage() {
               </button>
             </div>
             {/* 차트 */}
-            {chartPopup.aggs.length === 0 ? (
+            {minuteLoading ? (
+              <div className="py-10 text-center text-sm text-[#8B97AD]">로딩 중...</div>
+            ) : minuteData.length === 0 ? (
               <div className="py-10 text-center text-sm text-[#8B97AD]">
-                집계 데이터가 아직 없습니다.
+                수집된 데이터가 없습니다.
                 <br />
-                에이전트가 수집 중이며 1시간 이내 데이터가 표시됩니다.
+                에이전트가 Prometheus에 데이터를 전송 중인지 확인하세요.
               </div>
             ) : (
               <MetricChart
-                aggregations={chartPopup.aggs}
+                aggregations={minuteData}
                 metricKeys={getMetricKeys(
-                  activeCollector,
+                  chartPopup.collectorType,
                   chartPopup.group,
-                  chartPopup.aggs[0]?.metrics_json,
+                  minuteData[0]?.metrics_json,
                 )}
                 title=""
                 unit={UNIT_MAP[chartPopup.group]}

@@ -41,6 +41,7 @@ export interface MetricAlert {
   id: string
   alert_type: 'metric' | 'log_analysis'
   alertname: string
+  title?: string
   severity: string
   value: string | null
   created_at: string
