@@ -55,7 +55,7 @@ echo ""
 
 # 빌더 Dockerfile (인라인 — 파일로 저장 안 함)
 BUILDER_DOCKERFILE=$(cat <<'DOCKEREOF'
-FROM rust:1.86-slim
+FROM rust:1.88-slim
 
 RUN apt-get update && \
     apt-get install -y musl-tools musl-dev pkg-config && \
@@ -86,7 +86,7 @@ echo "$BUILDER_DOCKERFILE" | docker build \
   -t "$BUILDER_IMAGE" \
   -f - \
   "$SCRIPT_DIR" \
-  2>&1 | grep -E "^(#[0-9]+ \[|Step|error|Error|warning| ---> |Successfully)" || true
+  || err "Docker 빌드 실패 — 위 로그를 확인하세요"
 
 echo ""
 
