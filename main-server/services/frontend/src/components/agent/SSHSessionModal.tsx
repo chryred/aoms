@@ -53,7 +53,7 @@ export function SSHSessionModal({
           </div>
           <button
             onClick={onClose}
-            className="text-[#8B97AD] hover:text-[#E2E8F2] focus:ring-1 focus:ring-[#00D4FF] focus:outline-none rounded-sm"
+            className="rounded-sm text-[#8B97AD] hover:text-[#E2E8F2] focus:ring-1 focus:ring-[#00D4FF] focus:outline-none"
           >
             <X className="h-4 w-4" />
           </button>

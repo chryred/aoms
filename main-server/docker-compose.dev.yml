@@ -116,17 +116,8 @@ services:
     networks:
       - dev-net
 
-  frontend:
-    image: synapse-frontend:1.0
-    container_name: dev-frontend
-    ports:
-      - "3001:80"
-    extra_hosts:
-      - "admin-api:host-gateway"       # 호스트에서 실행 중인 admin-api (8080)
-      - "log-analyzer:host-gateway"    # 호스트에서 실행 중인 log-analyzer (8000)
-    restart: unless-stopped
-    networks:
-      - dev-net
+  # frontend는 Docker 이미지 없이 `make run-frontend` (npm run dev)로 실행
+  # docker compose에서 제외 — 빌드된 이미지(synapse-frontend:1.0) 없어도 dev-up 가능
 
   ollama:
     image: ollama/ollama:0.18.0

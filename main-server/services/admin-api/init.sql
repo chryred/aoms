@@ -227,16 +227,18 @@ CREATE TABLE IF NOT EXISTS aggregation_report_history (
 
 CREATE INDEX IF NOT EXISTS idx_report_history_type_time ON aggregation_report_history(report_type, period_start DESC);
 
--- ── 에이전트 인스턴스 (Phase 6) ──────────────────────────────────────
+-- ── 에이전트 인스턴스 (Phase 6 / Phase 9) ────────────────────────────
 CREATE TABLE IF NOT EXISTS agent_instances (
     id           SERIAL PRIMARY KEY,
     system_id    INTEGER REFERENCES systems(id) ON DELETE CASCADE,
     host         VARCHAR(200) NOT NULL,
-    ssh_username VARCHAR(100) NOT NULL,      -- SSH 접속 계정 (password 저장 금지)
-    agent_type   VARCHAR(50)  NOT NULL,      -- alloy | node_exporter | jmx_exporter
-    install_path VARCHAR(500) NOT NULL,      -- 바이너리 경로
-    config_path  VARCHAR(500) NOT NULL,      -- 설정파일 경로
+    ssh_username VARCHAR(100),               -- SSH 접속 계정 (password 저장 금지; oracle_db는 NULL)
+    agent_type   VARCHAR(50)  NOT NULL,      -- synapse_agent | jmx_exporter | oracle_db
+    install_path VARCHAR(500),               -- 바이너리 경로 (oracle_db는 NULL)
+    config_path  VARCHAR(500),               -- 설정파일 경로 (oracle_db는 NULL)
     port         INTEGER,                    -- 메트릭 노출 포트
+    os_type      VARCHAR(20),               -- 'linux' | 'windows' — 에이전트 설치 서버 OS (Phase 9)
+    server_type  VARCHAR(50),               -- 'web' | 'was' | 'db' | 'middleware' | 'other' (Phase 9)
     pid_file     VARCHAR(500),               -- PID 파일 경로
     label_info   TEXT,                       -- JSON: system_name, instance_role 등
     status       VARCHAR(20) DEFAULT 'unknown',  -- installed | running | stopped | unknown

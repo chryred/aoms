@@ -13,9 +13,6 @@ class System(Base):
     system_name = Column(String(100), unique=True, nullable=False)
     display_name = Column(String(200), nullable=False)
     description = Column(Text)
-    host = Column(String(200), nullable=False)
-    os_type = Column(String(20), nullable=False)       # 'linux' | 'windows'
-    system_type = Column(String(50), nullable=False)   # 'web' | 'was' | 'db' | 'middleware'
     status = Column(String(20), default="active")
     teams_webhook_url = Column(Text)                   # 시스템별 Teams webhook (없으면 기본값 사용)
     created_at = Column(DateTime, default=func.now())
@@ -285,6 +282,8 @@ class AgentInstance(Base):
     install_path = Column(String(500), nullable=False)          # 바이너리 경로
     config_path  = Column(String(500), nullable=False)          # 설정파일 경로
     port         = Column(Integer)                              # 메트릭 노출 포트
+    os_type      = Column(String(20))                            # 'linux' | 'windows' — 에이전트 설치 서버 OS
+    server_type  = Column(String(50))                           # 'web' | 'was' | 'db' | 'middleware' | 'other' — 서버 역할
     pid_file     = Column(String(500))                          # PID 파일 경로 (systemd 없으므로)
     label_info   = Column(Text)                                 # JSON: system_name, instance_role 등
     status       = Column(String(20), default="unknown")        # installed | running | stopped | unknown

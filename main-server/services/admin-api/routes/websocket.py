@@ -48,7 +48,7 @@ class ConnectionManager:
         """알림 발생 이벤트 브로드캐스트"""
         message = {
             "type": "alert_fired",
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.utcnow().isoformat() + "Z",
             "data": alert_data,
         }
         await self.broadcast(message)
@@ -57,7 +57,7 @@ class ConnectionManager:
         """알림 해제 이벤트 브로드캐스트"""
         message = {
             "type": "alert_resolved",
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.utcnow().isoformat() + "Z",
             "data": alert_data,
         }
         await self.broadcast(message)
@@ -66,7 +66,7 @@ class ConnectionManager:
         """로그분석 완료 이벤트 브로드캐스트"""
         message = {
             "type": "log_analysis_complete",
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.utcnow().isoformat() + "Z",
             "data": analysis_data,
         }
         await self.broadcast(message)

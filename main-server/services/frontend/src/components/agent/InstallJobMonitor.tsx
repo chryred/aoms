@@ -50,10 +50,14 @@ export function InstallJobMonitor({ jobId, onDone }: InstallJobMonitorProps) {
 
       <pre
         ref={logRef}
-        className="h-48 overflow-y-auto rounded-sm bg-[#13151A] p-3 font-mono text-xs text-[#8B97AD] whitespace-pre-wrap"
+        className="h-48 overflow-y-auto rounded-sm bg-[#13151A] p-3 font-mono text-xs whitespace-pre-wrap text-[#8B97AD]"
       >
         {job.logs || '로그 대기 중...'}
-        {job.error && <span className="text-[#EF4444]">{'\n'}오류: {job.error}</span>}
+        {job.error && (
+          <span className="text-[#EF4444]">
+            {'\n'}오류: {job.error}
+          </span>
+        )}
       </pre>
     </div>
   )

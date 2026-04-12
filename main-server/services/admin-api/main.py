@@ -4,13 +4,16 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
+from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 
-from database import engine, Base
+from database import engine, Base, AsyncSessionLocal
 from routes import alerts, analysis, contacts, feedback, systems
 from routes import collector_config, aggregations, reports, auth as auth_router
 from routes import agents as agents_router, dashboard, websocket
 from services.ssh_session import run_cleanup_loop
 from services.prometheus_analyzer import run_prometheus_analyzer_loop
+from services.oracle_collector import oracle_collection_loop
 
 
 @asynccontextmanager
@@ -22,9 +25,15 @@ async def lifespan(app: FastAPI):
     cleanup_task = asyncio.create_task(run_cleanup_loop())
     # Prometheus 메트릭 자동 분석 루프 (PROMETHEUS_URL 설정 시 활성화)
     analyzer_task = asyncio.create_task(run_prometheus_analyzer_loop())
+    # Oracle DB 메트릭 수집 루프 (DB_ENCRYPTION_KEY 설정 시 활성화)
+    oracle_task = None
+    if os.getenv("DB_ENCRYPTION_KEY"):
+        oracle_task = asyncio.create_task(oracle_collection_loop(AsyncSessionLocal))
     yield
     cleanup_task.cancel()
     analyzer_task.cancel()
+    if oracle_task:
+        oracle_task.cancel()
 
 
 app = FastAPI(
@@ -64,3 +73,9 @@ app.include_router(websocket.router)
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+@app.get("/metrics")
+async def metrics():
+    """Prometheus scrape 엔드포인트 — oracle_collector Gauge 값 노출."""
+    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)

@@ -38,6 +38,19 @@ do_build() {
   info "플랫폼: $PLATFORM / 태그: $TAG"
   echo ""
 
+  # ── 에이전트 바이너리 준비 (admin-api Docker 이미지에 번들링) ───────────
+  AGENT_BIN_SRC="$SCRIPT_DIR/agent/dist/agent-v"
+  AGENT_BIN_DST="$SERVICES_DIR/admin-api/bin/agent-v"
+
+  if [ ! -f "$AGENT_BIN_SRC" ]; then
+    error "에이전트 바이너리를 찾을 수 없습니다: $AGENT_BIN_SRC\n  먼저 agent/build.sh 를 실행하여 바이너리를 빌드하세요."
+  fi
+
+  info "에이전트 바이너리 복사: $AGENT_BIN_SRC → $AGENT_BIN_DST"
+  mkdir -p "$(dirname "$AGENT_BIN_DST")"
+  cp "$AGENT_BIN_SRC" "$AGENT_BIN_DST"
+  echo ""
+
   for entry in "${IMAGES[@]}"; do
     IFS=':' read -r name tag context <<< "$entry"
     image="$name:$tag"
@@ -53,6 +66,11 @@ do_build() {
     success "저장 완료: $tarfile  ($(du -sh "$tarfile" | cut -f1))"
     echo ""
   done
+
+  # ── 임시 복사본 제거 ──────────────────────────────────────────────────────
+  rm -rf "$SERVICES_DIR/admin-api/bin"
+  success "에이전트 바이너리 임시 복사본 삭제 완료"
+  echo ""
 
   echo -e "${GREEN}============================================${NC}"
   echo -e "${GREEN}  빌드 완료${NC}"
@@ -92,6 +110,13 @@ do_clean() {
       success "파일 삭제: $tarfile"
     fi
   done
+
+  # 바이너리 임시 복사본 정리 (빌드 실패 시 잔류할 수 있음)
+  BIN_DIR="$SERVICES_DIR/admin-api/bin"
+  if [ -d "$BIN_DIR" ]; then
+    rm -rf "$BIN_DIR"
+    success "임시 바이너리 디렉터리 삭제: $BIN_DIR"
+  fi
 
   # dangling 이미지 정리
   DANGLING=$(docker images -f "dangling=true" -q)

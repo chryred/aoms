@@ -32,12 +32,13 @@ from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
-from sqlalchemy import select, update
+from sqlalchemy import delete, select, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth import get_current_user
 from database import get_db
-from models import AgentInstance, AgentInstallJob
+from models import AgentInstance, AgentInstallJob, System, SystemCollectorConfig
 from schemas import (
     AgentConfigUpload,
     AgentInstallJobOut,
@@ -56,6 +57,7 @@ from services.ssh_session import (
     get_session,
     ssh_exec,
     ssh_get_file,
+    ssh_put_binary,
     ssh_put_file,
 )
 
@@ -142,11 +144,175 @@ async def create_agent(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
+    # oracle_db: label_info의 평문 password를 Fernet으로 암호화 후 저장
+    if body.agent_type == "oracle_db" and body.label_info:
+        import os as _os
+        if not _os.getenv("DB_ENCRYPTION_KEY"):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="DB_ENCRYPTION_KEY 환경변수가 설정되지 않았습니다. Oracle DB 수집기를 등록하려면 서버에 DB_ENCRYPTION_KEY를 설정하세요.",
+            )
+        from services.oracle_collector import encrypt_password, test_connection, decrypt_password
+        try:
+            info = json.loads(body.label_info)
+            if "password" in info:
+                plain_pw = info.pop("password")
+                info["encrypted_password"] = encrypt_password(plain_pw)
+                body.label_info = json.dumps(info)
+            else:
+                plain_pw = decrypt_password(info["encrypted_password"])
+        except json.JSONDecodeError:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="label_info가 유효한 JSON이 아닙니다.")
+
+        # Oracle 연결 테스트 — 실패 시 등록 거부
+        try:
+            await asyncio.to_thread(
+                test_connection,
+                body.host,
+                body.port or 1521,
+                info.get("service_name", ""),
+                info.get("username", ""),
+                plain_pw,
+            )
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Oracle DB 연결 실패: {e}",
+            )
+        # 연결 테스트 성공 → 등록과 동시에 installed 처리
+        body.status = "installed"
+
     agent = AgentInstance(**body.model_dump())
     db.add(agent)
     await db.commit()
     await db.refresh(agent)
     return agent
+
+
+@router.get("/agents/health-summary")
+async def get_agent_health_summary(
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """
+    전체 에이전트 수집 상태 요약.
+    Prometheus에서 최근 10분 내 데이터를 보낸 에이전트 수를 집계하여 반환한다.
+    """
+    import httpx
+    from sqlalchemy import func as sqlfunc
+
+    prometheus_url = os.environ.get("PROMETHEUS_URL", "http://prometheus:9090")
+
+    # DB: 에이전트 타입별 총 수
+    total_result = await db.execute(
+        select(AgentInstance.agent_type, sqlfunc.count(AgentInstance.id))
+        .where(AgentInstance.agent_type.in_(["synapse_agent", "oracle_db"]))
+        .group_by(AgentInstance.agent_type)
+    )
+    type_counts = {row[0]: row[1] for row in total_result.fetchall()}
+    total_synapse = type_counts.get("synapse_agent", 0)
+    total_oracle = type_counts.get("oracle_db", 0)
+    total = total_synapse + total_oracle
+
+    if total == 0:
+        return {"total": 0, "collecting": 0, "stale": 0}
+
+    alive_synapse = 0
+    alive_oracle = 0
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            if total_synapse > 0:
+                resp = await client.get(
+                    f"{prometheus_url}/api/v1/query",
+                    params={"query": "count(count_over_time(agent_up[10m]))"},
+                )
+                data = resp.json().get("data", {}).get("result", [])
+                if data:
+                    alive_synapse = int(float(data[0]["value"][1]))
+
+            if total_oracle > 0:
+                resp = await client.get(
+                    f"{prometheus_url}/api/v1/query",
+                    params={"query": "count(count_over_time(db_connections_active[10m]))"},
+                )
+                data = resp.json().get("data", {}).get("result", [])
+                if data:
+                    alive_oracle = int(float(data[0]["value"][1]))
+    except Exception:
+        pass
+
+    collecting = min(alive_synapse + alive_oracle, total)
+    return {
+        "total": total,
+        "collecting": collecting,
+        "stale": total - collecting,
+    }
+
+
+@router.get("/agents/system-live/{system_id}")
+async def get_system_live_status(
+    system_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """
+    시스템에 속한 에이전트(synapse_agent / oracle_db)의 Prometheus 기반 수집 여부를 반환한다.
+    하나라도 최근 10분 내 데이터를 보내고 있으면 is_live=True.
+    """
+    import httpx
+    import time
+
+    prometheus_url = os.environ.get("PROMETHEUS_URL", "http://prometheus:9090")
+
+    agents_result = await db.execute(
+        select(AgentInstance).where(
+            AgentInstance.system_id == system_id,
+            AgentInstance.agent_type.in_(["synapse_agent", "oracle_db"]),
+        )
+    )
+    agents = agents_result.scalars().all()
+
+    if not agents:
+        return {"is_live": False, "agent_count": 0}
+
+    # system_name 조회 (oracle_db용)
+    sys_result = await db.execute(select(System).where(System.id == system_id))
+    system = sys_result.scalar_one_or_none()
+    system_name = system.system_name if system else ""
+
+    is_live = False
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            for agent in agents:
+                if is_live:
+                    break
+                if agent.agent_type == "synapse_agent":
+                    label_info = {}
+                    if agent.label_info:
+                        try:
+                            label_info = json.loads(agent.label_info)
+                        except Exception:
+                            pass
+                    sn = label_info.get("system_name", system_name)
+                    query = f'agent_up{{system_name="{sn}",host="{agent.host}"}}'
+                elif agent.agent_type == "oracle_db":
+                    query = f'db_connections_active{{system_name="{system_name}"}}'
+                else:
+                    continue
+
+                resp = await client.get(
+                    f"{prometheus_url}/api/v1/query",
+                    params={"query": query},
+                )
+                results = resp.json().get("data", {}).get("result", [])
+                if results:
+                    age_secs = time.time() - float(results[0]["value"][0])
+                    if age_secs < 600:
+                        is_live = True
+    except Exception:
+        pass
+
+    return {"is_live": is_live, "agent_count": len(agents)}
 
 
 @router.get("/agents/{agent_id}", response_model=AgentInstanceOut)
@@ -187,6 +353,13 @@ async def delete_agent(
     agent = await db.get(AgentInstance, agent_id)
     if not agent:
         raise HTTPException(404, "에이전트를 찾을 수 없습니다.")
+    collector_type = "db_exporter" if agent.agent_type == "oracle_db" else "synapse_agent"
+    await db.execute(
+        delete(SystemCollectorConfig).where(
+            SystemCollectorConfig.system_id == agent.system_id,
+            SystemCollectorConfig.collector_type == collector_type,
+        )
+    )
     await db.delete(agent)
     await db.commit()
 
@@ -202,6 +375,13 @@ async def _get_agent_or_404(agent_id: int, db: AsyncSession) -> AgentInstance:
 
 def _make_start_cmd(agent: AgentInstance) -> str:
     """에이전트 타입별 실행 명령어 생성."""
+    if agent.agent_type == "oracle_db":
+        raise HTTPException(400, "oracle_db 에이전트는 프로세스 관리가 불필요합니다.")
+    if agent.agent_type == "synapse_agent":
+        return (
+            f"nohup {agent.install_path} {agent.config_path}"
+            f" > {agent.install_path}.log 2>&1 & echo $! > {agent.pid_file}"
+        )
     if agent.agent_type == "alloy":
         return (
             f"nohup {agent.install_path} run {agent.config_path}"
@@ -390,11 +570,9 @@ async def upload_agent_config(
     except SSHError as exc:
         raise HTTPException(502, str(exc))
 
-    # Reload: Alloy는 SIGHUP, node_exporter/jmx_exporter는 재시작
+    # Reload: PID 파일이 있으면 재시작 (synapse_agent는 inotify 자동 감지 지원, 재시작이 더 안정적)
     reload_cmd: str
-    if agent.agent_type == "alloy" and agent.pid_file:
-        reload_cmd = f"kill -HUP $(cat {agent.pid_file})"
-    elif agent.pid_file:
+    if agent.pid_file:
         stop = f"kill $(cat {agent.pid_file}) 2>/dev/null; rm -f {agent.pid_file}; sleep 1"
         start = _make_start_cmd(agent)
         reload_cmd = f"{stop} && {start}"
@@ -423,10 +601,21 @@ async def upload_agent_config(
 async def install_agent(
     body: AgentInstallRequest,
     db: AsyncSession = Depends(get_db),
-    session: dict = Depends(_require_session),
+    x_ssh_session: Optional[str] = Header(None),
     current_user=Depends(get_current_user),
 ):
     agent = await _get_agent_or_404(body.agent_id, db)
+
+    # oracle_db는 SSH 불필요 — 그 외 타입은 SSH 세션 필수
+    if agent.agent_type == "oracle_db":
+        session: dict = {}
+    else:
+        if not x_ssh_session:
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "X-SSH-Session 헤더가 필요합니다.")
+        entry = get_session(x_ssh_session)
+        if entry is None:
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "SSH 세션이 만료되었습니다. 다시 로그인해 주세요.")
+        session = entry
     job_id = str(uuid.uuid4())
     now = datetime.utcnow()
 
@@ -451,7 +640,6 @@ async def install_agent(
             job_id=job_id,
             agent=agent,
             session=session,
-            binary_url=body.binary_url,
         )
     )
 
@@ -486,11 +674,82 @@ async def get_install_job(
     return job
 
 
+async def _run_oracle_db_connect(job_id: str, agent: AgentInstance) -> None:
+    """
+    oracle_db 에이전트 '설치' = Oracle 연결 테스트 후 status 업데이트.
+    성공 시 db_exporter system_collector_config 4개 자동 등록.
+    """
+    from services.oracle_collector import decrypt_password, test_connection
+    from database import AsyncSessionLocal
+
+    def _log(msg: str) -> None:
+        _live_jobs[job_id]["logs"] += f"{msg}\n"
+
+    async with AsyncSessionLocal() as db:
+        try:
+            _log("[1/1] Oracle DB 연결 테스트 중...")
+            info = json.loads(agent.label_info or "{}")
+            pw = decrypt_password(info["encrypted_password"])
+            await asyncio.to_thread(
+                test_connection,
+                agent.host,
+                int(agent.port or 1521),
+                info["service_name"],
+                info["username"],
+                pw,
+            )
+            _log("[1/1] 연결 성공.")
+
+            await db.execute(
+                update(AgentInstance).where(AgentInstance.id == agent.id).values(status="installed")
+            )
+            # db_exporter collector_config 4개 자동 upsert
+            for group in ["db_connections", "db_query", "db_cache", "db_replication"]:
+                await db.execute(
+                    pg_insert(SystemCollectorConfig)
+                    .values(system_id=agent.system_id, collector_type="db_exporter", metric_group=group, enabled=True)
+                    .on_conflict_do_update(
+                        index_elements=["system_id", "collector_type", "metric_group"],
+                        set_={"enabled": True, "updated_at": datetime.utcnow()},
+                    )
+                )
+            await db.execute(
+                update(AgentInstallJob)
+                .where(AgentInstallJob.job_id == job_id)
+                .values(
+                    status="done",
+                    logs=_live_jobs[job_id]["logs"],
+                    updated_at=datetime.utcnow(),
+                )
+            )
+            await db.commit()
+            _live_jobs[job_id]["status"] = "done"
+
+        except Exception as exc:
+            err_msg = str(exc)
+            _log(f"[오류] {err_msg}")
+            _live_jobs[job_id]["status"] = "failed"
+            _live_jobs[job_id]["error"] = err_msg
+            await db.execute(
+                update(AgentInstance).where(AgentInstance.id == agent.id).values(status="failed")
+            )
+            await db.execute(
+                update(AgentInstallJob)
+                .where(AgentInstallJob.job_id == job_id)
+                .values(
+                    status="failed",
+                    logs=_live_jobs[job_id]["logs"],
+                    error=err_msg,
+                    updated_at=datetime.utcnow(),
+                )
+            )
+            await db.commit()
+
+
 async def _run_install(
     job_id: str,
     agent: AgentInstance,
     session: dict,
-    binary_url: Optional[str],
 ):
     """백그라운드 설치 태스크. DB Job 상태를 단계별로 갱신한다."""
     from database import AsyncSessionLocal
@@ -500,10 +759,45 @@ async def _run_install(
 
     _live_jobs[job_id]["status"] = "running"
 
+    # oracle_db: SSH 불필요 — 연결 테스트 후 완료
+    if agent.agent_type == "oracle_db":
+        await _run_oracle_db_connect(job_id, agent)
+        return
+
+    # 로컬 경로 변수 초기화 (tilde 해석 전)
+    install_path = agent.install_path or ""
+    config_path = agent.config_path or ""
+    pid_file = agent.pid_file or ""
+
     async with AsyncSessionLocal() as db:
         try:
+            # Step 0: ~ 해석 — SFTP는 tilde를 확장하지 않으므로 절대경로로 변환
+            if "~" in install_path or "~" in config_path or "~" in pid_file:
+                _log("[0/4] 홈 디렉터리 경로 확인 중...")
+                code, home_stdout, _ = await asyncio.to_thread(
+                    ssh_exec,
+                    session["host"], session["port"], session["username"], session["password"],
+                    "echo $HOME",
+                )
+                home_dir = home_stdout.strip()
+                if code == 0 and home_dir:
+                    install_path = install_path.replace("~", home_dir)
+                    config_path = config_path.replace("~", home_dir)
+                    pid_file = pid_file.replace("~", home_dir)
+                    await db.execute(
+                        update(AgentInstance).where(AgentInstance.id == agent.id).values(
+                            install_path=install_path,
+                            config_path=config_path,
+                            pid_file=pid_file,
+                        )
+                    )
+                    await db.commit()
+                    _log(f"  → 홈 디렉터리: {home_dir}")
+                else:
+                    _log("  경고: 홈 디렉터리를 확인할 수 없습니다. ~ 경로를 그대로 사용합니다.")
+
             _log("[1/4] 디렉터리 생성 중...")
-            install_dir = agent.install_path.rsplit("/", 1)[0]
+            install_dir = install_path.rsplit("/", 1)[0]
             code, _, stderr = await asyncio.to_thread(
                 ssh_exec,
                 session["host"], session["port"], session["username"], session["password"],
@@ -512,21 +806,37 @@ async def _run_install(
             if code != 0:
                 raise RuntimeError(f"디렉터리 생성 실패: {stderr.strip()}")
 
-            if binary_url:
-                _log(f"[2/4] 바이너리 다운로드 중: {binary_url}")
+            if agent.agent_type == "synapse_agent":
+                _log("[2/4] 바이너리 업로드 중 (SFTP)...")
+                from pathlib import Path
+                _default_bin = "/app/bin/agent-v"
+                bin_path = Path(os.environ.get("AGENT_BINARY_PATH", _default_bin))
+                if not bin_path.exists():
+                    raise RuntimeError(
+                        f"agent-v 바이너리를 찾을 수 없습니다 ({bin_path}). "
+                        "Docker 이미지: build-images.sh로 재빌드, "
+                        "로컬 개발: AGENT_BINARY_PATH 환경변수를 agent/dist/agent-v 경로로 설정하세요."
+                    )
+                binary_content = await asyncio.to_thread(bin_path.read_bytes)
+                await asyncio.to_thread(
+                    ssh_put_binary,
+                    session["host"], session["port"], session["username"], session["password"],
+                    install_path, binary_content,
+                )
                 code, _, stderr = await asyncio.to_thread(
                     ssh_exec,
                     session["host"], session["port"], session["username"], session["password"],
-                    f"curl -fsSL -o {agent.install_path} {binary_url} && chmod +x {agent.install_path}",
+                    f"chmod +x {install_path}",
                 )
                 if code != 0:
-                    raise RuntimeError(f"다운로드 실패: {stderr.strip()}")
+                    raise RuntimeError(f"chmod +x 실패: {stderr.strip()}")
+                _log(f"  → 바이너리 업로드 및 실행 권한 설정 완료: {install_path}")
             else:
-                _log("[2/4] binary_url 미제공 — 바이너리 다운로드 건너뜀")
+                _log("[2/4] 번들 바이너리 없음 — 업로드 건너뜀 (jmx_exporter 등)")
 
             _log("[3/4] PID 파일 디렉터리 생성 중...")
-            if agent.pid_file:
-                pid_dir = agent.pid_file.rsplit("/", 1)[0]
+            if pid_file:
+                pid_dir = pid_file.rsplit("/", 1)[0]
                 await asyncio.to_thread(
                     ssh_exec,
                     session["host"], session["port"], session["username"], session["password"],
@@ -534,7 +844,7 @@ async def _run_install(
                 )
 
             # synapse_agent 타입: config.toml 자동생성 및 SFTP 업로드
-            if agent.agent_type == "synapse_agent" and agent.config_path:
+            if agent.agent_type == "synapse_agent" and config_path:
                 _log("[3.5/4] synapse_agent config.toml 생성 중...")
                 label_info = {}
                 if agent.label_info:
@@ -546,7 +856,34 @@ async def _run_install(
                 display_name = label_info.get("display_name", system_name)
                 instance_role = label_info.get("instance_role", "default")
                 prometheus_url = os.environ.get("PROMETHEUS_URL", "http://prometheus:9090")
-                wal_dir = os.path.dirname(agent.config_path) + "/wal"
+                wal_dir = os.path.dirname(config_path) + "/wal"
+
+                # WAL 디렉터리 생성
+                await asyncio.to_thread(
+                    ssh_exec,
+                    session["host"], session["port"], session["username"], session["password"],
+                    f"mkdir -p {wal_dir}",
+                )
+
+                # 수집기 설정: label_info.collectors 우선, 없으면 기본값
+                default_collectors: dict = {
+                    "cpu": True,
+                    "memory": True,
+                    "disk": True,
+                    "network": True,
+                    "process": True,
+                    "tcp_connections": True,
+                    "log_monitor": True,
+                    "web_servers": False,
+                    "preprocessor": False,
+                    "heartbeat": True,
+                }
+                for k, v in label_info.get("collectors", {}).items():
+                    if k in default_collectors:
+                        default_collectors[k] = bool(v)
+                collectors_toml = "\n".join(
+                    f"{k} = {'true' if v else 'false'}" for k, v in default_collectors.items()
+                )
 
                 # 다중 log_monitor 지원: label_info.log_monitors 배열 우선, 없으면 기본값
                 log_monitors = label_info.get("log_monitors", [])
@@ -561,52 +898,56 @@ async def _run_install(
                 for lm in log_monitors:
                     paths_str = ", ".join(f'"{p}"' for p in lm.get("paths", []))
                     kw_str = ", ".join(f'"{k}"' for k in lm.get("keywords", ["ERROR", "CRITICAL", "PANIC", "Fatal", "Exception"]))
-                    log_monitor_toml += f"""
-[[log_monitor]]
-paths = [{paths_str}]
-keywords = [{kw_str}]
-log_type = "{lm.get('log_type', 'app')}"
-"""
+                    log_monitor_toml += (
+                        f"\n[[log_monitor]]\n"
+                        f"paths = [{paths_str}]\n"
+                        f"keywords = [{kw_str}]\n"
+                        f'log_type = "{lm.get("log_type", "app")}"\n'
+                    )
 
-                config_content = textwrap.dedent(f"""
-                    [agent]
-                    system_name = "{system_name}"
-                    display_name = "{display_name}"
-                    instance_role = "{instance_role}"
-                    host = "{agent.host}"
-                    collect_interval_secs = 15
-                    top_process_count = 20
-
-                    [remote_write]
-                    endpoint = "{prometheus_url}/api/v1/write"
-                    batch_size = 500
-                    timeout_secs = 10
-                    wal_dir = "{wal_dir}"
-                    wal_retention_hours = 2
-
-                    [collectors]
-                    cpu = true
-                    memory = true
-                    disk = true
-                    network = true
-                    process = true
-                    tcp_connections = true
-                    log_monitor = true
-                    web_servers = false
-                    preprocessor = false
-                    heartbeat = true
-                """).strip() + log_monitor_toml
+                config_content = (
+                    f'[agent]\n'
+                    f'system_name = "{system_name}"\n'
+                    f'display_name = "{display_name}"\n'
+                    f'instance_role = "{instance_role}"\n'
+                    f'host = "{agent.host}"\n'
+                    f'collect_interval_secs = 15\n'
+                    f'top_process_count = 20\n'
+                    f'\n'
+                    f'[remote_write]\n'
+                    f'endpoint = "{prometheus_url}/api/v1/write"\n'
+                    f'batch_size = 500\n'
+                    f'timeout_secs = 10\n'
+                    f'wal_dir = "{wal_dir}"\n'
+                    f'wal_retention_hours = 2\n'
+                    f'\n'
+                    f'[collectors]\n'
+                    f'{collectors_toml}\n'
+                ) + log_monitor_toml
                 await asyncio.to_thread(
                     ssh_put_file,
                     session["host"], session["port"], session["username"], session["password"],
-                    agent.config_path, config_content,
+                    config_path, config_content,
                 )
-                _log(f"  → config.toml 업로드 완료: {agent.config_path}")
+                _log(f"  → config.toml 업로드 완료: {config_path}")
 
             _log("[4/4] 설치 완료.")
             await db.execute(
                 update(AgentInstance).where(AgentInstance.id == agent.id).values(status="installed")
             )
+
+            # synapse_agent 설치 완료 시 system_collector_config 자동 upsert
+            if agent.agent_type == "synapse_agent":
+                for group in ["cpu", "memory", "disk", "network", "log", "web"]:
+                    await db.execute(
+                        pg_insert(SystemCollectorConfig)
+                        .values(system_id=agent.system_id, collector_type="synapse_agent", metric_group=group, enabled=True)
+                        .on_conflict_do_update(
+                            index_elements=["system_id", "collector_type", "metric_group"],
+                            set_={"enabled": True, "updated_at": datetime.utcnow()},
+                        )
+                    )
+
             await db.execute(
                 update(AgentInstallJob)
                 .where(AgentInstallJob.job_id == job_id)
@@ -639,6 +980,16 @@ log_type = "{lm.get('log_type', 'app')}"
 
 # ── Live Status (Prometheus heartbeat 기반) ───────────────────────────────────
 
+def _calc_live_status(age_secs: float) -> str:
+    """경과 시간(초) → live_status 문자열. 10분(600s) 기준."""
+    if age_secs < 60:
+        return "collecting"
+    elif age_secs < 600:
+        return "delayed"
+    else:
+        return "stale"
+
+
 @router.get("/agents/{agent_id}/live-status")
 async def get_agent_live_status(
     agent_id: int,
@@ -646,82 +997,115 @@ async def get_agent_live_status(
     current_user=Depends(get_current_user),
 ):
     """
-    synapse_agent 전용: Prometheus에서 agent_up/agent_heartbeat 메트릭을 조회하여
-    에이전트의 실제 수집 상태를 반환한다.
+    synapse_agent / oracle_db: Prometheus에서 메트릭 수신 여부를 조회하여
+    최근 10분 내 데이터가 있으면 live=True를 반환한다.
     다른 타입은 DB status를 그대로 반환한다.
     """
     import httpx
     import time
+    from datetime import timezone
 
     result = await db.execute(select(AgentInstance).where(AgentInstance.id == agent_id))
     agent = result.scalar_one_or_none()
     if not agent:
         raise HTTPException(404, "에이전트를 찾을 수 없습니다.")
 
-    if agent.agent_type != "synapse_agent":
-        return {"agent_id": agent_id, "type": agent.agent_type, "status": agent.status, "live": False}
+    prometheus_url = os.environ.get("PROMETHEUS_URL", "http://prometheus:9090")
 
-    label_info = {}
-    if agent.label_info:
+    # ── synapse_agent ─────────────────────────────────────────────────────────
+    if agent.agent_type == "synapse_agent":
+        label_info = {}
+        if agent.label_info:
+            try:
+                label_info = json.loads(agent.label_info)
+            except Exception:
+                pass
+        system_name = label_info.get("system_name", "")
+        host = agent.host
+
+        query = f'agent_up{{system_name="{system_name}",host="{host}"}}'
+        results = []
         try:
-            label_info = json.loads(agent.label_info)
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                resp = await client.get(
+                    f"{prometheus_url}/api/v1/query",
+                    params={"query": query},
+                )
+            results = resp.json().get("data", {}).get("result", [])
         except Exception:
             pass
-    system_name = label_info.get("system_name", "")
-    host = agent.host
 
-    prometheus_url = os.environ.get("PROMETHEUS_URL", "http://prometheus:9090")
-    query = f'agent_up{{system_name="{system_name}",host="{host}"}}'
-
-    results = []
-    try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.get(
-                f"{prometheus_url}/api/v1/query",
-                params={"query": query},
-            )
-        data = resp.json()
-        results = data.get("data", {}).get("result", [])
-    except Exception:
-        pass
-
-    if results:
-        from datetime import timezone
-        ts = float(results[0]["value"][0])
-        last_seen = datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
-        age_secs = time.time() - ts
-        if age_secs < 30:
-            live_status = "collecting"
-        elif age_secs < 90:
-            live_status = "delayed"
+        if results:
+            ts = float(results[0]["value"][0])
+            last_seen = datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
+            age_secs = time.time() - ts
+            live_status = _calc_live_status(age_secs)
         else:
-            live_status = "stale"
-    else:
-        last_seen = None
-        live_status = "no_data"
+            last_seen = None
+            live_status = "no_data"
 
-    collectors_active = []
-    try:
-        collectors_query = f'agent_heartbeat{{system_name="{system_name}",host="{host}"}}'
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.get(
-                f"{prometheus_url}/api/v1/query",
-                params={"query": collectors_query},
-            )
-        cdata = resp.json()
-        for r in cdata.get("data", {}).get("result", []):
-            collector = r.get("metric", {}).get("collector", "")
-            if collector:
-                collectors_active.append(collector)
-    except Exception:
-        pass
+        collectors_active = []
+        try:
+            hb_query = f'agent_heartbeat{{system_name="{system_name}",host="{host}"}}'
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                resp = await client.get(
+                    f"{prometheus_url}/api/v1/query",
+                    params={"query": hb_query},
+                )
+            for r in resp.json().get("data", {}).get("result", []):
+                collector = r.get("metric", {}).get("collector", "")
+                if collector:
+                    collectors_active.append(collector)
+        except Exception:
+            pass
 
-    return {
-        "agent_id": agent_id,
-        "type": "synapse_agent",
-        "status": agent.status,
-        "live": live_status in ("collecting", "delayed"),
-        "live_status": live_status,
-        "last_seen": last_seen,
-        "collectors_active": collectors_active,
-    }
+        return {
+            "agent_id": agent_id,
+            "type": "synapse_agent",
+            "status": agent.status,
+            "live": live_status in ("collecting", "delayed"),
+            "live_status": live_status,
+            "last_seen": last_seen,
+            "collectors_active": collectors_active,
+        }
+
+    # ── oracle_db ─────────────────────────────────────────────────────────────
+    if agent.agent_type == "oracle_db":
+        # system_name은 Systems 테이블에서 조회
+        sys_result = await db.execute(select(System).where(System.id == agent.system_id))
+        system = sys_result.scalar_one_or_none()
+        system_name = system.system_name if system else ""
+
+        query = f'db_connections_active{{system_name="{system_name}"}}'
+        results = []
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                resp = await client.get(
+                    f"{prometheus_url}/api/v1/query",
+                    params={"query": query},
+                )
+            results = resp.json().get("data", {}).get("result", [])
+        except Exception:
+            pass
+
+        if results:
+            ts = float(results[0]["value"][0])
+            last_seen = datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
+            age_secs = time.time() - ts
+            live_status = _calc_live_status(age_secs)
+        else:
+            last_seen = None
+            live_status = "no_data"
+
+        return {
+            "agent_id": agent_id,
+            "type": "oracle_db",
+            "status": agent.status,
+            "live": live_status in ("collecting", "delayed"),
+            "live_status": live_status,
+            "last_seen": last_seen,
+            "collectors_active": [],
+        }
+
+    # ── 기타 타입 (SSH 기반 제어 에이전트) ────────────────────────────────────
+    return {"agent_id": agent_id, "type": agent.agent_type, "status": agent.status, "live": False}

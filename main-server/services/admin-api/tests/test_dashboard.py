@@ -19,9 +19,6 @@ async def sample_system(db_session: AsyncSession):
     system = System(
         system_name="test_system",
         display_name="Test System",
-        host="10.0.1.5",
-        os_type="linux",
-        system_type="web",
         status="active",
     )
     db_session.add(system)
@@ -262,9 +259,6 @@ async def test_get_dashboard_health_with_systems(
     system2 = System(
         system_name="test_system_2",
         display_name="Test System 2",
-        host="10.0.1.6",
-        os_type="linux",
-        system_type="db",
         status="active",
     )
     db_session.add(system2)

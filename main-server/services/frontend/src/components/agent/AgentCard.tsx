@@ -3,14 +3,15 @@ import { Terminal, Settings, ChevronRight } from 'lucide-react'
 import { NeuCard } from '@/components/neumorphic/NeuCard'
 import { AgentStatusBadge } from './AgentStatusBadge'
 import { ROUTES } from '@/constants/routes'
-import { useAgentStatus } from '@/hooks/queries/useAgents'
-import { useSSHSessionStore } from '@/store/sshSessionStore'
-import type { AgentInstance, AgentType } from '@/types/agent'
+import { useLiveStatus } from '@/hooks/queries/useAgents'
+import type { AgentInstance, AgentStatus, AgentType } from '@/types/agent'
 
 const AGENT_TYPE_LABEL: Record<AgentType, string> = {
   alloy: 'Alloy',
   node_exporter: 'Node Exporter',
   jmx_exporter: 'JMX Exporter',
+  synapse_agent: 'synapse_agent',
+  oracle_db: 'Oracle DB',
 }
 
 interface AgentCardProps {
@@ -19,18 +20,26 @@ interface AgentCardProps {
 
 export function AgentCard({ agent }: AgentCardProps) {
   const navigate = useNavigate()
-  const sessionActive = useSSHSessionStore((s) => s.isValid())
 
-  // SSH 세션이 있을 때만 실시간 상태 조회 (30초 폴링)
-  const { data: statusData } = useAgentStatus(agent.id, sessionActive)
-  const status = statusData?.status ?? agent.status
+  // Prometheus 기반 라이브 상태 (synapse_agent / oracle_db, SSH 불필요)
+  const { data: liveStatus, isLoading: liveLoading } = useLiveStatus(
+    agent.id,
+    agent.agent_type,
+  )
+
+  const supportsLive = agent.agent_type === 'synapse_agent' || agent.agent_type === 'oracle_db'
+  const displayStatus: AgentStatus = liveStatus
+    ? liveStatus.live
+      ? 'running'
+      : 'stopped'
+    : agent.status
 
   return (
     <NeuCard
       onClick={() => navigate(ROUTES.agentDetail(agent.id))}
       className="flex items-center justify-between gap-4 p-4"
     >
-      <div className="flex items-center gap-3 min-w-0">
+      <div className="flex min-w-0 items-center gap-3">
         <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-sm bg-[rgba(0,212,255,0.08)]">
           {agent.agent_type === 'alloy' ? (
             <Terminal className="h-4 w-4 text-[#00D4FF]" />
@@ -43,13 +52,26 @@ export function AgentCard({ agent }: AgentCardProps) {
             <span className="text-sm font-semibold text-[#E2E8F2]">
               {AGENT_TYPE_LABEL[agent.agent_type]}
             </span>
-            <AgentStatusBadge status={status} />
-            {sessionActive && !statusData && (
+            <AgentStatusBadge status={displayStatus} />
+            {supportsLive && liveLoading && (
               <span className="text-[10px] text-[#8B97AD]">조회 중...</span>
             )}
           </div>
           <p className="truncate text-xs text-[#8B97AD]">
-            {agent.host} · {agent.ssh_username} · {agent.install_path}
+            {(() => {
+              const labelInfo = (() => {
+                try {
+                  return JSON.parse(agent.label_info ?? '{}')
+                } catch {
+                  return {}
+                }
+              })()
+              const instanceRole = labelInfo.instance_role as string | undefined
+              const parts = [agent.host, agent.os_type, agent.server_type, instanceRole].filter(
+                Boolean,
+              )
+              return parts.join(' · ')
+            })()}
           </p>
         </div>
       </div>

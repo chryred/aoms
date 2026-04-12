@@ -280,7 +280,7 @@ log_type = "app"
 `systems.teams_webhook_url` (시스템별) → `TEAMS_WEBHOOK_URL` 환경변수 (전역). 시스템별 알림 채널 분리 가능.
 
 ### 로그 수집 에이전트 — synapse_agent (Rust)
-Phase 6에서 Grafana Alloy + node_exporter + Loki를 **synapse_agent 단일 바이너리**로 대체.
+Phase 6에서 도입된 **synapse_agent 단일 바이너리** 수집기.
 로그는 Loki로 push하지 않고 `log_error_total` Prometheus 메트릭으로 Remote Write한다.
 
 - **설치**: admin-api `/api/v1/agents/install` → config.toml SFTP 업로드 → nohup 실행
@@ -366,7 +366,7 @@ make test-api   # 단위 테스트 (인프라 불필요 — SQLite in-memory)
 |---|---|---|
 | Phase 1 | 완료 | 인프라 (Prometheus, Grafana, Alertmanager, Postgres) — Loki 제거 |
 | Phase 2 | 완료 | admin-api, Teams 알림 |
-| Phase 3 | 완료 | 에이전트 배포 (node_exporter, Grafana Alloy, jmx_exporter) — 레거시 |
+| Phase 3 | 완료 | 에이전트 배포 (synapse_agent로 대체됨) |
 | Phase 4 | 완료 | log-analyzer, LLM 분석 |
 | Server B | 완료 | Ollama + Qdrant 배포 |
 | Phase 4b | 완료 | 벡터 유사도 분석 (log_incidents 컬렉션) |
@@ -374,9 +374,11 @@ make test-api   # 단위 테스트 (인프라 불필요 — SQLite in-memory)
 | Phase 5 | 완료 | 계층적 메트릭 집계 (시간/일/주/월) + 장애 예방 시스템 (수집기 유연 레지스트리, 집계 벡터 검색, 프로액티브 알림) |
 | Frontend UI | 완료 | React + 뉴모피즘 프론트엔드 (20개 화면) — 분석 탭, 피드백 관리, 벡터 컬렉션 상태 포함 |
 | Phase 4d | 계획 | Agentic LLM 2-tier (ReAct 루프) |
-| Phase 6 (aoms_agent) | 완료 | Rust 단일 바이너리 수집기 (CPU/메모리/디스크/네트워크/프로세스/로그/웹서버 access log), Prometheus Remote Write, WAL 2h 버퍼 |
-| Phase 6 (admin-api) | 완료 | aoms_agent install 자동화 (config.toml SFTP 업로드), live-status API (Prometheus 쿼리), prometheus_analyzer.py 자동 분석 루프. collector_config._TEMPLATES에 synapse_agent 추가 |
+| Phase 6 (synapse_agent) | 완료 | Rust 단일 바이너리 수집기 (CPU/메모리/디스크/네트워크/프로세스/로그/웹서버 access log), Prometheus Remote Write, WAL 2h 버퍼 |
+| Phase 6 (admin-api) | 완료 | synapse_agent install 자동화 (config.toml SFTP 업로드), live-status API (Prometheus 쿼리), prometheus_analyzer.py 자동 분석 루프. collector_config._TEMPLATES에 synapse_agent 추가 |
 | Phase 6 (frontend) | 완료 | AgentDetailPage live-status 카드 — 수집기별 활성 뱃지, last_seen 표시 |
 | Phase 6 (log-analyzer) | 완료 | aggregation_processor.PROMQL_MAP에 synapse_agent 추가 (cpu/memory/disk/network/log/web). _detect_anomaly synapse_agent 조건 추가. analyze_with_llm() dead code 제거 |
 | Phase 7 | 완료 | `instance_role` HA 의미 재정립, `[[log_monitor]]` 다중 log_type 지원, log-analyzer Loki→Prometheus 마이그레이션, Loki 컨테이너 완전 제거 |
 | Phase 8 (dashboard) | 완료 | 통합 운영 대시보드 — 하이브리드 레이아웃(통계+카드), 시스템 상태 종합 판정(메트릭+로그분석+예방패턴), WebSocket 실시간 알림 스트리밍, 예방적 패턴 감지 연동, 단위 테스트 13개 |
+| Phase 9 (Oracle DB 모니터링) | 완료 | oracle_db AgentInstance 타입 추가 — Fernet 암호화, oracledb Thin Mode 수집, /metrics Prometheus scrape 엔드포인트, synapse_agent 설치 후 collector_config 자동 등록 |
+| Phase 9 (UI 정리) | 완료 | 수집기 마법사 UI 제거 (CollectorWizardPage, CollectorConfigListPage, collector/ 컴포넌트), Sidebar "수집기 설정" 메뉴 제거, node_exporter/jmx_exporter PROMQL_MAP 및 _TEMPLATES에서 제거 |

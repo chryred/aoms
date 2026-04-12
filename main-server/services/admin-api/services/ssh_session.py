@@ -115,6 +115,18 @@ def ssh_put_file(host: str, port: int, username: str, password: str, remote_path
         client.close()
 
 
+def ssh_put_binary(host: str, port: int, username: str, password: str, remote_path: str, content: bytes) -> None:
+    """바이너리 내용을 원격 경로에 SFTP로 업로드한다. 동기 함수 — asyncio.to_thread로 호출."""
+    import io
+    client = _ssh_connect(host, port, username, password)
+    try:
+        sftp = client.open_sftp()
+        sftp.putfo(io.BytesIO(content), remote_path)
+        sftp.close()
+    finally:
+        client.close()
+
+
 def ssh_get_file(host: str, port: int, username: str, password: str, remote_path: str) -> str:
     """원격 파일 내용을 읽어 반환한다. 동기 함수 — asyncio.to_thread로 호출."""
     import io

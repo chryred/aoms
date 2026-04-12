@@ -22,8 +22,9 @@ import { NeuTextarea } from '@/components/neumorphic/NeuTextarea'
 import { AgentStatusBadge } from '@/components/agent/AgentStatusBadge'
 import { SSHSessionModal } from '@/components/agent/SSHSessionModal'
 import { InstallJobMonitor } from '@/components/agent/InstallJobMonitor'
+import { HTTPError } from 'ky'
 import { agentsApi } from '@/api/agents'
-import type { AgentLiveStatus } from '@/types/agent'
+import type { AgentLiveStatus, AgentStatus } from '@/types/agent'
 import { useSSHSessionStore } from '@/store/sshSessionStore'
 import { qk } from '@/constants/queryKeys'
 import { ROUTES } from '@/constants/routes'
@@ -35,10 +36,7 @@ const AGENT_TYPE_LABEL: Record<string, string> = {
   synapse_agent: 'Synapse Agent',
 }
 
-const LIVE_STATUS_CONFIG: Record<
-  AgentLiveStatus,
-  { label: string; color: string; dot: string }
-> = {
+const LIVE_STATUS_CONFIG: Record<AgentLiveStatus, { label: string; color: string; dot: string }> = {
   collecting: { label: '수집 중', color: 'text-[#22C55E]', dot: 'bg-[#22C55E]' },
   delayed: { label: '데이터 지연', color: 'text-[#F59E0B]', dot: 'bg-[#F59E0B]' },
   stale: { label: '수집 중단', color: 'text-[#EF4444]', dot: 'bg-[#EF4444]' },
@@ -64,7 +62,7 @@ export function AgentDetailPage() {
   const navigate = useNavigate()
   const qc = useQueryClient()
 
-  const { token, isValid } = useSSHSessionStore()
+  const { token, isValid, clearSession, refreshExpiry } = useSSHSessionStore()
   const sessionActive = isValid()
 
   const [showSSHModal, setShowSSHModal] = useState(false)
@@ -87,12 +85,15 @@ export function AgentDetailPage() {
     staleTime: 30_000,
   })
 
+  const supportsLive =
+    agent?.agent_type === 'synapse_agent' || agent?.agent_type === 'oracle_db'
+
   const { data: liveStatus } = useQuery({
     queryKey: qk.agentLiveStatus(agentId),
     queryFn: () => agentsApi.getLiveStatus(agentId),
-    enabled: agent?.agent_type === 'synapse_agent',
-    refetchInterval: 30_000,
-    staleTime: 25_000,
+    enabled: supportsLive,
+    refetchInterval: 60_000,
+    staleTime: 55_000,
   })
 
   function showMsg(type: 'success' | 'error', text: string) {
@@ -100,29 +101,51 @@ export function AgentDetailPage() {
     setTimeout(() => setMessage(null), 4000)
   }
 
+  function handleSSHExpired() {
+    clearSession()
+    setShowSSHModal(true)
+    showMsg('error', 'SSH 세션이 만료되었습니다. 재등록해 주세요.')
+  }
+
   async function runAction(action: string, fn: () => Promise<unknown>) {
-    if (!token) { setShowSSHModal(true); return }
+    if (!token) {
+      setShowSSHModal(true)
+      return
+    }
     setActionLoading(action)
     try {
       await fn()
+      refreshExpiry()
       showMsg('success', `${action} 완료`)
       await refetch()
-    } catch {
-      showMsg('error', `${action} 실패`)
+    } catch (err) {
+      if (err instanceof HTTPError && err.response.status === 401) {
+        handleSSHExpired()
+      } else {
+        showMsg('error', `${action} 실패`)
+      }
     } finally {
       setActionLoading(null)
     }
   }
 
   async function handleLoadConfig() {
-    if (!token) { setShowSSHModal(true); return }
+    if (!token) {
+      setShowSSHModal(true)
+      return
+    }
     setConfigLoading(true)
     try {
       const res = await agentsApi.getConfig(agentId, token)
+      refreshExpiry()
       setConfigContent(res.content)
       setConfigDirty(false)
-    } catch {
-      showMsg('error', '설정 파일 불러오기 실패')
+    } catch (err) {
+      if (err instanceof HTTPError && err.response.status === 401) {
+        handleSSHExpired()
+      } else {
+        showMsg('error', '설정 파일 불러오기 실패')
+      }
     } finally {
       setConfigLoading(false)
     }
@@ -135,12 +158,20 @@ export function AgentDetailPage() {
   }
 
   async function handleInstall() {
-    if (!token) { setShowSSHModal(true); return }
+    if (!token) {
+      setShowSSHModal(true)
+      return
+    }
     try {
       const job = await agentsApi.installAgent({ agent_id: agentId }, token)
+      refreshExpiry()
       setInstallJobId(job.job_id)
-    } catch {
-      showMsg('error', '설치 Job 생성 실패')
+    } catch (err) {
+      if (err instanceof HTTPError && err.response.status === 401) {
+        handleSSHExpired()
+      } else {
+        showMsg('error', '설치 Job 생성 실패')
+      }
     }
   }
 
@@ -167,7 +198,18 @@ export function AgentDetailPage() {
     <div>
       <PageHeader
         title={`${AGENT_TYPE_LABEL[agent.agent_type] ?? agent.agent_type}`}
-        description={`${agent.host} · ${agent.ssh_username}`}
+        description={(() => {
+          const info = (() => {
+            try {
+              return JSON.parse(agent.label_info ?? '{}')
+            } catch {
+              return {}
+            }
+          })()
+          return [agent.host, agent.os_type, agent.server_type, info.instance_role]
+            .filter(Boolean)
+            .join(' · ')
+        })()}
         action={
           <div className="flex items-center gap-2">
             <NeuButton variant="ghost" size="sm" onClick={() => navigate(ROUTES.AGENTS)}>
@@ -202,15 +244,40 @@ export function AgentDetailPage() {
         <NeuCard>
           <div className="mb-4 flex items-center justify-between">
             <h2 className="text-sm font-semibold text-[#E2E8F2]">상태 및 제어</h2>
-            <AgentStatusBadge status={agent.status} />
+            {(() => {
+              const headerStatus: AgentStatus = liveStatus
+                ? liveStatus.live
+                  ? 'running'
+                  : 'stopped'
+                : agent.status
+              return <AgentStatusBadge status={headerStatus} />
+            })()}
           </div>
 
           <dl className="mb-6 space-y-2 text-sm">
             <InfoRow label="호스트" value={agent.host} />
-            <InfoRow label="계정" value={agent.ssh_username} />
-            <InfoRow label="설치 경로" value={agent.install_path} />
+            <InfoRow label="OS" value={agent.os_type ?? '-'} />
+            <InfoRow label="서버 역할" value={agent.server_type ?? '-'} />
+            {(() => {
+              const info = (() => {
+                try {
+                  return JSON.parse(agent.label_info ?? '{}')
+                } catch {
+                  return {}
+                }
+              })()
+              return info.instance_role ? (
+                <InfoRow label="instance_role" value={info.instance_role} />
+              ) : null
+            })()}
             <InfoRow label="포트" value={agent.port ? String(agent.port) : '-'} />
-            <InfoRow label="PID 파일" value={agent.pid_file ?? '-'} />
+            {agent.agent_type !== 'oracle_db' && (
+              <>
+                <InfoRow label="SSH 계정" value={agent.ssh_username ?? '-'} />
+                <InfoRow label="설치 경로" value={agent.install_path ?? '-'} />
+                <InfoRow label="PID 파일" value={agent.pid_file ?? '-'} />
+              </>
+            )}
           </dl>
 
           {/* 제어 버튼 */}
@@ -275,11 +342,7 @@ export function AgentDetailPage() {
           {/* 삭제 */}
           <div className="mt-4 border-t border-[#2B2F37] pt-4">
             {!showDeleteConfirm ? (
-              <NeuButton
-                size="sm"
-                variant="danger"
-                onClick={() => setShowDeleteConfirm(true)}
-              >
+              <NeuButton size="sm" variant="danger" onClick={() => setShowDeleteConfirm(true)}>
                 <Trash2 className="h-3.5 w-3.5" />
                 에이전트 삭제
               </NeuButton>
@@ -308,8 +371,10 @@ export function AgentDetailPage() {
             </div>
 
             {configContent === null ? (
-              <div className="flex flex-col items-center justify-center py-12 gap-3">
-                <p className="text-sm text-[#8B97AD]">설정 파일을 불러오려면 아래 버튼을 누르세요.</p>
+              <div className="flex flex-col items-center justify-center gap-3 py-12">
+                <p className="text-sm text-[#8B97AD]">
+                  설정 파일을 불러오려면 아래 버튼을 누르세요.
+                </p>
                 <NeuButton
                   size="sm"
                   variant="glass"
@@ -331,7 +396,7 @@ export function AgentDetailPage() {
                   rows={20}
                   className="font-mono text-xs"
                 />
-                <div className="flex justify-between items-center">
+                <div className="flex items-center justify-between">
                   <NeuButton
                     size="sm"
                     variant="ghost"
@@ -361,14 +426,16 @@ export function AgentDetailPage() {
         )}
       </div>
 
-      {/* Synapse Agent 라이브 상태 */}
-      {agent.agent_type === 'synapse_agent' && (
+      {/* 수집 상태 (Prometheus 기반 — synapse_agent / oracle_db) */}
+      {supportsLive && (
         <NeuCard className="mt-6">
           <div className="mb-4 flex items-center gap-2">
             <Activity className="h-4 w-4 text-[#00D4FF]" />
-            <h2 className="text-sm font-semibold text-[#E2E8F2]">수집 상태 (Prometheus)</h2>
+            <h2 className="text-sm font-semibold text-[#E2E8F2]">
+              수집 상태 (Prometheus · 최근 10분)
+            </h2>
             {liveStatus?.live_status && (
-              <span className="flex items-center gap-1.5 ml-auto">
+              <span className="ml-auto flex items-center gap-1.5">
                 <span
                   className={`h-2 w-2 rounded-full ${LIVE_STATUS_CONFIG[liveStatus.live_status].dot}`}
                 />
@@ -419,7 +486,7 @@ export function AgentDetailPage() {
       {showSSHModal && (
         <SSHSessionModal
           defaultHost={agent.host}
-          defaultUsername={agent.ssh_username}
+          defaultUsername={agent.ssh_username ?? ''}
           onSuccess={() => setShowSSHModal(false)}
           onClose={() => setShowSSHModal(false)}
         />

@@ -11,9 +11,6 @@ from httpx import AsyncClient
 SYSTEM_PAYLOAD = {
     "system_name": "agg-test-server",
     "display_name": "Aggregation Test Server",
-    "host": "10.0.0.2",
-    "os_type": "linux",
-    "system_type": "was",
 }
 
 

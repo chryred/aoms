@@ -2,7 +2,7 @@
 
 ## 목적
 
-node_exporter + Grafana Alloy를 **단일 Rust 바이너리**로 완전 대체하는 초경량 수집 에이전트.
+**단일 Rust 바이너리** 초경량 수집 에이전트.
 타겟 서버(RHEL 8.9, glibc 2.28)에서 동작하는 `x86_64-unknown-linux-musl` static binary.
 
 **설계 원칙**:
@@ -353,11 +353,11 @@ command:
 
 ### admin-api 연동
 - `GET /api/v1/agents/{id}/live-status` — `agent_up{system_name, host}` 쿼리 → `AgentLiveStatusOut` 반환
-- `POST /api/v1/agents/install` (aoms_agent 타입) — `config.toml` 자동 생성 후 SFTP 업로드
+- `POST /api/v1/agents/install` (synapse_agent 타입) — `config.toml` 자동 생성 후 SFTP 업로드
 - `PROMETHEUS_URL` 환경변수 설정 시 `prometheus_analyzer.py`가 CPU/HTTP/로그 이상 자동 감지
 
 ### frontend 연동
-- `AgentDetailPage.tsx` — `aoms_agent` 타입 선택 시 "수집 상태 (Prometheus)" 카드 표시
+- `AgentDetailPage.tsx` — `synapse_agent` 타입 선택 시 "수집 상태 (Prometheus)" 카드 표시
   - `agent_up` last_seen 기준 live_status: `collecting`(<30s) / `delayed`(<90s) / `stale` / `no_data`
   - `agent_heartbeat{collector=...}` 기준 활성 수집기 뱃지
 

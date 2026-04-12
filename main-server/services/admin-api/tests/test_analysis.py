@@ -7,9 +7,6 @@ from httpx import AsyncClient
 SYSTEM_PAYLOAD = {
     "system_name": "was-server",
     "display_name": "WAS 서버",
-    "host": "192.168.1.10",
-    "os_type": "linux",
-    "system_type": "was",
 }
 
 ANALYSIS_PAYLOAD = {

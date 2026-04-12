@@ -5,9 +5,6 @@ from httpx import AsyncClient
 SYSTEM_PAYLOAD = {
     "system_name": "was-server",
     "display_name": "WAS 서버",
-    "host": "192.168.1.10",
-    "os_type": "linux",
-    "system_type": "was",
 }
 
 
@@ -24,22 +21,7 @@ async def test_create_system(client: AsyncClient):
 
     assert data["system_name"] == "was-server"
     assert data["display_name"] == "WAS 서버"
-    assert data["os_type"] == "linux"
     assert data["id"] is not None
-
-
-async def test_create_system_invalid_os_type(client: AsyncClient):
-    """os_type 유효성 검사 — linux/windows 외 값은 422"""
-    payload = {**SYSTEM_PAYLOAD, "os_type": "macos"}
-    resp = await client.post("/api/v1/systems", json=payload)
-    assert resp.status_code == 422
-
-
-async def test_create_system_invalid_system_type(client: AsyncClient):
-    """system_type 유효성 검사"""
-    payload = {**SYSTEM_PAYLOAD, "system_type": "unknown"}
-    resp = await client.post("/api/v1/systems", json=payload)
-    assert resp.status_code == 422
 
 
 # ── 조회 ─────────────────────────────────────────────────────────────────────

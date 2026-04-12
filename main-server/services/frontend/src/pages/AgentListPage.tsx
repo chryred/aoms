@@ -17,9 +17,9 @@ import type { AgentType } from '@/types/agent'
 
 const AGENT_TYPE_OPTIONS: Array<{ value: AgentType | 'all'; label: string }> = [
   { value: 'all', label: '전체' },
-  { value: 'alloy', label: 'Alloy' },
-  { value: 'node_exporter', label: 'Node Exporter' },
+  { value: 'synapse_agent', label: 'synapse_agent' },
   { value: 'jmx_exporter', label: 'JMX Exporter' },
+  { value: 'oracle_db', label: 'Oracle DB' },
 ]
 
 export function AgentListPage() {
@@ -40,9 +40,7 @@ export function AgentListPage() {
       .map((system) => ({
         system,
         agents: agents.filter(
-          (a) =>
-            a.system_id === system.id &&
-            (filterType === 'all' || a.agent_type === filterType),
+          (a) => a.system_id === system.id && (filterType === 'all' || a.agent_type === filterType),
         ),
       }))
       .filter((g) => g.agents.length > 0)
@@ -68,7 +66,7 @@ export function AgentListPage() {
     <div>
       <PageHeader
         title="에이전트 관리"
-        description="수집기(Alloy, Node Exporter, JMX Exporter) 설치·제어"
+        description="synapse_agent / JMX Exporter 설치·제어"
         action={
           <div className="flex items-center gap-2">
             {sessionActive ? (
@@ -103,7 +101,12 @@ export function AgentListPage() {
           <p className="text-sm text-[#F59E0B]">
             에이전트 제어(실행·중지·설정 변경)는 SSH 세션 등록 후 사용 가능합니다.
           </p>
-          <NeuButton size="sm" variant="ghost" onClick={() => setShowSSHModal(true)} className="ml-auto shrink-0">
+          <NeuButton
+            size="sm"
+            variant="ghost"
+            onClick={() => setShowSSHModal(true)}
+            className="ml-auto shrink-0"
+          >
             등록하기
           </NeuButton>
         </div>
@@ -153,7 +156,6 @@ export function AgentListPage() {
             <section key={system.id}>
               <div className="mb-3 flex items-center gap-3">
                 <h2 className="text-base font-bold text-[#E2E8F2]">{system.display_name}</h2>
-                <span className="text-sm text-[#8B97AD]">{system.host}</span>
                 <span className="inline-flex items-center rounded-full bg-[rgba(0,212,255,0.10)] px-2 py-0.5 text-xs text-[#00D4FF]">
                   {systemAgents.length}개
                 </span>

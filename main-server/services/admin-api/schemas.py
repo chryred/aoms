@@ -8,9 +8,6 @@ class SystemCreate(BaseModel):
     system_name: str
     display_name: str
     description: Optional[str] = None
-    host: str
-    os_type: str = Field(pattern="^(linux|windows)$")
-    system_type: str = Field(pattern="^(web|was|db|middleware|other)$")
     status: str = "active"
     teams_webhook_url: Optional[str] = None
 
@@ -18,9 +15,6 @@ class SystemCreate(BaseModel):
 class SystemUpdate(BaseModel):
     display_name: Optional[str] = None
     description: Optional[str] = None
-    host: Optional[str] = None
-    os_type: Optional[str] = None
-    system_type: Optional[str] = None
     status: Optional[str] = None
     teams_webhook_url: Optional[str] = None
 
@@ -30,13 +24,18 @@ class SystemOut(BaseModel):
     system_name: str
     display_name: str
     description: Optional[str]
-    host: str
-    os_type: str
-    system_type: str
     status: str
     teams_webhook_url: Optional[str]
     created_at: datetime
     updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class SystemBrief(BaseModel):
+    id: int
+    system_name: str
+    display_name: str
 
     model_config = {"from_attributes": True}
 
@@ -69,6 +68,7 @@ class ContactOut(BaseModel):
     llm_api_key: Optional[str]
     agent_code: Optional[str]
     created_at: datetime
+    systems: list["SystemBrief"] = []
 
     model_config = {"from_attributes": True}
 
@@ -373,13 +373,16 @@ class SSHSessionOut(BaseModel):
 class AgentInstanceCreate(BaseModel):
     system_id: int
     host: str
-    ssh_username: str
-    agent_type: str = Field(pattern="^(alloy|node_exporter|jmx_exporter|synapse_agent)$")
-    install_path: str
-    config_path: str
+    ssh_username: Optional[str] = None   # oracle_db는 SSH 불필요
+    agent_type: str = Field(pattern="^(alloy|node_exporter|jmx_exporter|synapse_agent|oracle_db)$")
+    install_path: Optional[str] = None   # oracle_db는 바이너리 없음
+    config_path: Optional[str] = None    # oracle_db는 설정 파일 없음
     port: Optional[int] = None
     pid_file: Optional[str] = None
     label_info: Optional[str] = None   # JSON string
+    os_type: Optional[str] = None      # 'linux' | 'windows'
+    server_type: Optional[str] = None  # 'web' | 'was' | 'db' | 'middleware' | 'other'
+    status: Optional[str] = None       # oracle_db 등록 시 서버에서 'installed'로 설정
 
 
 class AgentInstanceUpdate(BaseModel):
@@ -390,19 +393,23 @@ class AgentInstanceUpdate(BaseModel):
     label_info: Optional[str] = None
     status: Optional[str] = None
     ssh_username: Optional[str] = None
+    os_type: Optional[str] = None
+    server_type: Optional[str] = None
 
 
 class AgentInstanceOut(BaseModel):
     id: int
     system_id: int
     host: str
-    ssh_username: str
+    ssh_username: Optional[str]   # oracle_db는 null
     agent_type: str
-    install_path: str
-    config_path: str
+    install_path: Optional[str]   # oracle_db는 null
+    config_path: Optional[str]    # oracle_db는 null
     port: Optional[int]
     pid_file: Optional[str]
     label_info: Optional[str]
+    os_type: Optional[str]
+    server_type: Optional[str]
     status: str
     created_at: datetime
     updated_at: datetime
@@ -412,7 +419,6 @@ class AgentInstanceOut(BaseModel):
 
 class AgentInstallRequest(BaseModel):
     agent_id: int
-    binary_url: Optional[str] = None   # 없으면 install_path에서 직접 실행 가정
 
 
 class AgentInstallJobOut(BaseModel):
