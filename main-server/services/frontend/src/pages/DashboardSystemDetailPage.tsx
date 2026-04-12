@@ -508,7 +508,7 @@ export function DashboardSystemDetailPage() {
                       </div>
 
                       {/* LLM 분석 결과 */}
-                      <div className="rounded-md border border-[#2A3447]/50 bg-[#2A3447]/30 p-3">
+                      <div className="rounded-sm border border-[#2A3447]/50 bg-[#2A3447]/30 p-3">
                         <p className="mb-2 flex items-center gap-1 text-xs font-semibold text-[#8B97AD]">
                           <span>💡</span>
                           분석 결과
@@ -588,7 +588,7 @@ export function DashboardSystemDetailPage() {
 
                     {/* 트렌드 */}
                     {alert.llm_trend && (
-                      <div className="rounded-md border border-[#2A3447]/50 bg-[#2A3447]/30 p-3">
+                      <div className="rounded-sm border border-[#2A3447]/50 bg-[#2A3447]/30 p-3">
                         <p className="mb-2 flex items-center gap-1 text-xs font-semibold text-[#8B97AD]">
                           <span>📈</span>
                           트렌드
@@ -600,7 +600,7 @@ export function DashboardSystemDetailPage() {
                     )}
 
                     {/* 예측 */}
-                    <div className="rounded-md border border-purple-500/25 bg-purple-500/5 p-3">
+                    <div className="rounded-sm border border-purple-500/25 bg-purple-500/5 p-3">
                       <p className="mb-2 flex items-center gap-1 text-xs font-semibold text-purple-400">
                         <span>⚡</span>
                         예측

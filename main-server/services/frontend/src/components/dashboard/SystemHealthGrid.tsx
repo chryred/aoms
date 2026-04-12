@@ -57,7 +57,7 @@ export const SystemHealthGrid = memo(function SystemHealthGrid({
               <button
                 key={status}
                 onClick={() => setFilterStatus(status)}
-                className={`min-h-[32px] rounded-md px-3 py-1.5 text-xs font-semibold transition-all duration-150 focus-visible:ring-2 focus-visible:ring-offset-1 focus-visible:outline-none ${
+                className={`min-h-[32px] rounded-sm px-3 py-1.5 text-xs font-semibold transition-all duration-150 focus-visible:ring-1 focus-visible:ring-offset-1 focus-visible:outline-none ${
                   filterStatus === status
                     ? status === 'all'
                       ? 'bg-[#A8B5C3] text-[#1A202C] shadow-md focus-visible:ring-[#A8B5C3]/50'
@@ -89,7 +89,7 @@ export const SystemHealthGrid = memo(function SystemHealthGrid({
               <button
                 key={sort}
                 onClick={() => setSortBy(sort)}
-                className={`min-h-[32px] rounded-md px-3 py-1.5 text-xs font-semibold transition-all duration-150 focus-visible:ring-2 focus-visible:ring-offset-1 focus-visible:outline-none ${
+                className={`min-h-[32px] rounded-sm px-3 py-1.5 text-xs font-semibold transition-all duration-150 focus-visible:ring-1 focus-visible:ring-offset-1 focus-visible:outline-none ${
                   sortBy === sort
                     ? 'bg-[#A8B5C3] text-[#1A202C] shadow-md focus-visible:ring-[#A8B5C3]/50'
                     : 'bg-[#2A3447]/30 text-[#8B97AD] hover:bg-[#2A3447]/50 hover:text-[#E2E8F2] hover:shadow-md focus-visible:ring-[#8B97AD]/50'

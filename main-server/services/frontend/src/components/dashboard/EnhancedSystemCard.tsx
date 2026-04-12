@@ -86,7 +86,7 @@ export const EnhancedSystemCard = memo(function EnhancedSystemCard({
           </div>
 
           {/* 사유: 한줄 코멘트 */}
-          <div className="rounded-md border border-[#2A3447]/50 bg-[#1F2937]/40 px-3 py-2.5">
+          <div className="rounded-sm border border-[#2A3447]/50 bg-[#1F2937]/40 px-3 py-2.5">
             <p className="line-clamp-3 text-xs leading-relaxed break-words text-[#A8B5C3]">
               {system.reason || '상태 정보 수집 중...'}
             </p>

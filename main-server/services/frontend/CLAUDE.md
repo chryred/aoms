@@ -195,6 +195,7 @@ const normalized = !utcDate.endsWith('Z') && !/[+-]\d{2}:?\d{2}$/.test(utcDate)
 3. 긴급도는 색상으로만 — semantic 색상(red/amber/green)은 장식에 사용 금지
 4. 여백은 설계된 것 — 밀도 향상을 위해 여백을 줄이지 않는다
 5. 브랜드는 절제 속에 — cyan accent(`#00D4FF`)는 핵심 인터랙션에만 집중
+6. 정보 밀도를 높여라 — Bloomberg 참조, 한 화면에 더 많은 데이터 표시. 가독성을 해치지 않는 범위에서 여백 최적화
 
 ### 개선 범위
 - **포함**: `index.css` 토큰, `/components/neumorphic/` 기본 컴포넌트, Sidebar/TopBar
