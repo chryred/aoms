@@ -20,7 +20,7 @@ export function SSHSessionModal({
   onClose,
 }: SSHSessionModalProps) {
   const [host, setHost] = useState(defaultHost)
-  const [port, setPort] = useState(22)
+  const [port, setPort] = useState<number | string>(22)
   const [username, setUsername] = useState(defaultUsername)
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -32,7 +32,7 @@ export function SSHSessionModal({
     setError(null)
     setLoading(true)
     try {
-      const res = await agentsApi.createSession({ host, port, username, password })
+      const res = await agentsApi.createSession({ host, port: Number(port), username, password })
       setSession(res.session_token, res.host, res.port, res.username, res.expires_in)
       onSuccess()
     } catch {
@@ -79,7 +79,7 @@ export function SSHSessionModal({
               <NeuInput
                 type="number"
                 value={port}
-                onChange={(e) => setPort(Number(e.target.value))}
+                onChange={(e) => setPort(e.target.value === '' ? '' : Number(e.target.value))}
                 placeholder="22"
                 min={1}
                 max={65535}
