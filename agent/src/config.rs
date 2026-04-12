@@ -28,6 +28,10 @@ pub struct AgentConfig {
     pub collect_interval_secs: u64,
     #[serde(default = "default_top_process_count")]
     pub top_process_count: usize,
+    #[serde(default = "default_log_dir")]
+    pub log_dir: String,
+    #[serde(default = "default_log_retention_days")]
+    pub log_retention_days: u64,
 }
 
 fn default_instance_role() -> String {
@@ -38,6 +42,12 @@ fn default_collect_interval() -> u64 {
 }
 fn default_top_process_count() -> usize {
     20
+}
+fn default_log_dir() -> String {
+    "./logs".to_string()
+}
+fn default_log_retention_days() -> u64 {
+    7
 }
 
 #[derive(Debug, Deserialize, Clone)]

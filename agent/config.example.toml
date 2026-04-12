@@ -5,6 +5,8 @@ instance_role = "was1"   # HA 이중화 식별자 (was1/was2, db-primary/db-stan
 host = "192.168.x.x"
 collect_interval_secs = 15
 top_process_count = 20
+log_dir = "./logs"              # 로그 디렉토리 (기본: ./logs, 절대경로 가능)
+log_retention_days = 7          # 로그 보관 일수 (기본: 7)
 
 [remote_write]
 endpoint = "http://<main-server>:9090/api/v1/write"

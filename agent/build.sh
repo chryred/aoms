@@ -283,7 +283,7 @@ if $DO_START; then
   else
     _ssh "pkill -f '$BINARY_NAME $CONFIG_PATH' 2>/dev/null; sleep 1; \
           nohup $INSTALL_DIR/$BINARY_NAME $CONFIG_PATH \
-            > /var/log/synapse-agent/agent.log 2>&1 & echo \$! > /tmp/synapse-agent.pid"
+            > /dev/null 2>&1 & echo \$! > /tmp/synapse-agent.pid"
     sleep 3
     ok "에이전트 시작됨 (PID: $(_ssh 'cat /tmp/synapse-agent.pid 2>/dev/null || echo ?'))"
   fi
@@ -294,8 +294,8 @@ else
     echo "    ssh $TARGET_USER@$TARGET_HOST 'journalctl -u synapse-agent -f'"
   else
     echo "    ssh $TARGET_USER@$TARGET_HOST \\"
-    echo "      'nohup $INSTALL_DIR/$BINARY_NAME $CONFIG_PATH > /var/log/synapse-agent/agent.log 2>&1 &'"
-    echo "    ssh $TARGET_USER@$TARGET_HOST 'tail -f /var/log/synapse-agent/agent.log'"
+    echo "      'nohup $INSTALL_DIR/$BINARY_NAME $CONFIG_PATH > /dev/null 2>&1 &'"
+    echo "    ssh $TARGET_USER@$TARGET_HOST 'tail -f $INSTALL_DIR/logs/agent.log*'"
   fi
 fi
 

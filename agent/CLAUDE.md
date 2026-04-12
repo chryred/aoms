@@ -101,7 +101,7 @@ pub struct MetricSample {
 
 ### `Config` (`config.rs`)
 ```toml
-[agent]       # system_name, display_name, instance_role (HA 식별자: was1/was2 등), host, collect_interval_secs
+[agent]       # system_name, display_name, instance_role, host, collect_interval_secs, log_dir, log_retention_days
 [remote_write] # endpoint, wal_dir, wal_retention_hours, timeout_secs
 [collectors]  # cpu/memory/disk/network/process/tcp_connections/log_monitor/web_servers/preprocessor/heartbeat
 [[log_monitor]] # paths (glob 지원), keywords, log_type  ← Vec: 여러 섹션으로 다중 log_type 지원
@@ -198,6 +198,28 @@ GC      → 매 1h — wal_retention_hours 초과 세그먼트 삭제
 
 **중요**: `drain_pending()` 은 읽기만 한다. `confirm_sent()` 호출 후에만 삭제.
 전송 실패 시 세그먼트 유지 → 다음 retry 시 재전송.
+
+---
+
+## 로그 로테이션
+
+**라이브러리**: `tracing-appender` — 일별 Rolling File Appender
+
+**설정** (`config.toml`):
+```toml
+[agent]
+log_dir = "./logs"              # 기본: ./logs (바이너리 기준 상대경로)
+log_retention_days = 7          # 기본: 7일
+```
+
+**파일 형식**: `{log_dir}/agent.log.YYYY-MM-DD` (일별 자동 분리)
+
+**GC**: WAL GC와 동일 주기(~1시간)에 `gc_old_logs()` 실행 — `log_retention_days` 초과 파일 삭제
+
+**실행 방식**: 에이전트가 자체적으로 로그 파일을 관리하므로 nohup 리다이렉트 불필요:
+```bash
+nohup /opt/synapse-agent/agent /opt/synapse-agent/config.toml > /dev/null 2>&1 &
+```
 
 ---
 

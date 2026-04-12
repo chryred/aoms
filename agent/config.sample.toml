@@ -65,6 +65,8 @@ instance_role         = "infra"             # 메트릭 레이블 구분용
 host                  = "192.168.10.100"    # 교차 분석 연결 키 — 세 에이전트 모두 동일값
 collect_interval_secs = 15
 top_process_count     = 20                  # CPU 상위 N개 프로세스 추적
+log_dir               = "/opt/synapse-agent/logs"   # 로그 디렉토리 (기본: ./logs)
+log_retention_days    = 7                   # 로그 보관 일수 (기본: 7)
 
 [remote_write]
 endpoint            = "http://192.168.10.1:9090/api/v1/write"

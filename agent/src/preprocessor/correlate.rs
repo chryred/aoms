@@ -176,6 +176,8 @@ mod tests {
             host: "127.0.0.1".to_string(),
             collect_interval_secs: 15,
             top_process_count: 10,
+            log_dir: "./logs".to_string(),
+            log_retention_days: 7,
         }
     }
 

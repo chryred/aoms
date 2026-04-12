@@ -18,6 +18,7 @@ use std::sync::{
 use std::time::Duration;
 use tokio::time::interval;
 use tracing::{error, info, warn};
+use tracing_appender::rolling;
 use web_monitor::{access_log::start_access_log_tailer, HttpCounter};
 use writer::{compress::compress, encode::encode_samples, sender::RemoteWriteSender, wal::Wal};
 
@@ -28,24 +29,37 @@ const WAL_RETRY_CYCLES: u64 = 4;
 
 #[tokio::main]
 async fn main() {
+    let config_path = env::args()
+        .nth(1)
+        .unwrap_or_else(|| "config.toml".to_string());
+
+    // Load config first so we know log_dir before initializing tracing
+    let initial_cfg = match Config::load(&config_path) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("Failed to load config: {}", e);
+            std::process::exit(1);
+        }
+    };
+
+    // Ensure log directory exists
+    if let Err(e) = std::fs::create_dir_all(&initial_cfg.agent.log_dir) {
+        eprintln!("Failed to create log dir '{}': {}", initial_cfg.agent.log_dir, e);
+        std::process::exit(1);
+    }
+
+    // Daily rolling file appender (agent.log.YYYY-MM-DD)
+    let file_appender = rolling::daily(&initial_cfg.agent.log_dir, "agent.log");
+    let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::from_default_env()
                 .add_directive(tracing::Level::INFO.into()),
         )
+        .with_writer(non_blocking)
         .init();
 
-    let config_path = env::args()
-        .nth(1)
-        .unwrap_or_else(|| "config.toml".to_string());
-
-    let mut cfg = Arc::new(match Config::load(&config_path) {
-        Ok(c) => c,
-        Err(e) => {
-            error!("Failed to load config: {}", e);
-            std::process::exit(1);
-        }
-    });
+    let mut cfg = Arc::new(initial_cfg);
 
     info!(
         "AOMS Agent v{} starting — system_name={} host={}",
@@ -246,6 +260,39 @@ async fn main() {
         if gc_counter >= gc_interval {
             gc_counter = 0;
             let _ = wal.gc();
+            gc_old_logs(&cfg.agent.log_dir, cfg.agent.log_retention_days);
+        }
+    }
+}
+
+// ── Log file GC helper ───────────────────────────────────────────────────────
+
+fn gc_old_logs(log_dir: &str, retention_days: u64) {
+    let cutoff = std::time::SystemTime::now()
+        .checked_sub(Duration::from_secs(retention_days * 86400))
+        .unwrap_or(std::time::UNIX_EPOCH);
+
+    let entries = match std::fs::read_dir(log_dir) {
+        Ok(rd) => rd,
+        Err(_) => return,
+    };
+
+    for entry in entries.flatten() {
+        let fname = entry.file_name();
+        let name = fname.to_string_lossy();
+        // tracing-appender daily format: agent.log.YYYY-MM-DD
+        if !name.starts_with("agent.log.") {
+            continue;
+        }
+        if let Ok(meta) = entry.metadata() {
+            let modified = meta.modified().unwrap_or(std::time::UNIX_EPOCH);
+            if modified < cutoff {
+                if let Err(e) = std::fs::remove_file(entry.path()) {
+                    warn!("Log GC: failed to remove {:?}: {}", entry.path(), e);
+                } else {
+                    info!("Log GC: removed {:?}", entry.path());
+                }
+            }
         }
     }
 }
@@ -513,5 +560,64 @@ fn expand_glob(pattern: &str) -> Vec<String> {
             warn!("Glob pattern error '{}': {}", pattern, e);
             vec![]
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[test]
+    fn test_gc_old_logs_removes_old_files() {
+        let dir = TempDir::new().unwrap();
+        let dir_path = dir.path().to_str().unwrap();
+
+        // Create an "old" log file and backdate its mtime
+        let old_file = dir.path().join("agent.log.2020-01-01");
+        std::fs::write(&old_file, "old log").unwrap();
+        // Set mtime to 30 days ago
+        let old_time = filetime::FileTime::from_unix_time(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs() as i64
+                - 30 * 86400,
+            0,
+        );
+        filetime::set_file_mtime(&old_file, old_time).unwrap();
+
+        // Create a recent log file
+        let recent_file = dir.path().join("agent.log.2099-01-01");
+        std::fs::write(&recent_file, "recent log").unwrap();
+
+        // Create a non-log file (should be ignored)
+        let other_file = dir.path().join("other.txt");
+        std::fs::write(&other_file, "not a log").unwrap();
+
+        gc_old_logs(dir_path, 7);
+
+        assert!(!old_file.exists(), "old log file should be removed");
+        assert!(recent_file.exists(), "recent log file should be kept");
+        assert!(other_file.exists(), "non-log file should be ignored");
+    }
+
+    #[test]
+    fn test_gc_old_logs_keeps_all_within_retention() {
+        let dir = TempDir::new().unwrap();
+        let dir_path = dir.path().to_str().unwrap();
+
+        let file = dir.path().join("agent.log.2099-12-31");
+        std::fs::write(&file, "recent").unwrap();
+
+        gc_old_logs(dir_path, 7);
+
+        assert!(file.exists(), "recent file should be kept");
+    }
+
+    #[test]
+    fn test_gc_old_logs_nonexistent_dir() {
+        // Should not panic
+        gc_old_logs("/nonexistent/path/that/does/not/exist", 7);
     }
 }

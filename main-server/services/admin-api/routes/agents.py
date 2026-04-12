@@ -380,7 +380,7 @@ def _make_start_cmd(agent: AgentInstance) -> str:
     if agent.agent_type == "synapse_agent":
         return (
             f"nohup {agent.install_path} {agent.config_path}"
-            f" > {agent.install_path}.log 2>&1 & echo $! > {agent.pid_file}"
+            f" > /dev/null 2>&1 & echo $! > {agent.pid_file}"
         )
     if agent.agent_type == "alloy":
         return (
@@ -863,12 +863,13 @@ async def _run_install(
                     os.environ.get("PROMETHEUS_URL", "http://prometheus:9090"),
                 )
                 wal_dir = os.path.dirname(config_path) + "/wal"
+                log_dir = os.path.dirname(config_path) + "/logs"
 
-                # WAL 디렉터리 생성
+                # WAL + 로그 디렉터리 생성
                 await asyncio.to_thread(
                     ssh_exec,
                     session["host"], session["port"], session["username"], session["password"],
-                    f"mkdir -p {wal_dir}",
+                    f"mkdir -p {wal_dir} {log_dir}",
                 )
 
                 # 수집기 설정: label_info.collectors 우선, 없으면 기본값
@@ -919,6 +920,8 @@ async def _run_install(
                     f'host = "{agent.host}"\n'
                     f'collect_interval_secs = 15\n'
                     f'top_process_count = 20\n'
+                    f'log_dir = "{log_dir}"\n'
+                    f'log_retention_days = 7\n'
                     f'\n'
                     f'[remote_write]\n'
                     f'endpoint = "{prometheus_url}/api/v1/write"\n'
