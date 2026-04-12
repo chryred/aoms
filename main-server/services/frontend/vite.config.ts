@@ -43,6 +43,7 @@ export default defineConfig({
       '/api': 'http://localhost:8080',
       '/analyze': 'http://localhost:8000',
       '/aggregation': 'http://localhost:8000',
+      '/grafana/': 'http://localhost:3000',
     },
   },
 })

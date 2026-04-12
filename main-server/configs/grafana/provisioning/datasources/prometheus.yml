@@ -1,0 +1,17 @@
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    uid: prometheus
+    access: proxy
+    url: ${PROM_URL}
+    isDefault: true
+    basicAuth: true
+    basicAuthUser: ${PROM_USER}
+    secureJsonData:
+      basicAuthPassword: ${PROM_PASS}
+    jsonData:
+      timeInterval: 15s
+      httpMethod: POST
+    editable: false

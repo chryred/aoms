@@ -50,22 +50,26 @@ services:
       - GF_SECURITY_ADMIN_USER=admin
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD}
       - GF_USERS_ALLOW_SIGN_UP=false
-      - GF_AUTH_ANONYMOUS_ENABLED=false
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
       - GF_AUTH_PASSWORD_MIN_LENGTH=12
       # HTTPS/SSL 설정 (자체 서명 인증서)
       - GF_SERVER_PROTOCOL=https
       - GF_SERVER_CERT_FILE=/etc/grafana/ssl/grafana.crt
       - GF_SERVER_CERT_KEY=/etc/grafana/ssl/grafana.key
-      - GF_SERVER_ROOT_URL=https://%(domain)s:3000/
+      - GF_SERVER_ROOT_URL=https://%(domain)s:3001/grafana/
+      - GF_SERVER_SERVE_FROM_SUB_PATH=true
       # 보안 강화
       - GF_SECURITY_COOKIE_SECURE=true
       - GF_SECURITY_COOKIE_SAMESITE=strict
-      - GF_SECURITY_ALLOW_EMBEDDING=false
+      - GF_SECURITY_ALLOW_EMBEDDING=true
       - GF_SECURITY_CONTENT_SECURITY_POLICY=true
       - GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS=
       # 시간대
       - GF_DATE_FORMATS_DEFAULT_TIMEZONE=Asia/Seoul
-      # Prometheus
+      # Prometheus datasource
+      - PROM_URL=http://prometheus:9090
+      - PROM_USER=${PROM_USER}
       - PROM_PASS=${PROM_PASS}
     mem_limit: 512m
     cpus: '0.3'

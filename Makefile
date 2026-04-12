@@ -62,6 +62,7 @@ help:
 	@echo "    make env-setup      .env.local 초기 설정"
 	@echo "    make db-shell       postgres 쉘 접속"
 	@echo "    make health         실행 중인 서비스 헬스체크"
+	@echo "    make grafana-export 로컬 Grafana에서 대시보드 JSON 내보내기"
 	@echo "────────────────────────────────────────────────"
 	@echo ""
 
@@ -84,6 +85,7 @@ dev-up:
 	@echo "  postgres    : localhost:5432"
 	@echo "  prometheus  : localhost:9090"
 	@echo "  alertmanager: localhost:9093"
+	@echo "  grafana     : localhost:3000  (admin/admin)"
 	@echo "  qdrant      : localhost:6333"
 
 .PHONY: dev-down
@@ -296,6 +298,28 @@ test-all-inject: seed-db test-metric trigger-analysis inject-analysis
 	@echo "════════════════════════════════════════"
 	@echo "✓ 전체 테스트 데이터 주입 완료"
 	@echo "════════════════════════════════════════"
+
+# ── Grafana 대시보드 내보내기 ─────────────────────────────────────────────────
+GRAFANA_URL  := http://localhost:3000
+GRAFANA_AUTH := admin:admin
+DASHBOARDS_DIR := $(MAIN_SERVER)/configs/grafana/dashboards
+
+.PHONY: grafana-export
+grafana-export:
+	@echo "→ Grafana 대시보드 내보내기..."
+	@UIDS=$$(curl -s -u $(GRAFANA_AUTH) $(GRAFANA_URL)/api/search?type=dash-db \
+	  | python3 -c "import sys,json; [print(d['uid']) for d in json.load(sys.stdin)]" 2>/dev/null); \
+	if [ -z "$$UIDS" ]; then \
+	  echo "  대시보드가 없거나 Grafana에 연결할 수 없습니다."; \
+	  exit 0; \
+	fi; \
+	for uid in $$UIDS; do \
+	  echo "  내보내기: $$uid"; \
+	  curl -s -u $(GRAFANA_AUTH) $(GRAFANA_URL)/api/dashboards/uid/$$uid \
+	    | python3 -c "import sys,json; d=json.load(sys.stdin); db=d['dashboard']; db['id']=None; print(json.dumps(db, ensure_ascii=False, indent=2))" \
+	    > $(DASHBOARDS_DIR)/$$uid.json; \
+	done; \
+	echo "✓ $(DASHBOARDS_DIR)/ 에 저장됨. 검토 후 커밋하세요."
 
 # ── 내부 헬퍼 ────────────────────────────────────────────────────────────────
 .PHONY: _check-env

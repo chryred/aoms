@@ -8,6 +8,7 @@ import {
   Users,
   TrendingUp,
   BarChart3,
+  Activity,
   Search,
   MessageSquare,
   UserCircle,
@@ -150,6 +151,13 @@ export function Sidebar() {
             to={ROUTES.DASHBOARD}
             icon={<LayoutDashboard className="h-4 w-4" />}
             label="대시보드"
+            collapsed={collapsed}
+            onNavigate={closeMobileSidebar}
+          />
+          <NavItem
+            to={ROUTES.GRAFANA}
+            icon={<Activity className="h-4 w-4" />}
+            label="Grafana 대시보드"
             collapsed={collapsed}
             onNavigate={closeMobileSidebar}
           />

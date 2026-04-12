@@ -14,6 +14,7 @@ export const ROUTES = {
   PROFILE: '/profile',
   ADMIN_USERS: '/admin/users',
   VECTOR_HEALTH: '/vector-health',
+  GRAFANA: '/grafana-dashboard',
   AGENTS: '/agents',
   contactEdit: (id: number | string) => `/contacts/${id}/edit`,
   systemDetail: (id: number | string) => `/dashboard/${id}`,
