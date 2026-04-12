@@ -61,6 +61,7 @@ CREATE TABLE IF NOT EXISTS alert_history (
     anomaly_type        VARCHAR(20),
     similarity_score    FLOAT,
     qdrant_point_id     VARCHAR(36),
+    resolved_at         TIMESTAMP,                              -- 복구 시각 (Alertmanager resolved)
     acknowledged        BOOLEAN DEFAULT FALSE,
     acknowledged_at     TIMESTAMP,
     acknowledged_by     VARCHAR(100),

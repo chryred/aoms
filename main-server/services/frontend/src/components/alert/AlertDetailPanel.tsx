@@ -1,11 +1,14 @@
-import { useEffect, useRef } from 'react'
-import { X, CheckCircle } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { X, CheckCircle, ChevronDown } from 'lucide-react'
 import { NeuButton } from '@/components/neumorphic/NeuButton'
 import { NeuBadge } from '@/components/neumorphic/NeuBadge'
+import { NeuSelect } from '@/components/neumorphic/NeuSelect'
+import { NeuTextarea } from '@/components/neumorphic/NeuTextarea'
 import { AnomalyTypeBadge } from './AnomalyTypeBadge'
 import { useAcknowledgeAlert } from '@/hooks/mutations/useAcknowledgeAlert'
+import { useCreateFeedback } from '@/hooks/mutations/useCreateFeedback'
 import { useAuthStore } from '@/store/authStore'
-import { formatKST } from '@/lib/utils'
+import { cn, formatKST } from '@/lib/utils'
 import type { AlertHistory, Severity } from '@/types/alert'
 
 const SEVERITY_VARIANT: Record<Severity, 'critical' | 'warning' | 'info'> = {
@@ -30,7 +33,19 @@ interface AlertDetailPanelProps {
 export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
   const user = useAuthStore((s) => s.user)
   const { mutate: acknowledge, isPending } = useAcknowledgeAlert()
+  const { mutate: createFeedback, isPending: isFeedbackPending } = useCreateFeedback()
   const panelRef = useRef<HTMLDivElement>(null)
+
+  const [showSolution, setShowSolution] = useState(false)
+  const [errorType, setErrorType] = useState('기타')
+  const [solution, setSolution] = useState('')
+
+  // Reset solution fields when alert changes
+  useEffect(() => {
+    setShowSolution(false)
+    setErrorType('기타')
+    setSolution('')
+  }, [alert?.id])
 
   // Focus trap + ESC close
   useEffect(() => {
@@ -77,7 +92,26 @@ export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
   if (!alert) return null
 
   const handleAck = () => {
-    acknowledge({ id: alert.id, by: user?.name ?? 'unknown' }, { onSuccess: onClose })
+    acknowledge(
+      { id: alert.id, by: user?.name ?? 'unknown' },
+      {
+        onSuccess: () => {
+          if (showSolution && solution.trim()) {
+            createFeedback(
+              {
+                alert_history_id: alert.id,
+                error_type: errorType,
+                solution: solution.trim(),
+                resolver: user?.name ?? 'unknown',
+              },
+              { onSuccess: onClose, onError: onClose },
+            )
+          } else {
+            onClose()
+          }
+        },
+      },
+    )
   }
 
   return (
@@ -127,6 +161,12 @@ export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
               <p className="type-label">발생 시각</p>
               <p className="mt-0.5 text-[#E2E8F2]">{formatKST(alert.created_at)}</p>
             </div>
+            {alert.resolved_at && (
+              <div>
+                <p className="type-label">복구 시각</p>
+                <p className="mt-0.5 text-[#22C55E]">{formatKST(alert.resolved_at)}</p>
+              </div>
+            )}
             {alert.alertname && (
               <div>
                 <p className="type-label">Alert Name</p>
@@ -183,10 +223,55 @@ export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
 
         {/* 푸터 */}
         {!alert.acknowledged && (
-          <div className="border-t border-[#2B2F37] px-6 py-4">
-            <NeuButton className="w-full" loading={isPending} onClick={handleAck}>
+          <div className="space-y-3 border-t border-[#2B2F37] px-6 py-4">
+            <button
+              type="button"
+              onClick={() => setShowSolution((v) => !v)}
+              className="flex w-full items-center gap-2 text-sm text-[#8B97AD] hover:text-[#E2E8F2] focus:outline-none"
+            >
+              <ChevronDown
+                className={cn(
+                  'h-4 w-4 transition-transform',
+                  showSolution && 'rotate-180',
+                )}
+              />
+              해결책 함께 등록
+            </button>
+
+            {showSolution && (
+              <div className="space-y-3">
+                <NeuSelect
+                  id="error-type"
+                  label="장애 유형"
+                  value={errorType}
+                  onChange={(e) => setErrorType(e.target.value)}
+                >
+                  <option value="DB 연결 오류">DB 연결 오류</option>
+                  <option value="메모리 부족">메모리 부족</option>
+                  <option value="디스크 부족">디스크 부족</option>
+                  <option value="네트워크 오류">네트워크 오류</option>
+                  <option value="타임아웃">타임아웃</option>
+                  <option value="애플리케이션 오류">애플리케이션 오류</option>
+                  <option value="기타">기타</option>
+                </NeuSelect>
+                <NeuTextarea
+                  id="solution"
+                  label="해결 내용"
+                  rows={4}
+                  placeholder="수행한 조치 내용을 기술해 주세요..."
+                  value={solution}
+                  onChange={(e) => setSolution(e.target.value)}
+                />
+              </div>
+            )}
+
+            <NeuButton
+              className="w-full"
+              loading={isPending || isFeedbackPending}
+              onClick={handleAck}
+            >
               <CheckCircle className="h-4 w-4" />
-              확인 처리
+              {showSolution && solution.trim() ? '확인 처리 + 해결책 등록' : '확인 처리'}
             </NeuButton>
           </div>
         )}

@@ -70,6 +70,7 @@ class AlertHistory(Base):
     anomaly_type     = Column(String(20))              # 'new' | 'recurring' | 'related' | 'duplicate'
     similarity_score = Column(Float)
     qdrant_point_id  = Column(String(36))              # UUID
+    resolved_at = Column(DateTime)                     # Alertmanager resolved 시 채워짐
     created_at = Column(DateTime, default=func.now())
 
     __table_args__ = (

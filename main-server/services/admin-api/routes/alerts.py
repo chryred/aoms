@@ -85,38 +85,30 @@ async def receive_alertmanager(
                 except Exception as exc:
                     logger.warning("Teams 복구 알림 발송 실패: %s", exc)
 
-            # 가장 최근 firing 이력에서 qdrant_point_id 조회 후 resolved 업데이트
-            try:
-                recent = await db.execute(
-                    select(AlertHistory)
-                    .where(AlertHistory.alertname == alertname)
-                    .where(AlertHistory.system_id == (system.id if system else None))
-                    .where(AlertHistory.qdrant_point_id.isnot(None))
-                    .order_by(AlertHistory.created_at.desc())
-                    .limit(1)
-                )
-                recent_alert = recent.scalar_one_or_none()
-                if recent_alert and recent_alert.qdrant_point_id:
-                    async with httpx.AsyncClient(timeout=10.0) as client:
-                        await client.post(
-                            f"{LOG_ANALYZER_URL}/metric/resolve",
-                            json={"point_id": recent_alert.qdrant_point_id},
-                        )
-            except Exception as exc:
-                logger.warning("Qdrant 복구 상태 업데이트 실패: %s", exc)
-
-            # alert_history 저장 (복구 이력)
-            history = AlertHistory(
-                system_id=system.id if system else None,
-                alert_type="metric_resolved",
-                severity=severity,
-                alertname=alertname,
-                title=alert.annotations.get("summary", f"{alertname} 정상 복구"),
-                description=alert.annotations.get("description", ""),
-                instance_role=instance_role,
-                host=host,
+            # 원본 firing alert 조회 → resolved_at 업데이트 (별도 row 생성 안 함)
+            original = await db.execute(
+                select(AlertHistory)
+                .where(AlertHistory.alertname == alertname)
+                .where(AlertHistory.system_id == (system.id if system else None))
+                .where(AlertHistory.alert_type == "metric")
+                .where(AlertHistory.resolved_at.is_(None))
+                .order_by(AlertHistory.created_at.desc())
+                .limit(1)
             )
-            db.add(history)
+            original_alert = original.scalar_one_or_none()
+            if original_alert:
+                original_alert.resolved_at = datetime.utcnow()
+                # Qdrant resolved 업데이트
+                if original_alert.qdrant_point_id:
+                    try:
+                        async with httpx.AsyncClient(timeout=10.0) as client:
+                            await client.post(
+                                f"{LOG_ANALYZER_URL}/metric/resolve",
+                                json={"point_id": original_alert.qdrant_point_id},
+                            )
+                    except Exception as exc:
+                        logger.warning("Qdrant 복구 상태 업데이트 실패: %s", exc)
+
             await db.commit()
 
             # WebSocket 브로드캐스트 (클라이언트 실시간 업데이트)
@@ -242,6 +234,8 @@ async def receive_alertmanager(
 async def list_alerts(
     system_id: int | None = Query(None),
     severity: str | None = Query(None),
+    alert_type: str | None = Query(None),
+    resolved: bool | None = Query(None),
     acknowledged: bool | None = Query(None),
     limit: int = Query(50, le=500),
     offset: int = Query(0, ge=0),
@@ -252,6 +246,12 @@ async def list_alerts(
         stmt = stmt.where(AlertHistory.system_id == system_id)
     if severity:
         stmt = stmt.where(AlertHistory.severity == severity)
+    if alert_type:
+        stmt = stmt.where(AlertHistory.alert_type == alert_type)
+    if resolved is True:
+        stmt = stmt.where(AlertHistory.resolved_at.isnot(None))
+    elif resolved is False:
+        stmt = stmt.where(AlertHistory.resolved_at.is_(None))
     if acknowledged is not None:
         stmt = stmt.where(AlertHistory.acknowledged == acknowledged)
     result = await db.execute(stmt)

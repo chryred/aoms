@@ -1,4 +1,4 @@
-export type AlertType = 'metric' | 'metric_resolved' | 'log_analysis'
+export type AlertType = 'metric' | 'log_analysis'
 export type Severity = 'info' | 'warning' | 'critical'
 export type AnomalyType = 'new' | 'related' | 'recurring' | 'duplicate'
 
@@ -19,6 +19,7 @@ export interface AlertHistory {
   anomaly_type: AnomalyType | null
   similarity_score: number | null
   qdrant_point_id: string | null
+  resolved_at: string | null
   notified_contacts: string | null
   created_at: string
 }

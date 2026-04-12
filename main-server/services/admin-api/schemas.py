@@ -166,6 +166,7 @@ class AlertHistoryOut(BaseModel):
     anomaly_type:     Optional[str]
     similarity_score: Optional[float]
     qdrant_point_id:  Optional[str]
+    resolved_at: Optional[datetime]
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -173,6 +174,26 @@ class AlertHistoryOut(BaseModel):
 
 class AcknowledgeRequest(BaseModel):
     acknowledged_by: str
+
+
+# ── Feedback ───────────────────────────────────────────────────────────
+class FeedbackCreateRequest(BaseModel):
+    alert_history_id: int
+    error_type: str
+    solution: str
+    resolver: str
+
+
+class FeedbackOut(BaseModel):
+    id: int
+    system_id: Optional[int]
+    alert_history_id: Optional[int]
+    error_type: str
+    solution: str
+    resolver: str
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
 
 
 # ── LogAnalysis ──────────────────────────────────────────────────────────

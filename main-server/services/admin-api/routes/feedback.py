@@ -1,17 +1,27 @@
 """
-피드백 폼 서빙 엔드포인트 (Phase 4c WF3)
+피드백 엔드포인트 (Phase 4c WF3 + 프론트엔드 직접 등록)
 
-Teams 알림의 '해결책 등록' 버튼 클릭 시 접근하는 HTML 폼.
-폼 제출은 n8n Webhook(POST /webhook/feedback)으로 직접 전송됨.
-
-GET /api/v1/feedback/form?alert_id=<id>&system=<name>&point_id=<uuid>
+- GET /api/v1/feedback/form  — Teams 알림 '해결책 등록' 버튼용 HTML 폼
+- POST /api/v1/feedback      — 프론트엔드에서 확인 처리 시 해결책 직접 등록
 """
+import logging
 import os
 
-from fastapi import APIRouter
+import httpx
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import HTMLResponse
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from auth import get_current_user
+from database import get_db
+from models import AlertFeedback, AlertHistory
+from schemas import FeedbackCreateRequest, FeedbackOut
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/feedback", tags=["feedback"])
+
+LOG_ANALYZER_URL = os.getenv("LOG_ANALYZER_URL", "http://log-analyzer:8000")
 
 # n8n Webhook URL — 로컬: http://localhost:5678/webhook/feedback
 #                   운영: http://{server-a-ip}:5678/webhook/feedback
@@ -88,3 +98,47 @@ async def feedback_form(
 </body>
 </html>"""
     return HTMLResponse(content=html)
+
+
+@router.post("", response_model=FeedbackOut)
+async def create_feedback(
+    payload: FeedbackCreateRequest,
+    db: AsyncSession = Depends(get_db),
+    _user=Depends(get_current_user),
+):
+    """프론트엔드에서 알림 확인 시 해결책 직접 등록"""
+    alert = await db.get(AlertHistory, payload.alert_history_id)
+    if not alert:
+        raise HTTPException(status_code=404, detail="Alert not found")
+
+    feedback = AlertFeedback(
+        system_id=alert.system_id,
+        alert_history_id=alert.id,
+        error_type=payload.error_type,
+        solution=payload.solution,
+        resolver=payload.resolver,
+    )
+    db.add(feedback)
+    await db.commit()
+    await db.refresh(feedback)
+
+    # Qdrant 해결책 업데이트 (best-effort)
+    if alert.qdrant_point_id:
+        collection_type = (
+            "metric" if alert.alert_type == "metric" else "log"
+        )
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                await client.post(
+                    f"{LOG_ANALYZER_URL}/solution/update",
+                    json={
+                        "point_id": alert.qdrant_point_id,
+                        "collection_type": collection_type,
+                        "solution": payload.solution,
+                        "resolver": payload.resolver,
+                    },
+                )
+        except Exception as exc:
+            logger.warning("Qdrant 해결책 업데이트 실패: %s", exc)
+
+    return feedback
