@@ -8,10 +8,7 @@ import { useWebSocketDashboard } from '@/hooks/useWebSocket'
 import { PageHeader } from '@/components/common/PageHeader'
 import { LoadingSkeleton } from '@/components/common/LoadingSkeleton'
 import { ErrorCard } from '@/components/common/ErrorCard'
-import {
-  DashboardSummaryStats,
-  DashboardLogAnalysisSummary,
-} from '@/components/dashboard/DashboardSummary'
+import { DashboardSummaryStats } from '@/components/dashboard/DashboardSummary'
 import { SystemHealthGrid } from '@/components/dashboard/SystemHealthGrid'
 import { NeuButton } from '@/components/neumorphic/NeuButton'
 import { formatKST, cn } from '@/lib/utils'
@@ -108,22 +105,10 @@ export function DashboardPage() {
         <ErrorCard onRetry={() => refetch()} />
       ) : summary ? (
         <>
-          {/* 상단: 통계 */}
-          <section className="space-y-6">
-            <div className="space-y-4">
-              <h2 className="text-lg font-semibold text-[#E2E8F2]">시스템 상태 요약</h2>
-              <DashboardSummaryStats summary={summary} agentSummary={agentHealth} />
-            </div>
+          {/* 상단: compact 통계 바 (로그분석 통계 통합) */}
+          <DashboardSummaryStats summary={summary} agentSummary={agentHealth} />
 
-            <div>
-              <h3 className="mb-3 text-sm font-semibold text-[#8B97AD] uppercase">
-                로그분석 통계
-              </h3>
-              <DashboardLogAnalysisSummary summary={summary} />
-            </div>
-          </section>
-
-          {/* 중단: 시스템 카드 그리드 + 필터 */}
+          {/* 시스템 카드 그리드 + 필터 */}
           <section className="space-y-4">
             <h2 className="text-lg font-semibold text-[#E2E8F2]">
               모니터링 시스템

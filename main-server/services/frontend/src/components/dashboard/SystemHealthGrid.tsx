@@ -113,7 +113,7 @@ export const SystemHealthGrid = memo(function SystemHealthGrid({
           선택한 필터에 해당하는 시스템이 없습니다
         </div>
       ) : (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+        <div className="flex flex-col gap-1 rounded-sm border border-[#2B2F37] overflow-hidden">
           {sortedSystems.map((system) => (
             <EnhancedSystemCard key={system.system_id} system={system} />
           ))}
