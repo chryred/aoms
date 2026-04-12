@@ -46,7 +46,7 @@ export function DashboardPage() {
   const lastUpdated = summary?.last_updated ? new Date(summary.last_updated) : new Date()
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       {/* 헤더 + WebSocket 상태 */}
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">

@@ -16,191 +16,200 @@ interface DashboardSummaryProps {
   summary: DashboardSummary
 }
 
-interface StatItem {
+// ── 뉴모피즘 그림자 토큰 ─────────────────────────────────────────────────
+const NEU_RAISED = 'shadow-[3px_3px_7px_#111317,-3px_-3px_7px_#2B2F37]'
+const NEU_PRESSED = 'shadow-[inset_1px_1px_3px_#111317,inset_-1px_-1px_3px_#2B2F37]'
+
+function glowShadow(color: string, opacity = 0.15) {
+  return `shadow-[3px_3px_7px_#111317,-3px_-3px_7px_#2B2F37,0_0_12px_rgba(${color},${opacity})]`
+}
+
+const GLOW_RED = glowShadow('239,68,68', 0.2)
+const GLOW_YELLOW = glowShadow('245,158,11', 0.15)
+const GLOW_BLUE = glowShadow('59,130,246', 0.12)
+const GLOW_PURPLE = glowShadow('168,85,247', 0.12)
+
+// ── StatCell 내부 컴포넌트 ───────────────────────────────────────────────
+
+interface StatCellProps {
   label: string
   value: number
   total?: number
   icon: React.ElementType
   color: string
-  accentBorder?: string
+  glowClass?: string
+  borderClass?: string
+  bgClass?: string
 }
 
-/**
- * Compact stat bar — 시스템 상태 + 로그분석을 2행으로 그룹화.
- *
- * 1행: 시스템 상태 (위험/경고/정상/예방/알림/에이전트)
- * 2행: 로그 분석 (Critical/Warning)
- */
+function StatCell({
+  label,
+  value,
+  total,
+  icon: Icon,
+  color,
+  glowClass,
+  borderClass,
+  bgClass,
+}: StatCellProps) {
+  const isZero = value === 0
+  const isAlerted = !isZero && (glowClass !== undefined)
+
+  return (
+    <div
+      className={cn(
+        'flex min-w-[100px] flex-1 items-center gap-2.5 rounded-sm bg-[#1E2127] transition-shadow duration-200',
+        isZero
+          ? cn(NEU_PRESSED, 'px-3 py-2')
+          : isAlerted
+            ? cn(glowClass, 'border-l-4 px-3.5 py-3', borderClass, bgClass)
+            : cn(NEU_RAISED, 'px-3.5 py-3'),
+      )}
+    >
+      <Icon
+        className={cn('h-3.5 w-3.5 flex-shrink-0', isZero ? 'text-[#5A6478]' : color)}
+      />
+      <div className="flex items-baseline gap-1.5">
+        <span
+          className={cn(
+            'font-bold tabular-nums',
+            isZero
+              ? 'text-sm text-[#5A6478]'
+              : isAlerted
+                ? cn('text-2xl', color)
+                : cn('text-lg', color),
+          )}
+        >
+          {value}
+        </span>
+        {total !== undefined && (
+          <span className="text-xs text-[#5A6478]">/{total}</span>
+        )}
+      </div>
+      <span className="whitespace-nowrap text-xs text-[#8B97AD]">{label}</span>
+    </div>
+  )
+}
+
+// ── DashboardSummaryStats ────────────────────────────────────────────────
+
 export const DashboardSummaryStats = memo(function DashboardSummaryStats({
   summary,
   agentSummary,
 }: DashboardSummaryProps & { agentSummary?: AgentHealthSummary }) {
-  const stats: StatItem[] = [
-    {
-      label: '위험',
-      value: summary.critical_systems,
-      total: summary.total_systems,
-      icon: AlertCircle,
-      color: 'text-red-500',
-      accentBorder: summary.critical_systems > 0 ? 'border-red-500/40' : undefined,
-    },
-    {
-      label: '경고',
-      value: summary.warning_systems,
-      total: summary.total_systems,
-      icon: AlertTriangle,
-      color: 'text-yellow-500',
-      accentBorder: summary.warning_systems > 0 ? 'border-yellow-500/40' : undefined,
-    },
-    {
-      label: '정상',
-      value: summary.normal_systems,
-      total: summary.total_systems,
-      icon: CheckCircle,
-      color: 'text-green-500',
-    },
-    {
-      label: '예방',
-      value: summary.proactive_systems ?? 0,
-      icon: ShieldAlert,
-      color: 'text-purple-400',
-      accentBorder: (summary.proactive_systems ?? 0) > 0 ? 'border-purple-500/40' : undefined,
-    },
-    {
-      label: '알림',
-      value: summary.total_metric_alerts,
-      icon: TrendingUp,
-      color: 'text-blue-400',
-      accentBorder: summary.total_metric_alerts > 0 ? 'border-blue-500/40' : undefined,
-    },
-  ]
-
   const agentCollecting = agentSummary?.collecting ?? 0
   const agentTotal = agentSummary?.total ?? 0
   const agentAllOk = agentTotal > 0 && agentCollecting === agentTotal
   const agentHasStale = (agentSummary?.stale ?? 0) > 0
 
   return (
-    <div className="space-y-2">
-      {/* 1행: 시스템 상태 */}
-      <div className="flex gap-px overflow-hidden rounded-sm border border-[#2B2F37] bg-[#2B2F37]">
-        {stats.map((stat) => {
-          const Icon = stat.icon
-          const isZero = stat.value === 0
-          return (
-            <div
-              key={stat.label}
+    <div className="flex flex-wrap gap-2">
+      {/* 시스템 상태 그룹 */}
+      <StatCell
+        label="위험"
+        value={summary.critical_systems}
+        total={summary.total_systems}
+        icon={AlertCircle}
+        color="text-red-500"
+        glowClass={GLOW_RED}
+        borderClass="border-red-500"
+        bgClass="bg-[rgba(239,68,68,0.06)]"
+      />
+      <StatCell
+        label="경고"
+        value={summary.warning_systems}
+        total={summary.total_systems}
+        icon={AlertTriangle}
+        color="text-yellow-500"
+        glowClass={GLOW_YELLOW}
+        borderClass="border-yellow-500"
+        bgClass="bg-[rgba(245,158,11,0.04)]"
+      />
+      <StatCell
+        label="정상"
+        value={summary.normal_systems}
+        total={summary.total_systems}
+        icon={CheckCircle}
+        color="text-green-500"
+      />
+      <StatCell
+        label="예방"
+        value={summary.proactive_systems ?? 0}
+        icon={ShieldAlert}
+        color="text-purple-400"
+        glowClass={GLOW_PURPLE}
+        borderClass="border-purple-500"
+        bgClass="bg-[rgba(168,85,247,0.04)]"
+      />
+
+      {/* 구분선 */}
+      <div className="hidden w-px self-stretch bg-[#2B2F37] lg:block" />
+
+      {/* 알림 + 에이전트 + 로그 그룹 */}
+      <StatCell
+        label="알림"
+        value={summary.total_metric_alerts}
+        icon={TrendingUp}
+        color="text-blue-400"
+        glowClass={GLOW_BLUE}
+        borderClass="border-blue-500"
+        bgClass="bg-[rgba(59,130,246,0.04)]"
+      />
+
+      {agentTotal > 0 && (
+        <div
+          className={cn(
+            'flex min-w-[100px] flex-1 items-center gap-2.5 rounded-sm bg-[#1E2127] transition-shadow duration-200',
+            agentHasStale
+              ? cn(GLOW_RED, 'border-l-4 border-red-500 bg-[rgba(239,68,68,0.06)] px-3.5 py-3')
+              : agentAllOk
+                ? cn(NEU_RAISED, 'px-3.5 py-3')
+                : cn(NEU_PRESSED, 'px-3 py-2'),
+          )}
+        >
+          <Radio
+            className={cn(
+              'h-3.5 w-3.5 flex-shrink-0',
+              agentAllOk
+                ? 'text-green-500'
+                : agentHasStale
+                  ? 'text-red-500'
+                  : 'text-yellow-500',
+            )}
+          />
+          <div className="flex items-baseline gap-1.5">
+            <span
               className={cn(
-                'flex min-w-[90px] flex-1 items-center gap-2.5 bg-[#1E2127] px-3.5 py-3',
-                stat.accentBorder && 'border-b-2',
-                stat.accentBorder,
+                'font-bold tabular-nums',
+                agentAllOk ? 'text-lg text-green-500' : 'text-lg text-red-500',
               )}
             >
-              <Icon
-                className={cn(
-                  'h-3.5 w-3.5 flex-shrink-0',
-                  isZero ? 'text-[#5A6478]' : stat.color,
-                )}
-              />
-              <div className="flex items-baseline gap-1.5">
-                <span
-                  className={cn(
-                    'text-lg font-bold tabular-nums',
-                    isZero ? 'text-[#5A6478]' : stat.color,
-                  )}
-                >
-                  {stat.value}
-                </span>
-                {stat.total !== undefined && (
-                  <span className="text-xs text-[#5A6478]">/{stat.total}</span>
-                )}
-              </div>
-              <span className="whitespace-nowrap text-xs text-[#8B97AD]">{stat.label}</span>
-            </div>
-          )
-        })}
-
-        {/* 에이전트 */}
-        {agentTotal > 0 && (
-          <div
-            className={cn(
-              'flex min-w-[90px] flex-1 items-center gap-2.5 bg-[#1E2127] px-3.5 py-3',
-              agentHasStale && 'border-b-2 border-red-500/40',
-            )}
-          >
-            <Radio
-              className={cn(
-                'h-3.5 w-3.5 flex-shrink-0',
-                agentAllOk ? 'text-green-500' : agentHasStale ? 'text-red-500' : 'text-yellow-500',
-              )}
-            />
-            <div className="flex items-baseline gap-1.5">
-              <span
-                className={cn(
-                  'text-lg font-bold tabular-nums',
-                  agentAllOk
-                    ? 'text-green-500'
-                    : agentHasStale
-                      ? 'text-red-500'
-                      : 'text-yellow-500',
-                )}
-              >
-                {agentCollecting}
-              </span>
-              <span className="text-xs text-[#5A6478]">/{agentTotal}</span>
-            </div>
-            <span className="whitespace-nowrap text-xs text-[#8B97AD]">에이전트</span>
+              {agentCollecting}
+            </span>
+            <span className="text-xs text-[#5A6478]">/{agentTotal}</span>
           </div>
-        )}
-      </div>
+          <span className="whitespace-nowrap text-xs text-[#8B97AD]">에이전트</span>
+        </div>
+      )}
 
-      {/* 2행: 로그분석 통계 */}
-      <div className="flex gap-px overflow-hidden rounded-sm border border-[#2B2F37] bg-[#2B2F37]">
-        <div
-          className={cn(
-            'flex min-w-[90px] flex-1 items-center gap-2.5 bg-[#1E2127] px-3.5 py-2.5',
-            summary.total_log_critical > 0 && 'border-b-2 border-red-500/40',
-          )}
-        >
-          <FileWarning
-            className={cn(
-              'h-3.5 w-3.5 flex-shrink-0',
-              summary.total_log_critical > 0 ? 'text-red-500' : 'text-[#5A6478]',
-            )}
-          />
-          <span
-            className={cn(
-              'text-lg font-bold tabular-nums',
-              summary.total_log_critical > 0 ? 'text-red-500' : 'text-[#5A6478]',
-            )}
-          >
-            {summary.total_log_critical}
-          </span>
-          <span className="whitespace-nowrap text-xs text-[#8B97AD]">로그분석 Critical</span>
-        </div>
-        <div
-          className={cn(
-            'flex min-w-[90px] flex-1 items-center gap-2.5 bg-[#1E2127] px-3.5 py-2.5',
-            summary.total_log_warning > 0 && 'border-b-2 border-yellow-500/40',
-          )}
-        >
-          <AlertTriangle
-            className={cn(
-              'h-3.5 w-3.5 flex-shrink-0',
-              summary.total_log_warning > 0 ? 'text-yellow-500' : 'text-[#5A6478]',
-            )}
-          />
-          <span
-            className={cn(
-              'text-lg font-bold tabular-nums',
-              summary.total_log_warning > 0 ? 'text-yellow-500' : 'text-[#5A6478]',
-            )}
-          >
-            {summary.total_log_warning}
-          </span>
-          <span className="whitespace-nowrap text-xs text-[#8B97AD]">로그분석 Warning</span>
-        </div>
-      </div>
+      <StatCell
+        label="로그 Critical"
+        value={summary.total_log_critical}
+        icon={FileWarning}
+        color="text-red-500"
+        glowClass={GLOW_RED}
+        borderClass="border-red-500"
+        bgClass="bg-[rgba(239,68,68,0.06)]"
+      />
+      <StatCell
+        label="로그 Warning"
+        value={summary.total_log_warning}
+        icon={AlertTriangle}
+        color="text-yellow-500"
+        glowClass={GLOW_YELLOW}
+        borderClass="border-yellow-500"
+        bgClass="bg-[rgba(245,158,11,0.04)]"
+      />
     </div>
   )
 })
