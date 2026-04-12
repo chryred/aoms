@@ -91,6 +91,5 @@ export const agentsApi = {
       .get(`api/v1/agents/system-live/${systemId}`)
       .json<{ is_live: boolean; agent_count: number }>(),
 
-  getHealthSummary: () =>
-    adminApi.get('api/v1/agents/health-summary').json<AgentHealthSummary>(),
+  getHealthSummary: () => adminApi.get('api/v1/agents/health-summary').json<AgentHealthSummary>(),
 }

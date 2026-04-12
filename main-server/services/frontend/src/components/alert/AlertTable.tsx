@@ -75,9 +75,7 @@ export function AlertTable({ alerts, onSelect }: AlertTableProps) {
                 <NeuBadge variant={SEVERITY_VARIANT[alert.severity]}>{alert.severity}</NeuBadge>
               </td>
               <td className="px-4 py-3">
-                <NeuBadge variant="muted">
-                  {getTypeLabel(alert)}
-                </NeuBadge>
+                <NeuBadge variant="muted">{getTypeLabel(alert)}</NeuBadge>
               </td>
               <td className="px-4 py-3">
                 <p className="max-w-xs truncate text-sm font-medium text-[#E2E8F2]">

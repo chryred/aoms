@@ -230,10 +230,7 @@ export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
               className="flex w-full items-center gap-2 text-sm text-[#8B97AD] hover:text-[#E2E8F2] focus:outline-none"
             >
               <ChevronDown
-                className={cn(
-                  'h-4 w-4 transition-transform',
-                  showSolution && 'rotate-180',
-                )}
+                className={cn('h-4 w-4 transition-transform', showSolution && 'rotate-180')}
               />
               해결책 함께 등록
             </button>

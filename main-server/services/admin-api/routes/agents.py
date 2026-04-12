@@ -195,57 +195,74 @@ async def get_agent_health_summary(
     current_user=Depends(get_current_user),
 ):
     """
-    전체 에이전트 수집 상태 요약.
-    Prometheus에서 최근 10분 내 데이터를 보낸 에이전트 수를 집계하여 반환한다.
+    시스템 단위 에이전트 수집 상태 요약.
+    total = 전체 등록 시스템 수,
+    collecting = 에이전트가 최근 10분 내 데이터를 보내고 있는 시스템 수 (시스템 내 에이전트 수 무관).
     """
     import httpx
     from sqlalchemy import func as sqlfunc
 
     prometheus_url = os.environ.get("PROMETHEUS_URL", "http://prometheus:9090")
 
-    # DB: 에이전트 타입별 총 수
-    total_result = await db.execute(
-        select(AgentInstance.agent_type, sqlfunc.count(AgentInstance.id))
-        .where(AgentInstance.agent_type.in_(["synapse_agent", "oracle_db"]))
-        .group_by(AgentInstance.agent_type)
-    )
-    type_counts = {row[0]: row[1] for row in total_result.fetchall()}
-    total_synapse = type_counts.get("synapse_agent", 0)
-    total_oracle = type_counts.get("oracle_db", 0)
-    total = total_synapse + total_oracle
+    # DB: 전체 등록 시스템 수
+    total_result = await db.execute(select(sqlfunc.count(System.id)))
+    total_systems = total_result.scalar() or 0
 
-    if total == 0:
+    if total_systems == 0:
         return {"total": 0, "collecting": 0, "stale": 0}
 
-    alive_synapse = 0
-    alive_oracle = 0
+    # DB: 에이전트가 있는 시스템의 타입별 존재 여부
+    has_synapse = await db.execute(
+        select(sqlfunc.count()).select_from(
+            select(AgentInstance.system_id)
+            .where(AgentInstance.agent_type == "synapse_agent")
+            .distinct()
+            .subquery()
+        )
+    )
+    has_synapse_count = has_synapse.scalar() or 0
+
+    has_oracle = await db.execute(
+        select(sqlfunc.count()).select_from(
+            select(AgentInstance.system_id)
+            .where(AgentInstance.agent_type == "oracle_db")
+            .distinct()
+            .subquery()
+        )
+    )
+    has_oracle_count = has_oracle.scalar() or 0
+
+    # Prometheus: system_name 단위로 수집 중인 시스템 수
+    alive_systems: set[str] = set()
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
-            if total_synapse > 0:
+            if has_synapse_count > 0:
                 resp = await client.get(
                     f"{prometheus_url}/api/v1/query",
-                    params={"query": "count(count_over_time(agent_up[10m]))"},
+                    params={"query": 'count by (system_name)(count_over_time(agent_up[10m]))'},
                 )
-                data = resp.json().get("data", {}).get("result", [])
-                if data:
-                    alive_synapse = int(float(data[0]["value"][1]))
+                for item in resp.json().get("data", {}).get("result", []):
+                    sn = item.get("metric", {}).get("system_name", "")
+                    if sn:
+                        alive_systems.add(sn)
 
-            if total_oracle > 0:
+            if has_oracle_count > 0:
                 resp = await client.get(
                     f"{prometheus_url}/api/v1/query",
-                    params={"query": "count(count_over_time(db_connections_active[10m]))"},
+                    params={"query": 'count by (system_name)(count_over_time(db_connections_active[10m]))'},
                 )
-                data = resp.json().get("data", {}).get("result", [])
-                if data:
-                    alive_oracle = int(float(data[0]["value"][1]))
+                for item in resp.json().get("data", {}).get("result", []):
+                    sn = item.get("metric", {}).get("system_name", "")
+                    if sn:
+                        alive_systems.add(sn)
     except Exception:
         pass
 
-    collecting = min(alive_synapse + alive_oracle, total)
+    collecting = min(len(alive_systems), total_systems)
     return {
-        "total": total,
+        "total": total_systems,
         "collecting": collecting,
-        "stale": total - collecting,
+        "stale": total_systems - collecting,
     }
 
 

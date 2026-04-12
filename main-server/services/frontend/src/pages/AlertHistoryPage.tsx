@@ -36,8 +36,7 @@ export function AlertHistoryPage() {
     error,
     refetch,
   } = useAlerts({
-    alert_type:
-      tab === 'all' ? undefined : tab === 'resolved' ? 'metric' : tab,
+    alert_type: tab === 'all' ? undefined : tab === 'resolved' ? 'metric' : tab,
     resolved: tab === 'metric' ? false : tab === 'resolved' ? true : undefined,
     severity: severity || undefined,
     acknowledged: ackFilter === 'all' ? undefined : ackFilter === 'ack',

@@ -151,7 +151,9 @@ export function MetricChart({
                 type="monotone"
                 dataKey={key}
                 stroke={KEY_COLOR_OVERRIDE[key] ?? LINE_COLORS[i % LINE_COLORS.length]}
-                strokeDasharray={key in KEY_COLOR_OVERRIDE ? '6 3' : key.includes('max') ? '5 5' : undefined}
+                strokeDasharray={
+                  key in KEY_COLOR_OVERRIDE ? '6 3' : key.includes('max') ? '5 5' : undefined
+                }
                 dot={false}
                 strokeWidth={key in KEY_COLOR_OVERRIDE ? 1.5 : 1.5}
               />

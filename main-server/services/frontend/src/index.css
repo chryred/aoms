@@ -209,6 +209,37 @@ pre {
   animation: spin-arc 0.65s linear infinite;
 }
 
+/* 대시보드 ↔ 상세 페이지 슬라이드 전환 */
+@keyframes slide-from-right {
+  from {
+    transform: translateX(40%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slide-from-left {
+  from {
+    transform: translateX(-40%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+.animate-slide-from-right {
+  animation: slide-from-right 0.35s cubic-bezier(0.25, 1, 0.5, 1) both;
+}
+
+.animate-slide-from-left {
+  animation: slide-from-left 0.35s cubic-bezier(0.25, 1, 0.5, 1) both;
+}
+
 /* 체크마크 선 그리기 */
 @keyframes check-draw {
   to {

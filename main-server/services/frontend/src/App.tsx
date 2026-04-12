@@ -7,6 +7,7 @@ import { AuthGuard } from '@/components/layout/AuthGuard'
 import { AdminGuard } from '@/components/layout/AdminGuard'
 import { LoginPage } from '@/pages/auth/LoginPage'
 import { LoadingSkeleton } from '@/components/common/LoadingSkeleton'
+import { DashboardAnimatedLayout } from '@/components/layout/DashboardAnimatedLayout'
 
 const DashboardPage = lazy(() =>
   import('@/pages/DashboardPage').then((m) => ({ default: m.DashboardPage })),
@@ -85,14 +86,24 @@ export function App() {
           }
         >
           <Route index element={<Navigate to={ROUTES.DASHBOARD} replace />} />
-          <Route
-            path="/dashboard"
-            element={
-              <Suspense fallback={<LoadingSkeleton shape="card" count={4} />}>
-                <DashboardPage />
-              </Suspense>
-            }
-          />
+          <Route element={<DashboardAnimatedLayout />}>
+            <Route
+              path="/dashboard"
+              element={
+                <Suspense fallback={<LoadingSkeleton shape="card" count={4} />}>
+                  <DashboardPage />
+                </Suspense>
+              }
+            />
+            <Route
+              path="/dashboard/:systemId"
+              element={
+                <Suspense fallback={<LoadingSkeleton shape="card" count={3} />}>
+                  <DashboardSystemDetailPage />
+                </Suspense>
+              }
+            />
+          </Route>
           <Route
             path="/systems"
             element={
@@ -132,14 +143,6 @@ export function App() {
             element={
               <Suspense fallback={<LoadingSkeleton shape="card" />}>
                 <ContactFormPage />
-              </Suspense>
-            }
-          />
-          <Route
-            path="/dashboard/:systemId"
-            element={
-              <Suspense fallback={<LoadingSkeleton shape="card" count={3} />}>
-                <DashboardSystemDetailPage />
               </Suspense>
             }
           />

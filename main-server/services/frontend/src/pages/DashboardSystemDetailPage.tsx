@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, Link } from 'react-router-dom'
 import {
   ArrowLeft,
   AlertCircle,
@@ -136,7 +136,6 @@ function getMetricStatus(
 
 export function DashboardSystemDetailPage() {
   const { systemId } = useParams<{ systemId: string }>()
-  const navigate = useNavigate()
 
   const [timeRange, setTimeRange] = useState<TimeRange>('6h')
   const [chartPopup, setChartPopup] = useState<{ group: string; collectorType: string } | null>(
@@ -260,13 +259,13 @@ export function DashboardSystemDetailPage() {
     <div className="space-y-6">
       {/* 헤더 */}
       <div className="space-y-3">
-        <button
-          onClick={() => navigate(-1)}
+        <Link
+          to="/dashboard"
           className="flex items-center gap-2 text-[#8B97AD] transition-colors hover:text-[#E2E8F2]"
         >
           <ArrowLeft className="h-5 w-5" />
           돌아가기
-        </button>
+        </Link>
         <div className="space-y-1">
           <h1 className="text-xl leading-tight font-bold break-words text-[#E2E8F2] sm:text-2xl">
             {detail.display_name}

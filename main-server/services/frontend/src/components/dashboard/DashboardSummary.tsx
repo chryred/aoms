@@ -53,7 +53,7 @@ function StatCell({
   bgClass,
 }: StatCellProps) {
   const isZero = value === 0
-  const isAlerted = !isZero && (glowClass !== undefined)
+  const isAlerted = !isZero && glowClass !== undefined
 
   return (
     <div
@@ -66,9 +66,7 @@ function StatCell({
             : cn(NEU_RAISED, 'px-3.5 py-3'),
       )}
     >
-      <Icon
-        className={cn('h-3.5 w-3.5 flex-shrink-0', isZero ? 'text-[#5A6478]' : color)}
-      />
+      <Icon className={cn('h-3.5 w-3.5 flex-shrink-0', isZero ? 'text-[#5A6478]' : color)} />
       <div className="flex items-baseline gap-1.5">
         <span
           className={cn(
@@ -82,11 +80,9 @@ function StatCell({
         >
           {value}
         </span>
-        {total !== undefined && (
-          <span className="text-xs text-[#5A6478]">/{total}</span>
-        )}
+        {total !== undefined && <span className="text-xs text-[#5A6478]">/{total}</span>}
       </div>
-      <span className="whitespace-nowrap text-xs text-[#8B97AD]">{label}</span>
+      <span className="text-xs whitespace-nowrap text-[#8B97AD]">{label}</span>
     </div>
   )
 }
@@ -106,7 +102,7 @@ export const DashboardSummaryStats = memo(function DashboardSummaryStats({
     <div className="space-y-4">
       {/* 시스템 상태 */}
       <div>
-        <p className="mb-2 text-xs font-semibold uppercase text-[#5A6478]">시스템 상태</p>
+        <p className="mb-2 text-xs font-semibold text-[#5A6478] uppercase">시스템 상태</p>
         <div className="flex flex-wrap gap-2">
           <StatCell
             label="위험"
@@ -146,7 +142,7 @@ export const DashboardSummaryStats = memo(function DashboardSummaryStats({
 
       {/* 운영 현황 */}
       <div>
-        <p className="mb-2 text-xs font-semibold uppercase text-[#5A6478]">운영 현황</p>
+        <p className="mb-2 text-xs font-semibold text-[#5A6478] uppercase">운영 현황</p>
         <div className="flex flex-wrap gap-2">
           <StatCell
             label="알림"
@@ -191,7 +187,7 @@ export const DashboardSummaryStats = memo(function DashboardSummaryStats({
                 </span>
                 <span className="text-xs text-[#5A6478]">/{agentTotal}</span>
               </div>
-              <span className="w-6 text-center text-xs leading-tight text-[#8B97AD]">에이전트</span>
+              <span className="text-xs whitespace-nowrap text-[#8B97AD]">수집</span>
             </div>
           )}
 

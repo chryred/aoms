@@ -46,10 +46,8 @@ interface MetricChip {
 }
 
 const CHIP_STYLES = {
-  critical:
-    'bg-[rgba(239,68,68,0.10)] border border-[rgba(239,68,68,0.20)] text-[#F87171]',
-  warning:
-    'bg-[rgba(245,158,11,0.10)] border border-[rgba(245,158,11,0.20)] text-[#FCD34D]',
+  critical: 'bg-[rgba(239,68,68,0.10)] border border-[rgba(239,68,68,0.20)] text-[#F87171]',
+  warning: 'bg-[rgba(245,158,11,0.10)] border border-[rgba(245,158,11,0.20)] text-[#FCD34D]',
   normal: 'bg-[#2B2F37] text-[#8B97AD]',
 }
 
@@ -103,9 +101,7 @@ export const EnhancedSystemCard = memo(function EnhancedSystemCard({
 
       {/* 시스템 이름 */}
       <div className="min-w-0 flex-shrink-0" style={{ width: '160px' }}>
-        <p className="truncate text-sm font-semibold text-[#E2E8F2]">
-          {system.display_name}
-        </p>
+        <p className="truncate text-sm font-semibold text-[#E2E8F2]">{system.display_name}</p>
         <p className="truncate font-mono text-xs text-[#5A6478]">{system.system_name}</p>
       </div>
 
@@ -138,7 +134,7 @@ export const EnhancedSystemCard = memo(function EnhancedSystemCard({
 
       {/* 예방 패턴 */}
       {system.proactive_count > 0 && (
-        <span className="flex flex-shrink-0 items-center gap-1 rounded-full bg-[rgba(168,85,247,0.12)] px-2 py-0.5 text-xs whitespace-nowrap border border-[rgba(168,85,247,0.25)] text-purple-400">
+        <span className="flex flex-shrink-0 items-center gap-1 rounded-full border border-[rgba(168,85,247,0.25)] bg-[rgba(168,85,247,0.12)] px-2 py-0.5 text-xs whitespace-nowrap text-purple-400">
           <ShieldAlert className="h-3 w-3" />
           {system.proactive_count}
         </span>
