@@ -855,7 +855,13 @@ async def _run_install(
                 system_name = label_info.get("system_name", "unknown")
                 display_name = label_info.get("display_name", system_name)
                 instance_role = label_info.get("instance_role", "default")
-                prometheus_url = os.environ.get("PROMETHEUS_URL", "http://prometheus:9090")
+                # synapse_agent config.toml remote_write.endpoint에는 AGENT_PROMETHEUS_URL 사용
+                # (Docker 컨테이너가 호스트 Prometheus에 쓸 때 host.docker.internal 필요)
+                # 미설정 시 PROMETHEUS_URL → 최종 기본값 http://prometheus:9090 순으로 폴백
+                prometheus_url = os.environ.get(
+                    "AGENT_PROMETHEUS_URL",
+                    os.environ.get("PROMETHEUS_URL", "http://prometheus:9090"),
+                )
                 wal_dir = os.path.dirname(config_path) + "/wal"
 
                 # WAL 디렉터리 생성
