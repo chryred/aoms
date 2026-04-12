@@ -199,9 +199,17 @@ async def search_similar_by_vector(
 
 
 async def get_collections_info() -> dict:
-    """UI 헬스/상태 확인용 — 두 컬렉션의 point 수 및 벡터 차원 반환"""
+    """UI 헬스/상태 확인용 — 4개 컬렉션의 point 수 및 벡터 차원 반환"""
+    from vector_client import COLLECTION as LOG_COLLECTION, METRIC_COLLECTION
+
+    all_collections = (
+        LOG_COLLECTION,              # log_incidents
+        METRIC_COLLECTION,           # metric_baselines
+        HOURLY_PATTERNS_COLLECTION,  # metric_hourly_patterns
+        AGG_SUMMARIES_COLLECTION,    # aggregation_summaries
+    )
     info = {}
-    for name in (HOURLY_PATTERNS_COLLECTION, AGG_SUMMARIES_COLLECTION):
+    for name in all_collections:
         try:
             resp = await _qdrant_http.get(f"{QDRANT_URL}/collections/{name}")
             if resp.status_code == 200:

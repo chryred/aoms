@@ -307,6 +307,29 @@ async def metric_resolve(req: MetricResolveRequest):
     return {"point_id": req.point_id, "resolved": True}
 
 
+# ── 해결책 업데이트 엔드포인트 ──────────────────────────────────────────────────
+
+class SolutionUpdateRequest(BaseModel):
+    point_id: str
+    collection_type: str  # "log" | "metric"
+    solution: str
+    resolver: str
+
+
+@app.post("/solution/update")
+async def solution_update(req: SolutionUpdateRequest):
+    """admin-api가 프론트엔드 피드백 등록 시 호출. Qdrant 포인트에 해결책 추가."""
+    if req.collection_type == "metric":
+        await vector_client.update_metric_resolution(
+            req.point_id, req.solution, req.resolver
+        )
+    else:
+        await vector_client.update_resolution(
+            req.point_id, req.solution, req.resolver
+        )
+    return {"point_id": req.point_id, "updated": True}
+
+
 # ── Phase 5: 집계 벡터 검색 엔드포인트 (UI 프록시) ────────────────────────────
 
 class AggregationSearchRequest(BaseModel):
@@ -496,11 +519,26 @@ async def trigger_trend():
 
 @app.get("/aggregation/status")
 async def aggregation_status():
-    """WF6~WF11 집계 실행 상태 일괄 조회"""
-    return {
-        name: {"running": _agg_running[name], **_agg_last_run[name]}
-        for name in _AGG_TYPES
-    }
+    """WF6~WF11 집계 실행 상태 일괄 조회 (프론트엔드 타입 호환)"""
+    result = {}
+    for name in _AGG_TYPES:
+        run = _agg_last_run[name]
+        finished = run.get("finished_at")
+        run_result = run.get("result")
+        # last_status: result가 dict면 에러 여부 판단, 문자열이면 그대로
+        if run_result is None:
+            last_status = None
+        elif isinstance(run_result, dict) and run_result.get("error"):
+            last_status = "error"
+        else:
+            last_status = "ok"
+        result[name] = {
+            "running": _agg_running[name],
+            "last_run": finished,
+            "last_status": last_status,
+            "error_message": str(run_result.get("error")) if isinstance(run_result, dict) and run_result.get("error") else None,
+        }
+    return result
 
 
 @app.post("/aggregation/store-summary")

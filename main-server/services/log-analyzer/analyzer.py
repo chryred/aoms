@@ -30,18 +30,16 @@ from vector_client import (
     store_incident_vector,
 )
 
+from llm_client import call_llm_structured, LLM_API_KEY, LLM_AGENT_CODE
+
 logger = logging.getLogger(__name__)
 
 PROMETHEUS_URL = os.getenv("PROMETHEUS_URL", "http://prometheus:9090")
-LLM_API_URL    = os.getenv("LLM_API_URL",    "")
-LLM_API_KEY    = os.getenv("LLM_API_KEY",    "")
-LLM_AGENT_CODE = os.getenv("LLM_AGENT_CODE", "")
 ADMIN_API_URL  = os.getenv("ADMIN_API_URL",  "http://admin-api:8080")
 
 # 모듈 레벨 공유 클라이언트 — lifespan에서 aclose() 호출
 _admin_http = httpx.AsyncClient(timeout=10.0)    # admin-api 호출
 _prom_http  = httpx.AsyncClient(timeout=30.0)    # Prometheus 쿼리
-_llm_http   = httpx.AsyncClient(timeout=120.0)   # LLM API (느림)
 
 ANALYSIS_QUERY = """다음 서버 로그를 분석하여 반드시 아래 JSON 형식으로만 응답하세요. 추가 설명 없이 JSON만 출력하세요.
 
@@ -64,14 +62,6 @@ def mask_sensitive_data(text: str) -> str:
     text = re.sub(r'\b01[0-9][-\s]?\d{3,4}[-\s]?\d{4}\b', '010-****-****', text)               # 전화번호
     text = re.sub(r'[\w.-]+@[\w.-]+\.\w+', '***@***.***', text)                                 # 이메일
     return text
-
-
-def _parse_llm_response(content: str) -> dict:
-    """LLM 응답에서 JSON 파싱 (마크다운 코드블록 처리 포함)"""
-    match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', content, re.DOTALL)
-    if match:
-        content = match.group(1)
-    return json.loads(content.strip())
 
 
 async def get_systems() -> list[dict]:
@@ -171,33 +161,6 @@ async def fetch_logs_for_system(system_name: str) -> dict[str, list[dict]]:
     return by_role
 
 
-async def _call_llm_api(prompt: str, api_key: str, agent_code: str) -> dict:
-    """DevX API 호출 및 JSON 파싱 (내부 공용 함수)"""
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-    }
-    body = {
-        "agent_code": agent_code,
-        "query": prompt,
-        "response_mode": "blocking",
-    }
-
-    resp = await _llm_http.post(LLM_API_URL, headers=headers, json=body)
-    resp.raise_for_status()
-    raw_res = resp.json()
-
-    # DevX 응답 구조: external_response.dify_response.answer 또는 answer
-    answer = (
-        raw_res.get("external_response", {}).get("dify_response", {}).get("answer")
-        or raw_res.get("answer")
-    )
-    if not answer:
-        raise ValueError(f"LLM 응답에서 answer 필드를 찾을 수 없음: {list(raw_res.keys())}")
-
-    return _parse_llm_response(answer)
-
-
 async def analyze_with_vector_context(
     system_name: str,
     instance_role: str,
@@ -261,7 +224,7 @@ async def analyze_with_vector_context(
 
     # 5. 강화 프롬프트 구성 + LLM 호출
     prompt   = build_enhanced_prompt(log_text, system_name, instance_role, anomaly_info)
-    analysis = await _call_llm_api(prompt, api_key, agent_code)
+    analysis = await call_llm_structured(prompt, api_key, agent_code)
 
     # 6. 벡터 저장 (새로운 분석 결과 누적)
     point_id = None

@@ -498,6 +498,25 @@ async def reset_collection(collection_name: str) -> None:
     logger.info("컬렉션 초기화 완료: %s", collection_name)
 
 
+async def update_metric_resolution(
+    point_id: str, resolution: str, resolver: str
+) -> None:
+    """metric_baselines 포인트에 해결책 추가."""
+    resp = await _qdrant_http.post(
+        f"{QDRANT_URL}/collections/{METRIC_COLLECTION}/points/payload",
+        json={
+            "payload": {
+                "resolution": resolution,
+                "resolver": resolver,
+                "resolved": True,
+                "resolved_at": datetime.now(timezone.utc).isoformat(),
+            },
+            "points": [point_id],
+        },
+    )
+    resp.raise_for_status()
+
+
 async def resolve_metric_vector(point_id: str) -> None:
     """
     메트릭 알림 복구(resolved) 시 Qdrant metric_baselines 포인트 상태 업데이트.

@@ -26,11 +26,10 @@ logger = logging.getLogger(__name__)
 
 # ── 환경변수 ────────────────────────────────────────────────────────────────
 
+from llm_client import call_llm_text
+
 ADMIN_API_URL    = os.getenv("ADMIN_API_URL",    "http://admin-api:8080")
 PROMETHEUS_URL   = os.getenv("PROMETHEUS_URL",   "http://prometheus:9090")
-LLM_API_URL      = os.getenv("LLM_API_URL",      "")
-LLM_API_KEY      = os.getenv("LLM_API_KEY",      "")
-LLM_AGENT_CODE   = os.getenv("LLM_AGENT_CODE",   "")
 TEAMS_WEBHOOK_URL = os.getenv("TEAMS_WEBHOOK_URL", "")
 
 # ── PromQL 매핑 ──────────────────────────────────────────────────────────────
@@ -191,41 +190,6 @@ def _detect_anomaly(
     return False, ""
 
 
-async def _call_llm(
-    client: httpx.AsyncClient,
-    prompt: str,
-    max_tokens: int = 400,
-    timeout: float = 60.0,
-) -> str | None:
-    """
-    WF6 node 12 LLM 호출 이식.
-    """
-    if not LLM_API_URL:
-        logger.warning("LLM_API_URL 미설정 — LLM 호출 생략")
-        return None
-    try:
-        resp = await client.post(
-            LLM_API_URL,
-            json={
-                "agent_code": LLM_AGENT_CODE,
-                "api_key":    LLM_API_KEY,
-                "messages":   [{"role": "user", "content": prompt}],
-                "max_tokens": max_tokens,
-            },
-            timeout=timeout,
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        return (
-            data.get("choices", [{}])[0].get("message", {}).get("content")
-            or data.get("response")
-            or data.get("content")
-        )
-    except Exception as exc:
-        logger.warning("LLM 호출 실패: %s", exc)
-        return None
-
-
 def _parse_llm_json(text: str | None, fallback: dict) -> dict:
     """LLM 응답에서 JSON 블록 추출"""
     if not text:
@@ -339,7 +303,7 @@ async def _process_single_config(
                 "}"
             )
 
-            llm_text = await _call_llm(client, llm_prompt, max_tokens=400)
+            llm_text = await call_llm_text(llm_prompt, max_tokens=400)
             llm_result = _parse_llm_json(llm_text, {
                 "severity": "warning", "trend": "LLM 파싱 오류", "prediction": None,
                 "root_cause_hypothesis": "", "recommendation": "",
@@ -765,7 +729,7 @@ async def run_weekly_report() -> dict:
             "가장 주의가 필요한 시스템과 전체적인 추세를 포함해 주세요."
         )
 
-        llm_text = await _call_llm(client, llm_prompt, max_tokens=300)
+        llm_text = await call_llm_text(llm_prompt, max_tokens=300)
         llm_summary = (
             llm_text if llm_text else "주간 요약 생성 실패"
         )
@@ -938,7 +902,7 @@ async def run_monthly_report() -> dict:
             "다음 달 주의사항을 한국어로 3-4 문장으로 요약해 주세요."
         )
 
-        llm_text = await _call_llm(client, llm_prompt, max_tokens=400)
+        llm_text = await call_llm_text(llm_prompt, max_tokens=400)
         llm_summary = llm_text if llm_text else "월간 요약 생성 실패"
 
         total_anomaly = sum(s["total_anomaly_hours"] for s in system_summary.values())
@@ -1077,7 +1041,7 @@ async def _run_single_period_report(
         "우려되는 장기 추세, 향후 권고사항을 한국어로 4-5 문장으로 요약해 주세요."
     )
 
-    llm_text = await _call_llm(client, llm_prompt, max_tokens=500)
+    llm_text = await call_llm_text(llm_prompt, max_tokens=500)
     llm_summary = llm_text if llm_text else "장기 요약 생성 실패"
 
     total_anomaly = sum(s["total_anomaly_hours"] for s in system_summary.values())
@@ -1244,7 +1208,7 @@ async def _process_single_trend_alert(
                 "}"
             )
 
-            llm_text = await _call_llm(client, llm_prompt, max_tokens=300)
+            llm_text = await call_llm_text(llm_prompt, max_tokens=300)
             llm_result = _parse_llm_json(llm_text, {
                 "severity": "warning",
                 "trend_summary": "분석 실패",
