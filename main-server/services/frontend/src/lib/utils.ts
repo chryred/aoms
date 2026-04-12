@@ -3,6 +3,7 @@ import { twMerge } from 'tailwind-merge'
 import type { AnomalyType, Severity } from '@/types/alert'
 import type { LlmSeverity } from '@/types/aggregation'
 import type { ReportType } from '@/types/report'
+import type { AgentType } from '@/types/agent'
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
@@ -28,7 +29,10 @@ export function formatKST(
 
 // 상대 시간 (1시간 이내: "3분 전", 이상: KST 절대)
 export function formatRelative(utcDate: string): string {
-  const diff = Date.now() - new Date(utcDate).getTime()
+  // naive UTC 문자열(타임존 접미사 없음)을 UTC로 해석
+  const normalized =
+    !utcDate.endsWith('Z') && !/[+-]\d{2}:?\d{2}$/.test(utcDate) ? utcDate + 'Z' : utcDate
+  const diff = Date.now() - new Date(normalized).getTime()
   const mins = Math.floor(diff / 60_000)
   if (mins < 1) return '방금 전'
   if (mins < 60) return `${mins}분 전`
@@ -61,25 +65,22 @@ export function anomalyColor(type: AnomalyType | null): string {
   }
 }
 
-export function summarizeMetrics(metricsJson: string, collectorType: string): string {
+// 에이전트 타입 라벨 (공통)
+export const AGENT_TYPE_LABEL: Record<AgentType, string> = {
+  synapse_agent: 'Synapse Agent',
+  oracle_db: 'Oracle DB',
+}
+
+export function getAgentTypeLabel(type: string): string {
+  return AGENT_TYPE_LABEL[type as AgentType] ?? type
+}
+
+export function summarizeMetrics(metricsJson: string, _collectorType?: string): string {
   try {
     const parsed = JSON.parse(metricsJson) as Record<string, number>
-    if (collectorType === 'node_exporter') {
-      const parts: string[] = []
-      if ('cpu_avg' in parsed) parts.push(`CPU avg ${parsed.cpu_avg.toFixed(1)}%`)
-      if ('mem_avg' in parsed) parts.push(`MEM avg ${parsed.mem_avg.toFixed(1)}%`)
-      if ('disk_avg' in parsed) parts.push(`Disk avg ${parsed.disk_avg.toFixed(1)}%`)
-      return parts.join(' | ')
-    }
-    if (collectorType === 'jmx_exporter') {
-      const parts: string[] = []
-      if ('heap_avg' in parsed) parts.push(`Heap avg ${parsed.heap_avg.toFixed(1)}%`)
-      if ('gc_count' in parsed) parts.push(`GC ${parsed.gc_count}회`)
-      return parts.join(' | ')
-    }
     return Object.entries(parsed)
       .slice(0, 3)
-      .map(([k, v]) => `${k}: ${v}`)
+      .map(([k, v]) => `${k}: ${typeof v === 'number' ? v : v}`)
       .join(' | ')
   } catch {
     return '-'

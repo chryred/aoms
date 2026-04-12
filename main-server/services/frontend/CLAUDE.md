@@ -127,6 +127,48 @@ VITE_LOG_ANALYZER_URL    # log-analyzer 주소 (운영: http://log-analyzer:8000
 
 ---
 
+## 타임존 규칙 (반복 개선 항목)
+
+**백엔드는 모든 날짜를 naive UTC로 저장한다** (타임존 접미사 없음). 프론트엔드에서 반드시 KST(UTC+9)로 변환하여 표시해야 한다.
+
+### 필수 사용 함수 (`src/lib/utils.ts`)
+
+| 함수 | 용도 |
+|---|---|
+| `formatKST(utcDate, format)` | 절대 시각 표시 (날짜, 시간, datetime) |
+| `formatRelative(utcDate)` | 상대 시각 표시 ("3분 전", "2시간 전") |
+| `formatPeriodLabel(periodType, startDate)` | 집계 기간 라벨 ("2026.04.12 (토)") |
+
+### 금지 패턴
+
+```typescript
+// BAD — naive UTC 문자열을 로컬 시간으로 잘못 해석함
+new Date(utcDate).toLocaleString('ko-KR')
+new Date(utcDate).toLocaleDateString('ko-KR')
+new Date(utcDate).toLocaleTimeString('ko-KR')
+
+// BAD — naive UTC 문자열과 로컬 Date.now()를 직접 비교하면 9시간 차이 발생
+Date.now() - new Date(utcDate).getTime()
+
+// GOOD — utils.ts 함수 사용
+formatKST(utcDate, 'datetime')
+formatRelative(utcDate)
+```
+
+### naive UTC 정규화 패턴
+
+백엔드가 `"2026-04-12T10:12:08"` (Z 없음)을 반환하면 JavaScript `new Date()`는 이를 **로컬 시간**으로 해석한다. UTC로 강제하려면:
+
+```typescript
+const normalized = !utcDate.endsWith('Z') && !/[+-]\d{2}:?\d{2}$/.test(utcDate)
+  ? utcDate + 'Z'
+  : utcDate
+```
+
+이 정규화는 `formatKST()`와 `formatRelative()`에 이미 내장되어 있다. 새 날짜 표시 로직을 작성할 때는 반드시 이 함수를 사용할 것.
+
+---
+
 ## Design Context
 
 > 자세한 내용은 `.impeccable.md` 참조. 여기서는 핵심만 요약.

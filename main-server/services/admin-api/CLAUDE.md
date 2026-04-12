@@ -182,10 +182,12 @@ docker exec -it aoms-admin-api \
 ### 통합 대시보드 `/api/v1/dashboard` (Phase 8)
 - `GET /system-health` — 전체 시스템 상태 종합 조회
   - 응답: `{ summary: { total_systems, critical_systems, warning_systems, normal_systems, total_metric_alerts, total_log_critical, total_log_warning, last_updated }, systems: [...] }`
-  - 상태 판정 기준: 메트릭 알림 (critical/warning) + 로그분석 (critical/warning, 최근 1시간) + 수집기 활성 여부
+  - 상태 판정 기준: 메트릭 알림 (critical/warning) + 로그분석 (critical/warning) — **조회 기간: 최근 10분**
+  - `total_log_critical` / `total_log_warning`: 전체 시스템 최근 10분 로그분석 건수 합계
+  - 시스템 카드 reason 텍스트: "수집 알림 N개" (메트릭 알림) / "로그 이상 감지|경고"
 - `GET /systems/{id}/detailed` — 시스템 상세 정보 조회
   - 응답: `{ system_id, display_name, metric_alerts: [...], log_analysis: { latest_count, critical_count, warning_count, incidents: [...] }, contacts: [...], last_updated }`
-  - 메트릭 알림, 로그분석 결과 (최근 1시간, 5개), 담당자 정보 포함
+  - 메트릭 알림, 로그분석 결과 (최근 10분, 5개), 담당자 정보 포함
 
 ### WebSocket 실시간 알림 `/ws/dashboard` (Phase 8)
 - **연결**: `WebSocket ws://host:8080/api/v1/ws/dashboard`

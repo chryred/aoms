@@ -55,8 +55,10 @@ export interface CollectionStatus {
 }
 
 export interface CollectionsInfo {
-  metric_hourly_patterns: CollectionStatus
-  aggregation_summaries: CollectionStatus
+  log_incidents?: CollectionStatus
+  metric_baselines?: CollectionStatus
+  metric_hourly_patterns?: CollectionStatus
+  aggregation_summaries?: CollectionStatus
 }
 
 export interface SearchParams {

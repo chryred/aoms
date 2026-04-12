@@ -1,4 +1,4 @@
-export type AgentType = 'alloy' | 'node_exporter' | 'jmx_exporter' | 'synapse_agent' | 'oracle_db'
+export type AgentType = 'synapse_agent' | 'oracle_db'
 
 export interface LogMonitorEntry {
   paths: string[]
