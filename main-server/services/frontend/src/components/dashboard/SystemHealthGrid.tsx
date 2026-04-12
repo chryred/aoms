@@ -147,15 +147,14 @@ export const SystemHealthGrid = memo(function SystemHealthGrid({
         </NeuCard>
       ) : (
         <NeuCard className="!p-0 overflow-hidden">
-          <div className="divide-y divide-[#2B2F37]">
-            {sortedSystems.map((system) => (
-              <EnhancedSystemCard
-                key={system.system_id}
-                system={system}
-                sparkData={sparkDataMap[Number(system.system_id)]}
-              />
-            ))}
-          </div>
+          {sortedSystems.map((system, idx) => (
+            <EnhancedSystemCard
+              key={system.system_id}
+              system={system}
+              sparkData={sparkDataMap[Number(system.system_id)]}
+              showTopBorder={idx > 0}
+            />
+          ))}
         </NeuCard>
       )}
     </div>

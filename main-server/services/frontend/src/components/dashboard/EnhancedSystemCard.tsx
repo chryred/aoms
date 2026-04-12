@@ -9,6 +9,7 @@ import type { SystemHealthData } from '@/hooks/queries/useDashboardHealth'
 interface EnhancedSystemCardProps {
   system: SystemHealthData
   sparkData?: { v: number }[]
+  showTopBorder?: boolean
 }
 
 const STATUS_CONFIG = {
@@ -71,6 +72,7 @@ function parseMetricChips(reason: string): MetricChip[] {
 export const EnhancedSystemCard = memo(function EnhancedSystemCard({
   system,
   sparkData,
+  showTopBorder = false,
 }: EnhancedSystemCardProps) {
   const navigate = useNavigate()
   const statusConfig = STATUS_CONFIG[system.status as keyof typeof STATUS_CONFIG]
@@ -93,6 +95,7 @@ export const EnhancedSystemCard = memo(function EnhancedSystemCard({
         'focus:outline-none focus-visible:ring-1 focus-visible:ring-[#00D4FF]',
         'group',
         statusConfig.borderColor,
+        showTopBorder && 'border-t border-[#2B2F37]',
       )}
     >
       {/* 상태 dot */}
