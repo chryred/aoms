@@ -1,18 +1,11 @@
 import { useNavigate } from 'react-router-dom'
-import { Terminal, Settings, ChevronRight } from 'lucide-react'
+import { Settings, ChevronRight } from 'lucide-react'
 import { NeuCard } from '@/components/neumorphic/NeuCard'
 import { AgentStatusBadge } from './AgentStatusBadge'
 import { ROUTES } from '@/constants/routes'
 import { useLiveStatus } from '@/hooks/queries/useAgents'
-import type { AgentInstance, AgentStatus, AgentType } from '@/types/agent'
-
-const AGENT_TYPE_LABEL: Record<AgentType, string> = {
-  alloy: 'Alloy',
-  node_exporter: 'Node Exporter',
-  jmx_exporter: 'JMX Exporter',
-  synapse_agent: 'synapse_agent',
-  oracle_db: 'Oracle DB',
-}
+import { getAgentTypeLabel } from '@/lib/utils'
+import type { AgentInstance, AgentStatus } from '@/types/agent'
 
 interface AgentCardProps {
   agent: AgentInstance
@@ -22,10 +15,7 @@ export function AgentCard({ agent }: AgentCardProps) {
   const navigate = useNavigate()
 
   // Prometheus 기반 라이브 상태 (synapse_agent / oracle_db, SSH 불필요)
-  const { data: liveStatus, isLoading: liveLoading } = useLiveStatus(
-    agent.id,
-    agent.agent_type,
-  )
+  const { data: liveStatus, isLoading: liveLoading } = useLiveStatus(agent.id, agent.agent_type)
 
   const supportsLive = agent.agent_type === 'synapse_agent' || agent.agent_type === 'oracle_db'
   const displayStatus: AgentStatus = liveStatus
@@ -41,16 +31,12 @@ export function AgentCard({ agent }: AgentCardProps) {
     >
       <div className="flex min-w-0 items-center gap-3">
         <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-sm bg-[rgba(0,212,255,0.08)]">
-          {agent.agent_type === 'alloy' ? (
-            <Terminal className="h-4 w-4 text-[#00D4FF]" />
-          ) : (
-            <Settings className="h-4 w-4 text-[#00D4FF]" />
-          )}
+          <Settings className="h-4 w-4 text-[#00D4FF]" />
         </div>
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <span className="text-sm font-semibold text-[#E2E8F2]">
-              {AGENT_TYPE_LABEL[agent.agent_type]}
+              {getAgentTypeLabel(agent.agent_type)}
             </span>
             <AgentStatusBadge status={displayStatus} />
             {supportsLive && liveLoading && (

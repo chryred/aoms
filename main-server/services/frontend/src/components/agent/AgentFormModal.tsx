@@ -11,8 +11,7 @@ import type { AgentType, AgentInstance, OsType, ServerType } from '@/types/agent
 import type { System } from '@/types/system'
 
 const AGENT_TYPES: { value: AgentType; label: string }[] = [
-  { value: 'synapse_agent', label: 'synapse_agent (통합 수집기)' },
-  { value: 'jmx_exporter', label: 'JMX Exporter (JVM 지표)' },
+  { value: 'synapse_agent', label: 'Synapse Agent (통합 수집기)' },
   { value: 'oracle_db', label: 'Oracle DB 수집기' },
 ]
 
@@ -25,12 +24,6 @@ const DEFAULT_PATHS: Record<
     config: '~/synapse/config.toml',
     pid: '~/synapse/agent.pid',
     port: 0,
-  },
-  jmx_exporter: {
-    install: '/opt/jmx_exporter/jmx_prometheus_standalone.jar',
-    config: '/opt/jmx_exporter/config.yaml',
-    pid: '/opt/jmx_exporter/jmx_exporter.pid',
-    port: 9404,
   },
 }
 

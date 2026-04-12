@@ -156,7 +156,7 @@ export function Sidebar() {
           <NavItem
             to={ROUTES.TRENDS}
             icon={<TrendingUp className="h-4 w-4" />}
-            label="트렌드 예측"
+            label="장애 예측"
             collapsed={collapsed}
             onNavigate={closeMobileSidebar}
           />

@@ -10,16 +10,16 @@ import { ErrorCard } from '@/components/common/ErrorCard'
 import { AlertTable } from '@/components/alert/AlertTable'
 import { AlertDetailPanel } from '@/components/alert/AlertDetailPanel'
 import { cn } from '@/lib/utils'
-import type { AlertHistory, AlertType, Severity } from '@/types/alert'
+import type { AlertHistory, Severity } from '@/types/alert'
 
 const PAGE_SIZE = 20
 type AckFilter = 'all' | 'unack' | 'ack'
-type TabType = 'all' | AlertType
+type TabType = 'all' | 'metric' | 'resolved' | 'log_analysis'
 
 const TABS: { key: TabType; label: string }[] = [
   { key: 'all', label: '전체' },
   { key: 'metric', label: '메트릭' },
-  { key: 'metric_resolved', label: '복구' },
+  { key: 'resolved', label: '복구' },
   { key: 'log_analysis', label: '로그분석' },
 ]
 
@@ -36,7 +36,9 @@ export function AlertHistoryPage() {
     error,
     refetch,
   } = useAlerts({
-    alert_type: tab === 'all' ? undefined : tab,
+    alert_type:
+      tab === 'all' ? undefined : tab === 'resolved' ? 'metric' : tab,
+    resolved: tab === 'metric' ? false : tab === 'resolved' ? true : undefined,
     severity: severity || undefined,
     acknowledged: ackFilter === 'all' ? undefined : ackFilter === 'ack',
     limit: PAGE_SIZE,

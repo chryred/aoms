@@ -28,13 +28,7 @@ import type { AgentLiveStatus, AgentStatus } from '@/types/agent'
 import { useSSHSessionStore } from '@/store/sshSessionStore'
 import { qk } from '@/constants/queryKeys'
 import { ROUTES } from '@/constants/routes'
-
-const AGENT_TYPE_LABEL: Record<string, string> = {
-  alloy: 'Alloy',
-  node_exporter: 'Node Exporter',
-  jmx_exporter: 'JMX Exporter',
-  synapse_agent: 'Synapse Agent',
-}
+import { formatKST, getAgentTypeLabel } from '@/lib/utils'
 
 const LIVE_STATUS_CONFIG: Record<AgentLiveStatus, { label: string; color: string; dot: string }> = {
   collecting: { label: '수집 중', color: 'text-[#22C55E]', dot: 'bg-[#22C55E]' },
@@ -85,8 +79,7 @@ export function AgentDetailPage() {
     staleTime: 30_000,
   })
 
-  const supportsLive =
-    agent?.agent_type === 'synapse_agent' || agent?.agent_type === 'oracle_db'
+  const supportsLive = agent?.agent_type === 'synapse_agent' || agent?.agent_type === 'oracle_db'
 
   const { data: liveStatus } = useQuery({
     queryKey: qk.agentLiveStatus(agentId),
@@ -197,7 +190,7 @@ export function AgentDetailPage() {
   return (
     <div>
       <PageHeader
-        title={`${AGENT_TYPE_LABEL[agent.agent_type] ?? agent.agent_type}`}
+        title={getAgentTypeLabel(agent.agent_type)}
         description={(() => {
           const info = (() => {
             try {
@@ -363,7 +356,7 @@ export function AgentDetailPage() {
         </NeuCard>
 
         {/* 설정 파일 편집기 */}
-        {agent.agent_type !== 'node_exporter' && (
+        {
           <NeuCard>
             <div className="mb-4 flex items-center justify-between">
               <h2 className="text-sm font-semibold text-[#E2E8F2]">설정 파일</h2>
@@ -423,7 +416,7 @@ export function AgentDetailPage() {
               </div>
             )}
           </NeuCard>
-        )}
+        }
       </div>
 
       {/* 수집 상태 (Prometheus 기반 — synapse_agent / oracle_db) */}
@@ -454,7 +447,7 @@ export function AgentDetailPage() {
                 <p className="text-xs text-[#8B97AD]">
                   마지막 수신:{' '}
                   <span className="text-[#E2E8F2]">
-                    {new Date(liveStatus.last_seen).toLocaleString('ko-KR')}
+                    {formatKST(liveStatus.last_seen, 'datetime')}
                   </span>
                 </p>
               )}

@@ -14,8 +14,13 @@ const SEVERITY_VARIANT: Record<Severity, 'critical' | 'warning' | 'info'> = {
 
 const ALERT_TYPE_LABELS: Record<string, string> = {
   metric: '메트릭',
-  metric_resolved: '복구',
   log_analysis: '로그분석',
+}
+
+function getTypeLabel(alert: AlertHistory): string {
+  if (alert.alert_type === 'metric' && alert.resolved_at) return '복구'
+  if ((alert.alert_type as string) === 'metric_resolved') return '복구'
+  return ALERT_TYPE_LABELS[alert.alert_type] ?? alert.alert_type
 }
 
 interface AlertTableProps {
@@ -71,7 +76,7 @@ export function AlertTable({ alerts, onSelect }: AlertTableProps) {
               </td>
               <td className="px-4 py-3">
                 <NeuBadge variant="muted">
-                  {ALERT_TYPE_LABELS[alert.alert_type] ?? alert.alert_type}
+                  {getTypeLabel(alert)}
                 </NeuBadge>
               </td>
               <td className="px-4 py-3">

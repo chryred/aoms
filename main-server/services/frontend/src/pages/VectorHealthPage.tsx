@@ -19,14 +19,14 @@ const COLLECTION_STATUS_MAP: Record<string, { color: string; label: string }> = 
   not_found: { color: '#5A6478', label: '미생성' },
 }
 
-// WF 번호 및 한국어 레이블
-const PIPELINE_META: Record<AggregationPipelineKey, { wf: string; label: string }> = {
-  hourly: { wf: 'WF6', label: '시간별 집계' },
-  daily: { wf: 'WF7', label: '일별 집계' },
-  weekly: { wf: 'WF8', label: '주간 리포트' },
-  monthly: { wf: 'WF9', label: '월간 리포트' },
-  longperiod: { wf: 'WF10', label: '장기 리포트' },
-  trend: { wf: 'WF11', label: '트렌드 예측' },
+// 파이프라인 레이블 (log-analyzer 내부 스케줄러 기준)
+const PIPELINE_META: Record<AggregationPipelineKey, { tag: string; label: string }> = {
+  hourly: { tag: '1시간', label: '시간별 집계' },
+  daily: { tag: '매일', label: '일별 집계' },
+  weekly: { tag: '매주', label: '주간 리포트' },
+  monthly: { tag: '매월', label: '월간 리포트' },
+  longperiod: { tag: '분기+', label: '장기 리포트' },
+  trend: { tag: '4시간', label: '장애 예측' },
 }
 
 const PIPELINE_ORDER: AggregationPipelineKey[] = [
@@ -101,18 +101,32 @@ export function VectorHealthPage() {
                 {(
                   [
                     {
+                      key: 'log_incidents',
+                      label: 'log_incidents',
+                      desc: '로그 분석 이상 이력',
+                    },
+                    {
+                      key: 'metric_baselines',
+                      label: 'metric_baselines',
+                      desc: '메트릭 알림 이상 이력',
+                    },
+                    {
                       key: 'metric_hourly_patterns',
                       label: 'metric_hourly_patterns',
-                      desc: 'WF6 시간별 집계 패턴',
+                      desc: '시간별 집계 패턴',
                     },
                     {
                       key: 'aggregation_summaries',
                       label: 'aggregation_summaries',
-                      desc: 'WF7~WF10 집계 요약',
+                      desc: '집계 요약',
                     },
                   ] as const
                 ).map(({ key, label, desc }) => {
-                  const info = collectionInfo[key]
+                  const info = collectionInfo[key] ?? {
+                    points_count: 0,
+                    vectors_count: 0,
+                    status: 'not_found',
+                  }
                   const statusMeta = COLLECTION_STATUS_MAP[info.status] ?? {
                     color: '#5A6478',
                     label: info.status,
@@ -165,7 +179,7 @@ export function VectorHealthPage() {
             <table className="w-full">
               <thead>
                 <tr className="border-b border-[#2B2F37]">
-                  {['워크플로우', '이름', '상태', '마지막 실행'].map((h) => (
+                  {['주기', '이름', '상태', '마지막 실행'].map((h) => (
                     <th
                       key={h}
                       className="px-4 py-3 text-left text-xs font-semibold tracking-wider text-[#8B97AD] uppercase"
@@ -187,7 +201,7 @@ export function VectorHealthPage() {
                     <tr key={key} className="hover:bg-[rgba(0,212,255,0.03)]">
                       <td className="px-4 py-3">
                         <span className="font-mono text-xs font-semibold text-[#00D4FF]">
-                          {meta.wf}
+                          {meta.tag}
                         </span>
                       </td>
                       <td className="px-4 py-3 text-sm text-[#E2E8F2]">{meta.label}</td>

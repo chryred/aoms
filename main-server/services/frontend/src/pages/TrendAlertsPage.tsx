@@ -35,7 +35,7 @@ export default function TrendAlertsPage() {
   return (
     <div>
       <PageHeader
-        title="트렌드 예측 알림"
+        title="장애 예측 알림"
         description="LLM 분석 기반 프로액티브 장애 예방 알림"
         action={
           <div className="flex items-center gap-2 text-sm text-[#8B97AD]">

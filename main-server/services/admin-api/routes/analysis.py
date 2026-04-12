@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
-from models import LogAnalysisHistory, System
+from models import AlertHistory, LogAnalysisHistory, System
 from routes.alerts import _get_system_and_contacts
 from routes.websocket import notify_log_analysis
 from schemas import LogAnalysisCreate, LogAnalysisOut
@@ -60,6 +60,22 @@ async def create_analysis(payload: LogAnalysisCreate, db: AsyncSession = Depends
                 record.alert_sent = sent
             except Exception as exc:
                 logger.warning("Teams 로그 분석 알림 발송 실패: %s", exc)
+
+    # warning/critical 분석 결과를 alert_history에도 기록 (알림 이력 "로그분석" 탭 연동)
+    if payload.severity in ("warning", "critical"):
+        alert_record = AlertHistory(
+            system_id=system.id,
+            alert_type="log_analysis",
+            severity=payload.severity,
+            alertname=f"LogAnalysis_{system.system_name}",
+            title=payload.root_cause or payload.analysis_result[:100],
+            description=payload.analysis_result,
+            instance_role=payload.instance_role,
+            anomaly_type=payload.anomaly_type,
+            similarity_score=payload.similarity_score,
+            qdrant_point_id=payload.qdrant_point_id,
+        )
+        db.add(alert_record)
 
     await db.commit()
     await db.refresh(record)

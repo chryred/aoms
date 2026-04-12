@@ -37,7 +37,7 @@ export function SystemDetailPage() {
   const { data: trendAlerts = [] } = useTrendAlerts()
 
   const [tab, setTab] = useState<TabKey>('metrics')
-  const [collectorType, setCollectorType] = useState('node_exporter')
+  const [collectorType, setCollectorType] = useState('synapse_agent')
   const [timeRange, setTimeRange] = useState<TimeRange>('24h')
   const [selectedAlert, setSelectedAlert] = useState<AlertHistory | null>(null)
 

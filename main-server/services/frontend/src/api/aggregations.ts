@@ -39,4 +39,31 @@ export const aggregationsApi = {
       .json<MonthlyAggregation[]>(),
 
   getTrendAlerts: () => adminApi.get('api/v1/aggregations/trend-alert').json<TrendAlert[]>(),
+
+  getMetricsRange: (params: {
+    system_id: number
+    collector_type: string
+    metric_group: string
+    start_dt: string
+    end_dt: string
+    step?: number
+  }) =>
+    adminApi
+      .get(`api/v1/systems/${params.system_id}/metrics/range`, {
+        searchParams: fp({
+          collector_type: params.collector_type,
+          metric_group: params.metric_group,
+          start_dt: params.start_dt,
+          end_dt: params.end_dt,
+          step: params.step ?? 60,
+        }),
+      })
+      .json<HourlyAggregation[]>(),
+
+  getMetricsLiveSummary: (systemId: number, collectorType: string) =>
+    adminApi
+      .get(`api/v1/systems/${systemId}/metrics/live-summary`, {
+        searchParams: fp({ collector_type: collectorType }),
+      })
+      .json<Record<string, number | null>>(),
 }

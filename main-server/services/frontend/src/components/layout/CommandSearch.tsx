@@ -13,7 +13,7 @@ interface NavItem {
 
 const NAV_ITEMS: NavItem[] = [
   { to: '/dashboard', label: '대시보드', group: '운영' },
-  { to: '/trends', label: '트렌드 예측', group: '운영' },
+  { to: '/trends', label: '장애 예측', group: '운영' },
   { to: '/alerts', label: '알림 이력', group: '알림' },
   { to: '/feedback', label: '피드백', group: '알림' },
   { to: '/reports', label: '안정성 리포트', group: '분석' },
