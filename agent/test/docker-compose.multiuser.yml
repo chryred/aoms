@@ -1,0 +1,48 @@
+# 멀티유저 synapse_agent 배포 검증 컴포즈
+#
+# 테스트 구성:
+#   target-server — openssh-server + jeussic 계정 + 1초 주기 에러 로그 자동 생성
+#                   (agent 바이너리는 frontend install 흐름으로 업로드)
+#
+# dev-prometheus/alertmanager/admin-api는 main-server의 dev 환경 그대로 사용
+#   → target-server에서 agent Remote Write → host.docker.internal:9090
+#
+# 사용법:
+#   cd agent/
+#   docker compose -f test/docker-compose.multiuser.yml up --build
+#
+# SSH 접속:
+#   ssh -p 2222 jeussic@localhost  (비밀번호: test123)
+#
+# admin-api 연동 절차 (frontend 또는 curl):
+#   1. POST /api/v1/ssh/session
+#        { host:"localhost", port:2222, username:"jeussic", password:"test123" }
+#   2. POST /api/v1/agents
+#        { system_id:X, host:"localhost", ssh_username:"jeussic",
+#          agent_type:"synapse_agent",
+#          install_path:"/home/jeussic/synapse/agent-v",
+#          config_path:"/home/jeussic/synapse/config.toml",
+#          pid_file:"/home/jeussic/synapse/agent.pid",
+#          label_info: <JSON — system_name/instance_role/collectors/log_monitors> }
+#   3. POST /api/v1/agents/install  { agent_id:X }  → 바이너리 SFTP 업로드 + config.toml 생성
+#   4. POST /api/v1/agents/{id}/start               → nohup 실행
+#   5. GET  /api/v1/agents/{id}/live-status         → Prometheus agent_up 확인
+#
+# 검증 쿼리 (http://localhost:9090):
+#   agent_up{system_name="crm"}
+#   log_error_total{system_name="crm", log_type="app"}
+#   log_error_total{system_name="crm", log_type="batch"}
+#   cpu_usage_percent{system_name="crm"}
+
+services:
+  target-server:
+    build:
+      context: ..
+      dockerfile: test/Dockerfile.target
+    container_name: synapse-target-server
+    hostname: target-server
+    ports:
+      - "2222:22"    # SSH: ssh -p 2222 jeussic@localhost (test123)
+    extra_hosts:
+      - "host.docker.internal:host-gateway"  # host machine 접근 (dev-prometheus:9090)
+    restart: unless-stopped

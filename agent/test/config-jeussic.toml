@@ -1,0 +1,41 @@
+# jeussic 계정용 synapse_agent 설정
+# 시스템: crm (고객관리시스템), 역할: was1
+# 수집: CPU + 메모리 + 네트워크 + 로그 2개 (app.log, batch.log)
+# Remote Write → dev-prometheus (host.docker.internal:9090)
+
+[agent]
+system_name           = "crm"
+display_name          = "고객관리시스템"
+instance_role         = "was1"
+host                  = "target-server"
+collect_interval_secs = 15
+top_process_count     = 10
+
+[remote_write]
+endpoint             = "http://host.docker.internal:9090/api/v1/write"
+batch_size           = 500
+timeout_secs         = 10
+wal_dir              = "/home/jeussic/synapse/wal"
+wal_retention_hours  = 2
+
+[collectors]
+cpu             = true
+memory          = true
+disk            = false
+network         = true
+process         = false
+tcp_connections = false
+log_monitor     = true
+web_servers     = false
+preprocessor    = false
+heartbeat       = true
+
+[[log_monitor]]
+paths    = ["/home/jeussic/app.log"]
+keywords = ["ERROR", "Exception", "PANIC", "Fatal", "FATAL", "Deadlock", "CRITICAL"]
+log_type = "app"
+
+[[log_monitor]]
+paths    = ["/home/jeussic/batch.log"]
+keywords = ["ERROR", "Exception", "PANIC", "Fatal", "FATAL", "Deadlock", "CRITICAL"]
+log_type = "batch"

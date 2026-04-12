@@ -1,0 +1,36 @@
+# 멀티유저 SSH 테스트용 타겟 서버 이미지
+# jeussic 계정 — SSH 접속 + app.log / batch.log 1초 주기 에러 로그 자동 생성
+# ※ agent 바이너리는 frontend install 흐름(SFTP 업로드)으로 배포하므로 포함하지 않음
+
+FROM debian:bookworm-slim
+
+RUN apt-get update && apt-get install -y \
+    openssh-server \
+    bash \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# SSH 데몬 설정: 비밀번호 인증 허용 (테스트 전용)
+RUN mkdir -p /var/run/sshd && \
+    sed -i 's/#PasswordAuthentication yes/PasswordAuthentication yes/' /etc/ssh/sshd_config && \
+    sed -i 's/PasswordAuthentication no/PasswordAuthentication yes/' /etc/ssh/sshd_config && \
+    echo "PermitRootLogin no" >> /etc/ssh/sshd_config
+
+# 테스트 계정 생성 (비밀번호: test123)
+RUN useradd -m -s /bin/bash jeussic && echo "jeussic:test123" | chpasswd
+
+# synapse agent 설치 경로 + WAL 디렉터리 사전 생성
+RUN mkdir -p /home/jeussic/synapse/wal && \
+    chown -R jeussic:jeussic /home/jeussic/
+
+# 로그 생성 스크립트
+COPY test/generate-logs.sh /usr/local/bin/generate-logs.sh
+RUN chmod +x /usr/local/bin/generate-logs.sh
+
+# 진입점
+COPY test/entrypoint-target.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
+
+EXPOSE 22
+
+ENTRYPOINT ["/entrypoint.sh"]

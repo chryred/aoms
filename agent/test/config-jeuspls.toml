@@ -1,0 +1,35 @@
+# jeuspls 계정용 synapse_agent 설정
+# 시스템: pls (PLS 서비스), 역할: app
+# 수집: 로그만 (시스템 메트릭 수집 없음)
+
+[agent]
+system_name = "pls"
+display_name = "PLS 서비스"
+instance_role = "app"
+host = "target-server"
+collect_interval_secs = 15
+top_process_count = 5
+
+[remote_write]
+endpoint = "http://test-prometheus:9090/api/v1/write"
+batch_size = 500
+timeout_secs = 10
+wal_dir = "/home/jeuspls/synapse/wal"
+wal_retention_hours = 2
+
+[collectors]
+cpu = false
+memory = false
+disk = false
+network = false
+process = false
+tcp_connections = false
+log_monitor = true
+web_servers = false
+preprocessor = false
+heartbeat = true
+
+[[log_monitor]]
+paths = ["/home/jeuspls/pls-logs/JeusServer.log"]
+keywords = ["ERROR", "CRITICAL", "PANIC", "Fatal", "Exception", "FATAL"]
+log_type = "pls"
