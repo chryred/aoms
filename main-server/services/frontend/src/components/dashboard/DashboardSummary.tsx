@@ -103,75 +103,83 @@ export const DashboardSummaryStats = memo(function DashboardSummaryStats({
   const agentHasStale = (agentSummary?.stale ?? 0) > 0
 
   return (
-    <div className="space-y-2">
-      {/* 1행: 시스템 상태 + 알림 + 에이전트 */}
-      <div className="flex flex-wrap gap-2">
-        <StatCell
-          label="위험"
-          value={summary.critical_systems}
-          icon={AlertCircle}
-          color="text-red-500"
-          glowClass={GLOW_RED}
-          borderClass="border-red-500"
-          bgClass="bg-[rgba(239,68,68,0.06)]"
-        />
-        <StatCell
-          label="경고"
-          value={summary.warning_systems}
-          icon={AlertTriangle}
-          color="text-yellow-500"
-          glowClass={GLOW_YELLOW}
-          borderClass="border-yellow-500"
-          bgClass="bg-[rgba(245,158,11,0.04)]"
-        />
-        <StatCell
-          label="정상"
-          value={summary.normal_systems}
-          icon={CheckCircle}
-          color="text-green-500"
-        />
-        <StatCell
-          label="예방"
-          value={summary.proactive_systems ?? 0}
-          icon={ShieldAlert}
-          color="text-purple-400"
-          glowClass={GLOW_PURPLE}
-          borderClass="border-purple-500"
-          bgClass="bg-[rgba(168,85,247,0.04)]"
-        />
-        <StatCell
-          label="알림"
-          value={summary.total_metric_alerts}
-          icon={TrendingUp}
-          color="text-blue-400"
-          glowClass={GLOW_BLUE}
-          borderClass="border-blue-500"
-          bgClass="bg-[rgba(59,130,246,0.04)]"
-        />
+    <div className="space-y-4">
+      {/* 시스템 상태 */}
+      <div>
+        <p className="mb-2 text-xs font-semibold uppercase text-[#5A6478]">시스템 상태</p>
+        <div className="flex flex-wrap gap-2">
+          <StatCell
+            label="위험"
+            value={summary.critical_systems}
+            icon={AlertCircle}
+            color="text-red-500"
+            glowClass={GLOW_RED}
+            borderClass="border-red-500"
+            bgClass="bg-[rgba(239,68,68,0.06)]"
+          />
+          <StatCell
+            label="경고"
+            value={summary.warning_systems}
+            icon={AlertTriangle}
+            color="text-yellow-500"
+            glowClass={GLOW_YELLOW}
+            borderClass="border-yellow-500"
+            bgClass="bg-[rgba(245,158,11,0.04)]"
+          />
+          <StatCell
+            label="정상"
+            value={summary.normal_systems}
+            icon={CheckCircle}
+            color="text-green-500"
+          />
+          <StatCell
+            label="예방"
+            value={summary.proactive_systems ?? 0}
+            icon={ShieldAlert}
+            color="text-purple-400"
+            glowClass={GLOW_PURPLE}
+            borderClass="border-purple-500"
+            bgClass="bg-[rgba(168,85,247,0.04)]"
+          />
+        </div>
+      </div>
 
-        {/* 에이전트 — 2줄 레이아웃 */}
-        {agentTotal > 0 && (
-          <div
-            className={cn(
-              'flex min-w-[100px] flex-1 items-center gap-2.5 rounded-sm bg-[#1E2127] transition-shadow duration-200',
-              agentHasStale
-                ? cn(GLOW_RED, 'border-l-4 border-red-500 bg-[rgba(239,68,68,0.06)] px-3.5 py-2')
-                : agentAllOk
-                  ? cn(NEU_RAISED, 'px-3.5 py-2')
-                  : cn(NEU_PRESSED, 'px-3 py-2'),
-            )}
-          >
-            <Radio
+      {/* 운영 현황 */}
+      <div>
+        <p className="mb-2 text-xs font-semibold uppercase text-[#5A6478]">운영 현황</p>
+        <div className="flex flex-wrap gap-2">
+          <StatCell
+            label="알림"
+            value={summary.total_metric_alerts}
+            icon={TrendingUp}
+            color="text-blue-400"
+            glowClass={GLOW_BLUE}
+            borderClass="border-blue-500"
+            bgClass="bg-[rgba(59,130,246,0.04)]"
+          />
+
+          {/* 에이전트 — "에이\n전트" 2줄 라벨 */}
+          {agentTotal > 0 && (
+            <div
               className={cn(
-                'h-3.5 w-3.5 flex-shrink-0',
-                agentAllOk
-                  ? 'text-green-500'
-                  : agentHasStale
-                    ? 'text-red-500'
-                    : 'text-yellow-500',
+                'flex min-w-[100px] flex-1 items-center gap-2.5 rounded-sm bg-[#1E2127] transition-shadow duration-200',
+                agentHasStale
+                  ? cn(GLOW_RED, 'border-l-4 border-red-500 bg-[rgba(239,68,68,0.06)] px-3.5 py-3')
+                  : agentAllOk
+                    ? cn(NEU_RAISED, 'px-3.5 py-3')
+                    : cn(NEU_PRESSED, 'px-3 py-2'),
               )}
-            />
-            <div className="flex flex-col">
+            >
+              <Radio
+                className={cn(
+                  'h-3.5 w-3.5 flex-shrink-0',
+                  agentAllOk
+                    ? 'text-green-500'
+                    : agentHasStale
+                      ? 'text-red-500'
+                      : 'text-yellow-500',
+                )}
+              />
               <div className="flex items-baseline gap-1.5">
                 <span
                   className={cn(
@@ -183,32 +191,29 @@ export const DashboardSummaryStats = memo(function DashboardSummaryStats({
                 </span>
                 <span className="text-xs text-[#5A6478]">/{agentTotal}</span>
               </div>
-              <span className="text-xs text-[#8B97AD]">에이전트</span>
+              <span className="w-6 text-center text-xs leading-tight text-[#8B97AD]">에이전트</span>
             </div>
-          </div>
-        )}
-      </div>
+          )}
 
-      {/* 2행: 로그분석 통계 */}
-      <div className="flex flex-wrap gap-2">
-        <StatCell
-          label="로그 Critical"
-          value={summary.total_log_critical}
-          icon={FileWarning}
-          color="text-red-500"
-          glowClass={GLOW_RED}
-          borderClass="border-red-500"
-          bgClass="bg-[rgba(239,68,68,0.06)]"
-        />
-        <StatCell
-          label="로그 Warning"
-          value={summary.total_log_warning}
-          icon={AlertTriangle}
-          color="text-yellow-500"
-          glowClass={GLOW_YELLOW}
-          borderClass="border-yellow-500"
-          bgClass="bg-[rgba(245,158,11,0.04)]"
-        />
+          <StatCell
+            label="로그 Critical"
+            value={summary.total_log_critical}
+            icon={FileWarning}
+            color="text-red-500"
+            glowClass={GLOW_RED}
+            borderClass="border-red-500"
+            bgClass="bg-[rgba(239,68,68,0.06)]"
+          />
+          <StatCell
+            label="로그 Warning"
+            value={summary.total_log_warning}
+            icon={AlertTriangle}
+            color="text-yellow-500"
+            glowClass={GLOW_YELLOW}
+            borderClass="border-yellow-500"
+            bgClass="bg-[rgba(245,158,11,0.04)]"
+          />
+        </div>
       </div>
     </div>
   )
