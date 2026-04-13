@@ -464,7 +464,7 @@ async def stop_agent(
     if not agent.pid_file:
         raise HTTPException(400, "pid_file 경로가 설정되어 있지 않습니다.")
 
-    cmd = f"kill $(cat {agent.pid_file}) && rm -f {agent.pid_file}"
+    cmd = f"kill $(cat {agent.pid_file}) 2>/dev/null; rm -f {agent.pid_file}; sleep 1"
     try:
         code, stdout, stderr = await asyncio.to_thread(
             ssh_exec, session["host"], session["port"], session["username"], session["password"], cmd
