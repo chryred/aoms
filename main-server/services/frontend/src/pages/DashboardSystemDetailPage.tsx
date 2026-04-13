@@ -306,14 +306,17 @@ export function DashboardSystemDetailPage() {
     return <ErrorCard onRetry={() => refetch()} />
   }
 
-  // collector-config 기반으로 수집기 목록 결정 (hourly 데이터 없어도 항목 표시)
+  // collector-config + hourly + live-summary 합집합으로 수집기 목록 결정
   // synapse_agent → db_exporter 순으로 고정 정렬
   const COLLECTOR_ORDER = ['synapse_agent', 'db_exporter']
   const configuredCollectors = [...new Set(collectorConfigs.map((c) => c.collector_type))]
   const hourlyCollectors = [...new Set(hourly.map((a) => a.collector_type))]
-  const availableCollectors = (
-    configuredCollectors.length > 0 ? configuredCollectors : hourlyCollectors
-  ).sort((a, b) => {
+  const liveCollectors = Object.entries(liveSummaryByCt)
+    .filter(([, groups]) => Object.keys(groups).length > 0)
+    .map(([ct]) => ct)
+  const availableCollectors = [
+    ...new Set([...configuredCollectors, ...hourlyCollectors, ...liveCollectors]),
+  ].sort((a, b) => {
     const ai = COLLECTOR_ORDER.indexOf(a)
     const bi = COLLECTOR_ORDER.indexOf(b)
     return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi)
@@ -325,7 +328,8 @@ export function DashboardSystemDetailPage() {
       .filter((c) => c.collector_type === ct && c.enabled)
       .map((c) => c.metric_group)
     const fromHourly = hourly.filter((a) => a.collector_type === ct).map((a) => a.metric_group)
-    return [...new Set([...configured, ...fromHourly])].sort((a, b) => {
+    const fromLive = Object.keys(liveSummaryByCt[ct] ?? {})
+    return [...new Set([...configured, ...fromHourly, ...fromLive])].sort((a, b) => {
       const ai = GROUP_ORDER.indexOf(a)
       const bi = GROUP_ORDER.indexOf(b)
       return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi)
