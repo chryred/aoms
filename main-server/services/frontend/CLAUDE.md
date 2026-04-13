@@ -184,7 +184,7 @@ const normalized = !utcDate.endsWith('Z') && !/[+-]\d{2}:?\d{2}$/.test(utcDate)
 - **3단어**: Precise · Trustworthy · Composed
 
 ### Aesthetic
-- **기준**: 뉴모피즘 유지·개선 (soft 3D shadow, 다크 베이스)
+- **기준**: 뉴모피즘 유지·개선 (soft 3D shadow), Dark/Light 모드 지원
 - **금지**: gradient glow, AI-스러운 보라/파랑 빛 번짐
 - **참조**: Linear (정밀함), Bloomberg Terminal (정보 밀도), AWS Console (엔터프라이즈)
 - **안티**: ChatGPT/Vercel AI 스타일 (purple haze, gradient shimmer)
@@ -205,19 +205,61 @@ const normalized = !utcDate.endsWith('Z') && !/[+-]\d{2}:?\d{2}$/.test(utcDate)
 
 ## Design Decisions (확정된 디자인 결정 — 되돌리지 말 것)
 
-### 색상 토큰
+### Dark/Light 모드 시스템
 
-| 역할 | 값 | 비고 |
-|---|---|---|
-| 컨텐츠 배경 | `#1E2127` | body, NeuCard, 인풋 등 |
-| 헤더·사이드바 배경 | `#252932` | TopBar, Sidebar — 컨텐츠보다 밝아 elevated 효과 |
-| 로그인 배경 | `#13151A` | AuthLayout — 카드(`#1E2127`)가 부각되도록 더 어둡게 |
-| 테두리 | `#2B2F37` | 기본 구분선 |
-| 헤더 하단 구분선 | `#9E7B2F80` (브론즈 50%) | warning amber(`#F59E0B`)와 색상 충돌 방지 |
-| 주 accent | `#00D4FF` | Synapse-V cyan — 핵심 인터랙션·포커스·활성 상태 |
-| 상태: 정상 | `#22C55E` | 장식 사용 금지 |
-| 상태: 경고 | `#F59E0B` | 장식 사용 금지 |
-| 상태: 위험 | `#EF4444` | 장식 사용 금지 |
+**아키텍처**: 2-tier CSS 변수 구조
+
+1. **스위칭 레이어** (`index.css`, `@theme` 바깥): `:root`(dark 기본) + `:root.light`(라이트 오버라이드)
+   - 변수명 접두사: `--t-xxx` (예: `--t-bg-base`, `--t-text-primary`)
+2. **토큰 레이어** (`@theme inline` 안): `var(--t-xxx)` 참조 → Tailwind 유틸리티 클래스 생성
+   - 변수명 접두사: `--color-xxx`, `--shadow-xxx` (예: `--color-bg-base` → `bg-bg-base`)
+
+**토글 메커니즘**:
+- `uiStore.ts`: `theme: 'dark' | 'light'` + `toggleTheme()` (localStorage 영속)
+- `ThemeToggle.tsx`: TopBar 사용자명 옆 Sun/Moon 아이콘 버튼
+- `index.html`: FOUC 방지 인라인 스크립트 (`localStorage → <html class="light">`)
+- DOM 동기화: `document.documentElement.classList.add/remove('light')`
+
+**색상 참조 규칙** (반드시 준수):
+```
+// GOOD — CSS 변수 기반 Tailwind 토큰 사용
+'bg-bg-base'         // 컨텐츠 배경
+'text-text-primary'  // 기본 텍스트
+'shadow-neu-flat'    // 뉴모피즘 외부 그림자
+
+// BAD — 하드코딩 hex 사용 금지
+'bg-[#1E2127]'       // ❌ 테마 전환 시 변경 안 됨
+'text-[#E2E8F2]'     // ❌
+'shadow-[3px_3px_7px_#111317,...]' // ❌
+```
+
+**accent 배경 위 텍스트**: `text-accent-contrast` 사용 (dark: `#1E2127`, light: `#FFFFFF`)
+- `text-bg-base` 사용 금지 — light 모드에서 크림색이 시안 위에서 안 보임
+
+**SVG/Recharts 색상** (Tailwind 클래스 사용 불가):
+- `MetricChart.tsx`: `useUiStore((s) => s.theme)`로 테마 읽고 색상 상수 분기
+- `LINE_COLORS_DARK` / `LINE_COLORS_LIGHT` 두 세트 유지
+
+### 색상 토큰 — CSS 변수 매핑
+
+| 역할 | Tailwind 클래스 | Dark 값 | Light 값 |
+|---|---|---|---|
+| 컨텐츠 배경 | `bg-bg-base` | `#1E2127` | `#F3F1EC` |
+| 카드/헤더/사이드바 | `bg-surface` | `#252932` | `#FFFFFF` |
+| 로그인 배경 | `bg-bg-deep` | `#13151A` | `#E8E4DB` |
+| 기본 텍스트 | `text-text-primary` | `#E2E8F2` | `#374151` |
+| 보조 텍스트 | `text-text-secondary` | `#8B97AD` | `#6B7280` |
+| 비활성 텍스트 | `text-text-disabled` | `#5A6478` | `#9CA3AF` |
+| 기본 테두리 | `border-border` | `#2B2F37` | `#D1D5DB` |
+| 브론즈 구분선 | `border-border-brand` | `#9E7B2F80` | `#D4A84780` |
+| 주 accent | `text-accent` / `bg-accent` | `#00D4FF` | `#26C6DA` |
+| accent 대비 텍스트 | `text-accent-contrast` | `#1E2127` | `#FFFFFF` |
+| 상태: 위험 | `text-critical` | `#EF4444` | `#F43F5E` |
+| 상태: 경고 | `text-warning` | `#F59E0B` | `#F97316` |
+| 상태: 정상 | `text-normal` | `#22C55E` | `#10B981` |
+| 뉴모피즘 외부 | `shadow-neu-flat` | `#111317` / `#2B2F37` | `rgba(0,0,0,0.12)` / `rgba(255,255,255,0.9)` |
+| 뉴모피즘 내부 | `shadow-neu-inset` | 상동 (inset) | 상동 (inset) |
+| 오버레이 | `bg-overlay` | `rgba(0,0,0,0.5)` | `rgba(0,0,0,0.3)` |
 
 ### 폰트
 
@@ -237,7 +279,7 @@ const normalized = !utcDate.endsWith('Z') && !/[+-]\d{2}:?\d{2}$/.test(utcDate)
 ### Focus Ring
 
 - 전체 `focus:ring-1` (1px) — `focus:ring-2`는 사용하지 않음
-- 색상: `focus:ring-[#00D4FF]`
+- 색상: `focus:ring-accent` (하드코딩 `focus:ring-[#00D4FF]` 사용 금지)
 
 ### 레이아웃 정렬
 
@@ -247,23 +289,25 @@ const normalized = !utcDate.endsWith('Z') && !/[+-]\d{2}:?\d{2}$/.test(utcDate)
 ### TopBar 구조
 
 - **페이지 타이틀 `<h2>` 없음** — 중복 표시 제거. 각 페이지의 `<PageHeader>` `<h1>`이 유일한 타이틀.
+- **ThemeToggle** (`src/components/layout/ThemeToggle.tsx`): 사용자명과 로그아웃 사이 Sun/Moon 토글
 - **CommandSearch** (`src/components/layout/CommandSearch.tsx`):
   - 메뉴 텍스트 검색 + 드롭다운 네비게이션
   - 단축키: `⌘K` (Mac) / `Ctrl+K` (Windows)
-  - 비포커스: 검색 아이콘 `#8B97AD`, 너비 `w-52`, `⌘K` 힌트 표시
-  - 포커스: 검색 아이콘 `#00D4FF`, 너비 `w-72`, cyan border + ring-1
+  - `NAV_ITEMS`는 Sidebar 메뉴와 반드시 동기화할 것
+  - 비포커스: 검색 아이콘 `text-text-secondary`, 너비 `w-52`, `⌘K` 힌트 표시
+  - 포커스: 검색 아이콘 `text-accent`, 너비 `w-72`, `border-accent` + `ring-accent`
 
 ### PeriodToggle (`src/components/reports/PeriodToggle.tsx`)
 
 - 컨테이너: `rounded-sm p-1.5` (뉴모피즘 inset shadow)
-- 비활성 버튼: `rounded-[2px]`, hover 시 `ring-1 ring-[#00D4FF4D]` (30% cyan 테두리)
-- 활성 버튼: `rounded-t-[2px] rounded-b-none` + `border-b-2 border-[#00D4FF]` (상단 2px 라운딩, 하단 직선 + cyan 언더라인)
-- 활성 텍스트: `text-white` (최대 대비), 배경 `#252932` (elevated)
+- 비활성 버튼: `rounded-[2px]`, hover 시 `ring-1 ring-accent-muted`
+- 활성 버튼: `bg-accent text-accent-contrast` + `border-b-2 border-accent`
 
 ### Sidebar
 
-- 배경: `#252932` (헤더와 동일 — 컨텐츠 영역과 구분)
-- 로고 `border-b border-[#9E7B2F80]` (헤더와 동일한 브론즈 라인, 전폭 연결)
+- 배경: `bg-surface` (헤더와 동일 — 컨텐츠 영역과 구분)
+- 로고: `border-b border-border-brand` (브론즈 라인)
+- 활성 메뉴: `bg-accent text-accent-contrast shadow-neu-pressed`
 
 ### CriticalBanner
 
