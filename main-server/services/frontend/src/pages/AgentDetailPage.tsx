@@ -100,15 +100,17 @@ export function AgentDetailPage() {
     showMsg('error', 'SSH 세션이 만료되었습니다. 재등록해 주세요.')
   }
 
+  const isDbAgent = agent?.agent_type === 'db'
+
   async function runAction(action: string, fn: () => Promise<unknown>) {
-    if (!token) {
+    if (!token && !isDbAgent) {
       setShowSSHModal(true)
       return
     }
     setActionLoading(action)
     try {
       await fn()
-      refreshExpiry()
+      if (token) refreshExpiry()
       showMsg('success', `${action} 완료`)
       await refetch()
     } catch (err) {
@@ -209,7 +211,7 @@ export function AgentDetailPage() {
               <ArrowLeft className="h-3.5 w-3.5" />
               목록
             </NeuButton>
-            {!sessionActive && (
+            {!sessionActive && !isDbAgent && (
               <NeuButton variant="glass" size="sm" onClick={() => setShowSSHModal(true)}>
                 <Lock className="h-3.5 w-3.5" />
                 SSH 세션 등록
@@ -295,9 +297,11 @@ export function AgentDetailPage() {
           <div className="flex flex-wrap gap-2">
             <NeuButton
               size="sm"
-              onClick={() => runAction('실행', () => agentsApi.startAgent(agentId, token!))}
+              onClick={() =>
+                runAction('실행', () => agentsApi.startAgent(agentId, token ?? undefined))
+              }
               loading={actionLoading === '실행'}
-              disabled={!sessionActive}
+              disabled={!isDbAgent && !sessionActive}
             >
               <Play className="h-3.5 w-3.5" />
               실행
@@ -305,9 +309,11 @@ export function AgentDetailPage() {
             <NeuButton
               size="sm"
               variant="ghost"
-              onClick={() => runAction('중지', () => agentsApi.stopAgent(agentId, token!))}
+              onClick={() =>
+                runAction('중지', () => agentsApi.stopAgent(agentId, token ?? undefined))
+              }
               loading={actionLoading === '중지'}
-              disabled={!sessionActive}
+              disabled={!isDbAgent && !sessionActive}
             >
               <Square className="h-3.5 w-3.5" />
               중지
@@ -315,9 +321,11 @@ export function AgentDetailPage() {
             <NeuButton
               size="sm"
               variant="ghost"
-              onClick={() => runAction('재시작', () => agentsApi.restartAgent(agentId, token!))}
+              onClick={() =>
+                runAction('재시작', () => agentsApi.restartAgent(agentId, token ?? undefined))
+              }
               loading={actionLoading === '재시작'}
-              disabled={!sessionActive}
+              disabled={!isDbAgent && !sessionActive}
             >
               <RotateCw className="h-3.5 w-3.5" />
               재시작
@@ -325,9 +333,15 @@ export function AgentDetailPage() {
             <NeuButton
               size="sm"
               variant="ghost"
-              onClick={() => runAction('상태 확인', () => agentsApi.getStatus(agentId, token!))}
+              onClick={() =>
+                isDbAgent
+                  ? refetch()
+                  : runAction('상태 확인', () =>
+                      agentsApi.getStatus(agentId, token ?? undefined),
+                    )
+              }
               loading={actionLoading === '상태 확인'}
-              disabled={!sessionActive}
+              disabled={!isDbAgent && !sessionActive}
             >
               <RefreshCw className="h-3.5 w-3.5" />
               상태 갱신

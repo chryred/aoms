@@ -391,6 +391,18 @@ class SSHSessionOut(BaseModel):
     expires_in: int   # 초 단위 (1800)
 
 
+import re as _re
+
+_SAFE_PATH_RE = _re.compile(r'^(/[\w.\-]+)+$')
+
+
+def _validate_unix_path(v: Optional[str]) -> Optional[str]:
+    """쉘 메타문자를 차단하는 Unix 경로 검증."""
+    if v is not None and not _SAFE_PATH_RE.match(v):
+        raise ValueError('경로는 절대 경로여야 하며 특수문자를 포함할 수 없습니다')
+    return v
+
+
 class AgentInstanceCreate(BaseModel):
     system_id: int
     host: str
@@ -405,6 +417,11 @@ class AgentInstanceCreate(BaseModel):
     server_type: Optional[str] = None  # 'web' | 'was' | 'db' | 'middleware' | 'other'
     status: Optional[str] = None       # db 에이전트 등록 시 서버에서 'installed'로 설정
 
+    @field_validator('install_path', 'config_path', 'pid_file', mode='before')
+    @classmethod
+    def check_path_safety(cls, v):
+        return _validate_unix_path(v)
+
 
 class AgentInstanceUpdate(BaseModel):
     install_path: Optional[str] = None
@@ -416,6 +433,11 @@ class AgentInstanceUpdate(BaseModel):
     ssh_username: Optional[str] = None
     os_type: Optional[str] = None
     server_type: Optional[str] = None
+
+    @field_validator('install_path', 'config_path', 'pid_file', mode='before')
+    @classmethod
+    def check_path_safety(cls, v):
+        return _validate_unix_path(v)
 
 
 class AgentInstanceOut(BaseModel):

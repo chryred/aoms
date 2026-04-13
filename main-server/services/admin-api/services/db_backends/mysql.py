@@ -5,7 +5,7 @@ import mysql.connector
 
 def _status_value(cur, variable_name: str) -> float:
     """SHOW GLOBAL STATUS에서 특정 변수 값을 float로 반환."""
-    cur.execute(f"SHOW GLOBAL STATUS LIKE '{variable_name}'")
+    cur.execute("SHOW GLOBAL STATUS LIKE %s", (variable_name,))
     row = cur.fetchone()
     return float(row[1]) if row else 0.0
 

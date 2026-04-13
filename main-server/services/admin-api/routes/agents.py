@@ -25,9 +25,13 @@ SSH 인증:
 
 import asyncio
 import json
+import logging
 import os
+import shlex
 import textwrap
 import uuid
+
+logger = logging.getLogger(__name__)
 from datetime import datetime
 from typing import Optional
 
@@ -62,6 +66,15 @@ from services.ssh_session import (
 )
 
 router = APIRouter(prefix="/api/v1", tags=["agents"])
+
+import re as _re
+_PROMQL_LABEL_RE = _re.compile(r'[^a-zA-Z0-9_.\-]')
+
+
+def _sanitize_promql_label(value: str) -> str:
+    """PromQL label 값에서 주입 가능한 문자를 제거."""
+    return _PROMQL_LABEL_RE.sub('', value)
+
 
 # ── 인메모리 Job 저장소 (DB AgentInstallJob와 병행) ──────────────────────────
 # 실행 중인 Job의 실시간 로그 버퍼 (DB는 완료 후 갱신)
@@ -118,6 +131,13 @@ def _require_session(x_ssh_session: Optional[str] = Header(None)) -> dict:
             detail="SSH 세션이 만료되었습니다. 다시 로그인해 주세요.",
         )
     return entry
+
+
+def _optional_session(x_ssh_session: Optional[str] = Header(None)) -> Optional[dict]:
+    """SSH 세션이 있으면 반환, 없으면 None. DB 에이전트처럼 SSH 불필요한 경우용."""
+    if not x_ssh_session:
+        return None
+    return get_session(x_ssh_session)
 
 
 def _check_host_match(agent, session: dict):
@@ -195,8 +215,8 @@ async def create_agent(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"DB 연결 실패 ({db_type}): {e}",
             )
-        # 연결 테스트 성공 → 등록과 동시에 installed 처리
-        body.status = "installed"
+        # 연결 테스트 성공 → 등록과 동시에 running (수집 시작)
+        body.status = "running"
 
     agent = AgentInstance(**body.model_dump())
     db.add(agent)
@@ -326,10 +346,11 @@ async def get_system_live_status(
                             label_info = json.loads(agent.label_info)
                         except Exception:
                             pass
-                    sn = label_info.get("system_name", system_name)
-                    query = f'agent_up{{system_name="{sn}",host="{agent.host}"}}'
+                    sn = _sanitize_promql_label(label_info.get("system_name", system_name))
+                    h = _sanitize_promql_label(agent.host)
+                    query = f'agent_up{{system_name="{sn}",host="{h}"}}'
                 elif agent.agent_type == "db":
-                    query = f'db_connections_active{{system_name="{system_name}"}}'
+                    query = f'db_connections_active{{system_name="{_sanitize_promql_label(system_name)}"}}'
                 else:
                     continue
 
@@ -407,50 +428,58 @@ async def _get_agent_or_404(agent_id: int, db: AsyncSession) -> AgentInstance:
 
 
 def _make_start_cmd(agent: AgentInstance) -> str:
-    """에이전트 타입별 실행 명령어 생성."""
+    """에이전트 타입별 실행 명령어 생성. shlex.quote로 경로 이스케이프."""
     if agent.agent_type == "db":
         raise HTTPException(400, "DB 에이전트는 프로세스 관리가 불필요합니다.")
+    ip = shlex.quote(agent.install_path)
+    cp = shlex.quote(agent.config_path) if agent.config_path else ""
+    pf = shlex.quote(agent.pid_file)
     if agent.agent_type == "synapse_agent":
-        return (
-            f"nohup {agent.install_path} {agent.config_path}"
-            f" > /dev/null 2>&1 & echo $! > {agent.pid_file}"
-        )
+        return f"nohup {ip} {cp} > /dev/null 2>&1 & echo $! > {pf}"
     if agent.agent_type == "alloy":
-        return (
-            f"nohup {agent.install_path} run {agent.config_path}"
-            f" > {agent.install_path}.log 2>&1 & echo $! > {agent.pid_file}"
-        )
+        return f"nohup {ip} run {cp} > {ip}.log 2>&1 & echo $! > {pf}"
     if agent.agent_type == "node_exporter":
-        return (
-            f"nohup {agent.install_path}"
-            f" > {agent.install_path}.log 2>&1 & echo $! > {agent.pid_file}"
-        )
+        return f"nohup {ip} > {ip}.log 2>&1 & echo $! > {pf}"
     # jmx_exporter
-    return (
-        f"nohup java -jar {agent.install_path} {agent.port} {agent.config_path}"
-        f" > {agent.install_path}.log 2>&1 & echo $! > {agent.pid_file}"
-    )
+    return f"nohup java -jar {ip} {agent.port} {cp} > {ip}.log 2>&1 & echo $! > {pf}"
 
 
 @router.post("/agents/{agent_id}/start", response_model=AgentStatusOut)
 async def start_agent(
     agent_id: int,
     db: AsyncSession = Depends(get_db),
-    session: dict = Depends(_require_session),
+    session: Optional[dict] = Depends(_optional_session),
     current_user=Depends(get_current_user),
 ):
     agent = await _get_agent_or_404(agent_id, db)
+
+    # DB 에이전트: SSH 없이 상태만 변경 → 수집 루프가 자동 재개
+    if agent.agent_type == "db":
+        await db.execute(
+            update(AgentInstance).where(AgentInstance.id == agent_id).values(status="running")
+        )
+        await db.commit()
+        return AgentStatusOut(agent_id=agent_id, status="running", pid=None, message="DB 수집을 시작했습니다.")
+
+    if session is None:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "X-SSH-Session 헤더가 필요합니다.")
     _check_host_match(agent, session)
     if not agent.pid_file:
         raise HTTPException(400, "pid_file 경로가 설정되어 있지 않습니다.")
 
     cmd = _make_start_cmd(agent)
     try:
-        code, stdout, stderr = await asyncio.to_thread(
-            ssh_exec, session["host"], session["port"], session["username"], session["password"], cmd
+        code, stdout, stderr = await asyncio.wait_for(
+            asyncio.to_thread(
+                ssh_exec, session["host"], session["port"], session["username"], session["password"], cmd
+            ),
+            timeout=60.0,
         )
+    except asyncio.TimeoutError:
+        raise HTTPException(504, "SSH 명령 실행 시간이 초과되었습니다 (60초).")
     except SSHError as exc:
-        raise HTTPException(502, str(exc))
+        logger.warning("SSH operation failed: %s", exc)
+        raise HTTPException(502, "원격 서버 연결에 실패했습니다.")
 
     if code != 0:
         raise HTTPException(502, f"실행 실패: {stderr.strip()}")
@@ -467,21 +496,39 @@ async def start_agent(
 async def stop_agent(
     agent_id: int,
     db: AsyncSession = Depends(get_db),
-    session: dict = Depends(_require_session),
+    session: Optional[dict] = Depends(_optional_session),
     current_user=Depends(get_current_user),
 ):
     agent = await _get_agent_or_404(agent_id, db)
+
+    # DB 에이전트: SSH 없이 상태만 변경 → 수집 루프가 자동 중단
+    if agent.agent_type == "db":
+        await db.execute(
+            update(AgentInstance).where(AgentInstance.id == agent_id).values(status="stopped")
+        )
+        await db.commit()
+        return AgentStatusOut(agent_id=agent_id, status="stopped", pid=None, message="DB 수집을 중지했습니다.")
+
+    if session is None:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "X-SSH-Session 헤더가 필요합니다.")
     _check_host_match(agent, session)
     if not agent.pid_file:
         raise HTTPException(400, "pid_file 경로가 설정되어 있지 않습니다.")
 
-    cmd = f"kill $(cat {agent.pid_file}) 2>/dev/null; rm -f {agent.pid_file}; sleep 1"
+    pf = shlex.quote(agent.pid_file)
+    cmd = f"kill $(cat {pf}) 2>/dev/null; rm -f {pf}; sleep 1"
     try:
-        code, stdout, stderr = await asyncio.to_thread(
-            ssh_exec, session["host"], session["port"], session["username"], session["password"], cmd
+        code, stdout, stderr = await asyncio.wait_for(
+            asyncio.to_thread(
+                ssh_exec, session["host"], session["port"], session["username"], session["password"], cmd
+            ),
+            timeout=60.0,
         )
+    except asyncio.TimeoutError:
+        raise HTTPException(504, "SSH 명령 실행 시간이 초과되었습니다 (60초).")
     except SSHError as exc:
-        raise HTTPException(502, str(exc))
+        logger.warning("SSH operation failed: %s", exc)
+        raise HTTPException(502, "원격 서버 연결에 실패했습니다.")
 
     await db.execute(
         update(AgentInstance).where(AgentInstance.id == agent_id).values(status="stopped")
@@ -494,25 +541,46 @@ async def stop_agent(
 async def restart_agent(
     agent_id: int,
     db: AsyncSession = Depends(get_db),
-    session: dict = Depends(_require_session),
+    session: Optional[dict] = Depends(_optional_session),
     current_user=Depends(get_current_user),
 ):
     agent = await _get_agent_or_404(agent_id, db)
+
+    # DB 에이전트: SSH 없이 상태만 running으로 설정
+    if agent.agent_type == "db":
+        await db.execute(
+            update(AgentInstance).where(AgentInstance.id == agent_id).values(status="running")
+        )
+        await db.commit()
+        return AgentStatusOut(agent_id=agent_id, status="running", pid=None, message="DB 수집을 재시작했습니다.")
+
+    if session is None:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "X-SSH-Session 헤더가 필요합니다.")
     _check_host_match(agent, session)
     if not agent.pid_file:
         raise HTTPException(400, "pid_file 경로가 설정되어 있지 않습니다.")
 
-    stop_cmd = f"kill $(cat {agent.pid_file}) 2>/dev/null; rm -f {agent.pid_file}; sleep 1"
+    pf = shlex.quote(agent.pid_file)
+    stop_cmd = f"kill $(cat {pf}) 2>/dev/null; rm -f {pf}; sleep 1"
     start_cmd = _make_start_cmd(agent)
     try:
-        await asyncio.to_thread(
-            ssh_exec, session["host"], session["port"], session["username"], session["password"], stop_cmd
+        await asyncio.wait_for(
+            asyncio.to_thread(
+                ssh_exec, session["host"], session["port"], session["username"], session["password"], stop_cmd
+            ),
+            timeout=60.0,
         )
-        code, stdout, stderr = await asyncio.to_thread(
-            ssh_exec, session["host"], session["port"], session["username"], session["password"], start_cmd
+        code, stdout, stderr = await asyncio.wait_for(
+            asyncio.to_thread(
+                ssh_exec, session["host"], session["port"], session["username"], session["password"], start_cmd
+            ),
+            timeout=60.0,
         )
+    except asyncio.TimeoutError:
+        raise HTTPException(504, "SSH 명령 실행 시간이 초과되었습니다 (60초).")
     except SSHError as exc:
-        raise HTTPException(502, str(exc))
+        logger.warning("SSH operation failed: %s", exc)
+        raise HTTPException(502, "원격 서버 연결에 실패했습니다.")
 
     if code != 0:
         raise HTTPException(502, f"재시작 실패: {stderr.strip()}")
@@ -584,7 +652,8 @@ async def get_agent_config(
             ssh_get_file, session["host"], session["port"], session["username"], session["password"], agent.config_path
         )
     except SSHError as exc:
-        raise HTTPException(502, str(exc))
+        logger.warning("SSH operation failed: %s", exc)
+        raise HTTPException(502, "원격 서버 연결에 실패했습니다.")
     except Exception as exc:
         raise HTTPException(502, f"설정 파일 조회 실패: {exc}")
     return {"agent_id": agent_id, "config_path": agent.config_path, "content": content}
@@ -607,7 +676,8 @@ async def upload_agent_config(
             agent.config_path, body.config_content,
         )
     except SSHError as exc:
-        raise HTTPException(502, str(exc))
+        logger.warning("SSH operation failed: %s", exc)
+        raise HTTPException(502, "원격 서버 연결에 실패했습니다.")
 
     # Reload: PID 파일이 있으면 재시작 (synapse_agent는 inotify 자동 감지 지원, 재시작이 더 안정적)
     reload_cmd: str
@@ -626,7 +696,8 @@ async def upload_agent_config(
             ssh_exec, session["host"], session["port"], session["username"], session["password"], reload_cmd
         )
     except SSHError as exc:
-        raise HTTPException(502, str(exc))
+        logger.warning("SSH operation failed: %s", exc)
+        raise HTTPException(502, "원격 서버 연결에 실패했습니다.")
 
     if code != 0:
         raise HTTPException(502, f"Reload 실패: {stderr.strip()}")
@@ -1076,8 +1147,8 @@ async def get_agent_live_status(
                 label_info = json.loads(agent.label_info)
             except Exception:
                 pass
-        system_name = label_info.get("system_name", "")
-        host = agent.host
+        system_name = _sanitize_promql_label(label_info.get("system_name", ""))
+        host = _sanitize_promql_label(agent.host)
 
         query = f'agent_up{{system_name="{system_name}",host="{host}"}}'
         results = []
@@ -1102,7 +1173,7 @@ async def get_agent_live_status(
 
         collectors_active = []
         try:
-            hb_query = f'agent_heartbeat{{system_name="{system_name}",host="{host}"}}'
+            hb_query = f'agent_heartbeat{{system_name="{_sanitize_promql_label(system_name)}",host="{_sanitize_promql_label(host)}"}}'
             async with httpx.AsyncClient(timeout=5.0) as client:
                 resp = await client.get(
                     f"{prometheus_url}/api/v1/query",
@@ -1130,7 +1201,7 @@ async def get_agent_live_status(
         # system_name은 Systems 테이블에서 조회
         sys_result = await db.execute(select(System).where(System.id == agent.system_id))
         system = sys_result.scalar_one_or_none()
-        system_name = system.system_name if system else ""
+        system_name = _sanitize_promql_label(system.system_name if system else "")
 
         query = f'db_connections_active{{system_name="{system_name}"}}'
         results = []

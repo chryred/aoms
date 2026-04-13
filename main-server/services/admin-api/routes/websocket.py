@@ -6,6 +6,7 @@ WebSocket 실시간 알림 스트리밍
 
 import asyncio
 import json
+import os
 from datetime import datetime
 from typing import Set
 from fastapi import WebSocketException, APIRouter, WebSocketDisconnect, WebSocket, Depends
@@ -14,6 +15,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from database import get_db
 from auth import get_current_user
 from models import AlertHistory, System, Contact
+
+_ALLOWED_ORIGINS = [
+    o.strip()
+    for o in os.getenv(
+        "CORS_ORIGINS",
+        "http://localhost:3000,http://localhost:3001,http://localhost:5173",
+    ).split(",")
+    if o.strip()
+]
 
 router = APIRouter(prefix="/api/v1", tags=["websocket"])
 
@@ -90,6 +100,11 @@ async def websocket_dashboard(websocket: WebSocket):
         "data": { ... }
     }
     """
+    # Origin 검증 — CORS_ORIGINS 환경변수와 동일한 목록 사용
+    origin = websocket.headers.get("origin", "")
+    if origin and _ALLOWED_ORIGINS and origin not in _ALLOWED_ORIGINS:
+        raise WebSocketException(code=1008, reason="Origin not allowed")
+
     await manager.connect(websocket)
 
     try:

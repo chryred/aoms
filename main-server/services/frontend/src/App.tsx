@@ -8,6 +8,7 @@ import { AdminGuard } from '@/components/layout/AdminGuard'
 import { LoginPage } from '@/pages/auth/LoginPage'
 import { LoadingSkeleton } from '@/components/common/LoadingSkeleton'
 import { DashboardAnimatedLayout } from '@/components/layout/DashboardAnimatedLayout'
+import { AgentAnimatedLayout } from '@/components/layout/AgentAnimatedLayout'
 
 const DashboardPage = lazy(() =>
   import('@/pages/DashboardPage').then((m) => ({ default: m.DashboardPage })),
@@ -194,22 +195,24 @@ export function App() {
               </Suspense>
             }
           />
-          <Route
-            path="/agents"
-            element={
-              <Suspense fallback={<LoadingSkeleton shape="card" count={4} />}>
-                <AgentListPage />
-              </Suspense>
-            }
-          />
-          <Route
-            path="/agents/:id"
-            element={
-              <Suspense fallback={<LoadingSkeleton shape="card" count={3} />}>
-                <AgentDetailPage />
-              </Suspense>
-            }
-          />
+          <Route element={<AgentAnimatedLayout />}>
+            <Route
+              path="/agents"
+              element={
+                <Suspense fallback={<LoadingSkeleton shape="card" count={4} />}>
+                  <AgentListPage />
+                </Suspense>
+              }
+            />
+            <Route
+              path="/agents/:id"
+              element={
+                <Suspense fallback={<LoadingSkeleton shape="card" count={3} />}>
+                  <AgentDetailPage />
+                </Suspense>
+              }
+            />
+          </Route>
           <Route
             path="/profile"
             element={

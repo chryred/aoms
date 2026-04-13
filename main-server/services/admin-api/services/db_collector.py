@@ -16,7 +16,7 @@ import time
 
 from cryptography.fernet import Fernet
 from prometheus_client import Gauge
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from services.db_backends import (
@@ -117,7 +117,7 @@ async def db_collection_loop(session_factory) -> None:
                     select(AgentInstance, System)
                     .join(System, AgentInstance.system_id == System.id)
                     .where(AgentInstance.agent_type == DB_AGENT_TYPE)
-                    .where(AgentInstance.status == "installed")
+                    .where(AgentInstance.status == "running")
                 )
                 rows = result.all()
 
@@ -165,8 +165,18 @@ async def db_collection_loop(session_factory) -> None:
                     _last_collected[agent.id] = time.monotonic()
                 except Exception as e:
                     logger.warning(
-                        "db collect failed [%s]: %s", system.system_name, e
+                        "db collect failed [%s]: %s — stopping collection", system.system_name, e
                     )
+                    try:
+                        async with session_factory() as err_db:
+                            await err_db.execute(
+                                update(AgentInstance)
+                                .where(AgentInstance.id == agent.id)
+                                .values(status="stopped")
+                            )
+                            await err_db.commit()
+                    except Exception as db_err:
+                        logger.error("failed to update agent status [%s]: %s", agent.id, db_err)
         except Exception as e:
             logger.error("db_collection_loop error: %s", e)
 

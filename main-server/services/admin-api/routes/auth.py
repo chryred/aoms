@@ -1,6 +1,6 @@
 import os
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional, List
@@ -50,10 +50,28 @@ class LoginResponse(BaseModel):
 
 
 # Phase 3c 스키마
+import re as _re
+
+
 class RegisterRequest(BaseModel):
     name: str
     email: str
     password: str
+
+    @staticmethod
+    def _check_password(v: str) -> str:
+        if len(v) < 12:
+            raise ValueError("비밀번호는 12자 이상이어야 합니다")
+        if not _re.search(r'[A-Z]', v):
+            raise ValueError("비밀번호에 대문자가 1개 이상 포함되어야 합니다")
+        if not _re.search(r'[0-9]', v):
+            raise ValueError("비밀번호에 숫자가 1개 이상 포함되어야 합니다")
+        return v
+
+    @field_validator('password')
+    @classmethod
+    def validate_password(cls, v):
+        return cls._check_password(v)
 
 
 class UserAdminOut(BaseModel):

@@ -49,17 +49,21 @@ export const agentsApi = {
   deleteAgent: (id: number) => adminApi.delete(`api/v1/agents/${id}`),
 
   // ── 제어 (동기) ───────────────────────────────────────────
-  startAgent: (id: number, token: string) =>
-    adminApi.post(`api/v1/agents/${id}/start`, withSession(token)).json<AgentStatusOut>(),
+  startAgent: (id: number, token?: string) =>
+    adminApi.post(`api/v1/agents/${id}/start`, token ? withSession(token) : {}).json<AgentStatusOut>(),
 
-  stopAgent: (id: number, token: string) =>
-    adminApi.post(`api/v1/agents/${id}/stop`, withSession(token)).json<AgentStatusOut>(),
+  stopAgent: (id: number, token?: string) =>
+    adminApi.post(`api/v1/agents/${id}/stop`, token ? withSession(token) : {}).json<AgentStatusOut>(),
 
-  restartAgent: (id: number, token: string) =>
-    adminApi.post(`api/v1/agents/${id}/restart`, withSession(token)).json<AgentStatusOut>(),
+  restartAgent: (id: number, token?: string) =>
+    adminApi
+      .post(`api/v1/agents/${id}/restart`, token ? withSession(token) : {})
+      .json<AgentStatusOut>(),
 
-  getStatus: (id: number, token: string) =>
-    adminApi.get(`api/v1/agents/${id}/status`, withSession(token)).json<AgentStatusOut>(),
+  getStatus: (id: number, token?: string) =>
+    adminApi
+      .get(`api/v1/agents/${id}/status`, token ? withSession(token) : {})
+      .json<AgentStatusOut>(),
 
   // ── 설정 파일 ─────────────────────────────────────────────
   getConfig: (id: number, token: string) =>

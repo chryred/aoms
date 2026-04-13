@@ -27,7 +27,7 @@ async def _create_system(client: AsyncClient) -> int:
 @pytest.mark.asyncio
 @patch.dict("os.environ", {"DB_ENCRYPTION_KEY": "UTdPqU2vURPOkzmJaP_JX3BZt-N6Jiesb6k5TChqvbs="})
 async def test_create_oracle_db_agent(authed_client: AsyncClient):
-    """oracle db_type 에이전트 등록 — password 암호화 + status=installed."""
+    """oracle db_type 에이전트 등록 — password 암호화 + status=running."""
     system_id = await _create_system(authed_client)
 
     with patch("services.db_backends.oracle.oracledb") as mock_ora:
@@ -52,7 +52,7 @@ async def test_create_oracle_db_agent(authed_client: AsyncClient):
 
     assert resp.status_code == 201
     data = resp.json()
-    assert data["status"] == "installed"
+    assert data["status"] == "running"
     # password가 encrypted_password로 변환되었는지 확인
     label = json.loads(data["label_info"])
     assert "password" not in label
@@ -267,8 +267,8 @@ async def test_delete_db_agent(authed_client: AsyncClient):
 
 @pytest.mark.asyncio
 @patch.dict("os.environ", {"DB_ENCRYPTION_KEY": "UTdPqU2vURPOkzmJaP_JX3BZt-N6Jiesb6k5TChqvbs="})
-async def test_start_db_agent_rejected(authed_client: AsyncClient):
-    """DB 에이전트 start 거부 (400)."""
+async def test_db_agent_start_stop(authed_client: AsyncClient):
+    """DB 에이전트 start/stop — SSH 없이 상태 전환."""
     system_id = await _create_system(authed_client)
 
     with patch("services.db_backends.oracle.oracledb") as mock_ora:
@@ -285,14 +285,19 @@ async def test_start_db_agent_rejected(authed_client: AsyncClient):
             }),
         })
     agent_id = resp.json()["id"]
+    assert resp.json()["status"] == "running"
 
-    # SSH 세션 없이 호출 → 401 (DB 에이전트는 SSH 자체가 불필요하므로 start 불가)
+    # SSH 세션 없이 stop → 200 (DB 에이전트는 SSH 불필요)
+    resp = await authed_client.post(f"/api/v1/agents/{agent_id}/stop")
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "stopped"
+
+    # SSH 세션 없이 start → 200
     resp = await authed_client.post(f"/api/v1/agents/{agent_id}/start")
-    assert resp.status_code == 401
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "running"
 
-    # SSH 세션이 있어도 _make_start_cmd에서 400 반환 (fake token은 401)
-    resp = await authed_client.post(
-        f"/api/v1/agents/{agent_id}/start",
-        headers={"X-SSH-Session": "fake-token"},
-    )
-    assert resp.status_code in (400, 401)
+    # restart도 동작
+    resp = await authed_client.post(f"/api/v1/agents/{agent_id}/restart")
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "running"

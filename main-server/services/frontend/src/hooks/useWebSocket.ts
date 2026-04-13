@@ -101,13 +101,12 @@ export function useWebSocketDashboard(options: UseWebSocketOptions = {}) {
           } else if (message.type === 'log_analysis_complete') {
             queryClient.invalidateQueries({ queryKey: ['systemDetailHealth'] })
           }
-        } catch (err) {
-          console.error('[WebSocket] Failed to parse message:', err)
+        } catch {
+          // JSON 파싱 실패 — 민감 정보 누출 방지를 위해 상세 로깅 생략
         }
       }
 
-      ws.onerror = (event) => {
-        console.error('[WebSocket] Error:', event)
+      ws.onerror = () => {
         setIsConnected(false)
       }
 
@@ -134,8 +133,7 @@ export function useWebSocketDashboard(options: UseWebSocketOptions = {}) {
       }
 
       wsRef.current = ws
-    } catch (err) {
-      console.error('[WebSocket] Failed to connect:', err)
+    } catch {
       setIsConnecting(false)
     }
   }, [wsUrl, autoReconnect, reconnectAttempts, reconnectDelay, queryClient])

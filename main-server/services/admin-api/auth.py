@@ -12,7 +12,14 @@ from database import get_db
 from models import User
 
 # ── 설정 ───────────────────────────────────────────────────────────────────
-SECRET_KEY = os.getenv("SECRET_KEY", "change-me-in-production")
+SECRET_KEY = os.getenv("SECRET_KEY", "")
+if not SECRET_KEY or SECRET_KEY == "change-me-in-production":
+    import warnings
+    warnings.warn(
+        "SECRET_KEY 환경변수가 설정되지 않았거나 기본값입니다. "
+        "운영 환경에서는 반드시 강력한 랜덤 값을 설정하세요.",
+        stacklevel=1,
+    )
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "15"))
 REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "7"))

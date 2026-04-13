@@ -172,9 +172,10 @@ docker exec -it aoms-admin-api \
   - MySQL: `{ "db_type": "mysql", "database": "mydb", "username": "...", "encrypted_password": "..." }`
   - 등록 시 `password` 필드로 전달하면 서버에서 Fernet 암호화 후 `encrypted_password`로 저장
 - **Strategy + Registry 패턴**: `services/db_backends/` — `BACKENDS[db_type].test_connection()` / `.collect_sync()` 디스패치
-- `install` = DB 연결 테스트 성공 → status `installed` + db_exporter collector_config 4개 자동 생성
-- `start`/`stop`/`restart` 지원 안 함 (400 반환)
-- 수집은 `db_collection_loop` 백그라운드 루프가 처리 (기본 60초 주기, `DB_ENCRYPTION_KEY` 설정 시 활성화)
+- `install` = DB 연결 테스트 성공 → status `running` (수집 즉시 시작) + db_exporter collector_config 4개 자동 생성
+- `start`/`stop`/`restart` 지원 — SSH 없이 status 전환으로 수집 제어 (`running` ↔ `stopped`)
+- 수집 루프(`db_collection_loop`)는 `status == "running"`인 에이전트만 수집 (기본 60초 주기, `DB_ENCRYPTION_KEY` 설정 시 활성화)
+- 수집 중 DB 접속 실패 시 자동으로 `status="stopped"` 전환 (에러 로그 무한 반복 방지)
 
 ### Prometheus 메트릭 엔드포인트 `/metrics` (Phase 9)
 - DB 수집 메트릭을 Prometheus 형식으로 노출 (Oracle/PostgreSQL/MSSQL/MySQL 공통)
