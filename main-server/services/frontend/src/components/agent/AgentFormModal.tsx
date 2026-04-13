@@ -7,6 +7,7 @@ import { NeuCard } from '@/components/neumorphic/NeuCard'
 import { agentsApi } from '@/api/agents'
 import { useQueryClient } from '@tanstack/react-query'
 import { qk } from '@/constants/queryKeys'
+import { useSSHSessionStore } from '@/store/sshSessionStore'
 import type { AgentType, AgentInstance, OsType, ServerType, DbType } from '@/types/agent'
 import type { System } from '@/types/system'
 
@@ -92,9 +93,11 @@ interface AgentFormModalProps {
 
 export function AgentFormModal({ systems, onClose, onCreated }: AgentFormModalProps) {
   const qc = useQueryClient()
+  const sshSession = useSSHSessionStore()
+  const sessionActive = sshSession.isValid()
   const [selectedSystemId, setSelectedSystemId] = useState<number>(systems[0]?.id ?? 0)
   const [agentType, setAgentType] = useState<AgentType>('synapse_agent')
-  const [host, setHost] = useState('')
+  const [host, setHost] = useState(sessionActive && sshSession.host ? sshSession.host : '')
   const [sshUsername, setSshUsername] = useState('')
   const [installPath, setInstallPath] = useState(DEFAULT_PATHS.synapse_agent.install)
   const [configPath, setConfigPath] = useState(DEFAULT_PATHS.synapse_agent.config)
@@ -291,6 +294,12 @@ export function AgentFormModal({ systems, onClose, onCreated }: AgentFormModalPr
                 placeholder={isDb ? 'scan.example.com' : '10.0.0.1'}
                 required
               />
+              {!isDb && sessionActive && sshSession.host && host && host !== sshSession.host && (
+                <p className="text-warning mt-1 text-xs">
+                  SSH 세션 호스트({sshSession.host})와 다릅니다. 에이전트 제어 시 오류가 발생할 수
+                  있습니다.
+                </p>
+              )}
             </div>
             {!isDb && (
               <div className="flex-1">

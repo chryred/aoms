@@ -199,7 +199,7 @@ export function AgentDetailPage() {
               return {}
             }
           })()
-          return [agent.host, agent.os_type, agent.server_type, info.instance_role]
+          return [agent.host, agent.os_type, agent.server_type, info.db_type, info.instance_role]
             .filter(Boolean)
             .join(' · ')
         })()}
@@ -259,9 +259,16 @@ export function AgentDetailPage() {
                   return {}
                 }
               })()
-              return info.instance_role ? (
-                <InfoRow label="instance_role" value={info.instance_role} />
-              ) : null
+              return (
+                <>
+                  {agent.agent_type === 'db' && info.db_type && (
+                    <InfoRow label="DB 타입" value={info.db_type} />
+                  )}
+                  {info.instance_role && (
+                    <InfoRow label="instance_role" value={info.instance_role} />
+                  )}
+                </>
+              )
             })()}
             <InfoRow label="포트" value={agent.port ? String(agent.port) : '-'} />
             {agent.agent_type !== 'db' && (
@@ -272,6 +279,17 @@ export function AgentDetailPage() {
               </>
             )}
           </dl>
+
+          {/* 호스트 불일치 경고 */}
+          {sessionActive && agent.agent_type !== 'db' && (() => {
+            const sessionHost = useSSHSessionStore.getState().host
+            return sessionHost && agent.host !== sessionHost ? (
+              <p className="text-warning mb-3 text-xs">
+                SSH 세션 호스트({sessionHost})와 에이전트 호스트({agent.host})가 다릅니다.
+                제어 명령이 올바르게 동작하지 않을 수 있습니다.
+              </p>
+            ) : null
+          })()}
 
           {/* 제어 버튼 */}
           <div className="flex flex-wrap gap-2">

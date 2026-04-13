@@ -29,7 +29,7 @@ export function useHourlyAggregations(params: HourlyParams) {
     queryKey: qk.aggregations.hourly(params),
     queryFn: () => aggregationsApi.getHourly(params),
     staleTime: 3_600_000,
-    enabled: !!params.system_id,
+    enabled: true,
   })
 }
 

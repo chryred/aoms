@@ -9,6 +9,7 @@ import { PageHeader } from '@/components/common/PageHeader'
 import { LoadingSkeleton } from '@/components/common/LoadingSkeleton'
 import { ErrorCard } from '@/components/common/ErrorCard'
 import { DashboardSummaryStats } from '@/components/dashboard/DashboardSummary'
+import { TrendMonitorSection } from '@/components/dashboard/TrendMonitorSection'
 import { SystemHealthGrid } from '@/components/dashboard/SystemHealthGrid'
 import { NeuButton } from '@/components/neumorphic/NeuButton'
 import { formatKST, cn } from '@/lib/utils'
@@ -107,6 +108,9 @@ export function DashboardPage() {
         <>
           {/* 상단: compact 통계 바 (로그분석 통계 통합) */}
           <DashboardSummaryStats summary={summary} agentSummary={agentHealth} />
+
+          {/* 추이 모니터 — 전체/다중 시스템 집계 추이 */}
+          <TrendMonitorSection systems={systems} />
 
           {/* 시스템 카드 그리드 + 필터 */}
           <section className="space-y-4">
