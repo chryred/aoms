@@ -13,14 +13,15 @@ interface NavItem {
 
 const NAV_ITEMS: NavItem[] = [
   { to: '/dashboard', label: '대시보드', group: '운영' },
+  { to: '/grafana-dashboard', label: 'Grafana 대시보드', group: '운영' },
   { to: '/trends', label: '장애 예측', group: '운영' },
   { to: '/alerts', label: '알림 이력', group: '알림' },
   { to: '/feedback', label: '피드백', group: '알림' },
   { to: '/reports', label: '안정성 리포트', group: '분석' },
   { to: '/search', label: '유사 장애 검색', group: '분석' },
+  { to: '/agents', label: '에이전트 관리', group: '관리' },
   { to: '/systems', label: '시스템 관리', group: '관리' },
   { to: '/contacts', label: '담당자 관리', group: '관리' },
-  { to: '/collector-configs', label: '수집기 설정', group: '관리' },
   { to: '/profile', label: '내 프로필', group: '계정' },
   { to: '/admin/users', label: '사용자 관리', group: '계정', adminOnly: true },
   { to: '/vector-health', label: '벡터 상태', group: '계정', adminOnly: true },
