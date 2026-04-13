@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useCallback, useEffect } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import {
   ArrowLeft,
@@ -141,6 +141,20 @@ export function DashboardSystemDetailPage() {
   const [chartPopup, setChartPopup] = useState<{ group: string; collectorType: string } | null>(
     null,
   )
+  const [popupClosing, setPopupClosing] = useState(false)
+
+  const closeChartPopup = useCallback(() => {
+    setPopupClosing(true)
+  }, [])
+
+  useEffect(() => {
+    if (!popupClosing) return
+    const timer = setTimeout(() => {
+      setChartPopup(null)
+      setPopupClosing(false)
+    }, 280) // 닫기 애니메이션 duration(0.3s)보다 약간 짧게
+    return () => clearTimeout(timer)
+  }, [popupClosing])
 
   const { data: detail, isLoading, error, refetch } = useSystemDetailHealth(systemId)
 
@@ -656,11 +670,15 @@ export function DashboardSystemDetailPage() {
       {/* 차트 팝업 */}
       {chartPopup && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
-          onClick={() => setChartPopup(null)}
+          className={`fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 ${
+            popupClosing ? 'popup-overlay-exit' : 'popup-overlay-enter'
+          }`}
+          onClick={closeChartPopup}
         >
           <div
-            className="w-full max-w-2xl rounded-sm bg-[#1E2127] p-5 shadow-[6px_6px_16px_#111317,-6px_-6px_16px_#2B2F37]"
+            className={`w-full max-w-2xl rounded-sm bg-[#1E2127] p-5 shadow-[6px_6px_16px_#111317,-6px_-6px_16px_#2B2F37] ${
+              popupClosing ? 'popup-content-exit' : 'popup-content-enter'
+            }`}
             onClick={(e) => e.stopPropagation()}
           >
             {/* 팝업 헤더 */}
@@ -680,7 +698,7 @@ export function DashboardSystemDetailPage() {
                 </p>
               </div>
               <button
-                onClick={() => setChartPopup(null)}
+                onClick={closeChartPopup}
                 className="rounded-sm p-1 text-[#8B97AD] transition-colors hover:bg-white/5 hover:text-[#E2E8F2]"
               >
                 <X className="h-5 w-5" />

@@ -240,6 +240,55 @@ pre {
   animation: slide-from-left 0.35s cubic-bezier(0.25, 1, 0.5, 1) both;
 }
 
+/* 팝업 슬라이드 (아래→위 열기, 위→아래 닫기) */
+@keyframes popup-slide-up {
+  from {
+    transform: translateY(40px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes popup-slide-down {
+  from {
+    transform: translateY(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateY(40px);
+    opacity: 0;
+  }
+}
+
+@keyframes overlay-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes overlay-fade-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+.popup-overlay-enter {
+  animation: overlay-fade-in 0.3s cubic-bezier(0.25, 1, 0.5, 1) both;
+}
+
+.popup-overlay-exit {
+  animation: overlay-fade-out 0.25s cubic-bezier(0.25, 1, 0.5, 1) both;
+}
+
+.popup-content-enter {
+  animation: popup-slide-up 0.35s cubic-bezier(0.25, 1, 0.5, 1) both;
+}
+
+.popup-content-exit {
+  animation: popup-slide-down 0.3s cubic-bezier(0.25, 1, 0.5, 1) both;
+}
+
 /* 체크마크 선 그리기 */
 @keyframes check-draw {
   to {
