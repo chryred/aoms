@@ -172,7 +172,7 @@ function ProcessTreemap({ data }: { data: ProcessSummary[] }) {
             className={cn(
               'rounded-sm px-3 py-1 text-xs font-medium transition-all',
               mode === m
-                ? 'bg-accent text-bg-base shadow-neu-flat font-semibold'
+                ? 'bg-accent text-accent-contrast shadow-neu-flat font-semibold'
                 : 'text-text-secondary hover:bg-hover-subtle hover:text-text-primary',
             )}
           >
@@ -384,7 +384,7 @@ export function DashboardSystemDetailPage() {
               className={cn(
                 'rounded-sm px-3 py-1 text-xs font-medium transition-all',
                 timeRange === r
-                  ? 'bg-accent text-bg-base shadow-neu-flat font-semibold'
+                  ? 'bg-accent text-accent-contrast shadow-neu-flat font-semibold'
                   : 'text-text-secondary hover:bg-hover-subtle hover:text-text-primary',
               )}
             >

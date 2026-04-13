@@ -127,7 +127,7 @@ export function AgentListPage() {
                 'rounded-sm px-3 py-1 text-xs font-medium transition-all',
                 'focus:ring-accent focus:ring-offset-bg-base focus:ring-1 focus:outline-none',
                 filterType === opt.value
-                  ? 'bg-accent text-bg-base shadow-neu-flat font-semibold'
+                  ? 'bg-accent text-accent-contrast shadow-neu-flat font-semibold'
                   : 'text-text-secondary hover:bg-hover-subtle hover:text-text-primary',
               )}
             >

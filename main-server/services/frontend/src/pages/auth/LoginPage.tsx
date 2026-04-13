@@ -89,7 +89,7 @@ export function LoginPage() {
   return (
     <NeuCard className="w-full max-w-md">
       <div className="mb-8 text-center">
-        <div className="bg-accent text-bg-base shadow-neu-flat mb-3 inline-flex h-14 w-14 items-center justify-center rounded-sm text-2xl font-bold">
+        <div className="bg-accent text-accent-contrast shadow-neu-flat mb-3 inline-flex h-14 w-14 items-center justify-center rounded-sm text-2xl font-bold">
           S
         </div>
         <h1 className="type-heading font-lora text-text-primary text-2xl font-bold italic">

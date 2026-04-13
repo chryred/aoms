@@ -75,6 +75,7 @@
   /* 액센트 */
   --t-accent: #00d4ff;
   --t-accent-hover: #00b8e0;
+  --t-accent-contrast: #1e2127; /* accent 배경 위 대비 텍스트 */
   --t-accent-muted: rgba(0, 212, 255, 0.1);
   --t-glass-bg: rgba(0, 212, 255, 0.08);
   --t-glass-border: rgba(0, 212, 255, 0.16);
@@ -133,14 +134,15 @@
 }
 
 :root.light {
-  /* 배경 */
-  --t-bg-base: #fdfcf7;
-  --t-bg-deep: #f0ede5;
-  --t-surface: rgba(255, 255, 255, 0.85);
+  /* 배경 — bg-base와 surface 사이 충분한 대비 확보 */
+  --t-bg-base: #f3f1ec;
+  --t-bg-deep: #e8e4db;
+  --t-surface: #ffffff;
 
   /* 액센트 */
   --t-accent: #26c6da;
   --t-accent-hover: #00b8d9;
+  --t-accent-contrast: #ffffff; /* accent 배경 위 흰색 대비 텍스트 */
   --t-accent-muted: rgba(38, 198, 218, 0.1);
   --t-glass-bg: rgba(255, 255, 255, 0.4);
   --t-glass-border: rgba(255, 255, 255, 0.1);
@@ -151,9 +153,9 @@
   --t-text-disabled: #9ca3af;
   --t-text-tertiary: #4b5563;
 
-  /* 테두리 */
-  --t-border: #e5e7eb;
-  --t-border-alt: #d1d5db;
+  /* 테두리 — 배경과 충분한 대비 확보 */
+  --t-border: #d1d5db;
+  --t-border-alt: #bfc5cd;
   --t-border-brand: #d4a84780;
 
   /* 버튼/인터랙션 */
@@ -184,21 +186,21 @@
   --t-muted-bg: rgba(0, 0, 0, 0.04);
   --t-muted-border: rgba(0, 0, 0, 0.08);
 
-  /* 뉴모피즘 그림자 (크림 글래스 모피즘) */
-  --t-shadow-neu-flat: 3px 3px 7px rgba(0, 0, 0, 0.08), -3px -3px 7px rgba(255, 255, 255, 0.7);
+  /* 뉴모피즘 그림자 (라이트 — 더 강한 대비) */
+  --t-shadow-neu-flat: 3px 3px 8px rgba(0, 0, 0, 0.12), -3px -3px 8px rgba(255, 255, 255, 0.9);
   --t-shadow-neu-flat-hover:
-    4px 4px 10px rgba(0, 0, 0, 0.1), -4px -4px 10px rgba(255, 255, 255, 0.8);
+    4px 4px 12px rgba(0, 0, 0, 0.15), -4px -4px 12px rgba(255, 255, 255, 1);
   --t-shadow-neu-inset:
-    inset 2px 2px 5px rgba(0, 0, 0, 0.06), inset -2px -2px 5px rgba(255, 255, 255, 0.5);
+    inset 2px 2px 5px rgba(0, 0, 0, 0.1), inset -2px -2px 5px rgba(255, 255, 255, 0.7);
   --t-shadow-neu-pressed:
-    inset 1px 1px 3px rgba(0, 0, 0, 0.05), inset -1px -1px 3px rgba(255, 255, 255, 0.4);
+    inset 1px 1px 3px rgba(0, 0, 0, 0.08), inset -1px -1px 3px rgba(255, 255, 255, 0.6);
 
   /* 기타 */
   --t-color-scheme: light;
   --t-overlay: rgba(0, 0, 0, 0.3);
   --t-overlay-heavy: rgba(0, 0, 0, 0.4);
   --t-btn-arc-border: rgba(200, 200, 200, 0.5);
-  --t-btn-arc-top: #fdfcf7;
+  --t-btn-arc-top: #f3f1ec;
 }
 
 /* ══════════════════════════════════════════════════════════
@@ -222,6 +224,7 @@
   --color-surface: var(--t-surface);
   --color-accent: var(--t-accent);
   --color-accent-hover: var(--t-accent-hover);
+  --color-accent-contrast: var(--t-accent-contrast);
   --color-accent-muted: var(--t-accent-muted);
   --color-glass-bg: var(--t-glass-bg);
   --color-glass-border: var(--t-glass-border);

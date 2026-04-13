@@ -51,7 +51,7 @@ function NavItem({
           'min-h-[44px]',
           'focus:ring-accent focus:ring-1 focus:outline-none',
           isActive
-            ? 'bg-accent text-bg-base font-semibold shadow-[2px_2px_5px_#111317,-2px_-2px_5px_#2B2F37]'
+            ? 'bg-accent text-accent-contrast font-semibold shadow-[2px_2px_5px_#111317,-2px_-2px_5px_#2B2F37]'
             : 'text-text-secondary hover:bg-accent-muted hover:text-text-primary',
           collapsed && 'justify-center px-2',
         )

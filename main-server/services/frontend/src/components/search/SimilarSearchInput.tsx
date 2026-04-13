@@ -65,7 +65,7 @@ export function SimilarSearchInput({
               'rounded-sm px-4 py-2 text-sm font-medium transition-all',
               'focus:ring-accent focus:ring-offset-bg-base focus:ring-1 focus:ring-offset-2 focus:outline-none',
               collection === opt.value
-                ? 'bg-accent text-bg-base shadow-neu-flat font-semibold'
+                ? 'bg-accent text-accent-contrast shadow-neu-flat font-semibold'
                 : 'bg-bg-base text-text-secondary shadow-neu-flat hover:text-text-primary',
             )}
           >

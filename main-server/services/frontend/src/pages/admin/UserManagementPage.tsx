@@ -111,7 +111,7 @@ export function UserManagementPage() {
             className={cn(
               'relative rounded-sm px-4 py-1.5 text-sm font-medium transition-all',
               activeTab === tab.key
-                ? 'bg-accent text-bg-base shadow-neu-flat font-semibold'
+                ? 'bg-accent text-accent-contrast shadow-neu-flat font-semibold'
                 : 'text-text-secondary hover:bg-hover-subtle hover:text-text-primary',
             )}
           >

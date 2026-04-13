@@ -87,7 +87,7 @@ export function ProfilePage() {
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <div className="bg-accent text-bg-base shadow-neu-flat flex h-12 w-12 items-center justify-center rounded-full text-lg font-bold">
+                <div className="bg-accent text-accent-contrast shadow-neu-flat flex h-12 w-12 items-center justify-center rounded-full text-lg font-bold">
                   {me.name.slice(0, 1)}
                 </div>
                 <div>

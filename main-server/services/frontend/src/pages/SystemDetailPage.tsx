@@ -156,7 +156,7 @@ export function SystemDetailPage() {
                   className={cn(
                     'rounded-sm px-3 py-1 text-xs font-medium transition-all',
                     collectorType === ct
-                      ? 'bg-accent text-bg-base shadow-neu-flat font-semibold'
+                      ? 'bg-accent text-accent-contrast shadow-neu-flat font-semibold'
                       : 'text-text-secondary hover:bg-hover-subtle hover:text-text-primary',
                   )}
                 >
@@ -175,7 +175,7 @@ export function SystemDetailPage() {
                 className={cn(
                   'rounded-sm px-3 py-1 text-xs font-medium transition-all',
                   timeRange === r
-                    ? 'bg-accent text-bg-base shadow-neu-flat font-semibold'
+                    ? 'bg-accent text-accent-contrast shadow-neu-flat font-semibold'
                     : 'text-text-secondary hover:bg-hover-subtle hover:text-text-primary',
                 )}
               >

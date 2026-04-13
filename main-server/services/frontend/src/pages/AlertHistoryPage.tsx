@@ -67,7 +67,7 @@ export function AlertHistoryPage() {
               'rounded-sm px-4 py-1.5 text-sm font-medium transition-all',
               'focus:ring-accent focus:ring-offset-bg-base focus:ring-1 focus:outline-none',
               tab === key
-                ? 'bg-accent text-bg-base shadow-neu-flat font-semibold'
+                ? 'bg-accent text-accent-contrast shadow-neu-flat font-semibold'
                 : 'text-text-secondary hover:bg-hover-subtle hover:text-text-primary',
             )}
           >

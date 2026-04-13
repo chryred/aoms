@@ -30,7 +30,7 @@ export function NeuButton({
         size === 'md' && 'px-4 py-2 text-sm',
         size === 'lg' && 'px-6 py-3 text-base',
         variant === 'primary' && [
-          'bg-accent text-bg-base font-semibold',
+          'bg-accent text-accent-contrast font-semibold',
           'shadow-[2px_2px_5px_#111317,-2px_-2px_5px_#2B2F37]',
           'hover:bg-accent-hover',
           'active:bg-accent-hover active:shadow-[inset_2px_2px_6px_rgba(0,0,0,0.3)]',
