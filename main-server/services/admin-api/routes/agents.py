@@ -936,7 +936,7 @@ async def _run_install(
                     f'instance_role = "{instance_role}"\n'
                     f'host = "{agent.host}"\n'
                     f'collect_interval_secs = 15\n'
-                    f'top_process_count = 20\n'
+                    f'top_process_count = 5\n'
                     f'log_dir = "{log_dir}"\n'
                     f'log_retention_days = 7\n'
                     f'\n'
