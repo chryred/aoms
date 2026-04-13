@@ -16,6 +16,7 @@ import {
   useCollectorConfigs,
   useMetricsRange,
   useMetricsLiveSummary,
+  useProcessSummary,
 } from '@/hooks/queries/useAggregations'
 import { useSystemLiveStatus } from '@/hooks/queries/useAgents'
 import { LoadingSkeleton } from '@/components/common/LoadingSkeleton'
@@ -25,6 +26,7 @@ import { NeuBadge } from '@/components/neumorphic/NeuBadge'
 import { MetricChart } from '@/components/charts/MetricChart'
 import { getMetricKeys } from '@/lib/metrics-transform'
 import { formatKST, cn } from '@/lib/utils'
+import type { ProcessSummary } from '@/api/aggregations'
 
 type TimeRange = '6h' | '12h' | '24h' | '48h'
 const HOURS_MAP: Record<TimeRange, number> = { '6h': 6, '12h': 12, '24h': 24, '48h': 48 }
@@ -134,6 +136,84 @@ function getMetricStatus(
   }
 }
 
+/**
+ * 프로세스 사용량 Treemap — CPU/메모리 % 기반 타일 크기 + 사용량 색상
+ */
+function ProcessTreemap({ data }: { data: ProcessSummary[] }) {
+  const [mode, setMode] = useState<'cpu' | 'mem'>('cpu')
+
+  // 타일 크기 계산 (최소 비율 보장)
+  const total = data.reduce(
+    (s, p) => s + Math.max(p[mode === 'cpu' ? 'cpu_percent' : 'mem_percent'], 0.1),
+    0,
+  )
+
+  function getTileColor(pct: number): string {
+    if (pct >= 80) return 'bg-[#EF4444]/20 border-[#EF4444]/40'
+    if (pct >= 60) return 'bg-[#F59E0B]/15 border-[#F59E0B]/30'
+    if (pct >= 30) return 'bg-[#00D4FF]/10 border-[#00D4FF]/20'
+    return 'bg-[#22C55E]/10 border-[#22C55E]/20'
+  }
+
+  function getTextColor(pct: number): string {
+    if (pct >= 80) return 'text-[#EF4444]'
+    if (pct >= 60) return 'text-[#F59E0B]'
+    return 'text-[#E2E8F2]'
+  }
+
+  return (
+    <div className="space-y-2">
+      {/* CPU / 메모리 토글 */}
+      <div className="flex w-fit gap-1 rounded-sm bg-[#1E2127] p-1 shadow-[inset_1px_1px_3px_#111317,inset_-1px_-1px_3px_#2B2F37]">
+        {(['cpu', 'mem'] as const).map((m) => (
+          <button
+            key={m}
+            onClick={() => setMode(m)}
+            className={cn(
+              'rounded-sm px-3 py-1 text-xs font-medium transition-all',
+              mode === m
+                ? 'bg-[#00D4FF] font-semibold text-[#1E2127] shadow-[2px_2px_4px_#111317]'
+                : 'text-[#8B97AD] hover:bg-white/5 hover:text-[#E2E8F2]',
+            )}
+          >
+            {m === 'cpu' ? 'CPU' : '메모리'}
+          </button>
+        ))}
+      </div>
+
+      {/* Treemap 그리드 */}
+      <div className="flex flex-wrap gap-1.5">
+        {data.map((proc) => {
+          const pct = mode === 'cpu' ? proc.cpu_percent : proc.mem_percent
+          const ratio = Math.max(pct, 0.1) / total
+          // 최소 너비 80px, 최대 100%
+          const widthPct = Math.max(ratio * 100, 8)
+
+          return (
+            <div
+              key={proc.name}
+              className={cn('rounded-sm border p-2.5 transition-colors', getTileColor(pct))}
+              style={{
+                flexBasis: `calc(${widthPct}% - 6px)`,
+                minWidth: '80px',
+                flexGrow: 1,
+              }}
+            >
+              <div className="truncate text-xs font-medium text-[#E2E8F2]">{proc.name}</div>
+              <div className={cn('mt-1 text-lg font-bold tabular-nums', getTextColor(pct))}>
+                {pct.toFixed(1)}%
+              </div>
+              <div className="mt-0.5 text-[10px] text-[#8B97AD]">
+                {mode === 'cpu' ? 'CPU' : `${(proc.mem_bytes / 1024 / 1024).toFixed(0)} MB`}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 export function DashboardSystemDetailPage() {
   const { systemId } = useParams<{ systemId: string }>()
 
@@ -198,6 +278,7 @@ export function DashboardSystemDetailPage() {
     numericId || null,
     'db_exporter',
   )
+  const { data: processSummary = [] } = useProcessSummary(numericId || null)
 
   const liveSummaryByCt: Record<string, Record<string, number | null>> = {
     synapse_agent: synapseAgentLiveSummary as Record<string, number | null>,
@@ -383,6 +464,14 @@ export function DashboardSystemDetailPage() {
           </div>
         )}
       </section>
+
+      {/* 프로세스 사용량 */}
+      {processSummary.length > 0 && (
+        <section className="space-y-3">
+          <h2 className="text-lg font-semibold text-[#E2E8F2]">프로세스 사용량</h2>
+          <ProcessTreemap data={processSummary} />
+        </section>
+      )}
 
       {/* 1️⃣ 활성 알림 */}
       <section className="space-y-4">

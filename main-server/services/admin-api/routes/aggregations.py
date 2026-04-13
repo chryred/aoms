@@ -564,3 +564,87 @@ async def get_metrics_live_summary(
                 result[group] = None
 
     return result
+
+
+# ── /systems/{system_id}/metrics/process-summary ──────────────────────────
+
+@_metrics_router.get("/{system_id}/metrics/process-summary")
+async def get_process_summary(
+    system_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    프로세스별 CPU/메모리 사용량 반환 (Treemap 시각화용).
+    process_cpu_percent, process_memory_bytes instant query → 프로세스별 % 계산.
+    """
+    import asyncio
+    import httpx
+
+    prom_url = _PROMETHEUS_URL or os.getenv("PROMETHEUS_URL", "").rstrip("/")
+    if not prom_url:
+        return []
+
+    system = await db.get(System, system_id)
+    if not system:
+        raise HTTPException(status_code=404, detail="System not found")
+
+    sn = system.system_name
+
+    async with httpx.AsyncClient() as client:
+        # 3개 쿼리 병렬 실행: CPU%, 메모리 bytes, 전체 메모리
+        async def _query(promql: str):
+            try:
+                resp = await client.get(
+                    f"{prom_url}/api/v1/query",
+                    params={"query": promql},
+                    timeout=10.0,
+                )
+                resp.raise_for_status()
+                return resp.json().get("data", {}).get("result", [])
+            except Exception as exc:
+                logger.warning("process-summary: 쿼리 실패: %s — %s", promql[:80], exc)
+                return []
+
+        cpu_res, mem_res, total_res = await asyncio.gather(
+            _query(f'process_cpu_percent{{system_name="{sn}"}}'),
+            _query(f'process_memory_bytes{{system_name="{sn}"}}'),
+            _query(f'memory_used_bytes{{system_name="{sn}",type="total"}}'),
+        )
+
+    # 전체 메모리 (bytes)
+    total_mem = None
+    if total_res:
+        try:
+            total_mem = float(total_res[0].get("value", [None, None])[1])
+        except (TypeError, ValueError, IndexError):
+            pass
+
+    # CPU — process/service_name 기준으로 합산
+    proc_map: dict[str, dict] = {}
+    for series in cpu_res:
+        labels = series.get("metric", {})
+        name = labels.get("service_display") or labels.get("service_name") or labels.get("process", "unknown")
+        val = series.get("value", [None, None])[1]
+        if val is None:
+            continue
+        cpu_pct = float(val)
+        if name not in proc_map:
+            proc_map[name] = {"name": name, "cpu_percent": 0.0, "mem_percent": 0.0, "mem_bytes": 0}
+        proc_map[name]["cpu_percent"] = round(proc_map[name]["cpu_percent"] + cpu_pct, 2)
+
+    # 메모리 — 같은 키로 합산
+    for series in mem_res:
+        labels = series.get("metric", {})
+        name = labels.get("service_display") or labels.get("service_name") or labels.get("process", "unknown")
+        val = series.get("value", [None, None])[1]
+        if val is None:
+            continue
+        mem_bytes = float(val)
+        if name not in proc_map:
+            proc_map[name] = {"name": name, "cpu_percent": 0.0, "mem_percent": 0.0, "mem_bytes": 0}
+        proc_map[name]["mem_bytes"] = round(proc_map[name]["mem_bytes"] + mem_bytes)
+        if total_mem and total_mem > 0:
+            proc_map[name]["mem_percent"] = round(proc_map[name]["mem_bytes"] / total_mem * 100, 2)
+
+    # CPU% 내림차순 정렬
+    return sorted(proc_map.values(), key=lambda x: x["cpu_percent"], reverse=True)

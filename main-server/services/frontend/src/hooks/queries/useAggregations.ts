@@ -94,3 +94,13 @@ export function useMetricsLiveSummary(systemId: number | null, collectorType: st
     staleTime: 30_000,
   })
 }
+
+export function useProcessSummary(systemId: number | null) {
+  return useQuery({
+    queryKey: ['process-summary', systemId],
+    queryFn: () => aggregationsApi.getProcessSummary(systemId!),
+    enabled: !!systemId,
+    refetchInterval: 60_000,
+    staleTime: 30_000,
+  })
+}

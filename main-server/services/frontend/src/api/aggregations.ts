@@ -66,4 +66,14 @@ export const aggregationsApi = {
         searchParams: fp({ collector_type: collectorType }),
       })
       .json<Record<string, number | null>>(),
+
+  getProcessSummary: (systemId: number) =>
+    adminApi.get(`api/v1/systems/${systemId}/metrics/process-summary`).json<ProcessSummary[]>(),
+}
+
+export interface ProcessSummary {
+  name: string
+  cpu_percent: number
+  mem_percent: number
+  mem_bytes: number
 }
