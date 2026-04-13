@@ -103,7 +103,7 @@ export const SystemHealthGrid = memo(function SystemHealthGrid({
                   'rounded-sm px-3 py-1.5 text-xs font-medium transition-all duration-150',
                   'focus:ring-accent focus:ring-1 focus:outline-none',
                   filterStatus === status
-                    ? 'bg-accent text-accent-contrast font-semibold shadow-neu-pressed'
+                    ? 'bg-accent text-accent-contrast shadow-neu-pressed font-semibold'
                     : 'text-text-secondary hover:bg-hover-subtle hover:text-text-primary',
                 )}
               >
@@ -124,7 +124,7 @@ export const SystemHealthGrid = memo(function SystemHealthGrid({
                   'rounded-sm px-3 py-1.5 text-xs font-medium transition-all duration-150',
                   'focus:ring-accent focus:ring-1 focus:outline-none',
                   sortBy === sort
-                    ? 'bg-accent text-accent-contrast font-semibold shadow-neu-pressed'
+                    ? 'bg-accent text-accent-contrast shadow-neu-pressed font-semibold'
                     : 'text-text-secondary hover:bg-hover-subtle hover:text-text-primary',
                 )}
               >

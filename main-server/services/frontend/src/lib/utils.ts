@@ -68,7 +68,16 @@ export function anomalyColor(type: AnomalyType | null): string {
 // 에이전트 타입 라벨 (공통)
 export const AGENT_TYPE_LABEL: Record<AgentType, string> = {
   synapse_agent: 'Synapse Agent',
-  oracle_db: 'Oracle DB',
+  db: 'DB 수집기',
+}
+
+// DB 타입 라벨
+import type { DbType } from '@/types/agent'
+export const DB_TYPE_LABEL: Record<DbType, string> = {
+  oracle: 'Oracle',
+  postgresql: 'PostgreSQL',
+  mssql: 'MSSQL',
+  mysql: 'MySQL',
 }
 
 export function getAgentTypeLabel(type: string): string {
