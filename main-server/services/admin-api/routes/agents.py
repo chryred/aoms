@@ -144,15 +144,16 @@ async def create_agent(
     db: AsyncSession = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    # oracle_db: label_info의 평문 password를 Fernet으로 암호화 후 저장
-    if body.agent_type == "oracle_db" and body.label_info:
+    # db 에이전트: label_info의 평문 password를 Fernet으로 암호화 후 저장
+    if body.agent_type == "db" and body.label_info:
         import os as _os
         if not _os.getenv("DB_ENCRYPTION_KEY"):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="DB_ENCRYPTION_KEY 환경변수가 설정되지 않았습니다. Oracle DB 수집기를 등록하려면 서버에 DB_ENCRYPTION_KEY를 설정하세요.",
+                detail="DB_ENCRYPTION_KEY 환경변수가 설정되지 않았습니다. DB 수집기를 등록하려면 서버에 DB_ENCRYPTION_KEY를 설정하세요.",
             )
-        from services.oracle_collector import encrypt_password, test_connection, decrypt_password
+        from services.db_collector import encrypt_password, decrypt_password
+        from services.db_backends import BACKENDS, DB_TYPE_PORTS, get_db_identifier_key
         try:
             info = json.loads(body.label_info)
             if "password" in info:
@@ -164,20 +165,26 @@ async def create_agent(
         except json.JSONDecodeError:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="label_info가 유효한 JSON이 아닙니다.")
 
-        # Oracle 연결 테스트 — 실패 시 등록 거부
+        # db_type별 백엔드 연결 테스트 — 실패 시 등록 거부
+        db_type = info.get("db_type", "oracle")
+        backend = BACKENDS.get(db_type)
+        if not backend:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"지원하지 않는 db_type: {db_type}")
+        id_key = get_db_identifier_key(db_type)
+        default_port = DB_TYPE_PORTS.get(db_type, 1521)
         try:
             await asyncio.to_thread(
-                test_connection,
+                backend.test_connection,
                 body.host,
-                body.port or 1521,
-                info.get("service_name", ""),
+                body.port or default_port,
+                info.get(id_key, ""),
                 info.get("username", ""),
                 plain_pw,
             )
         except Exception as e:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Oracle DB 연결 실패: {e}",
+                detail=f"DB 연결 실패 ({db_type}): {e}",
             )
         # 연결 테스트 성공 → 등록과 동시에 installed 처리
         body.status = "installed"
@@ -222,15 +229,15 @@ async def get_agent_health_summary(
     )
     has_synapse_count = has_synapse.scalar() or 0
 
-    has_oracle = await db.execute(
+    has_db = await db.execute(
         select(sqlfunc.count()).select_from(
             select(AgentInstance.system_id)
-            .where(AgentInstance.agent_type == "oracle_db")
+            .where(AgentInstance.agent_type == "db")
             .distinct()
             .subquery()
         )
     )
-    has_oracle_count = has_oracle.scalar() or 0
+    has_db_count = has_db.scalar() or 0
 
     # Prometheus: system_name 단위로 수집 중인 시스템 수
     alive_systems: set[str] = set()
@@ -246,7 +253,7 @@ async def get_agent_health_summary(
                     if sn:
                         alive_systems.add(sn)
 
-            if has_oracle_count > 0:
+            if has_db_count > 0:
                 resp = await client.get(
                     f"{prometheus_url}/api/v1/query",
                     params={"query": 'count by (system_name)(count_over_time(db_connections_active[10m]))'},
@@ -273,7 +280,7 @@ async def get_system_live_status(
     current_user=Depends(get_current_user),
 ):
     """
-    시스템에 속한 에이전트(synapse_agent / oracle_db)의 Prometheus 기반 수집 여부를 반환한다.
+    시스템에 속한 에이전트(synapse_agent / db)의 Prometheus 기반 수집 여부를 반환한다.
     하나라도 최근 10분 내 데이터를 보내고 있으면 is_live=True.
     """
     import httpx
@@ -284,7 +291,7 @@ async def get_system_live_status(
     agents_result = await db.execute(
         select(AgentInstance).where(
             AgentInstance.system_id == system_id,
-            AgentInstance.agent_type.in_(["synapse_agent", "oracle_db"]),
+            AgentInstance.agent_type.in_(["synapse_agent", "db"]),
         )
     )
     agents = agents_result.scalars().all()
@@ -292,7 +299,7 @@ async def get_system_live_status(
     if not agents:
         return {"is_live": False, "agent_count": 0}
 
-    # system_name 조회 (oracle_db용)
+    # system_name 조회 (db 에이전트용)
     sys_result = await db.execute(select(System).where(System.id == system_id))
     system = sys_result.scalar_one_or_none()
     system_name = system.system_name if system else ""
@@ -312,7 +319,7 @@ async def get_system_live_status(
                             pass
                     sn = label_info.get("system_name", system_name)
                     query = f'agent_up{{system_name="{sn}",host="{agent.host}"}}'
-                elif agent.agent_type == "oracle_db":
+                elif agent.agent_type == "db":
                     query = f'db_connections_active{{system_name="{system_name}"}}'
                 else:
                     continue
@@ -370,7 +377,7 @@ async def delete_agent(
     agent = await db.get(AgentInstance, agent_id)
     if not agent:
         raise HTTPException(404, "에이전트를 찾을 수 없습니다.")
-    collector_type = "db_exporter" if agent.agent_type == "oracle_db" else "synapse_agent"
+    collector_type = "db_exporter" if agent.agent_type == "db" else "synapse_agent"
     await db.execute(
         delete(SystemCollectorConfig).where(
             SystemCollectorConfig.system_id == agent.system_id,
@@ -392,8 +399,8 @@ async def _get_agent_or_404(agent_id: int, db: AsyncSession) -> AgentInstance:
 
 def _make_start_cmd(agent: AgentInstance) -> str:
     """에이전트 타입별 실행 명령어 생성."""
-    if agent.agent_type == "oracle_db":
-        raise HTTPException(400, "oracle_db 에이전트는 프로세스 관리가 불필요합니다.")
+    if agent.agent_type == "db":
+        raise HTTPException(400, "DB 에이전트는 프로세스 관리가 불필요합니다.")
     if agent.agent_type == "synapse_agent":
         return (
             f"nohup {agent.install_path} {agent.config_path}"
@@ -623,8 +630,8 @@ async def install_agent(
 ):
     agent = await _get_agent_or_404(body.agent_id, db)
 
-    # oracle_db는 SSH 불필요 — 그 외 타입은 SSH 세션 필수
-    if agent.agent_type == "oracle_db":
+    # db 에이전트는 SSH 불필요 — 그 외 타입은 SSH 세션 필수
+    if agent.agent_type == "db":
         session: dict = {}
     else:
         if not x_ssh_session:
@@ -691,12 +698,13 @@ async def get_install_job(
     return job
 
 
-async def _run_oracle_db_connect(job_id: str, agent: AgentInstance) -> None:
+async def _run_db_connect(job_id: str, agent: AgentInstance) -> None:
     """
-    oracle_db 에이전트 '설치' = Oracle 연결 테스트 후 status 업데이트.
+    db 에이전트 '설치' = DB 연결 테스트 후 status 업데이트.
     성공 시 db_exporter system_collector_config 4개 자동 등록.
     """
-    from services.oracle_collector import decrypt_password, test_connection
+    from services.db_collector import decrypt_password
+    from services.db_backends import BACKENDS, DB_TYPE_PORTS, get_db_identifier_key
     from database import AsyncSessionLocal
 
     def _log(msg: str) -> None:
@@ -704,15 +712,22 @@ async def _run_oracle_db_connect(job_id: str, agent: AgentInstance) -> None:
 
     async with AsyncSessionLocal() as db:
         try:
-            _log("[1/1] Oracle DB 연결 테스트 중...")
             info = json.loads(agent.label_info or "{}")
+            db_type = info.get("db_type", "oracle")
+            backend = BACKENDS.get(db_type)
+            if not backend:
+                raise ValueError(f"지원하지 않는 db_type: {db_type}")
+            id_key = get_db_identifier_key(db_type)
+            default_port = DB_TYPE_PORTS.get(db_type, 1521)
+
+            _log(f"[1/1] {db_type.upper()} DB 연결 테스트 중...")
             pw = decrypt_password(info["encrypted_password"])
             await asyncio.to_thread(
-                test_connection,
+                backend.test_connection,
                 agent.host,
-                int(agent.port or 1521),
-                info["service_name"],
-                info["username"],
+                int(agent.port or default_port),
+                info.get(id_key, ""),
+                info.get("username", ""),
                 pw,
             )
             _log("[1/1] 연결 성공.")
@@ -776,9 +791,9 @@ async def _run_install(
 
     _live_jobs[job_id]["status"] = "running"
 
-    # oracle_db: SSH 불필요 — 연결 테스트 후 완료
-    if agent.agent_type == "oracle_db":
-        await _run_oracle_db_connect(job_id, agent)
+    # db 에이전트: SSH 불필요 — 연결 테스트 후 완료
+    if agent.agent_type == "db":
+        await _run_db_connect(job_id, agent)
         return
 
     # 로컬 경로 변수 초기화 (tilde 해석 전)
@@ -1023,7 +1038,7 @@ async def get_agent_live_status(
     current_user=Depends(get_current_user),
 ):
     """
-    synapse_agent / oracle_db: Prometheus에서 메트릭 수신 여부를 조회하여
+    synapse_agent / db: Prometheus에서 메트릭 수신 여부를 조회하여
     최근 10분 내 데이터가 있으면 live=True를 반환한다.
     다른 타입은 DB status를 그대로 반환한다.
     """
@@ -1095,8 +1110,8 @@ async def get_agent_live_status(
             "collectors_active": collectors_active,
         }
 
-    # ── oracle_db ─────────────────────────────────────────────────────────────
-    if agent.agent_type == "oracle_db":
+    # ── db 에이전트 ──────────────────────────────────────────────────────────
+    if agent.agent_type == "db":
         # system_name은 Systems 테이블에서 조회
         sys_result = await db.execute(select(System).where(System.id == agent.system_id))
         system = sys_result.scalar_one_or_none()
@@ -1125,7 +1140,7 @@ async def get_agent_live_status(
 
         return {
             "agent_id": agent_id,
-            "type": "oracle_db",
+            "type": "db",
             "status": agent.status,
             "live": live_status in ("collecting", "delayed"),
             "live_status": live_status,

@@ -1,4 +1,6 @@
-export type AgentType = 'synapse_agent' | 'oracle_db'
+export type AgentType = 'synapse_agent' | 'db'
+
+export type DbType = 'oracle' | 'postgresql' | 'mssql' | 'mysql'
 
 export interface LogMonitorEntry {
   paths: string[]
@@ -23,10 +25,10 @@ export interface AgentInstance {
   id: number
   system_id: number
   host: string
-  ssh_username: string | null // oracle_db는 null
+  ssh_username: string | null // db 에이전트는 null
   agent_type: AgentType
-  install_path: string | null // oracle_db는 null
-  config_path: string | null // oracle_db는 null
+  install_path: string | null // db 에이전트는 null
+  config_path: string | null // db 에이전트는 null
   port: number | null
   pid_file: string | null
   label_info: string | null
@@ -40,10 +42,10 @@ export interface AgentInstance {
 export interface AgentInstanceCreate {
   system_id: number
   host: string
-  ssh_username?: string // oracle_db는 불필요
+  ssh_username?: string // db 에이전트는 불필요
   agent_type: AgentType
-  install_path?: string // oracle_db는 불필요
-  config_path?: string // oracle_db는 불필요
+  install_path?: string // db 에이전트는 불필요
+  config_path?: string // db 에이전트는 불필요
   port?: number
   pid_file?: string
   label_info?: string

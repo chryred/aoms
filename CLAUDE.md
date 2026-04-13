@@ -380,5 +380,5 @@ make test-api   # 단위 테스트 (인프라 불필요 — SQLite in-memory)
 | Phase 6 (log-analyzer) | 완료 | aggregation_processor.PROMQL_MAP에 synapse_agent 추가 (cpu/memory/disk/network/log/web). _detect_anomaly synapse_agent 조건 추가. analyze_with_llm() dead code 제거 |
 | Phase 7 | 완료 | `instance_role` HA 의미 재정립, `[[log_monitor]]` 다중 log_type 지원, log-analyzer Loki→Prometheus 마이그레이션, Loki 컨테이너 완전 제거 |
 | Phase 8 (dashboard) | 완료 | 통합 운영 대시보드 — 하이브리드 레이아웃(통계+카드), 시스템 상태 종합 판정(메트릭+로그분석+예방패턴), WebSocket 실시간 알림 스트리밍, 예방적 패턴 감지 연동, 단위 테스트 13개 |
-| Phase 9 (Oracle DB 모니터링) | 완료 | oracle_db AgentInstance 타입 추가 — Fernet 암호화, oracledb Thin Mode 수집, /metrics Prometheus scrape 엔드포인트, synapse_agent 설치 후 collector_config 자동 등록 |
+| Phase 9 (DB 모니터링) | 완료 | `agent_type='db'` 통합 — `db_type`(oracle/postgresql/mssql/mysql)별 Strategy+Registry 패턴 수집, Fernet 암호화, /metrics Prometheus scrape 엔드포인트, collector_config 자동 등록 |
 | Phase 9 (UI 정리) | 완료 | 수집기 마법사 UI 제거 (CollectorWizardPage, CollectorConfigListPage, collector/ 컴포넌트), Sidebar "수집기 설정" 메뉴 제거, node_exporter/jmx_exporter PROMQL_MAP 및 _TEMPLATES에서 제거 |

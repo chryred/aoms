@@ -47,7 +47,14 @@ admin-api/
     ├── cooldown.py              # 알림 중복 발송 방지 (5분 쿨다운)
     ├── notification.py          # TeamsNotifier — Adaptive Card 생성·발송
     ├── ssh_session.py           # SSH 세션 인메모리 관리 (30분 슬라이딩 TTL, DB 저장 금지)
-    └── prometheus_analyzer.py  # Prometheus PromQL 이상 감지 → LLM 분석 → Teams 알림 (Phase F)
+    ├── prometheus_analyzer.py   # Prometheus PromQL 이상 감지 → LLM 분석 → Teams 알림 (Phase F)
+    ├── db_collector.py          # DB 메트릭 수집 루프 (encrypt/decrypt, Gauge, Strategy 디스패치)
+    └── db_backends/             # Strategy + Registry 패턴 DB 백엔드
+        ├── __init__.py          # DB_AGENT_TYPE, BACKENDS registry, DBBackend Protocol
+        ├── oracle.py            # Oracle (oracledb)
+        ├── postgres.py          # PostgreSQL (psycopg2)
+        ├── mssql.py             # MSSQL (pymssql)
+        └── mysql.py             # MySQL (mysql-connector-python)
 ```
 
 ## 데이터 모델
@@ -67,7 +74,7 @@ admin-api/
 | `metric_monthly_aggregations` | 월/분기/반기/연간 집계. `period_type`으로 구분 (Phase 5) |
 | `aggregation_report_history` | Teams 주기별 리포트 발송 이력. 중복 방지용 (Phase 5) |
 | `users` | 프론트엔드 인증 사용자. `role`: admin / operator. `is_approved`: admin 승인 여부 (Phase 0) |
-| `agent_instances` | 수집기 인스턴스 메타정보. `ssh_username` 저장, password 저장 금지 (Phase 6). `agent_type='oracle_db'`는 `label_info` JSON에 연결 정보 저장 (Phase 9) |
+| `agent_instances` | 수집기 인스턴스 메타정보. `ssh_username` 저장, password 저장 금지 (Phase 6). `agent_type='db'`는 `label_info` JSON에 `db_type`(oracle/postgresql/mssql/mysql) + 연결 정보 저장 (Phase 9) |
 | `agent_install_jobs` | 비동기 설치 Job 이력. `status`: pending/running/done/failed (Phase 6) |
 
 ## API 엔드포인트
@@ -148,34 +155,40 @@ docker exec -it aoms-admin-api \
 - `POST /{id}/config` — 설정 업로드 + Reload (재시작)
 
 **제어 공통 규칙:**
-- 모든 제어 요청은 `X-SSH-Session: {token}` 헤더 필수 (`oracle_db` 타입 예외 — SSH 불필요)
+- 모든 제어 요청은 `X-SSH-Session: {token}` 헤더 필수 (`db` 타입 예외 — SSH 불필요)
 - systemd 미사용 — nohup + PID 파일 방식
-- `agent_type`: `synapse_agent` | `jmx_exporter` | `oracle_db`
-- `GET /{id}/live-status` — synapse_agent 전용: Prometheus `agent_up` 쿼리 → last_seen, live_status, collectors_active 반환
+- `agent_type`: `synapse_agent` | `db`
+- `GET /{id}/live-status` — synapse_agent / db: Prometheus 쿼리 → last_seen, live_status, collectors_active 반환
 
-**oracle_db 에이전트 특이사항 (Phase 9):**
-- SSH 세션 불필요 — `install` 시 Oracle 연결 테스트만 수행
+**DB 에이전트 공통 특이사항 (Phase 9 — oracle/postgresql/mssql/mysql):**
+- `agent_type = "db"`, `label_info.db_type`으로 DB 종류 구분
+- SSH 세션 불필요 — `install` 시 DB 연결 테스트만 수행
 - `host`: SCAN 주소 또는 DB 호스트명
-- `port`: Oracle 리스너 포트 (기본 1521)
-- `label_info` JSON: `{ "service_name": "...", "username": "...", "encrypted_password": "..." }`
+- `port`: DB 기본 포트 (oracle=1521, postgresql=5432, mssql=1433, mysql=3306)
+- `label_info` JSON 예시:
+  - Oracle: `{ "db_type": "oracle", "service_name": "ORCL", "username": "...", "encrypted_password": "..." }`
+  - PostgreSQL: `{ "db_type": "postgresql", "database": "mydb", "username": "...", "encrypted_password": "..." }`
+  - MSSQL: `{ "db_type": "mssql", "database": "mydb", "username": "...", "encrypted_password": "..." }`
+  - MySQL: `{ "db_type": "mysql", "database": "mydb", "username": "...", "encrypted_password": "..." }`
   - 등록 시 `password` 필드로 전달하면 서버에서 Fernet 암호화 후 `encrypted_password`로 저장
-- `install` = Oracle 연결 테스트 성공 → status `installed` + db_exporter collector_config 4개 자동 생성
+- **Strategy + Registry 패턴**: `services/db_backends/` — `BACKENDS[db_type].test_connection()` / `.collect_sync()` 디스패치
+- `install` = DB 연결 테스트 성공 → status `installed` + db_exporter collector_config 4개 자동 생성
 - `start`/`stop`/`restart` 지원 안 함 (400 반환)
-- 수집은 `oracle_collection_loop` 백그라운드 루프가 처리 (60초 주기, `DB_ENCRYPTION_KEY` 설정 시 활성화)
+- 수집은 `db_collection_loop` 백그라운드 루프가 처리 (기본 60초 주기, `DB_ENCRYPTION_KEY` 설정 시 활성화)
 
 ### Prometheus 메트릭 엔드포인트 `/metrics` (Phase 9)
-- Oracle DB 수집 메트릭을 Prometheus 형식으로 노출
+- DB 수집 메트릭을 Prometheus 형식으로 노출 (Oracle/PostgreSQL/MSSQL/MySQL 공통)
 - Prometheus scrape 설정: `admin-api` job이 `metrics_path: /metrics`로 이미 구성됨
 - 노출 메트릭:
 
 | 메트릭명 | 설명 |
 |---|---|
-| `db_connections_active_percent` | 활성 세션 % (v$parameter sessions 대비) |
+| `db_connections_active_percent` | 활성 세션 % (max 대비) |
 | `db_connections_active` | 활성 세션 수 |
-| `db_transactions_per_second` | TPS (v$sysmetric User Transaction Per Sec) |
-| `db_slow_queries_total` | 슬로우 쿼리 수 (elapsed_time > 1초) |
+| `db_transactions_per_second` | TPS (DB별 카운터 기반) |
+| `db_slow_queries_total` | 슬로우 쿼리 수 (1초 초과) |
 | `db_cache_hit_rate_percent` | 버퍼 캐시 히트율 % |
-| `db_replication_lag_seconds` | DataGuard 복제 지연(초) |
+| `db_replication_lag_seconds` | 복제 지연(초) |
 
 레이블: `system_name`, `instance_role`
 
@@ -259,8 +272,8 @@ log-analyzer → POST /api/v1/analysis
 | `PROM_ALERT_HTTP_SLOW_MS` | `3000.0` | HTTP 응답 지연 임계치(ms) |
 | `PROM_ALERT_MEM_THRESHOLD` | `85.0` | 메모리 이상 감지 임계치(%) |
 | `PROM_ALERT_LOG_ERROR_RATE` | `5.0` | 로그 에러 급증 임계치(건/분) |
-| `DB_ENCRYPTION_KEY` | 없음 (필수) | Oracle DB 비밀번호 Fernet 암호화 키. 미설정 시 oracle_collection_loop 비활성화. 생성: `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` |
-| `ORACLE_COLLECT_INTERVAL_SECS` | `60` | Oracle 메트릭 수집 주기(초) |
+| `DB_ENCRYPTION_KEY` | 없음 (필수) | DB 비밀번호 Fernet 암호화 키. 미설정 시 db_collection_loop 비활성화. 생성: `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` |
+| `DB_COLLECT_INTERVAL_SECS` | `60` | DB 메트릭 수집 주기(초). 하위 호환: `ORACLE_COLLECT_INTERVAL_SECS`도 인식 |
 
 ## DB 초기화
 

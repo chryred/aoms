@@ -233,10 +233,10 @@ CREATE TABLE IF NOT EXISTS agent_instances (
     id           SERIAL PRIMARY KEY,
     system_id    INTEGER REFERENCES systems(id) ON DELETE CASCADE,
     host         VARCHAR(200) NOT NULL,
-    ssh_username VARCHAR(100),               -- SSH 접속 계정 (password 저장 금지; oracle_db는 NULL)
-    agent_type   VARCHAR(50)  NOT NULL,      -- synapse_agent | jmx_exporter | oracle_db
-    install_path VARCHAR(500),               -- 바이너리 경로 (oracle_db는 NULL)
-    config_path  VARCHAR(500),               -- 설정파일 경로 (oracle_db는 NULL)
+    ssh_username VARCHAR(100),               -- SSH 접속 계정 (password 저장 금지; db 에이전트는 NULL)
+    agent_type   VARCHAR(50)  NOT NULL,      -- synapse_agent | db
+    install_path VARCHAR(500),               -- 바이너리 경로 (db 에이전트는 NULL)
+    config_path  VARCHAR(500),               -- 설정파일 경로 (db 에이전트는 NULL)
     port         INTEGER,                    -- 메트릭 노출 포트
     os_type      VARCHAR(20),               -- 'linux' | 'windows' — 에이전트 설치 서버 OS (Phase 9)
     server_type  VARCHAR(50),               -- 'web' | 'was' | 'db' | 'middleware' | 'other' (Phase 9)

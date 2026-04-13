@@ -14,10 +14,10 @@ interface AgentCardProps {
 export function AgentCard({ agent }: AgentCardProps) {
   const navigate = useNavigate()
 
-  // Prometheus 기반 라이브 상태 (synapse_agent / oracle_db, SSH 불필요)
+  // Prometheus 기반 라이브 상태 (synapse_agent / db, SSH 불필요)
   const { data: liveStatus, isLoading: liveLoading } = useLiveStatus(agent.id, agent.agent_type)
 
-  const supportsLive = agent.agent_type === 'synapse_agent' || agent.agent_type === 'oracle_db'
+  const supportsLive = agent.agent_type === 'synapse_agent' || agent.agent_type === 'db'
   const displayStatus: AgentStatus = liveStatus
     ? liveStatus.live
       ? 'running'

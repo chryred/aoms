@@ -7,12 +7,37 @@ import { NeuCard } from '@/components/neumorphic/NeuCard'
 import { agentsApi } from '@/api/agents'
 import { useQueryClient } from '@tanstack/react-query'
 import { qk } from '@/constants/queryKeys'
-import type { AgentType, AgentInstance, OsType, ServerType } from '@/types/agent'
+import type { AgentType, AgentInstance, OsType, ServerType, DbType } from '@/types/agent'
 import type { System } from '@/types/system'
 
 const AGENT_TYPES: { value: AgentType; label: string }[] = [
   { value: 'synapse_agent', label: 'Synapse Agent (통합 수집기)' },
-  { value: 'oracle_db', label: 'Oracle DB 수집기' },
+  { value: 'db', label: 'DB 수집기' },
+]
+
+const DB_TYPE_OPTIONS: {
+  value: DbType
+  label: string
+  defaultPort: number
+  idLabel: string
+  idPlaceholder: string
+}[] = [
+  {
+    value: 'oracle',
+    label: 'Oracle',
+    defaultPort: 1521,
+    idLabel: 'Service Name',
+    idPlaceholder: 'ORCL',
+  },
+  {
+    value: 'postgresql',
+    label: 'PostgreSQL',
+    defaultPort: 5432,
+    idLabel: 'Database',
+    idPlaceholder: 'mydb',
+  },
+  { value: 'mssql', label: 'MSSQL', defaultPort: 1433, idLabel: 'Database', idPlaceholder: 'mydb' },
+  { value: 'mysql', label: 'MySQL', defaultPort: 3306, idLabel: 'Database', idPlaceholder: 'mydb' },
 ]
 
 const DEFAULT_PATHS: Record<
@@ -79,12 +104,13 @@ export function AgentFormModal({ systems, onClose, onCreated }: AgentFormModalPr
   const [osType, setOsType] = useState<OsType>('linux')
   const [serverType, setServerType] = useState<ServerType>('was')
 
-  // oracle_db 전용 필드
-  const [oracleServiceName, setOracleServiceName] = useState('')
-  const [oracleUsername, setOracleUsername] = useState('')
-  const [oraclePassword, setOraclePassword] = useState('')
-  const [oracleInterval, setOracleInterval] = useState('60')
-  const [oracleInstanceRole, setOracleInstanceRole] = useState('db-primary')
+  // db 에이전트 전용 필드
+  const [dbType, setDbType] = useState<DbType>('oracle')
+  const [dbIdentifier, setDbIdentifier] = useState('')
+  const [dbUsername, setDbUsername] = useState('')
+  const [dbPassword, setDbPassword] = useState('')
+  const [dbInterval, setDbInterval] = useState('60')
+  const [dbInstanceRole, setDbInstanceRole] = useState('db-primary')
 
   // synapse_agent 전용 필드
   const [instanceRole, setInstanceRole] = useState('default')
@@ -96,6 +122,8 @@ export function AgentFormModal({ systems, onClose, onCreated }: AgentFormModalPr
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
+  const currentDbTypeOption = DB_TYPE_OPTIONS.find((o) => o.value === dbType) ?? DB_TYPE_OPTIONS[0]
+
   function handleTypeChange(val: string) {
     const t = val as AgentType
     setAgentType(t)
@@ -104,6 +132,16 @@ export function AgentFormModal({ systems, onClose, onCreated }: AgentFormModalPr
     setConfigPath(defaults.config)
     setPidFile(defaults.pid)
     setPort(defaults.port > 0 ? String(defaults.port) : '')
+  }
+
+  function handleDbTypeChange(val: string) {
+    const dt = val as DbType
+    setDbType(dt)
+    const opt = DB_TYPE_OPTIONS.find((o) => o.value === dt)
+    if (opt) {
+      setPort(String(opt.defaultPort))
+    }
+    setDbIdentifier('')
   }
 
   function toggleCollector(key: string) {
@@ -126,13 +164,15 @@ export function AgentFormModal({ systems, onClose, onCreated }: AgentFormModalPr
   }
 
   function buildLabelInfo(): string {
-    if (agentType === 'oracle_db') {
+    if (agentType === 'db') {
+      const idKey = dbType === 'oracle' ? 'service_name' : 'database'
       return JSON.stringify({
-        service_name: oracleServiceName,
-        username: oracleUsername,
-        password: oraclePassword, // 서버에서 Fernet 암호화 후 저장
-        instance_role: oracleInstanceRole || 'db-primary',
-        collect_interval_secs: Math.max(10, Number(oracleInterval) || 60),
+        db_type: dbType,
+        [idKey]: dbIdentifier,
+        username: dbUsername,
+        password: dbPassword, // 서버에서 Fernet 암호화 후 저장
+        instance_role: dbInstanceRole || 'db-primary',
+        collect_interval_secs: Math.max(10, Number(dbInterval) || 60),
       })
     }
     const system = systems.find((s) => s.id === selectedSystemId)
@@ -161,16 +201,22 @@ export function AgentFormModal({ systems, onClose, onCreated }: AgentFormModalPr
     e.preventDefault()
     setError(null)
     setLoading(true)
-    const isOracle = agentType === 'oracle_db'
+    const isDb = agentType === 'db'
     try {
       const agent = await agentsApi.createAgent({
         system_id: selectedSystemId,
         host,
-        ...(isOracle ? {} : { ssh_username: sshUsername }),
+        ...(isDb ? {} : { ssh_username: sshUsername }),
         agent_type: agentType,
-        ...(isOracle ? {} : { install_path: installPath, config_path: configPath }),
+        ...(isDb ? {} : { install_path: installPath, config_path: configPath }),
         pid_file: pidFile || undefined,
-        port: isOracle ? (port ? Number(port) : 1521) : port ? Number(port) : undefined,
+        port: isDb
+          ? port
+            ? Number(port)
+            : currentDbTypeOption.defaultPort
+          : port
+            ? Number(port)
+            : undefined,
         label_info: buildLabelInfo() || undefined,
         os_type: osType,
         server_type: serverType,
@@ -193,7 +239,7 @@ export function AgentFormModal({ systems, onClose, onCreated }: AgentFormModalPr
   }
 
   const isSynapse = agentType === 'synapse_agent'
-  const isOracleDb = agentType === 'oracle_db'
+  const isDb = agentType === 'db'
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
@@ -237,16 +283,16 @@ export function AgentFormModal({ systems, onClose, onCreated }: AgentFormModalPr
           <div className="flex gap-3">
             <div className="flex-1">
               <label className="text-text-secondary mb-1 block text-xs">
-                {isOracleDb ? 'SCAN 주소 / 호스트명' : '서버 IP'}
+                {isDb ? 'SCAN 주소 / 호스트명' : '서버 IP'}
               </label>
               <NeuInput
                 value={host}
                 onChange={(e) => setHost(e.target.value)}
-                placeholder={isOracleDb ? 'scan.example.com' : '10.0.0.1'}
+                placeholder={isDb ? 'scan.example.com' : '10.0.0.1'}
                 required
               />
             </div>
-            {!isOracleDb && (
+            {!isDb && (
               <div className="flex-1">
                 <label className="text-text-secondary mb-1 block text-xs">SSH 계정</label>
                 <NeuInput
@@ -281,10 +327,20 @@ export function AgentFormModal({ systems, onClose, onCreated }: AgentFormModalPr
             </div>
           </div>
 
-          {/* oracle_db 전용 필드 */}
-          {isOracleDb && (
+          {/* db 에이전트 전용 필드 */}
+          {isDb && (
             <div className="border-border bg-bg-deep space-y-3 rounded-sm border p-3">
-              <p className="text-text-secondary text-xs font-medium">Oracle DB 연결 설정</p>
+              <p className="text-text-secondary text-xs font-medium">DB 연결 설정</p>
+              <div>
+                <label className="text-text-secondary mb-1 block text-xs">DB 타입</label>
+                <NeuSelect value={dbType} onChange={(e) => handleDbTypeChange(e.target.value)}>
+                  {DB_TYPE_OPTIONS.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </NeuSelect>
+              </div>
               <div>
                 <label className="text-text-secondary mb-1 block text-xs">
                   instance_role{' '}
@@ -293,18 +349,20 @@ export function AgentFormModal({ systems, onClose, onCreated }: AgentFormModalPr
                   </span>
                 </label>
                 <NeuInput
-                  value={oracleInstanceRole}
-                  onChange={(e) => setOracleInstanceRole(e.target.value)}
+                  value={dbInstanceRole}
+                  onChange={(e) => setDbInstanceRole(e.target.value)}
                   placeholder="db-primary"
                 />
               </div>
               <div className="flex gap-3">
                 <div className="flex-1">
-                  <label className="text-text-secondary mb-1 block text-xs">Service Name</label>
+                  <label className="text-text-secondary mb-1 block text-xs">
+                    {currentDbTypeOption.idLabel}
+                  </label>
                   <NeuInput
-                    value={oracleServiceName}
-                    onChange={(e) => setOracleServiceName(e.target.value)}
-                    placeholder="ORCL"
+                    value={dbIdentifier}
+                    onChange={(e) => setDbIdentifier(e.target.value)}
+                    placeholder={currentDbTypeOption.idPlaceholder}
                     required
                   />
                 </div>
@@ -312,17 +370,17 @@ export function AgentFormModal({ systems, onClose, onCreated }: AgentFormModalPr
                   <label className="text-text-secondary mb-1 block text-xs">포트</label>
                   <NeuInput
                     type="number"
-                    value={port || '1521'}
+                    value={port || String(currentDbTypeOption.defaultPort)}
                     onChange={(e) => setPort(e.target.value)}
-                    placeholder="1521"
+                    placeholder={String(currentDbTypeOption.defaultPort)}
                   />
                 </div>
               </div>
               <div>
                 <label className="text-text-secondary mb-1 block text-xs">DB 계정</label>
                 <NeuInput
-                  value={oracleUsername}
-                  onChange={(e) => setOracleUsername(e.target.value)}
+                  value={dbUsername}
+                  onChange={(e) => setDbUsername(e.target.value)}
                   placeholder="monitor"
                   required
                 />
@@ -332,8 +390,8 @@ export function AgentFormModal({ systems, onClose, onCreated }: AgentFormModalPr
                   <label className="text-text-secondary mb-1 block text-xs">DB 패스워드</label>
                   <NeuInput
                     type="password"
-                    value={oraclePassword}
-                    onChange={(e) => setOraclePassword(e.target.value)}
+                    value={dbPassword}
+                    onChange={(e) => setDbPassword(e.target.value)}
                     required
                   />
                 </div>
@@ -341,8 +399,8 @@ export function AgentFormModal({ systems, onClose, onCreated }: AgentFormModalPr
                   <label className="text-text-secondary mb-1 block text-xs">수집 주기(초)</label>
                   <NeuInput
                     type="number"
-                    value={oracleInterval}
-                    onChange={(e) => setOracleInterval(e.target.value)}
+                    value={dbInterval}
+                    onChange={(e) => setDbInterval(e.target.value)}
                     placeholder="60"
                     min="10"
                   />
@@ -366,8 +424,8 @@ export function AgentFormModal({ systems, onClose, onCreated }: AgentFormModalPr
             </div>
           )}
 
-          {/* 경로 — oracle_db는 바이너리/설정/PID 불필요 */}
-          {!isOracleDb && (
+          {/* 경로 — db 에이전트는 바이너리/설정/PID 불필요 */}
+          {!isDb && (
             <>
               <div>
                 <label className="text-text-secondary mb-1 block text-xs">바이너리 경로</label>

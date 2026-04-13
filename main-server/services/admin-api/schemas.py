@@ -394,16 +394,16 @@ class SSHSessionOut(BaseModel):
 class AgentInstanceCreate(BaseModel):
     system_id: int
     host: str
-    ssh_username: Optional[str] = None   # oracle_db는 SSH 불필요
-    agent_type: str = Field(pattern="^(alloy|node_exporter|jmx_exporter|synapse_agent|oracle_db)$")
-    install_path: Optional[str] = None   # oracle_db는 바이너리 없음
-    config_path: Optional[str] = None    # oracle_db는 설정 파일 없음
+    ssh_username: Optional[str] = None   # db 에이전트는 SSH 불필요
+    agent_type: str = Field(pattern="^(alloy|node_exporter|jmx_exporter|synapse_agent|db)$")
+    install_path: Optional[str] = None   # db 에이전트는 바이너리 없음
+    config_path: Optional[str] = None    # db 에이전트는 설정 파일 없음
     port: Optional[int] = None
     pid_file: Optional[str] = None
     label_info: Optional[str] = None   # JSON string
     os_type: Optional[str] = None      # 'linux' | 'windows'
     server_type: Optional[str] = None  # 'web' | 'was' | 'db' | 'middleware' | 'other'
-    status: Optional[str] = None       # oracle_db 등록 시 서버에서 'installed'로 설정
+    status: Optional[str] = None       # db 에이전트 등록 시 서버에서 'installed'로 설정
 
 
 class AgentInstanceUpdate(BaseModel):
@@ -422,10 +422,10 @@ class AgentInstanceOut(BaseModel):
     id: int
     system_id: int
     host: str
-    ssh_username: Optional[str]   # oracle_db는 null
+    ssh_username: Optional[str]   # db 에이전트는 null
     agent_type: str
-    install_path: Optional[str]   # oracle_db는 null
-    config_path: Optional[str]    # oracle_db는 null
+    install_path: Optional[str]   # db 에이전트는 null
+    config_path: Optional[str]    # db 에이전트는 null
     port: Optional[int]
     pid_file: Optional[str]
     label_info: Optional[str]

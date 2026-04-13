@@ -133,7 +133,7 @@ POST /metric/similarity
 
 **PROMQL_MAP 수집기별 지원 현황 (Phase 9에서 node_exporter/jmx_exporter 제거):**
 - `synapse_agent`: cpu / memory / disk / network / log / web (기본 수집기 — node_exporter/jmx_exporter 대체)
-- `db_exporter`: db_connections / db_query / db_cache / db_replication (oracle_db AgentInstance가 자동 등록)
+- `db_exporter`: db_connections / db_query / db_cache / db_replication (agent_type='db' AgentInstance가 자동 등록 — oracle/postgresql/mssql/mysql)
 
 ```
 _hourly_agg_scheduler() (매 시간 :05분 KST)

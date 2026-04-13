@@ -23,9 +23,9 @@ export function useAgentStatus(agentId: number, enabled = false, refetchInterval
   })
 }
 
-/** Prometheus 기반 라이브 상태 — synapse_agent / oracle_db (SSH 불필요, 60초 폴링) */
+/** Prometheus 기반 라이브 상태 — synapse_agent / db (SSH 불필요, 60초 폴링) */
 export function useLiveStatus(agentId: number, agentType: AgentType) {
-  const enabled = agentType === 'synapse_agent' || agentType === 'oracle_db'
+  const enabled = agentType === 'synapse_agent' || agentType === 'db'
   return useQuery({
     queryKey: qk.agentLiveStatus(agentId),
     queryFn: () => agentsApi.getLiveStatus(agentId),

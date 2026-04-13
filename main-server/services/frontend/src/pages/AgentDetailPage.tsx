@@ -79,7 +79,7 @@ export function AgentDetailPage() {
     staleTime: 30_000,
   })
 
-  const supportsLive = agent?.agent_type === 'synapse_agent' || agent?.agent_type === 'oracle_db'
+  const supportsLive = agent?.agent_type === 'synapse_agent' || agent?.agent_type === 'db'
 
   const { data: liveStatus } = useQuery({
     queryKey: qk.agentLiveStatus(agentId),
@@ -264,7 +264,7 @@ export function AgentDetailPage() {
               ) : null
             })()}
             <InfoRow label="포트" value={agent.port ? String(agent.port) : '-'} />
-            {agent.agent_type !== 'oracle_db' && (
+            {agent.agent_type !== 'db' && (
               <>
                 <InfoRow label="SSH 계정" value={agent.ssh_username ?? '-'} />
                 <InfoRow label="설치 경로" value={agent.install_path ?? '-'} />
@@ -421,7 +421,7 @@ export function AgentDetailPage() {
         }
       </div>
 
-      {/* 수집 상태 (Prometheus 기반 — synapse_agent / oracle_db) */}
+      {/* 수집 상태 (Prometheus 기반 — synapse_agent / db) */}
       {supportsLive && (
         <NeuCard className="mt-6">
           <div className="mb-4 flex items-center gap-2">

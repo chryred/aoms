@@ -82,7 +82,7 @@ export const agentsApi = {
   getInstallJob: (jobId: string) =>
     adminApi.get(`api/v1/agents/jobs/${jobId}`).json<AgentInstallJob>(),
 
-  // ── 라이브 상태 (synapse_agent / oracle_db) ─────────────────────
+  // ── 라이브 상태 (synapse_agent / db) ─────────────────────────────
   getLiveStatus: (id: number) =>
     adminApi.get(`api/v1/agents/${id}/live-status`).json<AgentLiveStatusOut>(),
 
