@@ -109,7 +109,7 @@ describe('TrendAlertCard', () => {
         <TrendAlertCard alert={makeAlert({ llm_severity: 'critical' })} />
       </MemoryRouter>,
     )
-    // NeuCard with severity=critical has border-l-[#EF4444]
+    // NeuCard with severity=critical has border-l-critical
     expect(container.firstChild?.firstChild as HTMLElement).toBeTruthy()
   })
 })

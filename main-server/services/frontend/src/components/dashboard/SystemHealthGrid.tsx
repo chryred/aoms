@@ -93,18 +93,18 @@ export const SystemHealthGrid = memo(function SystemHealthGrid({
       {/* 필터 + 정렬 — 뉴모피즘 탭 패턴 */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
-          <span className="text-xs font-semibold text-[#5A6478] uppercase">필터</span>
-          <div className="flex gap-0.5 rounded-sm bg-[#1E2127] p-1 shadow-[inset_1px_1px_3px_#111317,inset_-1px_-1px_3px_#2B2F37]">
+          <span className="text-text-disabled text-xs font-semibold uppercase">필터</span>
+          <div className="bg-bg-base shadow-neu-pressed flex gap-0.5 rounded-sm p-1">
             {(['all', 'critical', 'warning', 'normal'] as const).map((status) => (
               <button
                 key={status}
                 onClick={() => setFilterStatus(status)}
                 className={cn(
                   'rounded-sm px-3 py-1.5 text-xs font-medium transition-all duration-150',
-                  'focus:ring-1 focus:ring-[#00D4FF] focus:outline-none',
+                  'focus:ring-accent focus:ring-1 focus:outline-none',
                   filterStatus === status
-                    ? 'bg-[#00D4FF] font-semibold text-[#1E2127] shadow-[2px_2px_4px_#111317]'
-                    : 'text-[#8B97AD] hover:bg-[rgba(255,255,255,0.05)] hover:text-[#E2E8F2]',
+                    ? 'bg-accent text-bg-base font-semibold shadow-[2px_2px_4px_#111317]'
+                    : 'text-text-secondary hover:bg-hover-subtle hover:text-text-primary',
                 )}
               >
                 {FILTER_LABELS[status]}
@@ -114,18 +114,18 @@ export const SystemHealthGrid = memo(function SystemHealthGrid({
         </div>
 
         <div className="flex items-center gap-2">
-          <span className="text-xs font-semibold text-[#5A6478] uppercase">정렬</span>
-          <div className="flex gap-0.5 rounded-sm bg-[#1E2127] p-1 shadow-[inset_1px_1px_3px_#111317,inset_-1px_-1px_3px_#2B2F37]">
+          <span className="text-text-disabled text-xs font-semibold uppercase">정렬</span>
+          <div className="bg-bg-base shadow-neu-pressed flex gap-0.5 rounded-sm p-1">
             {(['status', 'name'] as const).map((sort) => (
               <button
                 key={sort}
                 onClick={() => setSortBy(sort)}
                 className={cn(
                   'rounded-sm px-3 py-1.5 text-xs font-medium transition-all duration-150',
-                  'focus:ring-1 focus:ring-[#00D4FF] focus:outline-none',
+                  'focus:ring-accent focus:ring-1 focus:outline-none',
                   sortBy === sort
-                    ? 'bg-[#00D4FF] font-semibold text-[#1E2127] shadow-[2px_2px_4px_#111317]'
-                    : 'text-[#8B97AD] hover:bg-[rgba(255,255,255,0.05)] hover:text-[#E2E8F2]',
+                    ? 'bg-accent text-bg-base font-semibold shadow-[2px_2px_4px_#111317]'
+                    : 'text-text-secondary hover:bg-hover-subtle hover:text-text-primary',
                 )}
               >
                 {SORT_LABELS[sort]}
@@ -136,13 +136,13 @@ export const SystemHealthGrid = memo(function SystemHealthGrid({
       </div>
 
       {/* 결과 카운트 */}
-      <div className="text-xs text-[#5A6478]">
+      <div className="text-text-disabled text-xs">
         {filteredSystems.length} / {systems.length} 시스템
       </div>
 
       {/* 시스템 리스트 — NeuCard 컨테이너 */}
       {filteredSystems.length === 0 ? (
-        <NeuCard className="py-8 text-center text-[#8B97AD]">
+        <NeuCard className="text-text-secondary py-8 text-center">
           선택한 필터에 해당하는 시스템이 없습니다
         </NeuCard>
       ) : (

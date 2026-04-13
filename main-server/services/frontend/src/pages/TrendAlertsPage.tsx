@@ -38,7 +38,7 @@ export default function TrendAlertsPage() {
         title="장애 예측 알림"
         description="LLM 분석 기반 프로액티브 장애 예방 알림"
         action={
-          <div className="flex items-center gap-2 text-sm text-[#8B97AD]">
+          <div className="text-text-secondary flex items-center gap-2 text-sm">
             <RefreshCw className="h-4 w-4" />
             <span>5분 자동 갱신</span>
             {dataUpdatedAt > 0 && (
@@ -54,7 +54,7 @@ export default function TrendAlertsPage() {
 
       {/* Severity filter bar */}
       <div
-        className="mb-6 flex w-fit gap-1 rounded-sm bg-[#1E2127] p-1 shadow-[inset_1px_1px_3px_#111317,inset_-1px_-1px_3px_#2B2F37]"
+        className="bg-bg-base shadow-neu-pressed mb-6 flex w-fit gap-1 rounded-sm p-1"
         role="group"
         aria-label="심각도 필터"
       >
@@ -65,10 +65,10 @@ export default function TrendAlertsPage() {
             onClick={() => setSearchParams({ severity: opt.value })}
             className={cn(
               'rounded-sm px-4 py-1.5 text-sm font-medium transition-all',
-              'focus:ring-1 focus:ring-[#00D4FF] focus:ring-offset-[#1E2127] focus:outline-none',
+              'focus:ring-accent focus:ring-offset-bg-base focus:ring-1 focus:outline-none',
               severityFilter === opt.value
-                ? 'bg-[#00D4FF] font-semibold text-[#1E2127] shadow-[2px_2px_4px_#111317]'
-                : 'text-[#8B97AD] hover:bg-[rgba(255,255,255,0.05)] hover:text-[#E2E8F2]',
+                ? 'bg-accent text-bg-base shadow-neu-flat font-semibold'
+                : 'text-text-secondary hover:bg-hover-subtle hover:text-text-primary',
             )}
           >
             {opt.label}
@@ -82,7 +82,7 @@ export default function TrendAlertsPage() {
 
       {!isLoading && !isError && trendAlerts.length === 0 && (
         <EmptyState
-          icon={<ShieldCheck className="h-12 w-12 text-[#22C55E]" />}
+          icon={<ShieldCheck className="text-normal h-12 w-12" />}
           title="현재 임박한 장애 예측이 없습니다"
           description="모든 시스템이 정상 범위에서 운영되고 있습니다."
         />
@@ -90,7 +90,7 @@ export default function TrendAlertsPage() {
 
       {!isLoading && !isError && trendAlerts.length > 0 && filtered.length === 0 && (
         <EmptyState
-          icon={<Filter className="h-12 w-12 text-[#8B97AD]" />}
+          icon={<Filter className="text-text-secondary h-12 w-12" />}
           title={`${severityFilter === 'warning' ? 'Warning' : 'Critical'} 수준의 예측 알림이 없습니다`}
           description="다른 심각도를 선택하거나 '전체'를 선택해보세요."
           cta={{ label: '전체 보기', onClick: () => setSearchParams({ severity: 'all' }) }}

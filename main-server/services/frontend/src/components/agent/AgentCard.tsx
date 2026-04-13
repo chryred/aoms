@@ -30,20 +30,20 @@ export function AgentCard({ agent }: AgentCardProps) {
       className="flex items-center justify-between gap-4 p-4"
     >
       <div className="flex min-w-0 items-center gap-3">
-        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-sm bg-[rgba(0,212,255,0.08)]">
-          <Settings className="h-4 w-4 text-[#00D4FF]" />
+        <div className="bg-glass-bg flex h-8 w-8 shrink-0 items-center justify-center rounded-sm">
+          <Settings className="text-accent h-4 w-4" />
         </div>
         <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <span className="text-sm font-semibold text-[#E2E8F2]">
+            <span className="text-text-primary text-sm font-semibold">
               {getAgentTypeLabel(agent.agent_type)}
             </span>
             <AgentStatusBadge status={displayStatus} />
             {supportsLive && liveLoading && (
-              <span className="text-[10px] text-[#8B97AD]">조회 중...</span>
+              <span className="text-text-secondary text-[10px]">조회 중...</span>
             )}
           </div>
-          <p className="truncate text-xs text-[#8B97AD]">
+          <p className="text-text-secondary truncate text-xs">
             {(() => {
               const labelInfo = (() => {
                 try {
@@ -61,7 +61,7 @@ export function AgentCard({ agent }: AgentCardProps) {
           </p>
         </div>
       </div>
-      <ChevronRight className="h-4 w-4 shrink-0 text-[#8B97AD]" />
+      <ChevronRight className="text-text-secondary h-4 w-4 shrink-0" />
     </NeuCard>
   )
 }

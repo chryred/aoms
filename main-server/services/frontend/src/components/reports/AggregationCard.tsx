@@ -33,27 +33,29 @@ export function AggregationCard({
     <NeuCard severity={severity}>
       <div className="mb-2 flex items-start justify-between">
         <div>
-          <p className="font-semibold text-[#E2E8F2]">{displayName}</p>
-          <p className="text-xs text-[#8B97AD]">{getBucket(aggregation)}</p>
+          <p className="text-text-primary font-semibold">{displayName}</p>
+          <p className="text-text-secondary text-xs">{getBucket(aggregation)}</p>
         </div>
         {aggregation.llm_severity && <SeverityBadge severity={aggregation.llm_severity} />}
       </div>
 
-      {metricSummary && <p className="mb-2 font-mono text-xs text-[#8B97AD]">{metricSummary}</p>}
+      {metricSummary && (
+        <p className="text-text-secondary mb-2 font-mono text-xs">{metricSummary}</p>
+      )}
 
       {aggregation.llm_summary && (
-        <p className="mb-1 line-clamp-3 text-sm whitespace-pre-wrap text-[#E2E8F2]">
+        <p className="text-text-primary mb-1 line-clamp-3 text-sm whitespace-pre-wrap">
           {aggregation.llm_summary}
         </p>
       )}
       {aggregation.llm_trend && (
-        <p className="mb-3 text-xs text-[#8B97AD] italic">{aggregation.llm_trend}</p>
+        <p className="text-text-secondary mb-3 text-xs italic">{aggregation.llm_trend}</p>
       )}
 
       <Link
         to={ROUTES.systemDetail(systemId)}
         onClick={onDrillDown}
-        className="text-xs font-medium text-[#00D4FF] hover:underline"
+        className="text-accent text-xs font-medium hover:underline"
       >
         상세 보기 →
       </Link>

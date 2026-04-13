@@ -19,7 +19,7 @@ export function GrafanaDashboardPage() {
       <PageHeader title="Grafana 대시보드" />
 
       {/* 탭 */}
-      <div className="flex gap-1 rounded-sm p-1.5 shadow-[inset_2px_2px_5px_#111317,inset_-2px_-2px_5px_#2B2F37]">
+      <div className="shadow-neu-inset flex gap-1 rounded-sm p-1.5">
         {DASHBOARDS.map((d) => (
           <button
             key={d.uid}
@@ -27,10 +27,10 @@ export function GrafanaDashboardPage() {
             onClick={() => setActiveUid(d.uid)}
             className={cn(
               'rounded-sm px-4 py-2 text-sm font-medium transition-all duration-150',
-              'focus:ring-1 focus:ring-[#00D4FF] focus:outline-none',
+              'focus:ring-accent focus:ring-1 focus:outline-none',
               activeUid === d.uid
-                ? 'bg-[#252932] text-white shadow-[2px_2px_5px_#111317,-2px_-2px_5px_#2B2F37]'
-                : 'text-[#8B97AD] hover:text-[#E2E8F2] hover:ring-1 hover:ring-[#00D4FF4D]',
+                ? 'bg-surface shadow-neu-flat text-white'
+                : 'text-text-secondary hover:text-text-primary hover:ring-accent-muted hover:ring-1',
             )}
           >
             {d.label}
@@ -39,7 +39,7 @@ export function GrafanaDashboardPage() {
       </div>
 
       {/* iframe */}
-      <div className="min-h-0 flex-1 overflow-hidden rounded-sm shadow-[3px_3px_7px_#111317,-3px_-3px_7px_#2B2F37]">
+      <div className="shadow-neu-flat min-h-0 flex-1 overflow-hidden rounded-sm">
         <iframe
           key={activeUid}
           src={iframeSrc}

@@ -135,8 +135,8 @@ export function VectorHealthPage() {
                     <NeuCard key={key}>
                       <div className="mb-3 flex items-start justify-between">
                         <div>
-                          <p className="mb-0.5 font-mono text-xs text-[#8B97AD]">{label}</p>
-                          <p className="text-xs text-[#5A6478]">{desc}</p>
+                          <p className="text-text-secondary mb-0.5 font-mono text-xs">{label}</p>
+                          <p className="text-text-disabled text-xs">{desc}</p>
                         </div>
                         <span
                           className="rounded-full px-2 py-0.5 text-xs font-medium"
@@ -149,20 +149,20 @@ export function VectorHealthPage() {
                         </span>
                       </div>
                       {info.status === 'error' ? (
-                        <p className="text-xs text-[#EF4444]">{info.detail ?? '연결 오류'}</p>
+                        <p className="text-critical text-xs">{info.detail ?? '연결 오류'}</p>
                       ) : (
                         <div className="flex gap-6">
                           <div>
-                            <p className="text-2xl font-bold text-[#E2E8F2]">
+                            <p className="text-text-primary text-2xl font-bold">
                               {(info.points_count ?? 0).toLocaleString()}
                             </p>
-                            <p className="text-xs text-[#8B97AD]">포인트 수</p>
+                            <p className="text-text-secondary text-xs">포인트 수</p>
                           </div>
                           <div>
-                            <p className="text-2xl font-bold text-[#00D4FF]">
+                            <p className="text-accent text-2xl font-bold">
                               {(info.vectors_count ?? 0).toLocaleString()}
                             </p>
-                            <p className="text-xs text-[#8B97AD]">벡터 수</p>
+                            <p className="text-text-secondary text-xs">벡터 수</p>
                           </div>
                         </div>
                       )}
@@ -178,18 +178,18 @@ export function VectorHealthPage() {
           <NeuCard className="overflow-hidden p-0">
             <table className="w-full">
               <thead>
-                <tr className="border-b border-[#2B2F37]">
+                <tr className="border-border border-b">
                   {['주기', '이름', '상태', '마지막 실행'].map((h) => (
                     <th
                       key={h}
-                      className="px-4 py-3 text-left text-xs font-semibold tracking-wider text-[#8B97AD] uppercase"
+                      className="text-text-secondary px-4 py-3 text-left text-xs font-semibold tracking-wider uppercase"
                     >
                       {h}
                     </th>
                   ))}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-[#2B2F37]">
+              <tbody className="divide-border divide-y">
                 {PIPELINE_ORDER.map((key) => {
                   const meta = PIPELINE_META[key]
                   const status = aggStatus?.[key]
@@ -200,35 +200,35 @@ export function VectorHealthPage() {
                   return (
                     <tr key={key} className="hover:bg-[rgba(0,212,255,0.03)]">
                       <td className="px-4 py-3">
-                        <span className="font-mono text-xs font-semibold text-[#00D4FF]">
+                        <span className="text-accent font-mono text-xs font-semibold">
                           {meta.tag}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-sm text-[#E2E8F2]">{meta.label}</td>
+                      <td className="text-text-primary px-4 py-3 text-sm">{meta.label}</td>
                       <td className="px-4 py-3">
                         {isRunning ? (
                           <div className="flex items-center gap-1.5">
-                            <span className="inline-block h-2.5 w-2.5 animate-pulse rounded-full bg-[#00D4FF]" />
-                            <span className="text-xs text-[#00D4FF]">실행 중</span>
+                            <span className="bg-accent inline-block h-2.5 w-2.5 animate-pulse rounded-full" />
+                            <span className="text-accent text-xs">실행 중</span>
                           </div>
                         ) : lastStatus === 'error' ? (
                           <div className="flex items-center gap-1.5">
                             <StatusDot status="red" />
-                            <span className="text-xs text-[#EF4444]">오류</span>
+                            <span className="text-critical text-xs">오류</span>
                           </div>
                         ) : lastStatus === 'ok' ? (
                           <div className="flex items-center gap-1.5">
                             <StatusDot status="green" />
-                            <span className="text-xs text-[#22C55E]">정상</span>
+                            <span className="text-normal text-xs">정상</span>
                           </div>
                         ) : (
                           <div className="flex items-center gap-1.5">
                             <StatusDot status="not_found" />
-                            <span className="text-xs text-[#5A6478]">대기</span>
+                            <span className="text-text-disabled text-xs">대기</span>
                           </div>
                         )}
                       </td>
-                      <td className="px-4 py-3 text-sm text-[#8B97AD]">
+                      <td className="text-text-secondary px-4 py-3 text-sm">
                         {lastRun ? formatRelative(lastRun) : '—'}
                       </td>
                     </tr>

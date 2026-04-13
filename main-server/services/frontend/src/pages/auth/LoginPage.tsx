@@ -89,13 +89,15 @@ export function LoginPage() {
   return (
     <NeuCard className="w-full max-w-md">
       <div className="mb-8 text-center">
-        <div className="mb-3 inline-flex h-14 w-14 items-center justify-center rounded-sm bg-[#00D4FF] text-2xl font-bold text-[#1E2127] shadow-[2px_2px_5px_#111317,-2px_-2px_5px_#2B2F37]">
+        <div className="bg-accent text-bg-base shadow-neu-flat mb-3 inline-flex h-14 w-14 items-center justify-center rounded-sm text-2xl font-bold">
           S
         </div>
-        <h1 className="type-heading font-lora text-2xl font-bold text-[#E2E8F2] italic">
+        <h1 className="type-heading font-lora text-text-primary text-2xl font-bold italic">
           Synapse-V
         </h1>
-        <p className="mt-2 text-sm leading-relaxed text-[#8B97AD]">백화점 통합 모니터링 시스템</p>
+        <p className="text-text-secondary mt-2 text-sm leading-relaxed">
+          백화점 통합 모니터링 시스템
+        </p>
       </div>
 
       <form
@@ -168,18 +170,18 @@ export function LoginPage() {
         </NeuButton>
       </form>
 
-      <p className="mt-6 text-center text-sm text-[#8B97AD]">
+      <p className="text-text-secondary mt-6 text-center text-sm">
         계정이 없으신가요?{' '}
         <button
           type="button"
           onClick={() => navigate(ROUTES.REGISTER)}
-          className="font-medium text-[#00D4FF] hover:underline"
+          className="text-accent font-medium hover:underline"
         >
           사용자 신청
         </button>
       </p>
 
-      <p className="font-lora mt-4 text-center text-xs text-[#5A6478] italic">
+      <p className="font-lora text-text-disabled mt-4 text-center text-xs italic">
         © 2026 Synapse-V. All rights reserved.
       </p>
     </NeuCard>

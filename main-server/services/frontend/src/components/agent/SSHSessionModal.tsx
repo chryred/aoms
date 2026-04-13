@@ -44,29 +44,29 @@ export function SSHSessionModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+      <div className="bg-overlay absolute inset-0" onClick={onClose} />
       <NeuCard className="relative mx-4 w-full max-w-sm">
         <div className="mb-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Lock className="h-4 w-4 text-[#00D4FF]" />
-            <h3 className="text-base font-semibold text-[#E2E8F2]">SSH 세션 등록</h3>
+            <Lock className="text-accent h-4 w-4" />
+            <h3 className="text-text-primary text-base font-semibold">SSH 세션 등록</h3>
           </div>
           <button
             onClick={onClose}
-            className="rounded-sm text-[#8B97AD] hover:text-[#E2E8F2] focus:ring-1 focus:ring-[#00D4FF] focus:outline-none"
+            className="text-text-secondary hover:text-text-primary focus:ring-accent rounded-sm focus:ring-1 focus:outline-none"
           >
             <X className="h-4 w-4" />
           </button>
         </div>
 
-        <p className="mb-4 text-xs text-[#8B97AD]">
+        <p className="text-text-secondary mb-4 text-xs">
           계정 정보는 30분간 메모리에만 보관되며, 미사용 시 자동 삭제됩니다.
         </p>
 
         <form onSubmit={handleSubmit} className="space-y-3">
           <div className="flex gap-2">
             <div className="flex-1">
-              <label className="mb-1 block text-xs text-[#8B97AD]">호스트 IP</label>
+              <label className="text-text-secondary mb-1 block text-xs">호스트 IP</label>
               <NeuInput
                 value={host}
                 onChange={(e) => setHost(e.target.value)}
@@ -75,7 +75,7 @@ export function SSHSessionModal({
               />
             </div>
             <div className="w-20">
-              <label className="mb-1 block text-xs text-[#8B97AD]">포트</label>
+              <label className="text-text-secondary mb-1 block text-xs">포트</label>
               <NeuInput
                 type="number"
                 value={port}
@@ -88,7 +88,7 @@ export function SSHSessionModal({
             </div>
           </div>
           <div>
-            <label className="mb-1 block text-xs text-[#8B97AD]">SSH 계정</label>
+            <label className="text-text-secondary mb-1 block text-xs">SSH 계정</label>
             <NeuInput
               value={username}
               onChange={(e) => setUsername(e.target.value)}
@@ -97,7 +97,7 @@ export function SSHSessionModal({
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs text-[#8B97AD]">비밀번호</label>
+            <label className="text-text-secondary mb-1 block text-xs">비밀번호</label>
             <NeuInput
               type="password"
               value={password}
@@ -108,7 +108,7 @@ export function SSHSessionModal({
           </div>
 
           {error && (
-            <p className="rounded-sm bg-[rgba(239,68,68,0.08)] px-3 py-2 text-xs text-[#EF4444]">
+            <p className="bg-critical-card-bg text-critical rounded-sm px-3 py-2 text-xs">
               {error}
             </p>
           )}

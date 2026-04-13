@@ -17,8 +17,8 @@ interface DashboardSummaryProps {
 }
 
 // ── 뉴모피즘 그림자 토큰 ─────────────────────────────────────────────────
-const NEU_RAISED = 'shadow-[3px_3px_7px_#111317,-3px_-3px_7px_#2B2F37]'
-const NEU_PRESSED = 'shadow-[inset_1px_1px_3px_#111317,inset_-1px_-1px_3px_#2B2F37]'
+const NEU_RAISED = 'shadow-neu-flat'
+const NEU_PRESSED = 'shadow-neu-pressed'
 
 function glowShadow(color: string, opacity = 0.15) {
   return `shadow-[3px_3px_7px_#111317,-3px_-3px_7px_#2B2F37,0_0_12px_rgba(${color},${opacity})]`
@@ -58,7 +58,7 @@ function StatCell({
   return (
     <div
       className={cn(
-        'flex min-w-[100px] flex-1 items-center gap-2.5 rounded-sm bg-[#1E2127] transition-shadow duration-200',
+        'bg-bg-base flex min-w-[100px] flex-1 items-center gap-2.5 rounded-sm transition-shadow duration-200',
         isZero
           ? cn(NEU_PRESSED, 'px-3 py-2')
           : isAlerted
@@ -66,13 +66,13 @@ function StatCell({
             : cn(NEU_RAISED, 'px-3.5 py-3'),
       )}
     >
-      <Icon className={cn('h-3.5 w-3.5 flex-shrink-0', isZero ? 'text-[#5A6478]' : color)} />
+      <Icon className={cn('h-3.5 w-3.5 flex-shrink-0', isZero ? 'text-text-disabled' : color)} />
       <div className="flex items-baseline gap-1.5">
         <span
           className={cn(
             'font-bold tabular-nums',
             isZero
-              ? 'text-sm text-[#5A6478]'
+              ? 'text-text-disabled text-sm'
               : isAlerted
                 ? cn('text-2xl', color)
                 : cn('text-lg', color),
@@ -80,9 +80,9 @@ function StatCell({
         >
           {value}
         </span>
-        {total !== undefined && <span className="text-xs text-[#5A6478]">/{total}</span>}
+        {total !== undefined && <span className="text-text-disabled text-xs">/{total}</span>}
       </div>
-      <span className="text-xs whitespace-nowrap text-[#8B97AD]">{label}</span>
+      <span className="text-text-secondary text-xs whitespace-nowrap">{label}</span>
     </div>
   )
 }
@@ -102,7 +102,7 @@ export const DashboardSummaryStats = memo(function DashboardSummaryStats({
     <div className="space-y-4">
       {/* 시스템 상태 */}
       <div>
-        <p className="mb-2 text-xs font-semibold text-[#5A6478] uppercase">시스템 상태</p>
+        <p className="text-text-disabled mb-2 text-xs font-semibold uppercase">시스템 상태</p>
         <div className="flex flex-wrap gap-2">
           <StatCell
             label="위험"
@@ -111,7 +111,7 @@ export const DashboardSummaryStats = memo(function DashboardSummaryStats({
             color="text-red-500"
             glowClass={GLOW_RED}
             borderClass="border-red-500"
-            bgClass="bg-[rgba(239,68,68,0.06)]"
+            bgClass="bg-critical-card-bg"
           />
           <StatCell
             label="경고"
@@ -120,7 +120,7 @@ export const DashboardSummaryStats = memo(function DashboardSummaryStats({
             color="text-yellow-500"
             glowClass={GLOW_YELLOW}
             borderClass="border-yellow-500"
-            bgClass="bg-[rgba(245,158,11,0.04)]"
+            bgClass="bg-warning-card-bg"
           />
           <StatCell
             label="정상"
@@ -142,7 +142,7 @@ export const DashboardSummaryStats = memo(function DashboardSummaryStats({
 
       {/* 운영 현황 */}
       <div>
-        <p className="mb-2 text-xs font-semibold text-[#5A6478] uppercase">운영 현황</p>
+        <p className="text-text-disabled mb-2 text-xs font-semibold uppercase">운영 현황</p>
         <div className="flex flex-wrap gap-2">
           <StatCell
             label="알림"
@@ -158,9 +158,9 @@ export const DashboardSummaryStats = memo(function DashboardSummaryStats({
           {agentTotal > 0 && (
             <div
               className={cn(
-                'flex min-w-[100px] flex-1 items-center gap-2.5 rounded-sm bg-[#1E2127] transition-shadow duration-200',
+                'bg-bg-base flex min-w-[100px] flex-1 items-center gap-2.5 rounded-sm transition-shadow duration-200',
                 agentHasStale
-                  ? cn(GLOW_RED, 'border-l-4 border-red-500 bg-[rgba(239,68,68,0.06)] px-3.5 py-3')
+                  ? cn(GLOW_RED, 'bg-critical-card-bg border-l-4 border-red-500 px-3.5 py-3')
                   : agentAllOk
                     ? cn(NEU_RAISED, 'px-3.5 py-3')
                     : cn(NEU_PRESSED, 'px-3 py-2'),
@@ -185,9 +185,9 @@ export const DashboardSummaryStats = memo(function DashboardSummaryStats({
                 >
                   {agentCollecting}
                 </span>
-                <span className="text-xs text-[#5A6478]">/{agentTotal}</span>
+                <span className="text-text-disabled text-xs">/{agentTotal}</span>
               </div>
-              <span className="text-xs whitespace-nowrap text-[#8B97AD]">수집</span>
+              <span className="text-text-secondary text-xs whitespace-nowrap">수집</span>
             </div>
           )}
 
@@ -198,7 +198,7 @@ export const DashboardSummaryStats = memo(function DashboardSummaryStats({
             color="text-red-500"
             glowClass={GLOW_RED}
             borderClass="border-red-500"
-            bgClass="bg-[rgba(239,68,68,0.06)]"
+            bgClass="bg-critical-card-bg"
           />
           <StatCell
             label="로그 Warning"
@@ -207,7 +207,7 @@ export const DashboardSummaryStats = memo(function DashboardSummaryStats({
             color="text-yellow-500"
             glowClass={GLOW_YELLOW}
             borderClass="border-yellow-500"
-            bgClass="bg-[rgba(245,158,11,0.04)]"
+            bgClass="bg-warning-card-bg"
           />
         </div>
       </div>

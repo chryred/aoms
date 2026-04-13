@@ -33,11 +33,11 @@ const AlertFeedItem = memo(function AlertFeedItem({ alert }: { alert: AlertHisto
         <NeuBadge variant={SEVERITY_VARIANT[alert.severity]}>{alert.severity}</NeuBadge>
       </div>
       <div className="min-w-0 flex-1">
-        <p className="line-clamp-2 text-sm font-medium text-[#E2E8F2]">{alert.title}</p>
+        <p className="text-text-primary line-clamp-2 text-sm font-medium">{alert.title}</p>
         <div className="mt-1 flex flex-wrap items-center gap-2">
-          <span className="text-xs text-[#8B97AD]">{alert.alertname ?? alert.alert_type}</span>
-          <span className="text-xs text-[#5A6478]">·</span>
-          <span className="text-xs text-[#5A6478]">{formatRelative(alert.created_at)}</span>
+          <span className="text-text-secondary text-xs">{alert.alertname ?? alert.alert_type}</span>
+          <span className="text-text-disabled text-xs">·</span>
+          <span className="text-text-disabled text-xs">{formatRelative(alert.created_at)}</span>
           <AnomalyTypeBadge type={alert.anomaly_type} />
         </div>
       </div>
@@ -54,15 +54,17 @@ export function AlertFeed({ alerts, loading }: AlertFeedProps) {
   return (
     <section>
       <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-lg font-semibold text-[#E2E8F2]">
+        <h2 className="text-text-primary text-lg font-semibold">
           미확인 알림
           {alerts.length > 0 && (
-            <span className="ml-2 text-sm font-normal text-[#8B97AD]">({alerts.length}건)</span>
+            <span className="text-text-secondary ml-2 text-sm font-normal">
+              ({alerts.length}건)
+            </span>
           )}
         </h2>
         <Link
           to={ROUTES.ALERTS}
-          className="flex items-center gap-1 rounded text-sm text-[#00D4FF] hover:underline focus:ring-1 focus:ring-[#00D4FF] focus:outline-none"
+          className="text-accent focus:ring-accent flex items-center gap-1 rounded text-sm hover:underline focus:ring-1 focus:outline-none"
         >
           전체 보기 <ArrowRight className="h-3.5 w-3.5" />
         </Link>

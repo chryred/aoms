@@ -2,10 +2,10 @@ import { cn } from '@/lib/utils'
 import type { AgentStatus } from '@/types/agent'
 
 const STATUS_MAP: Record<AgentStatus, { label: string; color: string }> = {
-  running: { label: '실행 중', color: 'text-[#22C55E] bg-[rgba(34,197,94,0.10)]' },
-  stopped: { label: '중지', color: 'text-[#EF4444] bg-[rgba(239,68,68,0.10)]' },
-  installed: { label: '설치됨', color: 'text-[#F59E0B] bg-[rgba(245,158,11,0.10)]' },
-  unknown: { label: '알 수 없음', color: 'text-[#8B97AD] bg-[rgba(139,151,173,0.10)]' },
+  running: { label: '실행 중', color: 'text-normal bg-[rgba(34,197,94,0.10)]' },
+  stopped: { label: '중지', color: 'text-critical bg-critical-card-bg' },
+  installed: { label: '설치됨', color: 'text-warning bg-[rgba(245,158,11,0.10)]' },
+  unknown: { label: '알 수 없음', color: 'text-text-secondary bg-[rgba(139,151,173,0.10)]' },
 }
 
 interface AgentStatusBadgeProps {

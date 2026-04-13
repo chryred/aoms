@@ -9,10 +9,10 @@ interface InstallJobMonitorProps {
 }
 
 const STATUS_ICON: Record<InstallJobStatus, React.ReactNode> = {
-  pending: <Loader2 className="h-4 w-4 animate-spin text-[#8B97AD]" />,
-  running: <Loader2 className="h-4 w-4 animate-spin text-[#00D4FF]" />,
-  done: <CheckCircle className="h-4 w-4 text-[#22C55E]" />,
-  failed: <XCircle className="h-4 w-4 text-[#EF4444]" />,
+  pending: <Loader2 className="text-text-secondary h-4 w-4 animate-spin" />,
+  running: <Loader2 className="text-accent h-4 w-4 animate-spin" />,
+  done: <CheckCircle className="text-normal h-4 w-4" />,
+  failed: <XCircle className="text-critical h-4 w-4" />,
 }
 
 export function InstallJobMonitor({ jobId, onDone }: InstallJobMonitorProps) {
@@ -40,7 +40,7 @@ export function InstallJobMonitor({ jobId, onDone }: InstallJobMonitorProps) {
     <div className="space-y-3">
       <div className="flex items-center gap-2">
         {STATUS_ICON[job.status]}
-        <span className="text-sm font-medium text-[#E2E8F2]">
+        <span className="text-text-primary text-sm font-medium">
           {job.status === 'pending' && '설치 대기 중...'}
           {job.status === 'running' && '설치 진행 중...'}
           {job.status === 'done' && '설치 완료'}
@@ -50,11 +50,11 @@ export function InstallJobMonitor({ jobId, onDone }: InstallJobMonitorProps) {
 
       <pre
         ref={logRef}
-        className="h-48 overflow-y-auto rounded-sm bg-[#13151A] p-3 font-mono text-xs whitespace-pre-wrap text-[#8B97AD]"
+        className="bg-bg-deep text-text-secondary h-48 overflow-y-auto rounded-sm p-3 font-mono text-xs whitespace-pre-wrap"
       >
         {job.logs || '로그 대기 중...'}
         {job.error && (
-          <span className="text-[#EF4444]">
+          <span className="text-critical">
             {'\n'}오류: {job.error}
           </span>
         )}

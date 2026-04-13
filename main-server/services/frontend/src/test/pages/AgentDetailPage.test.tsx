@@ -81,7 +81,7 @@ describe('AgentDetailPage', () => {
       live_status: 'no_data',
     } as never)
     renderPage()
-    expect(await screen.findByText('10.0.0.1')).toBeInTheDocument()
+    expect((await screen.findAllByText('10.0.0.1')).length).toBeGreaterThan(0)
     // SSH 세션 없으면 SSH 세션 등록 버튼 표시
     const sshBtn = screen.getAllByRole('button').find((b) => b.textContent?.includes('SSH'))
     expect(sshBtn).toBeTruthy()

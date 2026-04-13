@@ -24,6 +24,7 @@ const mockContacts = [
     webhook_url: null,
     llm_api_key: null,
     created_at: '2026-01-01T00:00:00Z',
+    systems: [],
   },
   {
     id: 2,
@@ -33,6 +34,7 @@ const mockContacts = [
     webhook_url: 'https://teams.com/webhook',
     llm_api_key: 'key123',
     created_at: '2026-01-02T00:00:00Z',
+    systems: [],
   },
 ]
 
@@ -75,7 +77,7 @@ describe('ContactListPage', () => {
   it('검색 필터링', async () => {
     vi.mocked(useContacts).mockReturnValue({ data: mockContacts, isLoading: false } as never)
     renderPage()
-    await userEvent.type(screen.getByPlaceholderText(/이름 또는 이메일/), '홍')
+    await userEvent.type(screen.getByPlaceholderText(/이름, 이메일, 시스템 검색/), '홍')
     expect(screen.getByText('홍길동')).toBeInTheDocument()
     expect(screen.queryByText('김철수')).not.toBeInTheDocument()
   })

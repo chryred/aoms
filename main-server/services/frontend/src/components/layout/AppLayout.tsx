@@ -24,14 +24,14 @@ export function AppLayout() {
   }, [criticalAlerts, setCriticalCount])
 
   return (
-    <div className="flex h-screen overflow-hidden bg-[#1E2127]">
+    <div className="bg-bg-base flex h-screen overflow-hidden">
       {/* Critical banner — fixed top */}
       {criticalCount > 0 && <CriticalBanner />}
 
       {/* Mobile overlay backdrop */}
       {sidebarOpen && (
         <div
-          className="fixed inset-0 z-20 bg-black/50 md:hidden"
+          className="bg-overlay fixed inset-0 z-20 md:hidden"
           onClick={closeMobileSidebar}
           aria-hidden="true"
         />

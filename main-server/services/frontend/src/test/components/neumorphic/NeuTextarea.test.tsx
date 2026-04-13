@@ -26,7 +26,7 @@ describe('NeuTextarea', () => {
 
   it('error 있을 때 border 색상', () => {
     render(<NeuTextarea error="오류" />)
-    expect(screen.getByRole('textbox').className).toContain('border-[#EF4444]')
+    expect(screen.getByRole('textbox').className).toContain('border-critical')
   })
 
   it('disabled 상태', () => {

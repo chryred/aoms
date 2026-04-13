@@ -63,10 +63,10 @@ export function SimilarSearchInput({
             onClick={() => setCollection(opt.value)}
             className={cn(
               'rounded-sm px-4 py-2 text-sm font-medium transition-all',
-              'focus:ring-1 focus:ring-[#00D4FF] focus:ring-offset-2 focus:ring-offset-[#1E2127] focus:outline-none',
+              'focus:ring-accent focus:ring-offset-bg-base focus:ring-1 focus:ring-offset-2 focus:outline-none',
               collection === opt.value
-                ? 'bg-[#00D4FF] font-semibold text-[#1E2127] shadow-[2px_2px_5px_#111317,-2px_-2px_5px_#2B2F37]'
-                : 'bg-[#1E2127] text-[#8B97AD] shadow-[2px_2px_5px_#111317,-2px_-2px_5px_#2B2F37] hover:text-[#E2E8F2]',
+                ? 'bg-accent text-bg-base shadow-neu-flat font-semibold'
+                : 'bg-bg-base text-text-secondary shadow-neu-flat hover:text-text-primary',
             )}
           >
             {opt.label}
@@ -80,11 +80,11 @@ export function SimilarSearchInput({
         onChange={(e) => setQuery(e.target.value)}
         rows={4}
         className={cn(
-          'w-full rounded-sm bg-[#1E2127] px-4 py-3 text-sm text-[#E2E8F2]',
-          'shadow-[inset_2px_2px_5px_#111317,inset_-2px_-2px_5px_#2B2F37]',
-          'border border-[#2B2F37]',
-          'resize-none whitespace-pre-wrap placeholder:text-[#5A6478]',
-          'focus:ring-1 focus:ring-[#00D4FF] focus:ring-offset-2 focus:ring-offset-[#1E2127] focus:outline-none',
+          'bg-bg-base text-text-primary w-full rounded-sm px-4 py-3 text-sm',
+          'shadow-neu-inset',
+          'border-border border',
+          'placeholder:text-text-disabled resize-none whitespace-pre-wrap',
+          'focus:ring-accent focus:ring-offset-bg-base focus:ring-1 focus:ring-offset-2 focus:outline-none',
         )}
         placeholder="예: CPU 사용률이 80%를 초과하며 응답시간이 급증한 패턴"
         aria-label="검색 쿼리 입력"
@@ -102,13 +102,11 @@ export function SimilarSearchInput({
           <label
             htmlFor="threshold-slider"
             id={thresholdId.current}
-            className="text-sm font-medium text-[#E2E8F2]"
+            className="text-text-primary text-sm font-medium"
           >
             유사도 기준값
           </label>
-          <span className="text-sm font-semibold text-[#00D4FF]">
-            {(threshold * 100).toFixed(0)}%
-          </span>
+          <span className="text-accent text-sm font-semibold">{(threshold * 100).toFixed(0)}%</span>
         </div>
         <input
           id="threshold-slider"
@@ -118,13 +116,13 @@ export function SimilarSearchInput({
           step={0.05}
           value={threshold}
           onChange={(e) => setThreshold(Number(e.target.value))}
-          className="w-full accent-[#00D4FF] focus:ring-1 focus:ring-[#00D4FF] focus:ring-offset-2 focus:ring-offset-[#1E2127] focus:outline-none"
+          className="focus:ring-accent focus:ring-offset-bg-base w-full accent-[#00D4FF] focus:ring-1 focus:ring-offset-2 focus:outline-none"
           aria-label="유사도 기준값"
           aria-valuemin={0.5}
           aria-valuemax={1.0}
           aria-valuenow={threshold}
         />
-        <div className="flex justify-between text-xs text-[#5A6478]">
+        <div className="text-text-disabled flex justify-between text-xs">
           <span>50%</span>
           <span>100%</span>
         </div>

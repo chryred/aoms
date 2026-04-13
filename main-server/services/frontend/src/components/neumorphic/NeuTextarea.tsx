@@ -11,7 +11,7 @@ export const NeuTextarea = forwardRef<HTMLTextAreaElement, NeuTextareaProps>(
     return (
       <div className="flex flex-col gap-1.5">
         {label && (
-          <label htmlFor={id} className="text-[0.8125rem] font-medium text-[#8B97AD]">
+          <label htmlFor={id} className="text-text-secondary text-[0.8125rem] font-medium">
             {label}
           </label>
         )}
@@ -19,18 +19,18 @@ export const NeuTextarea = forwardRef<HTMLTextAreaElement, NeuTextareaProps>(
           ref={ref}
           id={id}
           className={cn(
-            'w-full rounded-sm bg-[#1E2127]',
-            'border border-[#2B2F37]',
-            'shadow-[inset_2px_2px_5px_#111317,inset_-2px_-2px_5px_#2B2F37]',
-            'px-4 py-2.5 text-sm text-[#E2E8F2] placeholder:text-[#5A6478]',
-            'focus:ring-1 focus:ring-[#00D4FF] focus:ring-offset-2 focus:ring-offset-[#1E2127] focus:outline-none',
+            'bg-bg-base w-full rounded-sm',
+            'border-border border',
+            'shadow-neu-inset',
+            'text-text-primary placeholder:text-text-disabled px-4 py-2.5 text-sm',
+            'focus:ring-accent focus:ring-offset-bg-base focus:ring-1 focus:ring-offset-2 focus:outline-none',
             'resize-none disabled:cursor-not-allowed disabled:opacity-40',
-            error && 'border-[#EF4444] focus:ring-[#EF4444]',
+            error && 'border-critical focus:ring-critical',
             className,
           )}
           {...props}
         />
-        {error && <p className="text-xs text-[#F87171]">{error}</p>}
+        {error && <p className="text-critical-text text-xs">{error}</p>}
       </div>
     )
   },

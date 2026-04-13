@@ -10,8 +10,8 @@ interface ErrorCardProps {
 export function ErrorCard({ message = '데이터를 불러오지 못했습니다', onRetry }: ErrorCardProps) {
   return (
     <NeuCard className="flex flex-col items-center gap-4 py-12 text-center">
-      <AlertCircle className="h-12 w-12 text-[#EF4444]" />
-      <p className="text-[#8B97AD]">{message}</p>
+      <AlertCircle className="text-critical h-12 w-12" />
+      <p className="text-text-secondary">{message}</p>
       {onRetry && (
         <NeuButton variant="ghost" onClick={onRetry}>
           다시 시도

@@ -70,7 +70,7 @@ export function ConfirmDialog({
     >
       {/* 오버레이 */}
       <div
-        className="absolute inset-0 bg-black/40"
+        className="bg-overlay absolute inset-0"
         onClick={() => !isPending && onOpenChange(false)}
         aria-hidden="true"
       />
@@ -78,12 +78,12 @@ export function ConfirmDialog({
       {/* 다이얼로그 */}
       <div
         ref={dialogRef}
-        className="relative z-10 mx-4 w-full max-w-sm rounded-sm border border-[#2B2F37] bg-[#1E2127] p-6 shadow-[3px_3px_7px_#111317,-3px_-3px_7px_#2B2F37]"
+        className="border-border bg-bg-base shadow-neu-flat relative z-10 mx-4 w-full max-w-sm rounded-sm border p-6"
       >
-        <h2 id="confirm-dialog-title" className="mb-2 text-base font-semibold text-[#E2E8F2]">
+        <h2 id="confirm-dialog-title" className="text-text-primary mb-2 text-base font-semibold">
           {title}
         </h2>
-        <p className="mb-6 text-sm text-[#8B97AD]">{description}</p>
+        <p className="text-text-secondary mb-6 text-sm">{description}</p>
 
         <div className="flex justify-end gap-3">
           <NeuButton

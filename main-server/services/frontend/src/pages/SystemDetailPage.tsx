@@ -56,7 +56,7 @@ export function SystemDetailPage() {
   )
 
   if (isLoading) return <LoadingSkeleton />
-  if (!system) return <div className="text-[#8B97AD]">시스템을 찾을 수 없습니다.</div>
+  if (!system) return <div className="text-text-secondary">시스템을 찾을 수 없습니다.</div>
 
   // collector_type별 metric_group 분리
   const groupedMetrics = hourly.reduce<Record<string, HourlyAggregation[]>>((acc, agg) => {
@@ -81,12 +81,12 @@ export function SystemDetailPage() {
 
   return (
     <div>
-      <nav className="mb-3 text-xs text-[#8B97AD]">
+      <nav className="text-text-secondary mb-3 text-xs">
         <Link to={ROUTES.DASHBOARD} className="hover:underline">
           대시보드
         </Link>
         <span className="mx-1">›</span>
-        <span className="text-[#E2E8F2]">{system.display_name}</span>
+        <span className="text-text-primary">{system.display_name}</span>
       </nav>
 
       <PageHeader
@@ -104,15 +104,15 @@ export function SystemDetailPage() {
           className={cn(
             'mb-4 flex gap-3 rounded-sm border p-3',
             systemTrends[0].llm_severity === 'critical'
-              ? 'border-[#EF4444] bg-[rgba(239,68,68,0.06)]'
-              : 'border-[#F59E0B] bg-[rgba(245,158,11,0.06)]',
+              ? 'border-critical bg-[rgba(239,68,68,0.06)]'
+              : 'border-warning bg-warning-card-bg',
           )}
         >
-          <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-[#F59E0B]" />
+          <AlertTriangle className="text-warning mt-0.5 h-5 w-5 shrink-0" />
           <div className="text-sm">
-            <p className="mb-1 font-semibold text-[#E2E8F2]">장애 예측 알림</p>
+            <p className="text-text-primary mb-1 font-semibold">장애 예측 알림</p>
             {systemTrends.map((t) => (
-              <p key={t.id} className="whitespace-pre-wrap text-[#8B97AD]">
+              <p key={t.id} className="text-text-secondary whitespace-pre-wrap">
                 {t.llm_prediction}
               </p>
             ))}
@@ -121,7 +121,7 @@ export function SystemDetailPage() {
       )}
 
       {/* 탭 */}
-      <div className="mb-4 flex gap-1 border-b border-[#2B2F37]">
+      <div className="border-border mb-4 flex gap-1 border-b">
         {(['metrics', 'alerts', 'analysis', 'contacts'] as TabKey[]).map((t) => (
           <button
             key={t}
@@ -129,8 +129,8 @@ export function SystemDetailPage() {
             className={cn(
               'px-4 py-2 text-sm font-medium transition-colors',
               tab === t
-                ? 'border-b-2 border-[#00D4FF] text-[#00D4FF]'
-                : 'text-[#8B97AD] hover:text-[#E2E8F2]',
+                ? 'border-accent text-accent border-b-2'
+                : 'text-text-secondary hover:text-text-primary',
             )}
           >
             {t === 'metrics'
@@ -148,7 +148,7 @@ export function SystemDetailPage() {
         <div>
           {/* collector_type 선택 */}
           {availableCollectors.length > 0 && (
-            <div className="mb-3 flex w-fit flex-wrap gap-1 rounded-sm bg-[#1E2127] p-1 shadow-[inset_1px_1px_3px_#111317,inset_-1px_-1px_3px_#2B2F37]">
+            <div className="bg-bg-base shadow-neu-pressed mb-3 flex w-fit flex-wrap gap-1 rounded-sm p-1">
               {availableCollectors.map((ct) => (
                 <button
                   key={ct}
@@ -156,8 +156,8 @@ export function SystemDetailPage() {
                   className={cn(
                     'rounded-sm px-3 py-1 text-xs font-medium transition-all',
                     collectorType === ct
-                      ? 'bg-[#00D4FF] font-semibold text-[#1E2127] shadow-[2px_2px_4px_#111317]'
-                      : 'text-[#8B97AD] hover:bg-[rgba(255,255,255,0.05)] hover:text-[#E2E8F2]',
+                      ? 'bg-accent text-bg-base shadow-neu-flat font-semibold'
+                      : 'text-text-secondary hover:bg-hover-subtle hover:text-text-primary',
                   )}
                 >
                   {ct}
@@ -167,7 +167,7 @@ export function SystemDetailPage() {
           )}
 
           {/* 시간 범위 선택 */}
-          <div className="mb-4 flex w-fit gap-1 rounded-sm bg-[#1E2127] p-1 shadow-[inset_1px_1px_3px_#111317,inset_-1px_-1px_3px_#2B2F37]">
+          <div className="bg-bg-base shadow-neu-pressed mb-4 flex w-fit gap-1 rounded-sm p-1">
             {(['6h', '12h', '24h', '48h'] as TimeRange[]).map((r) => (
               <button
                 key={r}
@@ -175,8 +175,8 @@ export function SystemDetailPage() {
                 className={cn(
                   'rounded-sm px-3 py-1 text-xs font-medium transition-all',
                   timeRange === r
-                    ? 'bg-[#00D4FF] font-semibold text-[#1E2127] shadow-[2px_2px_4px_#111317]'
-                    : 'text-[#8B97AD] hover:bg-[rgba(255,255,255,0.05)] hover:text-[#E2E8F2]',
+                    ? 'bg-accent text-bg-base shadow-neu-flat font-semibold'
+                    : 'text-text-secondary hover:bg-hover-subtle hover:text-text-primary',
                 )}
               >
                 최근 {r}
@@ -204,7 +204,7 @@ export function SystemDetailPage() {
               )
             })}
             {Object.keys(groupedMetrics).length === 0 && (
-              <p className="text-sm text-[#8B97AD]">이 기간에 집계 데이터가 없습니다.</p>
+              <p className="text-text-secondary text-sm">이 기간에 집계 데이터가 없습니다.</p>
             )}
           </div>
         </div>
@@ -213,16 +213,16 @@ export function SystemDetailPage() {
       {tab === 'alerts' && (
         <div>
           {alerts.length === 0 ? (
-            <p className="text-sm text-[#8B97AD]">알림 이력이 없습니다.</p>
+            <p className="text-text-secondary text-sm">알림 이력이 없습니다.</p>
           ) : (
             <div className="flex flex-col gap-2">
               {alerts.map((a) => (
                 <NeuCard key={a.id} severity={a.severity as 'warning' | 'critical' | undefined}>
                   <div className="flex items-start justify-between">
                     <div>
-                      <p className="text-sm font-medium text-[#E2E8F2]">{a.title}</p>
+                      <p className="text-text-primary text-sm font-medium">{a.title}</p>
                       {a.description && (
-                        <p className="mt-0.5 text-xs text-[#8B97AD]">{a.description}</p>
+                        <p className="text-text-secondary mt-0.5 text-xs">{a.description}</p>
                       )}
                     </div>
                     <NeuBadge
@@ -247,7 +247,7 @@ export function SystemDetailPage() {
       {tab === 'analysis' && (
         <>
           {logAnalysisAlerts.length === 0 ? (
-            <p className="text-sm text-[#8B97AD]">이 시스템의 로그 분석 이력이 없습니다.</p>
+            <p className="text-text-secondary text-sm">이 시스템의 로그 분석 이력이 없습니다.</p>
           ) : (
             <NeuCard className="overflow-hidden p-0">
               <AlertTable alerts={logAnalysisAlerts} onSelect={setSelectedAlert} />

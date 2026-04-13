@@ -58,17 +58,17 @@ export function AlertHistoryPage() {
       <PageHeader title="알림 이력" description="메트릭 알림 및 로그 분석 결과 이력" />
 
       {/* 탭 */}
-      <div className="mb-4 flex w-fit gap-1 rounded-sm bg-[#1E2127] p-1 shadow-[inset_1px_1px_3px_#111317,inset_-1px_-1px_3px_#2B2F37]">
+      <div className="bg-bg-base shadow-neu-pressed mb-4 flex w-fit gap-1 rounded-sm p-1">
         {TABS.map(({ key, label }) => (
           <button
             key={key}
             onClick={() => handleTabChange(key)}
             className={cn(
               'rounded-sm px-4 py-1.5 text-sm font-medium transition-all',
-              'focus:ring-1 focus:ring-[#00D4FF] focus:ring-offset-[#1E2127] focus:outline-none',
+              'focus:ring-accent focus:ring-offset-bg-base focus:ring-1 focus:outline-none',
               tab === key
-                ? 'bg-[#00D4FF] font-semibold text-[#1E2127] shadow-[2px_2px_4px_#111317]'
-                : 'text-[#8B97AD] hover:bg-[rgba(255,255,255,0.05)] hover:text-[#E2E8F2]',
+                ? 'bg-accent text-bg-base shadow-neu-flat font-semibold'
+                : 'text-text-secondary hover:bg-hover-subtle hover:text-text-primary',
             )}
           >
             {label}
@@ -121,7 +121,7 @@ export function AlertHistoryPage() {
       {/* 페이지네이션 */}
       {!isLoading && !error && (
         <div className="mt-4 flex items-center justify-between">
-          <span className="text-sm text-[#8B97AD]">페이지 {currentPage}</span>
+          <span className="text-text-secondary text-sm">페이지 {currentPage}</span>
           <div className="flex gap-2">
             <NeuButton
               variant="ghost"

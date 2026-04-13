@@ -40,11 +40,11 @@ describe('SeverityBadge', () => {
 
   it('critical — 빨간 텍스트', () => {
     render(<SeverityBadge severity="critical" />)
-    expect(screen.getByText('위험').className).toContain('text-[#F87171]')
+    expect(screen.getByText('위험').className).toContain('text-critical-text')
   })
 
   it('normal — 초록 텍스트', () => {
     render(<SeverityBadge severity="normal" />)
-    expect(screen.getByText('정상').className).toContain('text-[#22C55E]')
+    expect(screen.getByText('정상').className).toContain('text-normal')
   })
 })

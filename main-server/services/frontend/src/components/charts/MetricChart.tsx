@@ -11,6 +11,7 @@ import {
 } from 'recharts'
 import type { HourlyAggregation } from '@/types/aggregation'
 import { transformToChartData } from '@/lib/metrics-transform'
+import { useUiStore } from '@/store/uiStore'
 
 interface MetricChartProps {
   aggregations: HourlyAggregation[]
@@ -20,12 +21,11 @@ interface MetricChartProps {
   onPointClick?: (hourBucket: string) => void
 }
 
-const LINE_COLORS = ['#00D4FF', '#22C55E', '#F59E0B', '#EC4899', '#14B8A6']
+const LINE_COLORS_DARK = ['#00D4FF', '#22C55E', '#F59E0B', '#EC4899', '#14B8A6']
+const LINE_COLORS_LIGHT = ['#0891B2', '#059669', '#D97706', '#DB2777', '#0D9488']
 
-// 특정 키에 대한 색상 고정 오버라이드 (LINE_COLORS 순서에 관계없이 항상 이 색상 사용)
-const KEY_COLOR_OVERRIDE: Record<string, string> = {
-  net_max_mbps: '#EF4444',
-}
+const KEY_COLOR_OVERRIDE_DARK: Record<string, string> = { net_max_mbps: '#EF4444' }
+const KEY_COLOR_OVERRIDE_LIGHT: Record<string, string> = { net_max_mbps: '#E11D48' }
 
 const KEY_LABELS: Record<string, string> = {
   cpu_avg: '평균',
@@ -76,8 +76,8 @@ function CustomTooltip({
   const summary = raw.llm_summary as string | undefined
   const prediction = raw.llm_prediction as string | undefined
   return (
-    <div className="max-w-xs rounded-sm border border-[#2B2F37] bg-[#1E2127] p-3 text-xs shadow-[3px_3px_7px_#111317,-3px_-3px_7px_#2B2F37]">
-      <p className="mb-1 font-semibold text-[#E2E8F2]">{label}</p>
+    <div className="border-border bg-bg-base shadow-neu-flat max-w-xs rounded-sm border p-3 text-xs">
+      <p className="text-text-primary mb-1 font-semibold">{label}</p>
       {payload.map((p) => (
         <p key={p.name} style={{ color: p.color }}>
           {p.name}: {p.value}
@@ -85,13 +85,13 @@ function CustomTooltip({
       ))}
       {severity && severity !== 'normal' && (
         <p
-          className={`mt-1 font-medium ${severity === 'critical' ? 'text-[#EF4444]' : 'text-[#F59E0B]'}`}
+          className={`mt-1 font-medium ${severity === 'critical' ? 'text-critical' : 'text-warning'}`}
         >
           {severity === 'critical' ? '위험' : '경고'}
         </p>
       )}
-      {summary && <p className="mt-1 whitespace-pre-wrap text-[#8B97AD]">{summary}</p>}
-      {prediction && <p className="mt-1 text-[#00D4FF] italic">{prediction}</p>}
+      {summary && <p className="text-text-secondary mt-1 whitespace-pre-wrap">{summary}</p>}
+      {prediction && <p className="text-accent mt-1 italic">{prediction}</p>}
     </div>
   )
 }
@@ -103,7 +103,16 @@ export function MetricChart({
   unit,
   onPointClick,
 }: MetricChartProps) {
+  const theme = useUiStore((s) => s.theme)
   const data = transformToChartData(aggregations, metricKeys)
+
+  const lineColors = theme === 'dark' ? LINE_COLORS_DARK : LINE_COLORS_LIGHT
+  const keyOverride = theme === 'dark' ? KEY_COLOR_OVERRIDE_DARK : KEY_COLOR_OVERRIDE_LIGHT
+  const gridColor = theme === 'dark' ? '#2B2F37' : '#E5E7EB'
+  const tickColor = theme === 'dark' ? '#8B97AD' : '#6B7280'
+  const warningColor = theme === 'dark' ? '#F59E0B' : '#F97316'
+  const criticalColor = theme === 'dark' ? '#EF4444' : '#F43F5E'
+  const disabledColor = theme === 'dark' ? '#555' : '#9CA3AF'
 
   // 숨긴 범례 키 관리 — 기본은 전부 표시
   const [hiddenKeys, setHiddenKeys] = useState<Set<string>>(new Set())
@@ -131,13 +140,13 @@ export function MetricChart({
     })
 
   return (
-    <div className="rounded-sm bg-[#1E2127] p-4 shadow-[3px_3px_7px_#111317,-3px_-3px_7px_#2B2F37]">
-      <h3 className="mb-3 text-sm font-semibold text-[#E2E8F2]">
+    <div className="bg-bg-base shadow-neu-flat rounded-sm p-4">
+      <h3 className="text-text-primary mb-3 text-sm font-semibold">
         {title}
         {unit && ` (${unit})`}
       </h3>
       {data.length === 0 ? (
-        <div className="flex h-32 items-center justify-center text-sm text-[#8B97AD]">
+        <div className="text-text-secondary flex h-32 items-center justify-center text-sm">
           데이터 없음
         </div>
       ) : (
@@ -152,9 +161,9 @@ export function MetricChart({
                 }
               }}
             >
-              <CartesianGrid strokeDasharray="3 3" stroke="#2B2F37" />
-              <XAxis dataKey="timestamp" tick={{ fontSize: 11, fill: '#8B97AD' }} />
-              <YAxis tick={{ fontSize: 11, fill: '#8B97AD' }} unit={unit} />
+              <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
+              <XAxis dataKey="timestamp" tick={{ fontSize: 11, fill: tickColor }} />
+              <YAxis tick={{ fontSize: 11, fill: tickColor }} unit={unit} />
               <Tooltip content={<CustomTooltip />} />
               {metricKeys.map((key, i) => (
                 <Line
@@ -162,9 +171,9 @@ export function MetricChart({
                   name={KEY_LABELS[key] ?? key}
                   type="monotone"
                   dataKey={key}
-                  stroke={KEY_COLOR_OVERRIDE[key] ?? LINE_COLORS[i % LINE_COLORS.length]}
+                  stroke={keyOverride[key] ?? lineColors[i % lineColors.length]}
                   strokeDasharray={
-                    key in KEY_COLOR_OVERRIDE ? '6 3' : key.includes('max') ? '5 5' : undefined
+                    key in keyOverride ? '6 3' : key.includes('max') ? '5 5' : undefined
                   }
                   dot={false}
                   strokeWidth={1.5}
@@ -172,10 +181,15 @@ export function MetricChart({
                 />
               ))}
               {warningPoints.map((ts) => (
-                <ReferenceLine key={`w-${ts}`} x={ts} stroke="#F59E0B" strokeDasharray="4 2" />
+                <ReferenceLine key={`w-${ts}`} x={ts} stroke={warningColor} strokeDasharray="4 2" />
               ))}
               {criticalPoints.map((ts) => (
-                <ReferenceLine key={`c-${ts}`} x={ts} stroke="#EF4444" strokeDasharray="4 2" />
+                <ReferenceLine
+                  key={`c-${ts}`}
+                  x={ts}
+                  stroke={criticalColor}
+                  strokeDasharray="4 2"
+                />
               ))}
             </ComposedChart>
           </ResponsiveContainer>
@@ -183,7 +197,7 @@ export function MetricChart({
           {/* 인터랙티브 범례 */}
           <div className="mt-2 flex flex-wrap items-center justify-center gap-x-4 gap-y-1">
             {metricKeys.map((key, i) => {
-              const color = KEY_COLOR_OVERRIDE[key] ?? LINE_COLORS[i % LINE_COLORS.length]
+              const color = keyOverride[key] ?? lineColors[i % lineColors.length]
               const hidden = hiddenKeys.has(key)
               return (
                 <button
@@ -195,11 +209,11 @@ export function MetricChart({
                 >
                   <span
                     className="inline-block h-2.5 w-2.5 rounded-full transition-colors"
-                    style={{ backgroundColor: hidden ? '#555' : color }}
+                    style={{ backgroundColor: hidden ? disabledColor : color }}
                   />
                   <span
-                    className="text-[11px] transition-colors"
-                    style={{ color: hidden ? '#555' : '#8B97AD' }}
+                    className="text-text-secondary text-[11px] transition-colors"
+                    style={{ opacity: hidden ? 0.5 : 1 }}
                   >
                     {KEY_LABELS[key] ?? key}
                   </span>

@@ -17,7 +17,7 @@ export function useCollectorConfigs(system_id: number | undefined) {
     queryKey: ['collectorConfigs', system_id],
     queryFn: () =>
       adminApi
-        .get('api/v1/collector-config', { searchParams: { system_id } })
+        .get('api/v1/collector-config', { searchParams: { system_id: system_id! } })
         .json<CollectorConfig[]>(),
     enabled: !!system_id,
     staleTime: 300_000,

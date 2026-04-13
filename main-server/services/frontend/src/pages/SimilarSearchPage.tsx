@@ -13,18 +13,19 @@ import { useCollectionInfo } from '@/hooks/queries/useCollectionInfo'
 function CollectionInfoBar() {
   const { data, isLoading } = useCollectionInfo()
 
-  if (isLoading) return <div className="mb-4 text-sm text-[#8B97AD]">컬렉션 정보 로딩 중...</div>
+  if (isLoading)
+    return <div className="text-text-secondary mb-4 text-sm">컬렉션 정보 로딩 중...</div>
   if (!data || !data.metric_hourly_patterns || !data.aggregation_summaries) return null
 
   const statusColor = (s: string) => {
-    if (s === 'green') return 'text-[#22C55E]'
-    if (s === 'yellow') return 'text-[#F59E0B]'
-    if (s === 'red' || s === 'error') return 'text-[#EF4444]'
-    return 'text-[#8B97AD]'
+    if (s === 'green') return 'text-normal'
+    if (s === 'yellow') return 'text-warning'
+    if (s === 'red' || s === 'error') return 'text-critical'
+    return 'text-text-secondary'
   }
 
   return (
-    <div className="mb-4 flex flex-wrap gap-4 text-sm text-[#8B97AD]">
+    <div className="text-text-secondary mb-4 flex flex-wrap gap-4 text-sm">
       <span>
         시간별 패턴:{' '}
         <span className={statusColor(data.metric_hourly_patterns.status)}>
@@ -94,7 +95,7 @@ export default function SimilarSearchPage() {
 
         {!isPending && !isError && !data && (
           <EmptyState
-            icon={<Search className="h-12 w-12 text-[#8B97AD]" />}
+            icon={<Search className="text-text-secondary h-12 w-12" />}
             title="유사 장애를 검색해보세요"
             description="과거 메트릭 패턴이나 집계 요약에서 유사한 상황을 찾아드립니다."
           />
@@ -102,7 +103,7 @@ export default function SimilarSearchPage() {
 
         {!isPending && !isError && data && data.count === 0 && (
           <EmptyState
-            icon={<SearchX className="h-12 w-12 text-[#8B97AD]" />}
+            icon={<SearchX className="text-text-secondary h-12 w-12" />}
             title="유사한 장애 패턴을 찾지 못했습니다"
             description={`유사도 기준값(${(threshold * 100).toFixed(0)}%)을 낮추거나 검색어를 변경해보세요.`}
           />

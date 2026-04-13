@@ -31,10 +31,10 @@ import { ROUTES } from '@/constants/routes'
 import { formatKST, getAgentTypeLabel } from '@/lib/utils'
 
 const LIVE_STATUS_CONFIG: Record<AgentLiveStatus, { label: string; color: string; dot: string }> = {
-  collecting: { label: '수집 중', color: 'text-[#22C55E]', dot: 'bg-[#22C55E]' },
-  delayed: { label: '데이터 지연', color: 'text-[#F59E0B]', dot: 'bg-[#F59E0B]' },
-  stale: { label: '수집 중단', color: 'text-[#EF4444]', dot: 'bg-[#EF4444]' },
-  no_data: { label: '데이터 없음', color: 'text-[#8B97AD]', dot: 'bg-[#8B97AD]' },
+  collecting: { label: '수집 중', color: 'text-normal', dot: 'bg-normal' },
+  delayed: { label: '데이터 지연', color: 'text-warning', dot: 'bg-warning' },
+  stale: { label: '수집 중단', color: 'text-critical', dot: 'bg-critical' },
+  no_data: { label: '데이터 없음', color: 'text-text-secondary', dot: 'bg-text-secondary' },
 }
 
 const COLLECTOR_LABELS: Record<string, string> = {
@@ -224,8 +224,8 @@ export function AgentDetailPage() {
         <div
           className={`mb-4 rounded-sm px-4 py-3 text-sm ${
             message.type === 'success'
-              ? 'bg-[rgba(34,197,94,0.08)] text-[#22C55E]'
-              : 'bg-[rgba(239,68,68,0.08)] text-[#EF4444]'
+              ? 'text-normal bg-[rgba(34,197,94,0.08)]'
+              : 'text-critical bg-[rgba(239,68,68,0.08)]'
           }`}
         >
           {message.text}
@@ -236,7 +236,7 @@ export function AgentDetailPage() {
         {/* 상태 + 제어 */}
         <NeuCard>
           <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-[#E2E8F2]">상태 및 제어</h2>
+            <h2 className="text-text-primary text-sm font-semibold">상태 및 제어</h2>
             {(() => {
               const headerStatus: AgentStatus = liveStatus
                 ? liveStatus.live
@@ -317,8 +317,10 @@ export function AgentDetailPage() {
           </div>
 
           {/* 설치 */}
-          <div className="mt-4 border-t border-[#2B2F37] pt-4">
-            <p className="mb-2 text-xs text-[#8B97AD]">설치 (바이너리 다운로드 + 디렉터리 구성)</p>
+          <div className="border-border mt-4 border-t pt-4">
+            <p className="text-text-secondary mb-2 text-xs">
+              설치 (바이너리 다운로드 + 디렉터리 구성)
+            </p>
             <NeuButton size="sm" variant="glass" onClick={handleInstall} disabled={!sessionActive}>
               <Download className="h-3.5 w-3.5" />
               설치 실행
@@ -326,14 +328,14 @@ export function AgentDetailPage() {
           </div>
 
           {installJobId && (
-            <div className="mt-4 border-t border-[#2B2F37] pt-4">
-              <p className="mb-2 text-xs font-medium text-[#E2E8F2]">설치 진행 상황</p>
+            <div className="border-border mt-4 border-t pt-4">
+              <p className="text-text-primary mb-2 text-xs font-medium">설치 진행 상황</p>
               <InstallJobMonitor jobId={installJobId} onDone={handleInstallDone} />
             </div>
           )}
 
           {/* 삭제 */}
-          <div className="mt-4 border-t border-[#2B2F37] pt-4">
+          <div className="border-border mt-4 border-t pt-4">
             {!showDeleteConfirm ? (
               <NeuButton size="sm" variant="danger" onClick={() => setShowDeleteConfirm(true)}>
                 <Trash2 className="h-3.5 w-3.5" />
@@ -341,7 +343,7 @@ export function AgentDetailPage() {
               </NeuButton>
             ) : (
               <div className="space-y-2">
-                <p className="text-xs text-[#EF4444]">정말 삭제하시겠습니까?</p>
+                <p className="text-critical text-xs">정말 삭제하시겠습니까?</p>
                 <div className="flex gap-2">
                   <NeuButton size="sm" variant="danger" onClick={handleDelete}>
                     삭제 확인
@@ -359,13 +361,13 @@ export function AgentDetailPage() {
         {
           <NeuCard>
             <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-sm font-semibold text-[#E2E8F2]">설정 파일</h2>
-              <span className="text-xs text-[#8B97AD]">{agent.config_path}</span>
+              <h2 className="text-text-primary text-sm font-semibold">설정 파일</h2>
+              <span className="text-text-secondary text-xs">{agent.config_path}</span>
             </div>
 
             {configContent === null ? (
               <div className="flex flex-col items-center justify-center gap-3 py-12">
-                <p className="text-sm text-[#8B97AD]">
+                <p className="text-text-secondary text-sm">
                   설정 파일을 불러오려면 아래 버튼을 누르세요.
                 </p>
                 <NeuButton
@@ -411,7 +413,7 @@ export function AgentDetailPage() {
                   </NeuButton>
                 </div>
                 {configDirty && (
-                  <p className="text-xs text-[#F59E0B]">저장되지 않은 변경사항이 있습니다.</p>
+                  <p className="text-warning text-xs">저장되지 않은 변경사항이 있습니다.</p>
                 )}
               </div>
             )}
@@ -423,8 +425,8 @@ export function AgentDetailPage() {
       {supportsLive && (
         <NeuCard className="mt-6">
           <div className="mb-4 flex items-center gap-2">
-            <Activity className="h-4 w-4 text-[#00D4FF]" />
-            <h2 className="text-sm font-semibold text-[#E2E8F2]">
+            <Activity className="text-accent h-4 w-4" />
+            <h2 className="text-text-primary text-sm font-semibold">
               수집 상태 (Prometheus · 최근 10분)
             </h2>
             {liveStatus?.live_status && (
@@ -444,21 +446,21 @@ export function AgentDetailPage() {
           {liveStatus ? (
             <div className="space-y-3">
               {liveStatus.last_seen && (
-                <p className="text-xs text-[#8B97AD]">
+                <p className="text-text-secondary text-xs">
                   마지막 수신:{' '}
-                  <span className="text-[#E2E8F2]">
+                  <span className="text-text-primary">
                     {formatKST(liveStatus.last_seen, 'datetime')}
                   </span>
                 </p>
               )}
               {liveStatus.collectors_active && liveStatus.collectors_active.length > 0 && (
                 <div>
-                  <p className="mb-2 text-xs text-[#8B97AD]">활성 수집기</p>
+                  <p className="text-text-secondary mb-2 text-xs">활성 수집기</p>
                   <div className="flex flex-wrap gap-1.5">
                     {liveStatus.collectors_active.map((c) => (
                       <span
                         key={c}
-                        className="rounded-full bg-[rgba(34,197,94,0.1)] px-2.5 py-0.5 text-xs font-medium text-[#22C55E]"
+                        className="text-normal rounded-full bg-[rgba(34,197,94,0.1)] px-2.5 py-0.5 text-xs font-medium"
                       >
                         {COLLECTOR_LABELS[c] ?? c}
                       </span>
@@ -467,11 +469,11 @@ export function AgentDetailPage() {
                 </div>
               )}
               {(!liveStatus.collectors_active || liveStatus.collectors_active.length === 0) && (
-                <p className="text-xs text-[#8B97AD]">활성 수집기 정보 없음</p>
+                <p className="text-text-secondary text-xs">활성 수집기 정보 없음</p>
               )}
             </div>
           ) : (
-            <p className="text-xs text-[#8B97AD]">Prometheus에서 상태를 조회 중입니다...</p>
+            <p className="text-text-secondary text-xs">Prometheus에서 상태를 조회 중입니다...</p>
           )}
         </NeuCard>
       )}
@@ -491,8 +493,8 @@ export function AgentDetailPage() {
 function InfoRow({ label, value }: { label: string; value: string }) {
   return (
     <div className="flex items-start gap-2">
-      <dt className="w-24 shrink-0 text-[#8B97AD]">{label}</dt>
-      <dd className="break-all text-[#E2E8F2]">{value}</dd>
+      <dt className="text-text-secondary w-24 shrink-0">{label}</dt>
+      <dd className="text-text-primary break-all">{value}</dd>
     </div>
   )
 }

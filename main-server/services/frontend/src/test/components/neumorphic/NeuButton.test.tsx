@@ -12,31 +12,31 @@ describe('NeuButton', () => {
   it('기본 variant=primary 클래스', () => {
     render(<NeuButton>버튼</NeuButton>)
     const btn = screen.getByRole('button')
-    expect(btn).toHaveClass('bg-[#00D4FF]')
+    expect(btn).toHaveClass('bg-accent')
   })
 
   it('variant=secondary', () => {
     render(<NeuButton variant="secondary">버튼</NeuButton>)
     const btn = screen.getByRole('button')
-    expect(btn.className).toContain('text-[#E2E8F2]')
+    expect(btn.className).toContain('text-text-primary')
   })
 
   it('variant=glass', () => {
     render(<NeuButton variant="glass">버튼</NeuButton>)
     const btn = screen.getByRole('button')
-    expect(btn.className).toContain('text-[#00D4FF]')
+    expect(btn.className).toContain('text-accent')
   })
 
   it('variant=ghost', () => {
     render(<NeuButton variant="ghost">버튼</NeuButton>)
     const btn = screen.getByRole('button')
-    expect(btn.className).toContain('text-[#8B97AD]')
+    expect(btn.className).toContain('text-text-secondary')
   })
 
   it('variant=danger', () => {
     render(<NeuButton variant="danger">버튼</NeuButton>)
     const btn = screen.getByRole('button')
-    expect(btn.className).toContain('bg-[#EF4444]')
+    expect(btn.className).toContain('bg-critical')
   })
 
   it('size=sm', () => {

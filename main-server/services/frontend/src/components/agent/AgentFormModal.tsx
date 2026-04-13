@@ -197,13 +197,13 @@ export function AgentFormModal({ systems, onClose, onCreated }: AgentFormModalPr
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
+      <div className="bg-overlay absolute inset-0" onClick={onClose} />
       <NeuCard className="relative mx-4 max-h-[90vh] w-full max-w-lg overflow-y-auto">
         <div className="mb-4 flex items-center justify-between">
-          <h3 className="text-base font-semibold text-[#E2E8F2]">에이전트 등록</h3>
+          <h3 className="text-text-primary text-base font-semibold">에이전트 등록</h3>
           <button
             onClick={onClose}
-            className="rounded-sm text-[#8B97AD] hover:text-[#E2E8F2] focus:ring-1 focus:ring-[#00D4FF] focus:outline-none"
+            className="text-text-secondary hover:text-text-primary focus:ring-accent rounded-sm focus:ring-1 focus:outline-none"
           >
             <X className="h-4 w-4" />
           </button>
@@ -212,7 +212,7 @@ export function AgentFormModal({ systems, onClose, onCreated }: AgentFormModalPr
         <form onSubmit={handleSubmit} className="space-y-3">
           {/* 기본 정보 */}
           <div>
-            <label className="mb-1 block text-xs text-[#8B97AD]">시스템</label>
+            <label className="text-text-secondary mb-1 block text-xs">시스템</label>
             <NeuSelect
               value={selectedSystemId}
               onChange={(e) => setSelectedSystemId(Number(e.target.value))}
@@ -225,7 +225,7 @@ export function AgentFormModal({ systems, onClose, onCreated }: AgentFormModalPr
             </NeuSelect>
           </div>
           <div>
-            <label className="mb-1 block text-xs text-[#8B97AD]">에이전트 타입</label>
+            <label className="text-text-secondary mb-1 block text-xs">에이전트 타입</label>
             <NeuSelect value={agentType} onChange={(e) => handleTypeChange(e.target.value)}>
               {AGENT_TYPES.map((t) => (
                 <option key={t.value} value={t.value}>
@@ -236,7 +236,7 @@ export function AgentFormModal({ systems, onClose, onCreated }: AgentFormModalPr
           </div>
           <div className="flex gap-3">
             <div className="flex-1">
-              <label className="mb-1 block text-xs text-[#8B97AD]">
+              <label className="text-text-secondary mb-1 block text-xs">
                 {isOracleDb ? 'SCAN 주소 / 호스트명' : '서버 IP'}
               </label>
               <NeuInput
@@ -248,7 +248,7 @@ export function AgentFormModal({ systems, onClose, onCreated }: AgentFormModalPr
             </div>
             {!isOracleDb && (
               <div className="flex-1">
-                <label className="mb-1 block text-xs text-[#8B97AD]">SSH 계정</label>
+                <label className="text-text-secondary mb-1 block text-xs">SSH 계정</label>
                 <NeuInput
                   value={sshUsername}
                   onChange={(e) => setSshUsername(e.target.value)}
@@ -260,14 +260,14 @@ export function AgentFormModal({ systems, onClose, onCreated }: AgentFormModalPr
           </div>
           <div className="flex gap-3">
             <div className="flex-1">
-              <label className="mb-1 block text-xs text-[#8B97AD]">OS</label>
+              <label className="text-text-secondary mb-1 block text-xs">OS</label>
               <NeuSelect value={osType} onChange={(e) => setOsType(e.target.value as OsType)}>
                 <option value="linux">Linux</option>
                 <option value="windows">Windows</option>
               </NeuSelect>
             </div>
             <div className="flex-1">
-              <label className="mb-1 block text-xs text-[#8B97AD]">서버 역할</label>
+              <label className="text-text-secondary mb-1 block text-xs">서버 역할</label>
               <NeuSelect
                 value={serverType}
                 onChange={(e) => setServerType(e.target.value as ServerType)}
@@ -283,12 +283,14 @@ export function AgentFormModal({ systems, onClose, onCreated }: AgentFormModalPr
 
           {/* oracle_db 전용 필드 */}
           {isOracleDb && (
-            <div className="space-y-3 rounded-sm border border-[#2B2F37] bg-[#181C22] p-3">
-              <p className="text-xs font-medium text-[#8B97AD]">Oracle DB 연결 설정</p>
+            <div className="border-border bg-bg-deep space-y-3 rounded-sm border p-3">
+              <p className="text-text-secondary text-xs font-medium">Oracle DB 연결 설정</p>
               <div>
-                <label className="mb-1 block text-xs text-[#8B97AD]">
+                <label className="text-text-secondary mb-1 block text-xs">
                   instance_role{' '}
-                  <span className="text-[#8B97AD]/60">(HA 구분: db-primary, db-standby …)</span>
+                  <span className="text-text-secondary/60">
+                    (HA 구분: db-primary, db-standby …)
+                  </span>
                 </label>
                 <NeuInput
                   value={oracleInstanceRole}
@@ -298,7 +300,7 @@ export function AgentFormModal({ systems, onClose, onCreated }: AgentFormModalPr
               </div>
               <div className="flex gap-3">
                 <div className="flex-1">
-                  <label className="mb-1 block text-xs text-[#8B97AD]">Service Name</label>
+                  <label className="text-text-secondary mb-1 block text-xs">Service Name</label>
                   <NeuInput
                     value={oracleServiceName}
                     onChange={(e) => setOracleServiceName(e.target.value)}
@@ -307,7 +309,7 @@ export function AgentFormModal({ systems, onClose, onCreated }: AgentFormModalPr
                   />
                 </div>
                 <div className="w-24">
-                  <label className="mb-1 block text-xs text-[#8B97AD]">포트</label>
+                  <label className="text-text-secondary mb-1 block text-xs">포트</label>
                   <NeuInput
                     type="number"
                     value={port || '1521'}
@@ -317,7 +319,7 @@ export function AgentFormModal({ systems, onClose, onCreated }: AgentFormModalPr
                 </div>
               </div>
               <div>
-                <label className="mb-1 block text-xs text-[#8B97AD]">DB 계정</label>
+                <label className="text-text-secondary mb-1 block text-xs">DB 계정</label>
                 <NeuInput
                   value={oracleUsername}
                   onChange={(e) => setOracleUsername(e.target.value)}
@@ -327,7 +329,7 @@ export function AgentFormModal({ systems, onClose, onCreated }: AgentFormModalPr
               </div>
               <div className="flex gap-3">
                 <div className="flex-1">
-                  <label className="mb-1 block text-xs text-[#8B97AD]">DB 패스워드</label>
+                  <label className="text-text-secondary mb-1 block text-xs">DB 패스워드</label>
                   <NeuInput
                     type="password"
                     value={oraclePassword}
@@ -336,7 +338,7 @@ export function AgentFormModal({ systems, onClose, onCreated }: AgentFormModalPr
                   />
                 </div>
                 <div className="w-28">
-                  <label className="mb-1 block text-xs text-[#8B97AD]">수집 주기(초)</label>
+                  <label className="text-text-secondary mb-1 block text-xs">수집 주기(초)</label>
                   <NeuInput
                     type="number"
                     value={oracleInterval}
@@ -352,9 +354,9 @@ export function AgentFormModal({ systems, onClose, onCreated }: AgentFormModalPr
           {/* synapse_agent 전용: instance_role */}
           {isSynapse && (
             <div>
-              <label className="mb-1 block text-xs text-[#8B97AD]">
+              <label className="text-text-secondary mb-1 block text-xs">
                 instance_role{' '}
-                <span className="text-[#8B97AD]/60">(HA 구분: was1, was2, db-primary …)</span>
+                <span className="text-text-secondary/60">(HA 구분: was1, was2, db-primary …)</span>
               </label>
               <NeuInput
                 value={instanceRole}
@@ -368,7 +370,7 @@ export function AgentFormModal({ systems, onClose, onCreated }: AgentFormModalPr
           {!isOracleDb && (
             <>
               <div>
-                <label className="mb-1 block text-xs text-[#8B97AD]">바이너리 경로</label>
+                <label className="text-text-secondary mb-1 block text-xs">바이너리 경로</label>
                 <NeuInput
                   value={installPath}
                   onChange={(e) => setInstallPath(e.target.value)}
@@ -376,20 +378,20 @@ export function AgentFormModal({ systems, onClose, onCreated }: AgentFormModalPr
                 />
               </div>
               <div>
-                <label className="mb-1 block text-xs text-[#8B97AD]">
+                <label className="text-text-secondary mb-1 block text-xs">
                   설정 파일 경로
-                  {isSynapse && <span className="text-[#8B97AD]/60"> (자동 생성)</span>}
+                  {isSynapse && <span className="text-text-secondary/60"> (자동 생성)</span>}
                 </label>
                 <NeuInput value={configPath} onChange={(e) => setConfigPath(e.target.value)} />
               </div>
               <div className="flex gap-3">
                 <div className="flex-1">
-                  <label className="mb-1 block text-xs text-[#8B97AD]">PID 파일 경로</label>
+                  <label className="text-text-secondary mb-1 block text-xs">PID 파일 경로</label>
                   <NeuInput value={pidFile} onChange={(e) => setPidFile(e.target.value)} />
                 </div>
                 {!isSynapse && (
                   <div className="w-28">
-                    <label className="mb-1 block text-xs text-[#8B97AD]">포트</label>
+                    <label className="text-text-secondary mb-1 block text-xs">포트</label>
                     <NeuInput
                       type="number"
                       value={port}
@@ -404,12 +406,12 @@ export function AgentFormModal({ systems, onClose, onCreated }: AgentFormModalPr
           {/* synapse_agent 전용: 수집기 선택 */}
           {isSynapse && (
             <div>
-              <label className="mb-2 block text-xs text-[#8B97AD]">수집기</label>
+              <label className="text-text-secondary mb-2 block text-xs">수집기</label>
               <div className="grid grid-cols-2 gap-1">
                 {COLLECTOR_KEYS.map((key) => (
                   <label
                     key={key}
-                    className="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1 hover:bg-[#252932]"
+                    className="hover:bg-surface flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1"
                   >
                     <input
                       type="checkbox"
@@ -417,7 +419,7 @@ export function AgentFormModal({ systems, onClose, onCreated }: AgentFormModalPr
                       onChange={() => toggleCollector(key)}
                       className="accent-[#00D4FF]"
                     />
-                    <span className="text-xs text-[#C4CDD8]">{key}</span>
+                    <span className="text-text-tertiary text-xs">{key}</span>
                   </label>
                 ))}
               </div>
@@ -428,11 +430,11 @@ export function AgentFormModal({ systems, onClose, onCreated }: AgentFormModalPr
           {isSynapse && (
             <div>
               <div className="mb-2 flex items-center justify-between">
-                <label className="text-xs text-[#8B97AD]">로그 수집 설정</label>
+                <label className="text-text-secondary text-xs">로그 수집 설정</label>
                 <button
                   type="button"
                   onClick={addLogMonitor}
-                  className="flex items-center gap-1 text-xs text-[#00D4FF] hover:text-[#00D4FF]/80"
+                  className="text-accent hover:text-accent/80 flex items-center gap-1 text-xs"
                 >
                   <Plus className="h-3 w-3" />
                   추가
@@ -442,22 +444,22 @@ export function AgentFormModal({ systems, onClose, onCreated }: AgentFormModalPr
                 {logMonitors.map((lm, idx) => (
                   <div
                     key={idx}
-                    className="space-y-2 rounded-sm border border-[#2B2F37] bg-[#181C22] p-2"
+                    className="border-border bg-bg-deep space-y-2 rounded-sm border p-2"
                   >
                     <div className="flex items-center justify-between">
-                      <span className="text-xs text-[#8B97AD]">로그 소스 #{idx + 1}</span>
+                      <span className="text-text-secondary text-xs">로그 소스 #{idx + 1}</span>
                       {logMonitors.length > 1 && (
                         <button
                           type="button"
                           onClick={() => removeLogMonitor(idx)}
-                          className="text-[#8B97AD] hover:text-[#EF4444]"
+                          className="text-text-secondary hover:text-critical"
                         >
                           <Trash2 className="h-3 w-3" />
                         </button>
                       )}
                     </div>
                     <div>
-                      <label className="mb-1 block text-xs text-[#8B97AD]/70">
+                      <label className="text-text-secondary/70 mb-1 block text-xs">
                         경로 (한 줄에 하나)
                       </label>
                       <textarea
@@ -465,12 +467,14 @@ export function AgentFormModal({ systems, onClose, onCreated }: AgentFormModalPr
                         onChange={(e) => updateLogMonitor(idx, 'paths', e.target.value)}
                         placeholder={'/server1/JeusServer.log\n/batch/JeusServer.log'}
                         rows={2}
-                        className="w-full resize-none rounded-sm border border-[#2B2F37] bg-[#1E2127] px-2 py-1 text-xs text-[#E2E8F2] placeholder-[#8B97AD]/50 focus:border-[#00D4FF] focus:ring-1 focus:ring-[#00D4FF] focus:outline-none"
+                        className="border-border bg-bg-base text-text-primary placeholder-text-secondary/50 focus:border-accent focus:ring-accent w-full resize-none rounded-sm border px-2 py-1 text-xs focus:ring-1 focus:outline-none"
                       />
                     </div>
                     <div className="flex gap-2">
                       <div className="w-28">
-                        <label className="mb-1 block text-xs text-[#8B97AD]/70">log_type</label>
+                        <label className="text-text-secondary/70 mb-1 block text-xs">
+                          log_type
+                        </label>
                         <NeuInput
                           value={lm.log_type}
                           onChange={(e) => updateLogMonitor(idx, 'log_type', e.target.value)}
@@ -478,7 +482,7 @@ export function AgentFormModal({ systems, onClose, onCreated }: AgentFormModalPr
                         />
                       </div>
                       <div className="flex-1">
-                        <label className="mb-1 block text-xs text-[#8B97AD]/70">
+                        <label className="text-text-secondary/70 mb-1 block text-xs">
                           keywords (쉼표 구분)
                         </label>
                         <NeuInput
@@ -495,7 +499,7 @@ export function AgentFormModal({ systems, onClose, onCreated }: AgentFormModalPr
           )}
 
           {error && (
-            <p className="rounded-sm bg-[rgba(239,68,68,0.08)] px-3 py-2 text-xs text-[#EF4444]">
+            <p className="bg-critical-card-bg text-critical rounded-sm px-3 py-2 text-xs">
               {error}
             </p>
           )}

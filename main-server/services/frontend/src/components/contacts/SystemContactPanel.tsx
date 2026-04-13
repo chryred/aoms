@@ -104,7 +104,7 @@ export function SystemContactPanel({ systemId }: SystemContactPanelProps) {
     })
   }
 
-  if (isLoading) return <div className="text-sm text-[#8B97AD]">로딩 중...</div>
+  if (isLoading) return <div className="text-text-secondary text-sm">로딩 중...</div>
 
   return (
     <div>
@@ -119,12 +119,12 @@ export function SystemContactPanel({ systemId }: SystemContactPanelProps) {
           {systemContacts.map((sc) => (
             <div
               key={sc.id}
-              className="flex items-center justify-between rounded-sm bg-[#1E2127] px-4 py-3 shadow-[2px_2px_5px_#111317,-2px_-2px_5px_#2B2F37]"
+              className="bg-bg-base shadow-neu-flat flex items-center justify-between rounded-sm px-4 py-3"
             >
               <div className="flex items-center gap-3">
                 <div>
-                  <p className="text-sm font-medium text-[#E2E8F2]">{sc.contact.name}</p>
-                  <p className="text-xs text-[#8B97AD]">{sc.contact.email ?? '-'}</p>
+                  <p className="text-text-primary text-sm font-medium">{sc.contact.name}</p>
+                  <p className="text-text-secondary text-xs">{sc.contact.email ?? '-'}</p>
                 </div>
                 <NeuBadge variant={ROLE_BADGE[sc.role]}>{ROLE_LABELS[sc.role]}</NeuBadge>
                 <div className="flex gap-1">
@@ -135,7 +135,7 @@ export function SystemContactPanel({ systemId }: SystemContactPanelProps) {
               </div>
               <button
                 onClick={() => removeMutation.mutate(sc.contact_id)}
-                className="text-[#8B97AD] transition-colors hover:text-[#EF4444]"
+                className="text-text-secondary hover:text-critical transition-colors"
                 aria-label="연결 해제"
               >
                 <X className="h-4 w-4" />
@@ -157,7 +157,7 @@ export function SystemContactPanel({ systemId }: SystemContactPanelProps) {
       {sheetOpen && (
         <div className="fixed inset-0 z-[60] flex justify-end">
           <div
-            className="absolute inset-0 bg-black/40"
+            className="bg-overlay absolute inset-0"
             onClick={() => setSheetOpen(false)}
             aria-hidden="true"
           />
@@ -166,13 +166,13 @@ export function SystemContactPanel({ systemId }: SystemContactPanelProps) {
             role="dialog"
             aria-modal="true"
             aria-label="담당자 추가"
-            className="relative flex h-full w-full flex-col gap-4 overflow-y-auto border-l border-[#2B2F37] bg-[#1E2127] p-6 shadow-[-8px_0_32px_rgba(0,0,0,0.4)] sm:w-80"
+            className="border-border bg-bg-base relative flex h-full w-full flex-col gap-4 overflow-y-auto border-l p-6 shadow-[-8px_0_32px_rgba(0,0,0,0.4)] sm:w-80"
           >
             <div className="flex items-center justify-between">
-              <h3 className="text-base font-semibold text-[#E2E8F2]">담당자 추가</h3>
+              <h3 className="text-text-primary text-base font-semibold">담당자 추가</h3>
               <button
                 onClick={() => setSheetOpen(false)}
-                className="rounded-sm p-1 text-[#8B97AD] hover:text-[#E2E8F2] focus:ring-1 focus:ring-[#00D4FF] focus:outline-none"
+                className="text-text-secondary hover:text-text-primary focus:ring-accent rounded-sm p-1 focus:ring-1 focus:outline-none"
               >
                 <X className="h-5 w-5" />
               </button>
@@ -202,12 +202,12 @@ export function SystemContactPanel({ systemId }: SystemContactPanelProps) {
             </NeuSelect>
 
             <div className="flex flex-col gap-1.5">
-              <p className="text-sm font-medium text-[#E2E8F2]">알림 채널</p>
+              <p className="text-text-primary text-sm font-medium">알림 채널</p>
               <div className="flex gap-3">
                 {(['teams', 'webhook'] as NotifyChannel[]).map((ch) => (
                   <label
                     key={ch}
-                    className="flex cursor-pointer items-center gap-2 text-sm text-[#8B97AD]"
+                    className="text-text-secondary flex cursor-pointer items-center gap-2 text-sm"
                   >
                     <input
                       type="checkbox"

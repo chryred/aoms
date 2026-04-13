@@ -87,15 +87,15 @@ export function ProfilePage() {
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[#00D4FF] text-lg font-bold text-[#1E2127] shadow-[2px_2px_5px_#111317,-2px_-2px_5px_#2B2F37]">
+                <div className="bg-accent text-bg-base shadow-neu-flat flex h-12 w-12 items-center justify-center rounded-full text-lg font-bold">
                   {me.name.slice(0, 1)}
                 </div>
                 <div>
                   <div className="flex items-center gap-2">
-                    <span className="font-semibold text-[#E2E8F2]">{me.name}</span>
+                    <span className="text-text-primary font-semibold">{me.name}</span>
                     <UserRoleBadge role={me.role} />
                   </div>
-                  <p className="text-sm text-[#8B97AD]">{me.email}</p>
+                  <p className="text-text-secondary text-sm">{me.email}</p>
                 </div>
               </div>
               <NeuButton
@@ -110,13 +110,13 @@ export function ProfilePage() {
               </NeuButton>
             </div>
 
-            <div className="grid grid-cols-2 gap-4 border-t border-[#2B2F37] pt-4 text-sm">
+            <div className="border-border grid grid-cols-2 gap-4 border-t pt-4 text-sm">
               <div>
-                <p className="mb-0.5 text-xs text-[#8B97AD]">이메일</p>
-                <p className="font-medium text-[#E2E8F2]">{me.email}</p>
+                <p className="text-text-secondary mb-0.5 text-xs">이메일</p>
+                <p className="text-text-primary font-medium">{me.email}</p>
               </div>
               <div>
-                <p className="mb-0.5 text-xs text-[#8B97AD]">권한</p>
+                <p className="text-text-secondary mb-0.5 text-xs">권한</p>
                 <UserRoleBadge role={me.role} />
               </div>
             </div>
@@ -124,7 +124,7 @@ export function ProfilePage() {
         ) : (
           /* 편집 폼 */
           <form onSubmit={profileForm.handleSubmit(handleProfileSubmit)} className="space-y-4">
-            <h3 className="text-sm font-semibold text-[#E2E8F2]">정보 수정</h3>
+            <h3 className="text-text-primary text-sm font-semibold">정보 수정</h3>
             <NeuInput
               id="edit-name"
               label="이름"
@@ -132,10 +132,12 @@ export function ProfilePage() {
               {...profileForm.register('name')}
             />
             <div>
-              <label className="mb-1 block text-xs font-medium text-[#8B97AD]">이메일</label>
-              <p className="rounded-sm border border-[#2B2F37] bg-[#1E2127] px-3 py-2 text-sm text-[#5A6478]">
+              <label className="text-text-secondary mb-1 block text-xs font-medium">이메일</label>
+              <p className="border-border bg-bg-base text-text-disabled rounded-sm border px-3 py-2 text-sm">
                 {me.email}
-                <span className="ml-2 text-xs text-[#5A6478]">(이메일은 변경할 수 없습니다)</span>
+                <span className="text-text-disabled ml-2 text-xs">
+                  (이메일은 변경할 수 없습니다)
+                </span>
               </p>
             </div>
             <div className="flex gap-3 pt-2">
@@ -155,14 +157,14 @@ export function ProfilePage() {
         )}
 
         {/* 비밀번호 변경 아코디언 */}
-        <div className="mt-6 border-t border-[#2B2F37] pt-6">
+        <div className="border-border mt-6 border-t pt-6">
           <button
             type="button"
             onClick={() => {
               setIsPasswordOpen((v) => !v)
               if (isPasswordOpen) passwordForm.reset()
             }}
-            className="flex items-center gap-2 text-sm font-semibold text-[#E2E8F2] transition-colors hover:text-[#00D4FF]"
+            className="text-text-primary hover:text-accent flex items-center gap-2 text-sm font-semibold transition-colors"
           >
             비밀번호 변경
             {isPasswordOpen ? (

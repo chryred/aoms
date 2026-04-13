@@ -36,7 +36,7 @@ describe('NeuSelect', () => {
         <option value="a">A</option>
       </NeuSelect>,
     )
-    expect(screen.getByRole('combobox').className).toContain('border-[#EF4444]')
+    expect(screen.getByRole('combobox').className).toContain('border-critical')
   })
 
   it('disabled 상태', () => {

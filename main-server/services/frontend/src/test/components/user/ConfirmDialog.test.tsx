@@ -61,7 +61,7 @@ describe('ConfirmDialog', () => {
     const onOpenChange = vi.fn()
     render(<ConfirmDialog {...defaultProps} onOpenChange={onOpenChange} />)
     // 오버레이는 aria-hidden div
-    const overlay = document.querySelector('.bg-black\\/40') as HTMLElement
+    const overlay = document.querySelector('.bg-overlay') as HTMLElement
     await userEvent.click(overlay)
     expect(onOpenChange).toHaveBeenCalledWith(false)
   })
@@ -75,7 +75,7 @@ describe('ConfirmDialog', () => {
   it('confirmVariant=destructive — danger 스타일', () => {
     render(<ConfirmDialog {...defaultProps} confirmVariant="destructive" />)
     const confirmBtn = screen.getByRole('button', { name: '삭제' })
-    expect(confirmBtn.className).toContain('bg-[#EF4444]')
+    expect(confirmBtn.className).toContain('bg-critical')
   })
 
   it('ESC 키 → onOpenChange(false)', async () => {

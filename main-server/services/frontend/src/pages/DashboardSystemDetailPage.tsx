@@ -74,11 +74,11 @@ const UNIT_MAP: Record<string, string | undefined> = {
 type MetricStatus = 'inactive' | 'collecting' | 'normal' | 'warning' | 'critical'
 
 const STATUS_CFG: Record<MetricStatus, { label: string; color: string; dot: string }> = {
-  inactive: { label: '미수집', color: 'text-[#8B97AD]', dot: 'text-[#8B97AD]' },
-  collecting: { label: '수집 중', color: 'text-[#22C55E]', dot: 'text-[#22C55E]' },
-  normal: { label: '정상', color: 'text-[#22C55E]', dot: 'text-[#22C55E]' },
-  warning: { label: '경고', color: 'text-[#F59E0B]', dot: 'text-[#F59E0B]' },
-  critical: { label: '위험', color: 'text-[#EF4444]', dot: 'text-[#EF4444]' },
+  inactive: { label: '미수집', color: 'text-text-secondary', dot: 'text-text-secondary' },
+  collecting: { label: '수집 중', color: 'text-normal', dot: 'text-normal' },
+  normal: { label: '정상', color: 'text-normal', dot: 'text-normal' },
+  warning: { label: '경고', color: 'text-warning', dot: 'text-warning' },
+  critical: { label: '위험', color: 'text-critical', dot: 'text-critical' },
 }
 
 /**
@@ -149,22 +149,22 @@ function ProcessTreemap({ data }: { data: ProcessSummary[] }) {
   )
 
   function getTileColor(pct: number): string {
-    if (pct >= 80) return 'bg-[#EF4444]/20 border-[#EF4444]/40'
-    if (pct >= 60) return 'bg-[#F59E0B]/15 border-[#F59E0B]/30'
-    if (pct >= 30) return 'bg-[#00D4FF]/10 border-[#00D4FF]/20'
-    return 'bg-[#22C55E]/10 border-[#22C55E]/20'
+    if (pct >= 80) return 'bg-critical/20 border-critical/40'
+    if (pct >= 60) return 'bg-warning/15 border-warning/30'
+    if (pct >= 30) return 'bg-accent/10 border-accent/20'
+    return 'bg-normal/10 border-normal/20'
   }
 
   function getTextColor(pct: number): string {
-    if (pct >= 80) return 'text-[#EF4444]'
-    if (pct >= 60) return 'text-[#F59E0B]'
-    return 'text-[#E2E8F2]'
+    if (pct >= 80) return 'text-critical'
+    if (pct >= 60) return 'text-warning'
+    return 'text-text-primary'
   }
 
   return (
     <div className="space-y-2">
       {/* CPU / 메모리 토글 */}
-      <div className="flex w-fit gap-1 rounded-sm bg-[#1E2127] p-1 shadow-[inset_1px_1px_3px_#111317,inset_-1px_-1px_3px_#2B2F37]">
+      <div className="bg-bg-base shadow-neu-pressed flex w-fit gap-1 rounded-sm p-1">
         {(['cpu', 'mem'] as const).map((m) => (
           <button
             key={m}
@@ -172,8 +172,8 @@ function ProcessTreemap({ data }: { data: ProcessSummary[] }) {
             className={cn(
               'rounded-sm px-3 py-1 text-xs font-medium transition-all',
               mode === m
-                ? 'bg-[#00D4FF] font-semibold text-[#1E2127] shadow-[2px_2px_4px_#111317]'
-                : 'text-[#8B97AD] hover:bg-white/5 hover:text-[#E2E8F2]',
+                ? 'bg-accent text-bg-base shadow-neu-flat font-semibold'
+                : 'text-text-secondary hover:bg-hover-subtle hover:text-text-primary',
             )}
           >
             {m === 'cpu' ? 'CPU' : '메모리'}
@@ -199,11 +199,11 @@ function ProcessTreemap({ data }: { data: ProcessSummary[] }) {
                 flexGrow: 1,
               }}
             >
-              <div className="truncate text-xs font-medium text-[#E2E8F2]">{proc.name}</div>
+              <div className="text-text-primary truncate text-xs font-medium">{proc.name}</div>
               <div className={cn('mt-1 text-lg font-bold tabular-nums', getTextColor(pct))}>
                 {pct.toFixed(1)}%
               </div>
-              <div className="mt-0.5 text-[10px] text-[#8B97AD]">
+              <div className="text-text-secondary mt-0.5 text-[10px]">
                 {mode === 'cpu' ? 'CPU' : `${(proc.mem_bytes / 1024 / 1024).toFixed(0)} MB`}
               </div>
             </div>
@@ -288,7 +288,7 @@ export function DashboardSystemDetailPage() {
   if (!systemId) {
     return (
       <div className="py-8 text-center">
-        <p className="text-[#8B97AD]">시스템을 선택해주세요</p>
+        <p className="text-text-secondary">시스템을 선택해주세요</p>
       </div>
     )
   }
@@ -356,16 +356,16 @@ export function DashboardSystemDetailPage() {
       <div className="space-y-3">
         <Link
           to="/dashboard"
-          className="flex items-center gap-2 text-[#8B97AD] transition-colors hover:text-[#E2E8F2]"
+          className="text-text-secondary hover:text-text-primary flex items-center gap-2 transition-colors"
         >
           <ArrowLeft className="h-5 w-5" />
           돌아가기
         </Link>
         <div className="space-y-1">
-          <h1 className="text-xl leading-tight font-bold break-words text-[#E2E8F2] sm:text-2xl">
+          <h1 className="text-text-primary text-xl leading-tight font-bold break-words sm:text-2xl">
             {detail.display_name}
           </h1>
-          <p className="font-mono text-xs break-all text-[#8B97AD] sm:text-sm">
+          <p className="text-text-secondary font-mono text-xs break-all sm:text-sm">
             {detail.system_name}
           </p>
         </div>
@@ -373,10 +373,10 @@ export function DashboardSystemDetailPage() {
 
       {/* 수집 현황 */}
       <section className="space-y-4">
-        <h2 className="text-lg font-semibold text-[#E2E8F2]">수집 현황</h2>
+        <h2 className="text-text-primary text-lg font-semibold">수집 현황</h2>
 
         {/* 시간 범위 선택 */}
-        <div className="flex w-fit gap-1 rounded-sm bg-[#1E2127] p-1 shadow-[inset_1px_1px_3px_#111317,inset_-1px_-1px_3px_#2B2F37]">
+        <div className="bg-bg-base shadow-neu-pressed flex w-fit gap-1 rounded-sm p-1">
           {(['6h', '12h', '24h', '48h'] as TimeRange[]).map((r) => (
             <button
               key={r}
@@ -384,8 +384,8 @@ export function DashboardSystemDetailPage() {
               className={cn(
                 'rounded-sm px-3 py-1 text-xs font-medium transition-all',
                 timeRange === r
-                  ? 'bg-[#00D4FF] font-semibold text-[#1E2127] shadow-[2px_2px_4px_#111317]'
-                  : 'text-[#8B97AD] hover:bg-white/5 hover:text-[#E2E8F2]',
+                  ? 'bg-accent text-bg-base shadow-neu-flat font-semibold'
+                  : 'text-text-secondary hover:bg-hover-subtle hover:text-text-primary',
               )}
             >
               최근 {r}
@@ -395,7 +395,7 @@ export function DashboardSystemDetailPage() {
 
         {/* 수집 현황 — 수집기별 섹션 */}
         {availableCollectors.length === 0 ? (
-          <NeuCard className="py-6 text-center text-sm text-[#8B97AD]">
+          <NeuCard className="text-text-secondary py-6 text-center text-sm">
             수집기 설정이 없습니다
           </NeuCard>
         ) : (
@@ -408,11 +408,11 @@ export function DashboardSystemDetailPage() {
                 .map((c) => c.metric_group)
               return (
                 <div key={ct} className="space-y-2">
-                  <h3 className="text-xs font-semibold tracking-wide text-[#8B97AD] uppercase">
+                  <h3 className="text-text-secondary text-xs font-semibold tracking-wide uppercase">
                     {COLLECTOR_SECTION_LABELS[ct] ?? ct}
                   </h3>
                   {ctGroups.length === 0 ? (
-                    <p className="text-xs text-[#8B97AD]">수집 항목 없음</p>
+                    <p className="text-text-secondary text-xs">수집 항목 없음</p>
                   ) : (
                     <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                       {ctGroups.map((group) => {
@@ -432,11 +432,11 @@ export function DashboardSystemDetailPage() {
                             key={group}
                             onClick={() => clickable && setChartPopup({ group, collectorType: ct })}
                             className={cn(
-                              'flex items-center justify-between rounded-sm bg-[#1E2127] px-3 py-2 shadow-[2px_2px_5px_#111317,-2px_-2px_5px_#2B2F37] transition-colors',
-                              clickable && 'cursor-pointer hover:bg-[#252932]',
+                              'bg-bg-base shadow-neu-flat flex items-center justify-between rounded-sm px-3 py-2 transition-colors',
+                              clickable && 'hover:bg-surface cursor-pointer',
                             )}
                           >
-                            <span className="text-xs font-medium text-[#A8B5C3]">
+                            <span className="text-text-tertiary text-xs font-medium">
                               {CHART_TITLES[group] ?? group}
                             </span>
                             <span
@@ -468,7 +468,7 @@ export function DashboardSystemDetailPage() {
       {/* 프로세스 사용량 */}
       {processSummary.length > 0 && (
         <section className="space-y-3">
-          <h2 className="text-lg font-semibold text-[#E2E8F2]">프로세스 사용량</h2>
+          <h2 className="text-text-primary text-lg font-semibold">프로세스 사용량</h2>
           <ProcessTreemap data={processSummary} />
         </section>
       )}
@@ -476,14 +476,14 @@ export function DashboardSystemDetailPage() {
       {/* 1️⃣ 활성 알림 */}
       <section className="space-y-4">
         <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-[#E2E8F2]">활성 알림</h2>
+          <h2 className="text-text-primary text-lg font-semibold">활성 알림</h2>
           {detail.metric_alerts.length > 0 && (
             <NeuBadge variant="critical">{detail.metric_alerts.length}개</NeuBadge>
           )}
         </div>
 
         {detail.metric_alerts.length === 0 ? (
-          <NeuCard className="py-8 text-center text-[#8B97AD]">활성 알림이 없습니다</NeuCard>
+          <NeuCard className="text-text-secondary py-8 text-center">활성 알림이 없습니다</NeuCard>
         ) : (
           <div className="grid gap-3">
             {detail.metric_alerts.map((alert) => (
@@ -502,14 +502,14 @@ export function DashboardSystemDetailPage() {
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
                     <div className="min-w-0 flex-1">
                       <div className="mb-1 flex items-center gap-2">
-                        <span className="rounded-sm bg-[#2A3447]/60 px-1.5 py-0.5 font-mono text-[10px] text-[#8B97AD]">
+                        <span className="bg-btn-secondary text-text-secondary rounded-sm px-1.5 py-0.5 font-mono text-[10px]">
                           {alert.alert_type === 'log_analysis' ? '로그분석' : '메트릭'}
                         </span>
                       </div>
-                      <h3 className="line-clamp-2 leading-tight font-semibold break-words text-[#E2E8F2]">
+                      <h3 className="text-text-primary line-clamp-2 leading-tight font-semibold break-words">
                         {alert.title || alert.alertname}
                       </h3>
-                      <div className="mt-1.5 flex items-center gap-2 text-xs text-[#8B97AD]">
+                      <div className="text-text-secondary mt-1.5 flex items-center gap-2 text-xs">
                         <Clock className="h-3 w-3 flex-shrink-0" />
                         <span>{formatKST(alert.created_at, 'HH:mm:ss')}</span>
                       </div>
@@ -519,7 +519,7 @@ export function DashboardSystemDetailPage() {
                         {alert.severity.toUpperCase()}
                       </NeuBadge>
                       {alert.value && (
-                        <p className="font-mono text-sm text-[#A8B5C3]">{alert.value}</p>
+                        <p className="text-text-tertiary font-mono text-sm">{alert.value}</p>
                       )}
                     </div>
                   </div>
@@ -533,7 +533,7 @@ export function DashboardSystemDetailPage() {
       {/* 2️⃣ 최근 로그분석 결과 */}
       <section className="space-y-4">
         <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-[#E2E8F2]">로그분석 결과 (최근 1시간)</h2>
+          <h2 className="text-text-primary text-lg font-semibold">로그분석 결과 (최근 1시간)</h2>
           {detail.log_analysis.latest_count > 0 && (
             <NeuBadge variant="info">{detail.log_analysis.latest_count}건</NeuBadge>
           )}
@@ -543,7 +543,7 @@ export function DashboardSystemDetailPage() {
         <div className="grid grid-cols-3 gap-3">
           <div className="transition-all duration-150 hover:shadow-lg">
             <NeuCard className="border-l-4 border-red-500/30 py-4 text-center transition-all duration-150">
-              <p className="mb-1 text-sm text-[#8B97AD]">Critical</p>
+              <p className="text-text-secondary mb-1 text-sm">Critical</p>
               <p className="text-2xl font-bold text-red-500">
                 {detail.log_analysis.critical_count}
               </p>
@@ -551,7 +551,7 @@ export function DashboardSystemDetailPage() {
           </div>
           <div className="transition-all duration-150 hover:shadow-lg">
             <NeuCard className="border-l-4 border-yellow-500/30 py-4 text-center transition-all duration-150">
-              <p className="mb-1 text-sm text-[#8B97AD]">Warning</p>
+              <p className="text-text-secondary mb-1 text-sm">Warning</p>
               <p className="text-2xl font-bold text-yellow-500">
                 {detail.log_analysis.warning_count}
               </p>
@@ -559,7 +559,7 @@ export function DashboardSystemDetailPage() {
           </div>
           <div className="transition-all duration-150 hover:shadow-lg">
             <NeuCard className="border-l-4 border-blue-500/30 py-4 text-center transition-all duration-150">
-              <p className="mb-1 text-sm text-[#8B97AD]">전체</p>
+              <p className="text-text-secondary mb-1 text-sm">전체</p>
               <p className="text-2xl font-bold text-blue-500">{detail.log_analysis.latest_count}</p>
             </NeuCard>
           </div>
@@ -567,7 +567,9 @@ export function DashboardSystemDetailPage() {
 
         {/* 상세 이상 목록 */}
         {detail.log_analysis.incidents.length === 0 ? (
-          <NeuCard className="py-8 text-center text-[#8B97AD]">최근 로그 이상이 없습니다</NeuCard>
+          <NeuCard className="text-text-secondary py-8 text-center">
+            최근 로그 이상이 없습니다
+          </NeuCard>
         ) : (
           <div className="grid gap-3">
             {detail.log_analysis.incidents.map((incident) => {
@@ -591,7 +593,7 @@ export function DashboardSystemDetailPage() {
                         <Icon className={cn('mt-1 h-4 w-4 flex-shrink-0', config.color)} />
                         <div className="min-w-0 flex-1">
                           <div className="mb-1 flex flex-wrap items-center gap-2">
-                            <p className="text-xs font-semibold text-[#8B97AD] uppercase">
+                            <p className="text-text-secondary text-xs font-semibold uppercase">
                               {incident.anomaly_type === 'duplicate' && '🔄 반복 이상'}
                               {incident.anomaly_type === 'recurring' && '⚠️ 반복 이상'}
                               {incident.anomaly_type === 'related' && '🔗 유사 이상'}
@@ -603,25 +605,25 @@ export function DashboardSystemDetailPage() {
                               {incident.severity.toUpperCase()}
                             </NeuBadge>
                           </div>
-                          <p className="line-clamp-2 text-sm leading-snug font-semibold break-words text-[#E2E8F2]">
+                          <p className="text-text-primary line-clamp-2 text-sm leading-snug font-semibold break-words">
                             {incident.log_message}
                           </p>
                         </div>
                       </div>
 
                       {/* LLM 분석 결과 */}
-                      <div className="rounded-sm border border-[#2A3447]/50 bg-[#2A3447]/30 p-3">
-                        <p className="mb-2 flex items-center gap-1 text-xs font-semibold text-[#8B97AD]">
+                      <div className="border-btn-secondary bg-btn-secondary/50 rounded-sm border p-3">
+                        <p className="text-text-secondary mb-2 flex items-center gap-1 text-xs font-semibold">
                           <span>💡</span>
                           분석 결과
                         </p>
-                        <p className="line-clamp-4 text-sm leading-relaxed break-words text-[#A8B5C3]">
+                        <p className="text-text-tertiary line-clamp-4 text-sm leading-relaxed break-words">
                           {incident.analysis_result}
                         </p>
                       </div>
 
                       {/* 시간 */}
-                      <div className="text-xs text-[#8B97AD]">
+                      <div className="text-text-secondary text-xs">
                         {formatKST(incident.created_at, 'datetime')}
                       </div>
                     </div>
@@ -636,7 +638,7 @@ export function DashboardSystemDetailPage() {
       {/* 3️⃣ 예방적 패턴 감지 */}
       <section className="space-y-4">
         <div className="flex items-center justify-between">
-          <h2 className="flex items-center gap-2 text-lg font-semibold text-[#E2E8F2]">
+          <h2 className="text-text-primary flex items-center gap-2 text-lg font-semibold">
             <ShieldAlert className="h-5 w-5 text-purple-400" />
             예방적 패턴 감지
           </h2>
@@ -646,7 +648,7 @@ export function DashboardSystemDetailPage() {
         </div>
 
         {detail.proactive_alerts.length === 0 ? (
-          <NeuCard className="py-6 text-center text-[#8B97AD]">
+          <NeuCard className="text-text-secondary py-6 text-center">
             <ShieldAlert className="mx-auto mb-2 h-8 w-8 opacity-20" />
             <p className="text-sm">감지된 예방 패턴이 없습니다</p>
           </NeuCard>
@@ -668,13 +670,13 @@ export function DashboardSystemDetailPage() {
                       <div className="flex min-w-0 flex-1 items-start gap-2">
                         <TrendingUp className="mt-0.5 h-4 w-4 flex-shrink-0 text-purple-400" />
                         <div className="min-w-0 flex-1">
-                          <p className="line-clamp-2 text-sm font-semibold break-words text-[#E2E8F2]">
-                            <span className="mr-1 inline-block rounded bg-[#2A3447]/40 px-1.5 py-0.5 font-mono text-xs">
+                          <p className="text-text-primary line-clamp-2 text-sm font-semibold break-words">
+                            <span className="bg-btn-secondary mr-1 inline-block rounded px-1.5 py-0.5 font-mono text-xs">
                               {alert.collector_type}
                             </span>
                             {alert.metric_group}
                           </p>
-                          <p className="mt-1 text-xs text-[#8B97AD]">
+                          <p className="text-text-secondary mt-1 text-xs">
                             {formatKST(alert.hour_bucket, 'datetime')} 집계
                           </p>
                         </div>
@@ -690,12 +692,12 @@ export function DashboardSystemDetailPage() {
 
                     {/* 트렌드 */}
                     {alert.llm_trend && (
-                      <div className="rounded-sm border border-[#2A3447]/50 bg-[#2A3447]/30 p-3">
-                        <p className="mb-2 flex items-center gap-1 text-xs font-semibold text-[#8B97AD]">
+                      <div className="border-btn-secondary bg-btn-secondary/50 rounded-sm border p-3">
+                        <p className="text-text-secondary mb-2 flex items-center gap-1 text-xs font-semibold">
                           <span>📈</span>
                           트렌드
                         </p>
-                        <p className="text-sm leading-relaxed break-words text-[#A8B5C3]">
+                        <p className="text-text-tertiary text-sm leading-relaxed break-words">
                           {alert.llm_trend}
                         </p>
                       </div>
@@ -707,7 +709,7 @@ export function DashboardSystemDetailPage() {
                         <span>⚡</span>
                         예측
                       </p>
-                      <p className="max-h-32 overflow-y-auto text-sm leading-relaxed break-words text-[#E2E8F2]">
+                      <p className="text-text-primary max-h-32 overflow-y-auto text-sm leading-relaxed break-words">
                         {alert.llm_prediction}
                       </p>
                     </div>
@@ -721,10 +723,12 @@ export function DashboardSystemDetailPage() {
 
       {/* 4️⃣ 담당자 */}
       <section className="space-y-4">
-        <h2 className="text-lg font-semibold text-[#E2E8F2]">담당자</h2>
+        <h2 className="text-text-primary text-lg font-semibold">담당자</h2>
 
         {detail.contacts.length === 0 ? (
-          <NeuCard className="py-8 text-center text-[#8B97AD]">등록된 담당자가 없습니다</NeuCard>
+          <NeuCard className="text-text-secondary py-8 text-center">
+            등록된 담당자가 없습니다
+          </NeuCard>
         ) : (
           <div className="grid gap-3">
             {detail.contacts.map((contact) => (
@@ -732,12 +736,16 @@ export function DashboardSystemDetailPage() {
                 <NeuCard className="transition-all duration-150">
                   <div className="flex items-start justify-between gap-3 sm:gap-4">
                     <div className="min-w-0 flex-1">
-                      <h3 className="font-semibold break-words text-[#E2E8F2]">{contact.name}</h3>
-                      <p className="mt-1 font-mono text-xs break-all text-[#8B97AD] sm:text-sm">
+                      <h3 className="text-text-primary font-semibold break-words">
+                        {contact.name}
+                      </h3>
+                      <p className="text-text-secondary mt-1 font-mono text-xs break-all sm:text-sm">
                         {contact.teams_upn}
                       </p>
                       {contact.phone && (
-                        <p className="mt-1 text-xs text-[#8B97AD] sm:text-sm">{contact.phone}</p>
+                        <p className="text-text-secondary mt-1 text-xs sm:text-sm">
+                          {contact.phone}
+                        </p>
                       )}
                     </div>
                     <div className="flex-shrink-0">
@@ -752,20 +760,20 @@ export function DashboardSystemDetailPage() {
       </section>
 
       {/* 마지막 업데이트 */}
-      <div className="py-4 text-center text-xs text-[#8B97AD]">
+      <div className="text-text-secondary py-4 text-center text-xs">
         마지막 업데이트: {formatKST(detail.last_updated, 'datetime')}
       </div>
 
       {/* 차트 팝업 */}
       {chartPopup && (
         <div
-          className={`fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 ${
+          className={`bg-overlay-heavy fixed inset-0 z-50 flex items-center justify-center p-4 ${
             popupClosing ? 'popup-overlay-exit' : 'popup-overlay-enter'
           }`}
           onClick={closeChartPopup}
         >
           <div
-            className={`w-full max-w-2xl rounded-sm bg-[#1E2127] p-5 shadow-[6px_6px_16px_#111317,-6px_-6px_16px_#2B2F37] ${
+            className={`bg-bg-base shadow-neu-flat w-full max-w-2xl rounded-sm p-5 ${
               popupClosing ? 'popup-content-exit' : 'popup-content-enter'
             }`}
             onClick={(e) => e.stopPropagation()}
@@ -773,31 +781,31 @@ export function DashboardSystemDetailPage() {
             {/* 팝업 헤더 */}
             <div className="mb-4 flex items-center justify-between">
               <div>
-                <h3 className="font-semibold text-[#E2E8F2]">
+                <h3 className="text-text-primary font-semibold">
                   {CHART_TITLES[chartPopup.group] ?? chartPopup.group}
                   {UNIT_MAP[chartPopup.group] && (
-                    <span className="ml-1 text-sm font-normal text-[#8B97AD]">
+                    <span className="text-text-secondary ml-1 text-sm font-normal">
                       ({UNIT_MAP[chartPopup.group]})
                     </span>
                   )}
                 </h3>
-                <p className="mt-0.5 text-xs text-[#8B97AD]">
+                <p className="text-text-secondary mt-0.5 text-xs">
                   최근 {timeRange} 추이 ·{' '}
                   {adaptiveStep < 60 ? `${adaptiveStep}초` : `${adaptiveStep / 60}분`} 간격
                 </p>
               </div>
               <button
                 onClick={closeChartPopup}
-                className="rounded-sm p-1 text-[#8B97AD] transition-colors hover:bg-white/5 hover:text-[#E2E8F2]"
+                className="text-text-secondary hover:bg-hover-subtle hover:text-text-primary rounded-sm p-1 transition-colors"
               >
                 <X className="h-5 w-5" />
               </button>
             </div>
             {/* 차트 */}
             {minuteLoading ? (
-              <div className="py-10 text-center text-sm text-[#8B97AD]">로딩 중...</div>
+              <div className="text-text-secondary py-10 text-center text-sm">로딩 중...</div>
             ) : minuteData.length === 0 ? (
-              <div className="py-10 text-center text-sm text-[#8B97AD]">
+              <div className="text-text-secondary py-10 text-center text-sm">
                 수집된 데이터가 없습니다.
                 <br />
                 에이전트가 Prometheus에 데이터를 전송 중인지 확인하세요.

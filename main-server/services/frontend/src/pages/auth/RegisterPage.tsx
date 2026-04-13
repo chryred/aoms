@@ -66,9 +66,9 @@ export function RegisterPage() {
   if (isSuccess) {
     return (
       <NeuCard className="w-full max-w-md text-center">
-        <CheckCircle2 className="mx-auto mb-4 h-16 w-16 text-[#22C55E]" />
-        <h2 className="mb-2 text-xl font-bold text-[#E2E8F2]">등록 신청이 완료되었습니다</h2>
-        <p className="mb-6 text-sm text-[#8B97AD]">관리자 승인 후 로그인 가능합니다</p>
+        <CheckCircle2 className="text-normal mx-auto mb-4 h-16 w-16" />
+        <h2 className="text-text-primary mb-2 text-xl font-bold">등록 신청이 완료되었습니다</h2>
+        <p className="text-text-secondary mb-6 text-sm">관리자 승인 후 로그인 가능합니다</p>
         <NeuButton className="w-full" onClick={() => navigate(ROUTES.LOGIN)}>
           로그인 페이지로
         </NeuButton>
@@ -79,8 +79,8 @@ export function RegisterPage() {
   return (
     <NeuCard className="w-full max-w-md">
       <div className="mb-8 text-center">
-        <h1 className="text-3xl font-bold text-[#00D4FF]">Synapse-V</h1>
-        <p className="mt-1 text-sm text-[#8B97AD]">사용자 등록 신청</p>
+        <h1 className="text-accent text-3xl font-bold">Synapse-V</h1>
+        <p className="text-text-secondary mt-1 text-sm">사용자 등록 신청</p>
       </div>
 
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
@@ -124,12 +124,12 @@ export function RegisterPage() {
         </NeuButton>
       </form>
 
-      <p className="mt-4 text-center text-sm text-[#8B97AD]">
+      <p className="text-text-secondary mt-4 text-center text-sm">
         이미 계정이 있으신가요?{' '}
         <button
           type="button"
           onClick={() => navigate(ROUTES.LOGIN)}
-          className="font-medium text-[#00D4FF] hover:underline"
+          className="text-accent font-medium hover:underline"
         >
           로그인
         </button>

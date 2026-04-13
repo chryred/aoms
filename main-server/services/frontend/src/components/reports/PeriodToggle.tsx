@@ -19,17 +19,17 @@ const PERIODS: ReportType[] = ['daily', 'weekly', 'monthly', 'quarterly', 'half_
 
 export function PeriodToggle({ value, onChange }: PeriodToggleProps) {
   return (
-    <div className="flex flex-wrap gap-1 rounded-sm bg-[#1E2127] p-1.5 shadow-[inset_1px_1px_3px_#111317,inset_-1px_-1px_3px_#2B2F37]">
+    <div className="bg-bg-base shadow-neu-pressed flex flex-wrap gap-1 rounded-sm p-1.5">
       {PERIODS.map((period) => (
         <button
           key={period}
           onClick={() => onChange(period)}
           className={cn(
             'px-3 py-1.5 text-sm font-medium transition-all',
-            'focus:ring-1 focus:ring-[#00D4FF] focus:ring-offset-1 focus:ring-offset-[#1E2127] focus:outline-none',
+            'focus:ring-accent focus:ring-offset-bg-base focus:ring-1 focus:ring-offset-1 focus:outline-none',
             value === period
-              ? 'rounded-t-[2px] rounded-b-none border-b-2 border-[#00D4FF] bg-[#252932] font-semibold text-white shadow-[2px_2px_4px_#111317,-1px_-1px_3px_#2B2F37]'
-              : 'rounded-[2px] text-[#8B97AD] hover:bg-[rgba(255,255,255,0.05)] hover:text-[#E2E8F2] hover:ring-1 hover:ring-[#00D4FF4D]',
+              ? 'border-accent bg-surface rounded-t-[2px] rounded-b-none border-b-2 font-semibold text-white shadow-[2px_2px_4px_#111317,-1px_-1px_3px_#2B2F37]'
+              : 'text-text-secondary hover:bg-hover-subtle hover:text-text-primary hover:ring-accent-muted rounded-[2px] hover:ring-1',
           )}
         >
           {PERIOD_LABELS[period]}

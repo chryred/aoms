@@ -44,11 +44,14 @@ export function ReportHistoryPage() {
       <PageHeader title="리포트 발송 이력" />
 
       {/* SubNav */}
-      <div className="mb-5 flex gap-1 border-b border-[#2B2F37]">
-        <Link to={ROUTES.REPORTS} className="px-4 py-2 text-sm text-[#8B97AD] hover:text-[#E2E8F2]">
+      <div className="border-border mb-5 flex gap-1 border-b">
+        <Link
+          to={ROUTES.REPORTS}
+          className="text-text-secondary hover:text-text-primary px-4 py-2 text-sm"
+        >
           안정성 리포트
         </Link>
-        <span className="border-b-2 border-[#00D4FF] px-4 py-2 text-sm font-medium text-[#00D4FF]">
+        <span className="border-accent text-accent border-b-2 px-4 py-2 text-sm font-medium">
           발송 이력
         </span>
       </div>
@@ -70,12 +73,15 @@ export function ReportHistoryPage() {
       {reports.length === 0 ? (
         <EmptyState icon={<FileText className="h-10 w-10" />} title="발송 이력이 없습니다" />
       ) : (
-        <div className="overflow-hidden rounded-sm bg-[#1E2127] shadow-[3px_3px_7px_#111317,-3px_-3px_7px_#2B2F37]">
+        <div className="bg-bg-base shadow-neu-flat overflow-hidden rounded-sm">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-[#2B2F37]">
+              <tr className="border-border border-b">
                 {['유형', '기간', '발송 시각', '상태', '시스템 수', '요약'].map((h) => (
-                  <th key={h} className="px-4 py-3 text-left text-xs font-semibold text-[#8B97AD]">
+                  <th
+                    key={h}
+                    className="text-text-secondary px-4 py-3 text-left text-xs font-semibold"
+                  >
                     {h}
                   </th>
                 ))}
@@ -90,15 +96,15 @@ export function ReportHistoryPage() {
                 return (
                   <tr
                     key={r.id}
-                    className="border-b border-[#2B2F37] last:border-0 hover:bg-[rgba(0,212,255,0.04)]"
+                    className="border-border border-b last:border-0 hover:bg-[rgba(0,212,255,0.04)]"
                   >
                     <td className="px-4 py-3">
                       <NeuBadge variant="info">
                         {REPORT_TYPE_LABELS[r.report_type] ?? r.report_type}
                       </NeuBadge>
                     </td>
-                    <td className="px-4 py-3 whitespace-nowrap text-[#8B97AD]">{periodStr}</td>
-                    <td className="px-4 py-3 text-[#8B97AD]">{formatRelative(r.sent_at)}</td>
+                    <td className="text-text-secondary px-4 py-3 whitespace-nowrap">{periodStr}</td>
+                    <td className="text-text-secondary px-4 py-3">{formatRelative(r.sent_at)}</td>
                     <td className="px-4 py-3">
                       <NeuBadge
                         variant={
@@ -116,10 +122,10 @@ export function ReportHistoryPage() {
                             : '-'}
                       </NeuBadge>
                     </td>
-                    <td className="px-4 py-3 text-[#8B97AD]">
+                    <td className="text-text-secondary px-4 py-3">
                       {r.system_count != null ? `${r.system_count}개` : '-'}
                     </td>
-                    <td className="relative px-4 py-3 text-[#8B97AD]">
+                    <td className="text-text-secondary relative px-4 py-3">
                       {summary.length > 80 ? (
                         <span
                           className="cursor-help"
@@ -128,7 +134,7 @@ export function ReportHistoryPage() {
                         >
                           {truncated}
                           {tooltip === r.id && (
-                            <span className="absolute bottom-full left-0 z-10 mb-1 w-64 rounded-sm border border-[#2B2F37] bg-[#1E2127] p-2 text-xs whitespace-pre-wrap shadow-[3px_3px_7px_#111317,-3px_-3px_7px_#2B2F37]">
+                            <span className="border-border bg-bg-base shadow-neu-flat absolute bottom-full left-0 z-10 mb-1 w-64 rounded-sm border p-2 text-xs whitespace-pre-wrap">
                               {summary}
                             </span>
                           )}

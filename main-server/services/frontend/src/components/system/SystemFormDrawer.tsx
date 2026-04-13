@@ -121,24 +121,24 @@ export function SystemFormDrawer({ open, onClose, onCreated, editTarget }: Syste
   return (
     <>
       {/* 오버레이 */}
-      <div className="fixed inset-0 z-40 bg-black/40" onClick={onClose} />
+      <div className="bg-overlay fixed inset-0 z-40" onClick={onClose} />
       {/* 드로어 */}
       <div
         ref={drawerRef}
         role="dialog"
         aria-modal="true"
         aria-label={isEdit ? '시스템 수정' : '시스템 등록'}
-        className="fixed top-0 right-0 bottom-0 z-50 flex w-full max-w-[480px] flex-col border-l border-[#2B2F37] bg-[#1E2127] shadow-[-8px_0_32px_rgba(0,0,0,0.4)]"
+        className="border-border bg-bg-base fixed top-0 right-0 bottom-0 z-50 flex w-full max-w-[480px] flex-col border-l shadow-[-8px_0_32px_rgba(0,0,0,0.4)]"
       >
         {/* 헤더 */}
-        <div className="flex items-center justify-between border-b border-[#2B2F37] px-6 py-4">
-          <h2 className="text-lg font-semibold text-[#E2E8F2]">
+        <div className="border-border flex items-center justify-between border-b px-6 py-4">
+          <h2 className="text-text-primary text-lg font-semibold">
             {isEdit ? '시스템 수정' : '시스템 등록'}
           </h2>
           <button
             onClick={onClose}
             aria-label="닫기"
-            className="rounded-sm p-1.5 text-[#8B97AD] hover:bg-[rgba(255,255,255,0.05)] focus:ring-1 focus:ring-[#00D4FF] focus:outline-none"
+            className="text-text-secondary hover:bg-hover-subtle focus:ring-accent rounded-sm p-1.5 focus:ring-1 focus:outline-none"
           >
             <X className="h-5 w-5" />
           </button>
@@ -184,7 +184,7 @@ export function SystemFormDrawer({ open, onClose, onCreated, editTarget }: Syste
 
           {/* 담당자 연결 — 수정 모드에서만 표시 */}
           {isEdit && editTarget && (
-            <div className="mt-6 border-t border-[#2B2F37] pt-5">
+            <div className="border-border mt-6 border-t pt-5">
               <p className="type-label mb-3">담당자</p>
               <SystemContactPanel systemId={editTarget.id} />
             </div>
@@ -192,7 +192,7 @@ export function SystemFormDrawer({ open, onClose, onCreated, editTarget }: Syste
         </div>
 
         {/* 푸터 */}
-        <div className="flex justify-end gap-2 border-t border-[#2B2F37] px-6 py-4">
+        <div className="border-border flex justify-end gap-2 border-t px-6 py-4">
           <NeuButton variant="ghost" onClick={onClose}>
             취소
           </NeuButton>

@@ -12,19 +12,19 @@ describe('NeuCard', () => {
   it('기본 스타일', () => {
     const { container } = render(<NeuCard>내용</NeuCard>)
     const card = container.firstChild as HTMLElement
-    expect(card.className).toContain('bg-[#1E2127]')
+    expect(card.className).toContain('bg-bg-base')
   })
 
   it('severity=critical — 빨간 좌측 보더', () => {
     const { container } = render(<NeuCard severity="critical">내용</NeuCard>)
     const card = container.firstChild as HTMLElement
-    expect(card.className).toContain('border-l-[#EF4444]')
+    expect(card.className).toContain('border-l-critical')
   })
 
   it('severity=warning — 노란 좌측 보더', () => {
     const { container } = render(<NeuCard severity="warning">내용</NeuCard>)
     const card = container.firstChild as HTMLElement
-    expect(card.className).toContain('border-l-[#F59E0B]')
+    expect(card.className).toContain('border-l-warning')
   })
 
   it('pressed=true — inset shadow', () => {

@@ -107,17 +107,15 @@ export function CommandSearch() {
       <div
         className={cn(
           'flex items-center gap-2 rounded-sm border px-3 py-1.5 transition-all duration-200',
-          'bg-[#1E2127]',
-          focused
-            ? 'border-[#00D4FF] ring-1 ring-[#00D4FF]'
-            : 'border-[#2B2F37] hover:border-[#3D4350]',
+          'bg-bg-base',
+          focused ? 'border-accent ring-accent ring-1' : 'border-border hover:border-border-alt',
         )}
       >
         {/* 아이콘: 기본도 밝게, 포커스 시 더 밝게 */}
         <Search
           className={cn(
             'h-3.5 w-3.5 shrink-0 transition-colors duration-200',
-            focused ? 'text-[#00D4FF]' : 'text-[#8B97AD]',
+            focused ? 'text-accent' : 'text-text-secondary',
           )}
         />
 
@@ -137,7 +135,7 @@ export function CommandSearch() {
           onKeyDown={handleKeyDown}
           placeholder="메뉴명, 기능 검색..."
           className={cn(
-            'bg-transparent text-sm text-[#E2E8F2] placeholder-[#5A6478] outline-none',
+            'text-text-primary placeholder-text-disabled bg-transparent text-sm outline-none',
             'transition-[width] duration-200',
             focused ? 'w-56 md:w-72' : 'w-36 md:w-52',
           )}
@@ -145,7 +143,7 @@ export function CommandSearch() {
 
         {/* 단축키 힌트 — 비포커스 시만 표시 */}
         {!focused && (
-          <kbd className="hidden shrink-0 items-center gap-0.5 font-mono text-[10px] text-[#3D4350] select-none md:inline-flex">
+          <kbd className="text-border-alt hidden shrink-0 items-center gap-0.5 font-mono text-[10px] select-none md:inline-flex">
             {isMac ? '⌘' : 'Ctrl'}
             <span>K</span>
           </kbd>
@@ -153,9 +151,9 @@ export function CommandSearch() {
       </div>
 
       {open && (
-        <div className="absolute top-full left-0 z-50 mt-1 w-64 overflow-hidden rounded-sm border border-[#2B2F37] bg-[#1E2127] shadow-[3px_3px_7px_#111317,-3px_-3px_7px_#2B2F37]">
+        <div className="border-border bg-bg-base shadow-neu-flat absolute top-full left-0 z-50 mt-1 w-64 overflow-hidden rounded-sm border">
           {filtered.length === 0 ? (
-            <p className="px-3 py-3 text-center text-xs text-[#5A6478]">결과 없음</p>
+            <p className="text-text-disabled px-3 py-3 text-center text-xs">결과 없음</p>
           ) : (
             <ul role="listbox">
               {filtered.map((item, idx) => {
@@ -164,7 +162,7 @@ export function CommandSearch() {
                 return (
                   <li key={item.to}>
                     {showGroup && (
-                      <div className="px-3 pt-2 pb-1 text-[10px] tracking-[0.08em] text-[#5A6478] uppercase">
+                      <div className="text-text-disabled px-3 pt-2 pb-1 text-[10px] tracking-[0.08em] uppercase">
                         {item.group}
                       </div>
                     )}
@@ -176,8 +174,8 @@ export function CommandSearch() {
                       className={cn(
                         'w-full px-3 py-2 text-left text-sm transition-colors',
                         idx === activeIdx
-                          ? 'bg-[rgba(0,212,255,0.08)] text-[#E2E8F2]'
-                          : 'text-[#8B97AD] hover:bg-[rgba(0,212,255,0.06)] hover:text-[#E2E8F2]',
+                          ? 'bg-glass-bg text-text-primary'
+                          : 'text-text-secondary hover:bg-accent-muted hover:text-text-primary',
                       )}
                     >
                       {item.label}

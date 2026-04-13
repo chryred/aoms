@@ -58,7 +58,7 @@ export function DashboardPage() {
           <div
             className={cn(
               '-mt-4 flex flex-wrap items-center gap-1.5 text-xs',
-              wsConnected ? 'text-green-500' : 'text-[#8B97AD]',
+              wsConnected ? 'text-green-500' : 'text-text-secondary',
             )}
           >
             {wsConnected ? (
@@ -66,7 +66,7 @@ export function DashboardPage() {
                 <Wifi className="h-3 w-3 flex-shrink-0" />
                 <span>실시간 알림 수신 중</span>
                 {lastAlertUpdate && (
-                  <span className="text-[#8B97AD]">
+                  <span className="text-text-secondary">
                     · {Math.floor((Date.now() - lastAlertUpdate.getTime()) / 1000)}초 전
                   </span>
                 )}
@@ -110,16 +110,18 @@ export function DashboardPage() {
 
           {/* 시스템 카드 그리드 + 필터 */}
           <section className="space-y-4">
-            <h2 className="text-lg font-semibold text-[#E2E8F2]">
+            <h2 className="text-text-primary text-lg font-semibold">
               모니터링 시스템
-              <span className="ml-2 text-sm font-normal text-[#8B97AD]">({systems.length}개)</span>
+              <span className="text-text-secondary ml-2 text-sm font-normal">
+                ({systems.length}개)
+              </span>
             </h2>
             <SystemHealthGrid systems={systems} onAddSystem={handleAddSystem} />
           </section>
 
           {/* 하단: 최근 알림 피드 (향후: WebSocket 연동) */}
           {/* <section>
-            <h2 className="mb-4 text-lg font-semibold text-[#E2E8F2]">
+            <h2 className="mb-4 text-lg font-semibold text-text-primary">
               최근 알림
             </h2>
             <AlertFeed alerts={recentAlerts ?? []} loading={alertsLoading} />

@@ -104,7 +104,7 @@ describe('VectorHealthPage', () => {
       refetch: vi.fn(),
     } as never)
     renderPage()
-    expect(screen.getByText('WF6')).toBeInTheDocument()
+    expect(screen.getByText('1시간')).toBeInTheDocument()
     expect(screen.getAllByText('정상').length).toBeGreaterThan(0)
     expect(screen.getByText('실행 중')).toBeInTheDocument()
     expect(screen.getByText('오류')).toBeInTheDocument()

@@ -116,19 +116,19 @@ export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
 
   return (
     <>
-      <div className="fixed inset-0 z-40 bg-black/40" onClick={onClose} aria-hidden="true" />
+      <div className="bg-overlay fixed inset-0 z-40" onClick={onClose} aria-hidden="true" />
       <div
         ref={panelRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby={PANEL_TITLE_ID}
-        className="fixed top-0 right-0 bottom-0 z-50 flex w-full max-w-[460px] flex-col border-l border-[#2B2F37] bg-[#1E2127] shadow-[-8px_0_32px_rgba(0,0,0,0.4)]"
+        className="border-border bg-bg-base fixed top-0 right-0 bottom-0 z-50 flex w-full max-w-[460px] flex-col border-l shadow-[-8px_0_32px_rgba(0,0,0,0.4)]"
       >
         {/* 헤더 */}
-        <div className="flex items-start justify-between border-b border-[#2B2F37] px-6 py-4">
+        <div className="border-border flex items-start justify-between border-b px-6 py-4">
           <div className="flex flex-wrap items-center gap-2">
             <NeuBadge variant={SEVERITY_VARIANT[alert.severity]}>{alert.severity}</NeuBadge>
-            <span className="text-sm text-[#8B97AD]">
+            <span className="text-text-secondary text-sm">
               {ALERT_TYPE_LABELS[alert.alert_type] ?? alert.alert_type}
             </span>
             {alert.acknowledged && (
@@ -141,7 +141,7 @@ export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
           <button
             onClick={onClose}
             aria-label="알림 상세 닫기"
-            className="rounded-sm p-1.5 text-[#8B97AD] hover:bg-[rgba(255,255,255,0.05)] focus:ring-1 focus:ring-[#00D4FF] focus:outline-none"
+            className="text-text-secondary hover:bg-hover-subtle focus:ring-accent rounded-sm p-1.5 focus:ring-1 focus:outline-none"
           >
             <X className="h-5 w-5" />
           </button>
@@ -150,7 +150,7 @@ export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
         {/* 내용 */}
         <div className="flex-1 space-y-5 overflow-y-auto px-6 py-5">
           <div>
-            <h3 id={PANEL_TITLE_ID} className="text-base font-semibold text-[#E2E8F2]">
+            <h3 id={PANEL_TITLE_ID} className="text-text-primary text-base font-semibold">
               {alert.title}
             </h3>
           </div>
@@ -159,18 +159,18 @@ export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
           <div className="grid grid-cols-2 gap-3 text-sm">
             <div>
               <p className="type-label">발생 시각</p>
-              <p className="mt-0.5 text-[#E2E8F2]">{formatKST(alert.created_at)}</p>
+              <p className="text-text-primary mt-0.5">{formatKST(alert.created_at)}</p>
             </div>
             {alert.resolved_at && (
               <div>
                 <p className="type-label">복구 시각</p>
-                <p className="mt-0.5 text-[#22C55E]">{formatKST(alert.resolved_at)}</p>
+                <p className="text-normal mt-0.5">{formatKST(alert.resolved_at)}</p>
               </div>
             )}
             {alert.alertname && (
               <div>
                 <p className="type-label">Alert Name</p>
-                <p className="mt-0.5 font-mono text-xs break-all text-[#E2E8F2]">
+                <p className="text-text-primary mt-0.5 font-mono text-xs break-all">
                   {alert.alertname}
                 </p>
               </div>
@@ -178,13 +178,13 @@ export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
             {alert.instance_role && (
               <div>
                 <p className="type-label">인스턴스 역할</p>
-                <p className="mt-0.5 text-[#E2E8F2]">{alert.instance_role}</p>
+                <p className="text-text-primary mt-0.5">{alert.instance_role}</p>
               </div>
             )}
             {alert.host && (
               <div>
                 <p className="type-label">호스트</p>
-                <p className="mt-0.5 font-mono text-xs break-all text-[#E2E8F2]">{alert.host}</p>
+                <p className="text-text-primary mt-0.5 font-mono text-xs break-all">{alert.host}</p>
               </div>
             )}
           </div>
@@ -201,8 +201,8 @@ export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
           {alert.description && (
             <div>
               <p className="type-label mb-1.5">상세 내용</p>
-              <div className="rounded-sm bg-[#1E2127] p-4 shadow-[inset_2px_2px_5px_#111317,inset_-2px_-2px_5px_#2B2F37]">
-                <p className="text-sm leading-relaxed break-words whitespace-pre-wrap text-[#E2E8F2]">
+              <div className="bg-bg-base shadow-neu-inset rounded-sm p-4">
+                <p className="text-text-primary text-sm leading-relaxed break-words whitespace-pre-wrap">
                   {alert.description}
                 </p>
               </div>
@@ -213,7 +213,7 @@ export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
           {alert.acknowledged && alert.acknowledged_by && (
             <div>
               <p className="type-label mb-1.5">처리 정보</p>
-              <p className="text-sm text-[#8B97AD]">
+              <p className="text-text-secondary text-sm">
                 {alert.acknowledged_by}
                 {alert.acknowledged_at && ` · ${formatKST(alert.acknowledged_at)}`}
               </p>
@@ -223,11 +223,11 @@ export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
 
         {/* 푸터 */}
         {!alert.acknowledged && (
-          <div className="space-y-3 border-t border-[#2B2F37] px-6 py-4">
+          <div className="border-border space-y-3 border-t px-6 py-4">
             <button
               type="button"
               onClick={() => setShowSolution((v) => !v)}
-              className="flex w-full items-center gap-2 text-sm text-[#8B97AD] hover:text-[#E2E8F2] focus:outline-none"
+              className="text-text-secondary hover:text-text-primary flex w-full items-center gap-2 text-sm focus:outline-none"
             >
               <ChevronDown
                 className={cn('h-4 w-4 transition-transform', showSolution && 'rotate-180')}

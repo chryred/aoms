@@ -103,7 +103,7 @@ export function UserManagementPage() {
       <PageHeader title="사용자 승인 관리" />
 
       {/* 탭 */}
-      <div className="flex w-fit gap-1 rounded-sm bg-[#1E2127] p-1 shadow-[inset_1px_1px_3px_#111317,inset_-1px_-1px_3px_#2B2F37]">
+      <div className="bg-bg-base shadow-neu-pressed flex w-fit gap-1 rounded-sm p-1">
         {tabs.map((tab) => (
           <button
             key={tab.key}
@@ -111,15 +111,15 @@ export function UserManagementPage() {
             className={cn(
               'relative rounded-sm px-4 py-1.5 text-sm font-medium transition-all',
               activeTab === tab.key
-                ? 'bg-[#00D4FF] font-semibold text-[#1E2127] shadow-[2px_2px_4px_#111317]'
-                : 'text-[#8B97AD] hover:bg-[rgba(255,255,255,0.05)] hover:text-[#E2E8F2]',
+                ? 'bg-accent text-bg-base shadow-neu-flat font-semibold'
+                : 'text-text-secondary hover:bg-hover-subtle hover:text-text-primary',
             )}
           >
             {tab.key === 'pending' ? (
               <span className="flex items-center gap-1.5">
                 승인 대기
                 {pendingCount > 0 && (
-                  <span className="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-[#EF4444] px-1 text-xs text-white">
+                  <span className="bg-critical inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full px-1 text-xs text-white">
                     {pendingCount}
                   </span>
                 )}
@@ -132,11 +132,11 @@ export function UserManagementPage() {
       </div>
 
       {/* 테이블 */}
-      <div className="overflow-hidden rounded-sm bg-[#1E2127] shadow-[3px_3px_7px_#111317,-3px_-3px_7px_#2B2F37]">
+      <div className="bg-bg-base shadow-neu-flat overflow-hidden rounded-sm">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-[#2B2F37]">
+              <tr className="border-border border-b">
                 <th className="type-label px-4 py-3 text-left">이름</th>
                 <th className="type-label px-4 py-3 text-left">이메일</th>
                 <th className="type-label px-4 py-3 text-left">권한</th>
@@ -148,7 +148,7 @@ export function UserManagementPage() {
             <tbody>
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-4 py-8 text-center text-[#8B97AD]">
+                  <td colSpan={6} className="text-text-secondary px-4 py-8 text-center">
                     해당 사용자가 없습니다
                   </td>
                 </tr>
@@ -159,10 +159,10 @@ export function UserManagementPage() {
                   return (
                     <tr
                       key={user.id}
-                      className="border-b border-[#2B2F37] last:border-0 hover:bg-[rgba(0,212,255,0.04)]"
+                      className="border-border border-b last:border-0 hover:bg-[rgba(0,212,255,0.04)]"
                     >
-                      <td className="px-4 py-3 font-medium text-[#E2E8F2]">{user.name}</td>
-                      <td className="px-4 py-3 text-[#8B97AD]">{user.email}</td>
+                      <td className="text-text-primary px-4 py-3 font-medium">{user.name}</td>
+                      <td className="text-text-secondary px-4 py-3">{user.email}</td>
                       <td className="px-4 py-3">
                         {isSelf ? (
                           <UserRoleBadge role={user.role} />
@@ -176,7 +176,7 @@ export function UserManagementPage() {
                                 body: { role: e.target.value as 'admin' | 'operator' },
                               })
                             }
-                            className="rounded-sm border border-[#2B2F37] bg-[#1E2127] px-2 py-1 text-xs text-[#8B97AD] [color-scheme:dark] focus:ring-1 focus:ring-[#00D4FF] focus:outline-none"
+                            className="border-border bg-bg-base text-text-secondary focus:ring-accent rounded-sm border px-2 py-1 text-xs [color-scheme:dark] focus:ring-1 focus:outline-none"
                           >
                             <option value="operator">운영자</option>
                             <option value="admin">관리자</option>
@@ -186,11 +186,13 @@ export function UserManagementPage() {
                       <td className="px-4 py-3">
                         <UserStatusBadge status={userStatus} />
                       </td>
-                      <td className="px-4 py-3 text-[#8B97AD]">{formatDate(user.created_at)}</td>
+                      <td className="text-text-secondary px-4 py-3">
+                        {formatDate(user.created_at)}
+                      </td>
                       <td className="px-4 py-3">
                         {isSelf ? (
                           <span
-                            className="cursor-not-allowed text-xs text-[#5A6478]"
+                            className="text-text-disabled cursor-not-allowed text-xs"
                             title="본인 계정은 변경할 수 없습니다"
                           >
                             —
@@ -200,7 +202,7 @@ export function UserManagementPage() {
                             {userStatus === 'pending' && (
                               <>
                                 <button
-                                  className="text-xs font-medium text-[#22C55E] hover:underline"
+                                  className="text-normal text-xs font-medium hover:underline"
                                   onClick={() =>
                                     setConfirmState({
                                       open: true,
@@ -212,7 +214,7 @@ export function UserManagementPage() {
                                   승인
                                 </button>
                                 <button
-                                  className="text-xs font-medium text-[#EF4444] hover:underline"
+                                  className="text-critical text-xs font-medium hover:underline"
                                   onClick={() =>
                                     setConfirmState({
                                       open: true,
@@ -227,7 +229,7 @@ export function UserManagementPage() {
                             )}
                             {userStatus === 'active' && (
                               <button
-                                className="text-xs font-medium text-[#F59E0B] hover:underline"
+                                className="text-warning text-xs font-medium hover:underline"
                                 onClick={() =>
                                   setConfirmState({
                                     open: true,
@@ -241,7 +243,7 @@ export function UserManagementPage() {
                             )}
                             {userStatus === 'disabled' && (
                               <button
-                                className="text-xs font-medium text-[#22C55E] hover:underline"
+                                className="text-normal text-xs font-medium hover:underline"
                                 onClick={() =>
                                   setConfirmState({
                                     open: true,

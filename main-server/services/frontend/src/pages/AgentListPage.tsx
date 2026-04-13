@@ -70,7 +70,7 @@ export function AgentListPage() {
           <div className="flex items-center gap-2">
             {sessionActive ? (
               <>
-                <div className="flex items-center gap-1.5 rounded-sm bg-[rgba(34,197,94,0.08)] px-3 py-1.5 text-xs text-[#22C55E]">
+                <div className="text-normal flex items-center gap-1.5 rounded-sm bg-[rgba(34,197,94,0.08)] px-3 py-1.5 text-xs">
                   <Lock className="h-3 w-3" />
                   {username}@{host}
                 </div>
@@ -96,8 +96,8 @@ export function AgentListPage() {
       {/* 세션 안내 배너 */}
       {!sessionActive && (
         <div className="mb-6 flex items-center gap-3 rounded-sm border border-[rgba(245,158,11,0.20)] bg-[rgba(245,158,11,0.06)] px-4 py-3">
-          <Lock className="h-4 w-4 shrink-0 text-[#F59E0B]" />
-          <p className="text-sm text-[#F59E0B]">
+          <Lock className="text-warning h-4 w-4 shrink-0" />
+          <p className="text-warning text-sm">
             에이전트 제어(실행·중지·설정 변경)는 SSH 세션 등록 후 사용 가능합니다.
           </p>
           <NeuButton
@@ -114,7 +114,7 @@ export function AgentListPage() {
       {/* 필터 */}
       <div className="mb-6">
         <div
-          className="inline-flex gap-1 rounded-sm bg-[#1E2127] p-1 shadow-[inset_1px_1px_3px_#111317,inset_-1px_-1px_3px_#2B2F37]"
+          className="bg-bg-base shadow-neu-pressed inline-flex gap-1 rounded-sm p-1"
           role="group"
           aria-label="에이전트 타입 필터"
         >
@@ -125,10 +125,10 @@ export function AgentListPage() {
               onClick={() => setFilterType(opt.value as AgentType | 'all')}
               className={cn(
                 'rounded-sm px-3 py-1 text-xs font-medium transition-all',
-                'focus:ring-1 focus:ring-[#00D4FF] focus:ring-offset-[#1E2127] focus:outline-none',
+                'focus:ring-accent focus:ring-offset-bg-base focus:ring-1 focus:outline-none',
                 filterType === opt.value
-                  ? 'bg-[#00D4FF] font-semibold text-[#1E2127] shadow-[2px_2px_4px_#111317]'
-                  : 'text-[#8B97AD] hover:bg-[rgba(255,255,255,0.05)] hover:text-[#E2E8F2]',
+                  ? 'bg-accent text-bg-base shadow-neu-flat font-semibold'
+                  : 'text-text-secondary hover:bg-hover-subtle hover:text-text-primary',
               )}
             >
               {opt.label}
@@ -142,7 +142,7 @@ export function AgentListPage() {
 
       {!isLoading && !isError && allAgentsFiltered.length === 0 && (
         <EmptyState
-          icon={<Terminal className="h-12 w-12 text-[#8B97AD]" />}
+          icon={<Terminal className="text-text-secondary h-12 w-12" />}
           title="등록된 에이전트가 없습니다"
           description="에이전트 등록 버튼을 눌러 수집기를 추가하세요."
           cta={{ label: '에이전트 등록', onClick: () => setShowFormModal(true) }}
@@ -154,8 +154,8 @@ export function AgentListPage() {
           {grouped.map(({ system, agents: systemAgents }) => (
             <section key={system.id}>
               <div className="mb-3 flex items-center gap-3">
-                <h2 className="text-base font-bold text-[#E2E8F2]">{system.display_name}</h2>
-                <span className="inline-flex items-center rounded-full bg-[rgba(0,212,255,0.10)] px-2 py-0.5 text-xs text-[#00D4FF]">
+                <h2 className="text-text-primary text-base font-bold">{system.display_name}</h2>
+                <span className="text-accent inline-flex items-center rounded-full bg-[rgba(0,212,255,0.10)] px-2 py-0.5 text-xs">
                   {systemAgents.length}개
                 </span>
               </div>

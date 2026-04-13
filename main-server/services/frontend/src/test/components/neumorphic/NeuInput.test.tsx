@@ -28,7 +28,7 @@ describe('NeuInput', () => {
   it('error 있을 때 border 색상 변경', () => {
     render(<NeuInput error="오류" />)
     const input = screen.getByRole('textbox')
-    expect(input.className).toContain('border-[#EF4444]')
+    expect(input.className).toContain('border-critical')
   })
 
   it('leftIcon 렌더링', () => {

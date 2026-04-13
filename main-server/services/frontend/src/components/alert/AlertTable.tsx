@@ -43,7 +43,7 @@ export function AlertTable({ alerts, onSelect }: AlertTableProps) {
     <div className="overflow-x-auto">
       <table className="w-full">
         <thead>
-          <tr className="border-b border-[#2B2F37]">
+          <tr className="border-border border-b">
             {['심각도', '유형', '제목', '이상 유형', '발생 시각', '확인'].map((h) => (
               <th key={h} className="type-label px-4 py-3 text-left">
                 {h}
@@ -51,7 +51,7 @@ export function AlertTable({ alerts, onSelect }: AlertTableProps) {
             ))}
           </tr>
         </thead>
-        <tbody className="divide-y divide-[#2B2F37]">
+        <tbody className="divide-border divide-y">
           {alerts.map((alert) => (
             <tr
               key={alert.id}
@@ -67,7 +67,7 @@ export function AlertTable({ alerts, onSelect }: AlertTableProps) {
               className={cn(
                 'cursor-pointer transition-colors',
                 'hover:bg-[rgba(0,212,255,0.04)]',
-                'focus-visible:bg-[rgba(0,212,255,0.06)] focus-visible:outline-none',
+                'focus-visible:bg-accent-muted focus-visible:outline-none',
                 alert.acknowledged && 'opacity-60',
               )}
             >
@@ -78,24 +78,24 @@ export function AlertTable({ alerts, onSelect }: AlertTableProps) {
                 <NeuBadge variant="muted">{getTypeLabel(alert)}</NeuBadge>
               </td>
               <td className="px-4 py-3">
-                <p className="max-w-xs truncate text-sm font-medium text-[#E2E8F2]">
+                <p className="text-text-primary max-w-xs truncate text-sm font-medium">
                   {alert.title}
                 </p>
                 {alert.alertname && (
-                  <p className="font-mono text-xs text-[#8B97AD]">{alert.alertname}</p>
+                  <p className="text-text-secondary font-mono text-xs">{alert.alertname}</p>
                 )}
               </td>
               <td className="px-4 py-3">
                 <AnomalyTypeBadge type={alert.anomaly_type} />
               </td>
-              <td className="px-4 py-3 text-sm whitespace-nowrap text-[#8B97AD]">
+              <td className="text-text-secondary px-4 py-3 text-sm whitespace-nowrap">
                 {formatRelative(alert.created_at)}
               </td>
               <td className="px-4 py-3">
                 {alert.acknowledged ? (
-                  <CheckCircle className="h-4 w-4 text-[#22C55E]" />
+                  <CheckCircle className="text-normal h-4 w-4" />
                 ) : (
-                  <span className="inline-block h-2 w-2 rounded-full bg-[#EF4444]" />
+                  <span className="bg-critical inline-block h-2 w-2 rounded-full" />
                 )}
               </td>
             </tr>
