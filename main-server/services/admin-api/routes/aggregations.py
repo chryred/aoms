@@ -605,11 +605,20 @@ async def get_process_summary(
                 logger.warning("process-summary: 쿼리 실패: %s — %s", promql[:80], exc)
                 return []
 
-        cpu_res, mem_res, total_res = await asyncio.gather(
+        cpu_res, mem_res, total_res, cores_res = await asyncio.gather(
             _query(f'process_cpu_percent{{system_name="{sn}"}}'),
             _query(f'process_memory_bytes{{system_name="{sn}"}}'),
             _query(f'memory_used_bytes{{system_name="{sn}",type="total"}}'),
+            _query(f'count(cpu_usage_percent{{system_name="{sn}",core!="total"}})'),
         )
+
+    # CPU 코어 수 (process_cpu_percent 정규화용)
+    num_cores = 1
+    if cores_res:
+        try:
+            num_cores = max(1, int(float(cores_res[0].get("value", [None, "1"])[1])))
+        except (TypeError, ValueError, IndexError):
+            pass
 
     # 전체 메모리 (bytes)
     total_mem = None
@@ -619,7 +628,7 @@ async def get_process_summary(
         except (TypeError, ValueError, IndexError):
             pass
 
-    # CPU — process/service_name 기준으로 합산
+    # CPU — process/service_name 기준으로 합산 후 코어 수로 정규화
     proc_map: dict[str, dict] = {}
     for series in cpu_res:
         labels = series.get("metric", {})
@@ -631,6 +640,10 @@ async def get_process_summary(
         if name not in proc_map:
             proc_map[name] = {"name": name, "cpu_percent": 0.0, "mem_percent": 0.0, "mem_bytes": 0}
         proc_map[name]["cpu_percent"] = round(proc_map[name]["cpu_percent"] + cpu_pct, 2)
+
+    # 코어 수로 정규화 (전체 CPU 대비 비율로 변환)
+    for entry in proc_map.values():
+        entry["cpu_percent"] = round(entry["cpu_percent"] / num_cores, 2)
 
     # 메모리 — 같은 키로 합산
     for series in mem_res:
