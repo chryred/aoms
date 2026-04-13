@@ -28,7 +28,7 @@ export function PeriodToggle({ value, onChange }: PeriodToggleProps) {
             'px-3 py-1.5 text-sm font-medium transition-all',
             'focus:ring-accent focus:ring-offset-bg-base focus:ring-1 focus:ring-offset-1 focus:outline-none',
             value === period
-              ? 'border-accent bg-surface rounded-t-[2px] rounded-b-none border-b-2 font-semibold text-white shadow-[2px_2px_4px_#111317,-1px_-1px_3px_#2B2F37]'
+              ? 'border-accent bg-accent rounded-t-[2px] rounded-b-none border-b-2 font-semibold text-accent-contrast shadow-neu-pressed'
               : 'text-text-secondary hover:bg-hover-subtle hover:text-text-primary hover:ring-accent-muted rounded-[2px] hover:ring-1',
           )}
         >

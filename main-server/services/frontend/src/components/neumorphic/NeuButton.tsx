@@ -31,13 +31,13 @@ export function NeuButton({
         size === 'lg' && 'px-6 py-3 text-base',
         variant === 'primary' && [
           'bg-accent text-accent-contrast font-semibold',
-          'shadow-[2px_2px_5px_#111317,-2px_-2px_5px_#2B2F37]',
+          'shadow-neu-flat',
           'hover:bg-accent-hover',
           'active:bg-accent-hover active:shadow-[inset_2px_2px_6px_rgba(0,0,0,0.3)]',
         ],
         variant === 'secondary' && [
           'bg-btn-secondary text-text-primary',
-          'shadow-[2px_2px_5px_#111317,-2px_-2px_5px_#2B2F37]',
+          'shadow-neu-flat',
           'hover:bg-btn-secondary hover:text-text-primary',
           'active:bg-btn-secondary active:shadow-[inset_1px_1px_4px_rgba(0,0,0,0.2)]',
         ],
@@ -53,7 +53,7 @@ export function NeuButton({
         ],
         variant === 'danger' && [
           'bg-critical text-white',
-          'shadow-[2px_2px_5px_#111317,-2px_-2px_5px_#2B2F37]',
+          'shadow-neu-flat',
           'hover:bg-critical',
           'active:shadow-[inset_2px_2px_6px_rgba(0,0,0,0.3)]',
         ],

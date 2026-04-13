@@ -29,7 +29,7 @@ export function GrafanaDashboardPage() {
               'rounded-sm px-4 py-2 text-sm font-medium transition-all duration-150',
               'focus:ring-accent focus:ring-1 focus:outline-none',
               activeUid === d.uid
-                ? 'bg-surface shadow-neu-flat text-white'
+                ? 'bg-accent text-accent-contrast shadow-neu-pressed font-semibold'
                 : 'text-text-secondary hover:text-text-primary hover:ring-accent-muted hover:ring-1',
             )}
           >
