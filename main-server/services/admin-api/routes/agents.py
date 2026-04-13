@@ -120,6 +120,15 @@ def _require_session(x_ssh_session: Optional[str] = Header(None)) -> dict:
     return entry
 
 
+def _check_host_match(agent, session: dict):
+    """에이전트 호스트와 SSH 세션 호스트가 일치하는지 검증한다."""
+    if agent.host != session["host"]:
+        raise HTTPException(
+            400,
+            f"SSH 세션 호스트({session['host']})와 에이전트 호스트({agent.host})가 일치하지 않습니다.",
+        )
+
+
 # ── 에이전트 CRUD ─────────────────────────────────────────────────────────────
 
 @router.get("/agents", response_model=list[AgentInstanceOut])
@@ -431,6 +440,7 @@ async def start_agent(
     current_user=Depends(get_current_user),
 ):
     agent = await _get_agent_or_404(agent_id, db)
+    _check_host_match(agent, session)
     if not agent.pid_file:
         raise HTTPException(400, "pid_file 경로가 설정되어 있지 않습니다.")
 
@@ -461,6 +471,7 @@ async def stop_agent(
     current_user=Depends(get_current_user),
 ):
     agent = await _get_agent_or_404(agent_id, db)
+    _check_host_match(agent, session)
     if not agent.pid_file:
         raise HTTPException(400, "pid_file 경로가 설정되어 있지 않습니다.")
 
@@ -487,6 +498,7 @@ async def restart_agent(
     current_user=Depends(get_current_user),
 ):
     agent = await _get_agent_or_404(agent_id, db)
+    _check_host_match(agent, session)
     if not agent.pid_file:
         raise HTTPException(400, "pid_file 경로가 설정되어 있지 않습니다.")
 
@@ -520,6 +532,7 @@ async def get_agent_status(
     current_user=Depends(get_current_user),
 ):
     agent = await _get_agent_or_404(agent_id, db)
+    _check_host_match(agent, session)
     pid: Optional[int] = None
     agent_status = "unknown"
     message = ""
@@ -565,6 +578,7 @@ async def get_agent_config(
     current_user=Depends(get_current_user),
 ):
     agent = await _get_agent_or_404(agent_id, db)
+    _check_host_match(agent, session)
     try:
         content = await asyncio.to_thread(
             ssh_get_file, session["host"], session["port"], session["username"], session["password"], agent.config_path
@@ -585,6 +599,7 @@ async def upload_agent_config(
     current_user=Depends(get_current_user),
 ):
     agent = await _get_agent_or_404(agent_id, db)
+    _check_host_match(agent, session)
     try:
         await asyncio.to_thread(
             ssh_put_file,
