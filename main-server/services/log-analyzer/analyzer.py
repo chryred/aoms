@@ -222,10 +222,20 @@ async def analyze_with_vector_context(
             }
             for r in anomaly_info.get("top_results", [])
         ]
+        prev_root_cause     = top_payload.get("root_cause")
+        prev_recommendation = top_payload.get("recommendation")
+        prev_resolution     = top_payload.get("resolution")
         return {
             "severity":          "info",
-            "root_cause":        "중복 이상 감지 — 이전에 동일한 패턴의 이상이 발생하였습니다.",
-            "recommendation":    top_payload.get("resolution") or "이전 분석 결과를 참고하세요.",
+            "root_cause": (
+                prev_root_cause
+                or "중복 이상 감지 — 이전에 동일한 패턴의 이상이 발생하였습니다."
+            ),
+            "recommendation": (
+                prev_resolution
+                or prev_recommendation
+                or "이전 분석 결과를 참고하세요."
+            ),
             "anomaly_type":      "duplicate",
             "similarity_score":  anomaly_info["score"],
             "qdrant_point_id":   None,
@@ -247,6 +257,8 @@ async def analyze_with_vector_context(
                 analysis.get("severity", "unknown"),
                 normalized[:500],
                 analysis.get("error_category"),
+                root_cause=analysis.get("root_cause"),
+                recommendation=analysis.get("recommendation"),
             )
         except Exception as e:
             qdrant_store_error = f"qdrant_store_error: {type(e).__name__}: {e!r}"[:280]

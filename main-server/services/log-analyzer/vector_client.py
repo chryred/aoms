@@ -126,6 +126,8 @@ async def store_incident_vector(
     severity: str,
     log_pattern: str,
     error_category: str | None = None,
+    root_cause: str | None = None,
+    recommendation: str | None = None,
 ) -> str:
     """분석된 로그 패턴을 Qdrant에 저장. 저장된 point_id 반환."""
     point_id = str(uuid4())
@@ -135,6 +137,8 @@ async def store_incident_vector(
         "severity":         severity,
         "log_pattern":      log_pattern[:500],
         "error_category":   error_category,
+        "root_cause":       root_cause,
+        "recommendation":   recommendation,
         "timestamp":        datetime.now(timezone.utc).isoformat(),
         "occurrence_count": 1,
         "resolved":         False,
