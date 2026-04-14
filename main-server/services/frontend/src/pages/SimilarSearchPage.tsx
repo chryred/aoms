@@ -45,7 +45,7 @@ function CollectionInfoBar() {
 export default function SimilarSearchPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const query = searchParams.get('q') ?? ''
-  const threshold = Number(searchParams.get('threshold') ?? '0.75')
+  const threshold = Number(searchParams.get('threshold') ?? '0.5')
   const collection = searchParams.get('collection') ?? 'metric_hourly_patterns'
 
   const { mutate, data, isPending, isError, reset } = useSimilarSearch()

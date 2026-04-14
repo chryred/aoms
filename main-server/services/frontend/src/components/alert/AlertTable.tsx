@@ -1,7 +1,9 @@
+import { useMemo } from 'react'
 import { Bell, CheckCircle } from 'lucide-react'
 import { NeuBadge } from '@/components/neumorphic/NeuBadge'
 import { AnomalyTypeBadge } from './AnomalyTypeBadge'
 import { EmptyState } from '@/components/common/EmptyState'
+import { useSystems } from '@/hooks/queries/useSystems'
 import { formatRelative } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 import type { AlertHistory, Severity } from '@/types/alert'
@@ -29,6 +31,16 @@ interface AlertTableProps {
 }
 
 export function AlertTable({ alerts, onSelect }: AlertTableProps) {
+  const { data: systems = [] } = useSystems()
+  const systemMap = useMemo(
+    () =>
+      systems.reduce<Record<number, string>>((acc, s) => {
+        acc[s.id] = s.display_name
+        return acc
+      }, {}),
+    [systems],
+  )
+
   if (alerts.length === 0) {
     return (
       <EmptyState
@@ -44,7 +56,7 @@ export function AlertTable({ alerts, onSelect }: AlertTableProps) {
       <table className="w-full">
         <thead>
           <tr className="border-border border-b">
-            {['심각도', '유형', '제목', '이상 유형', '발생 시각', '확인'].map((h) => (
+            {['심각도', '유형', '시스템', '제목', '이상 유형', '발생 시각', '확인'].map((h) => (
               <th key={h} className="type-label px-4 py-3 text-left">
                 {h}
               </th>
@@ -76,6 +88,11 @@ export function AlertTable({ alerts, onSelect }: AlertTableProps) {
               </td>
               <td className="px-4 py-3">
                 <NeuBadge variant="muted">{getTypeLabel(alert)}</NeuBadge>
+              </td>
+              <td className="px-4 py-3">
+                <p className="text-text-primary max-w-[140px] truncate text-sm">
+                  {alert.system_id != null ? (systemMap[alert.system_id] ?? '-') : '-'}
+                </p>
               </td>
               <td className="px-4 py-3">
                 <p className="text-text-primary max-w-xs truncate text-sm font-medium">

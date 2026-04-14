@@ -24,7 +24,7 @@ function debounce<T extends (...args: Parameters<T>) => void>(fn: T, ms: number)
 
 export function SimilarSearchInput({
   defaultQuery = '',
-  defaultThreshold = 0.75,
+  defaultThreshold = 0.5,
   defaultCollection = 'metric_hourly_patterns',
   onSearch,
   isPending,
@@ -76,6 +76,7 @@ export function SimilarSearchInput({
 
       {/* Query textarea */}
       <textarea
+        autoFocus
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         rows={4}
@@ -86,13 +87,16 @@ export function SimilarSearchInput({
           'placeholder:text-text-disabled resize-none whitespace-pre-wrap',
           'focus:ring-accent focus:ring-offset-bg-base focus:ring-1 focus:ring-offset-2 focus:outline-none',
         )}
-        placeholder="예: CPU 사용률이 80%를 초과하며 응답시간이 급증한 패턴"
+        placeholder="예: ERROR 로그가 급증하며 시스템 장애가 예상되는 패턴 (Enter=검색, Shift+Enter=줄바꿈)"
         aria-label="검색 쿼리 입력"
         aria-describedby={thresholdId.current}
         onKeyDown={(e) => {
-          if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+          // 한글 IME 조합 중 Enter는 무시 (조합 확정용)
+          if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+            e.preventDefault()
             handleSearch({ query, threshold, collection })
           }
+          // Shift+Enter 는 기본 줄바꿈 동작 유지 (preventDefault 없음)
         }}
       />
 

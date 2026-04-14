@@ -1,6 +1,8 @@
 import { useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { useAlerts } from '@/hooks/queries/useAlerts'
+import { useSystems } from '@/hooks/queries/useSystems'
 import { PageHeader } from '@/components/common/PageHeader'
 import { NeuCard } from '@/components/neumorphic/NeuCard'
 import { NeuSelect } from '@/components/neumorphic/NeuSelect'
@@ -24,11 +26,16 @@ const TABS: { key: TabType; label: string }[] = [
 ]
 
 export function AlertHistoryPage() {
+  const [searchParams, setSearchParams] = useSearchParams()
+  const systemFilter = searchParams.get('system_id') ?? ''
+
   const [tab, setTab] = useState<TabType>('all')
   const [severity, setSeverity] = useState<Severity | ''>('')
   const [ackFilter, setAckFilter] = useState<AckFilter>('all')
   const [offset, setOffset] = useState(0)
   const [selectedAlert, setSelectedAlert] = useState<AlertHistory | null>(null)
+
+  const { data: systems = [] } = useSystems()
 
   const {
     data: alerts,
@@ -40,9 +47,18 @@ export function AlertHistoryPage() {
     resolved: tab === 'metric' ? false : tab === 'resolved' ? true : undefined,
     severity: severity || undefined,
     acknowledged: ackFilter === 'all' ? undefined : ackFilter === 'ack',
+    system_id: systemFilter ? Number(systemFilter) : undefined,
     limit: PAGE_SIZE,
     offset,
   })
+
+  const handleSystemChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const next = new URLSearchParams(searchParams)
+    if (e.target.value) next.set('system_id', e.target.value)
+    else next.delete('system_id')
+    setSearchParams(next, { replace: true })
+    setOffset(0)
+  }
 
   const hasNext = (alerts?.length ?? 0) >= PAGE_SIZE
   const hasPrev = offset > 0
@@ -77,7 +93,17 @@ export function AlertHistoryPage() {
       </div>
 
       {/* 필터 */}
-      <div className="mb-4 flex gap-3">
+      <div className="mb-4 flex flex-wrap gap-3">
+        <div className="w-48">
+          <NeuSelect value={systemFilter} onChange={handleSystemChange}>
+            <option value="">전체 시스템</option>
+            {systems.map((s) => (
+              <option key={s.id} value={String(s.id)}>
+                {s.display_name}
+              </option>
+            ))}
+          </NeuSelect>
+        </div>
         <div className="w-36">
           <NeuSelect
             value={severity}
