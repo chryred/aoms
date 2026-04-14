@@ -167,6 +167,7 @@ class AlertHistoryOut(BaseModel):
     similarity_score: Optional[float]
     qdrant_point_id:  Optional[str]
     resolved_at: Optional[datetime]
+    error_message:    Optional[str]   # NULL=성공, 값=LLM/분석 실패 사유
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -179,6 +180,12 @@ class AcknowledgeRequest(BaseModel):
 # ── Feedback ───────────────────────────────────────────────────────────
 class FeedbackCreateRequest(BaseModel):
     alert_history_id: int
+    error_type: str
+    solution: str
+    resolver: str
+
+
+class FeedbackUpdateRequest(BaseModel):
     error_type: str
     solution: str
     resolver: str
@@ -213,6 +220,7 @@ class LogAnalysisCreate(BaseModel):
     qdrant_point_id:   Optional[str]        = None
     has_solution:      Optional[bool]       = None
     similar_incidents: Optional[list[dict]] = None  # Teams 알림용 (DB 저장 안 함)
+    error_message:     Optional[str]        = None  # LLM/분석 실패 사유 (값 있으면 실패 레코드)
 
 
 class LogAnalysisOut(BaseModel):
@@ -228,6 +236,7 @@ class LogAnalysisOut(BaseModel):
     anomaly_type:     Optional[str]
     similarity_score: Optional[float]
     has_solution:     Optional[bool]
+    error_message:    Optional[str]   # NULL=성공, 값=LLM/분석 실패 사유
     created_at: datetime
 
     model_config = {"from_attributes": True}

@@ -18,6 +18,12 @@ export interface FeedbackCreateBody {
   resolver: string
 }
 
+export interface FeedbackUpdateBody {
+  error_type: string
+  solution: string
+  resolver: string
+}
+
 export interface FeedbackOut {
   id: number
   system_id: number | null
@@ -37,4 +43,14 @@ export const alertsApi = {
 
   createFeedback: (body: FeedbackCreateBody) =>
     adminApi.post('api/v1/feedback', { json: body }).json<FeedbackOut>(),
+
+  getFeedbacks: (alertHistoryId: number) =>
+    adminApi
+      .get('api/v1/feedback', {
+        searchParams: { alert_history_id: alertHistoryId },
+      })
+      .json<FeedbackOut[]>(),
+
+  updateFeedback: (id: number, body: FeedbackUpdateBody) =>
+    adminApi.put(`api/v1/feedback/${id}`, { json: body }).json<FeedbackOut>(),
 }

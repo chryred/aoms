@@ -7,6 +7,7 @@ export const qk = {
   systems: () => ['systems'] as const,
   system: (id: number) => ['systems', id] as const,
   alerts: (params: AlertFilterParams) => ['alerts', params] as const,
+  feedbacks: (alertHistoryId: number) => ['feedbacks', alertHistoryId] as const,
   me: () => ['auth', 'me'] as const,
 
   contacts: () => ['contacts'] as const,
