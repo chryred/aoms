@@ -30,7 +30,7 @@ from vector_client import (
     store_incident_vector,
 )
 
-from llm_client import call_llm_structured, LLM_API_KEY, LLM_AGENT_CODE
+from llm_client import call_llm_structured, LLM_API_KEY, LLM_AGENT_CODE, LLM_TYPE
 
 logger = logging.getLogger(__name__)
 
@@ -49,8 +49,14 @@ ANALYSIS_QUERY = """다음 서버 로그를 분석하여 반드시 아래 JSON �
 
 {log_content}
 
+작성 규칙(가독성):
+- root_cause: 한국어. 핵심 원인 한 줄 요약 + 근거 1~2줄. 각 문장은 줄바꿈(\\n)으로 구분. 마크다운(**, -, #) 사용 금지.
+- recommendation: 한국어. 번호 목록 형식으로 작성하되 각 항목을 반드시 줄바꿈(\\n)으로 구분. 예:
+  "1) 즉시 조치: ...\\n2) 원인 분석: ...\\n3) 재발 방지: ..."
+  한 줄에 모든 항목을 이어 쓰지 말 것. 항목 내부는 한 문장으로 간결하게.
+
 응답 형식:
-{{"severity": "critical 또는 warning 또는 info", "root_cause": "오류의 근본 원인 (한국어, 1~2문장)", "recommendation": "해결 방법 및 권고사항 (한국어, 구체적으로)"}}"""
+{{"severity": "critical 또는 warning 또는 info", "root_cause": "원인 요약\\n근거/세부 설명", "recommendation": "1) 즉시 조치: ...\\n2) 원인 분석: ...\\n3) 재발 방지: ..."}}"""
 
 
 
@@ -188,7 +194,10 @@ async def analyze_with_vector_context(
     try:
         embedding = await get_embedding(normalized)
     except Exception as e:
-        logger.warning(f"임베딩 생성 실패: {e} → 벡터 검색 없이 분석 진행")
+        # httpx 타임아웃 예외는 str(e)가 비어있으므로 type명+repr로 사유 명확화
+        logger.warning(
+            f"임베딩 생성 실패: {type(e).__name__}: {e!r} → 벡터 검색 없이 분석 진행"
+        )
 
     # 3. 유사 이력 검색
     anomaly_info: dict = {"type": "new", "score": 0.0, "has_solution": False, "top_results": []}
@@ -197,7 +206,9 @@ async def analyze_with_vector_context(
             similar      = await search_similar_incidents(embedding, system_name)
             anomaly_info = classify_anomaly(similar)
         except Exception as e:
-            logger.warning(f"Qdrant 검색 실패: {e} → 신규 이상으로 처리")
+            logger.warning(
+                f"Qdrant 검색 실패: {type(e).__name__}: {e!r} → 신규 이상으로 처리"
+            )
 
     # 4. duplicate면 LLM 호출 없이 이전 분석 결과 재활용하여 알림 발송
     if anomaly_info["type"] == "duplicate":
@@ -228,6 +239,7 @@ async def analyze_with_vector_context(
 
     # 6. 벡터 저장 (새로운 분석 결과 누적)
     point_id = None
+    qdrant_store_error: str | None = None
     if embedding:
         try:
             point_id = await store_incident_vector(
@@ -237,7 +249,8 @@ async def analyze_with_vector_context(
                 analysis.get("error_category"),
             )
         except Exception as e:
-            logger.warning(f"Qdrant 저장 실패: {e}")
+            qdrant_store_error = f"qdrant_store_error: {type(e).__name__}: {e!r}"[:280]
+            logger.warning(f"Qdrant 저장 실패: {type(e).__name__}: {e!r}")
 
     # similar_incidents: Teams 알림용 정형화된 이력 목록
     similar_incidents = [
@@ -256,6 +269,7 @@ async def analyze_with_vector_context(
         "qdrant_point_id":    point_id,
         "has_solution":       anomaly_info["has_solution"],
         "similar_incidents":  similar_incidents,
+        "qdrant_store_error": qdrant_store_error,  # 값 있으면 LLM 성공했으나 벡터 저장 실패
     }
 
 
@@ -272,8 +286,14 @@ async def submit_analysis(
     qdrant_point_id: str | None = None,
     has_solution: bool | None = None,
     similar_incidents: list[dict] | None = None,
+    error_message: str | None = None,
+    model_used: str | None = None,
 ) -> dict:
-    """Admin API에 LLM 분석 결과 제출 (Teams 알림은 Admin API가 처리)"""
+    """Admin API에 LLM 분석 결과 제출 (Teams 알림은 Admin API가 처리)
+
+    error_message: LLM/분석 실패 사유. 값이 있으면 admin-api에서 Teams 미발송 + UI 분석 실패 뱃지.
+    model_used: LLM 프로바이더 코드 (devx/ollama/claude/openai). 미지정 시 LLM_TYPE 기본값.
+    """
     payload: dict = {
         "system_id":       system_id,
         "instance_role":   instance_role,
@@ -282,6 +302,7 @@ async def submit_analysis(
         "severity":        severity,
         "root_cause":      root_cause,
         "recommendation":  recommendation,
+        "model_used":      model_used or LLM_TYPE,
     }
     # Phase 4b: 벡터 필드 (값이 있을 때만 포함)
     if anomaly_type      is not None: payload["anomaly_type"]      = anomaly_type
@@ -289,6 +310,7 @@ async def submit_analysis(
     if qdrant_point_id   is not None: payload["qdrant_point_id"]   = qdrant_point_id
     if has_solution      is not None: payload["has_solution"]      = has_solution
     if similar_incidents is not None: payload["similar_incidents"] = similar_incidents
+    if error_message     is not None: payload["error_message"]     = error_message
 
     resp = await _admin_http.post(f"{ADMIN_API_URL}/api/v1/analysis", json=payload)
     resp.raise_for_status()
@@ -296,9 +318,16 @@ async def submit_analysis(
 
 
 async def run_analysis() -> dict:
-    """전체 활성 시스템 로그 분석 실행 (n8n 트리거 또는 내부 스케줄러 호출)"""
+    """전체 활성 시스템 로그 분석 실행 (n8n 트리거 또는 내부 스케줄러 호출)
+
+    results 필드:
+      analyzed: 분석 완료 건 (성공)
+      skipped : 비활성 시스템 skip 건
+      no_logs : 활성 시스템이지만 최근 5분 이상 로그 없음
+      errors  : 분석 과정 예외 발생 건 (실패 레코드는 DB에 별도 저장됨)
+    """
     logger.info("로그 분석 시작")
-    results: dict = {"analyzed": 0, "skipped": 0, "errors": 0, "systems": []}
+    results: dict = {"analyzed": 0, "skipped": 0, "no_logs": 0, "errors": 0, "systems": []}
 
     try:
         systems = await get_systems()
@@ -318,12 +347,16 @@ async def run_analysis() -> dict:
             logs_by_role = await fetch_logs_for_system(system_name)
             if not logs_by_role:
                 logger.debug(f"[{system_name}] 이상 로그 없음, 스킵")
-                results["skipped"] += 1
+                results["no_logs"] += 1
                 continue
 
             api_key, agent_code = await get_llm_config_for_system(system_name)
 
             for instance_role, logs in logs_by_role.items():
+                # masked_log는 성공/실패 두 경로 모두에서 필요 → try 진입 전 구성
+                masked_log = mask_sensitive_data(
+                    "\n".join(entry["line"] for entry in logs[:50])
+                )
                 try:
                     analysis = await analyze_with_vector_context(
                         system_name, instance_role, logs, api_key, agent_code
@@ -333,9 +366,6 @@ async def run_analysis() -> dict:
                     root_cause     = analysis.get("root_cause", "")
                     recommendation = analysis.get("recommendation", "")
 
-                    masked_log = mask_sensitive_data(
-                        "\n".join(entry["line"] for entry in logs[:50])
-                    )
                     await submit_analysis(
                         system_id=system_id,
                         instance_role=instance_role,
@@ -349,6 +379,8 @@ async def run_analysis() -> dict:
                         qdrant_point_id=analysis.get("qdrant_point_id"),
                         has_solution=analysis.get("has_solution"),
                         similar_incidents=analysis.get("similar_incidents"),
+                        # LLM은 성공했으나 Qdrant 저장만 실패한 경우 사유 기록
+                        error_message=analysis.get("qdrant_store_error"),
                     )
                     results["analyzed"] += 1
                     results["systems"].append(f"{system_name}/{instance_role}")
@@ -360,6 +392,22 @@ async def run_analysis() -> dict:
                 except Exception as e:
                     logger.error(f"[{system_name}/{instance_role}] 분석 실패: {e}")
                     results["errors"] += 1
+                    # 실패 이력을 DB에 저장 (피드백 관리 화면에서 "분석 실패" 뱃지로 노출)
+                    try:
+                        await submit_analysis(
+                            system_id=system_id,
+                            instance_role=instance_role,
+                            log_content=masked_log,
+                            analysis_result={"error": str(e)[:500]},
+                            severity="info",
+                            root_cause="LLM 분석 실패 — 재시도 필요",
+                            recommendation="",
+                            error_message=f"{type(e).__name__}: {str(e)[:300]}",
+                        )
+                    except Exception as submit_e:
+                        logger.error(
+                            f"[{system_name}/{instance_role}] 분석 실패 레코드 저장도 실패: {submit_e}"
+                        )
 
         except Exception as e:
             logger.error(f"[{system_name}] 처리 중 오류: {e}")

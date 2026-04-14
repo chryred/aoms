@@ -24,7 +24,8 @@ QDRANT_URL  = os.getenv("QDRANT_URL",  "http://server-b:6333")
 COLLECTION  = "log_incidents"
 
 # 모듈 레벨 공유 클라이언트 — lifespan에서 aclose() 호출
-_ollama_http = httpx.AsyncClient(timeout=30.0)   # Ollama 임베딩 (느림)
+# bge-m3 cold-start는 60초 이상 걸리므로 120초로 여유있게 설정
+_ollama_http = httpx.AsyncClient(timeout=120.0)  # Ollama 임베딩 (cold-start 대비)
 _qdrant_http  = httpx.AsyncClient(timeout=10.0)   # Qdrant (빠름)
 
 ANOMALY_STYLES = {
@@ -62,11 +63,25 @@ def compute_fingerprint(text: str) -> str:
 
 # ── T4.10: Ollama 임베딩 ──────────────────────────────────────────────────
 
+_EMBED_MAX_CHARS = 100  # paraphrase-multilingual max_seq_length=128 토큰
+# 한국어 서브워드 토큰화 시 문자당 최대 3토큰 → 100자 ≈ 최대 300토큰 →
+# 실제 모델 상한(128)에 맞추기 위해 문자 단위로 안전하게 잘라낸다.
+
 async def get_embedding(text: str) -> list[float]:
-    """단건 임베딩 생성 (1024차원 float 리스트 반환)"""
+    """단건 임베딩 생성 (paraphrase-multilingual: 768차원 float 리스트)
+
+    paraphrase-multilingual 은 BERT 계열 모델로 max_seq_length=128 토큰 한도가 있어,
+    긴 로그 묶음을 그대로 전달하면 Ollama 500 에러가 발생한다.
+    _EMBED_MAX_CHARS 이후는 잘라내어 패턴 특징만 유지한다.
+    """
+    truncated = text[:_EMBED_MAX_CHARS]
     resp = await _ollama_http.post(
         f"{OLLAMA_URL}/api/embeddings",
-        json={"model": EMBED_MODEL, "prompt": text},
+        json={
+            "model": EMBED_MODEL,
+            "prompt": truncated,
+            "keep_alive": "24h",   # 2-core CPU 환경: 모델 언로드 방지로 cold-start 회피
+        },
     )
     resp.raise_for_status()
     return resp.json()["embedding"]
@@ -259,7 +274,14 @@ def build_enhanced_prompt(
 {solution_ctx}
 
 위 정보를 바탕으로 반드시 아래 JSON 형식으로만 응답하세요. 추가 설명 없이 JSON만 출력하세요.
-{{"severity": "critical 또는 warning 또는 info", "root_cause": "오류의 근본 원인 (한국어, 1~2문장)", "recommendation": "해결 방법 및 권고사항 (한국어, 구체적으로)", "error_category": "오류 카테고리 (예: DB_CONNECTION, MEMORY, NETWORK 등)", "estimated_impact": "예상 영향 범위 (한국어, 1문장)"}}"""
+
+작성 규칙(가독성):
+- root_cause: 한국어. 핵심 원인 한 줄 요약 + 근거 1~2줄. 각 문장은 줄바꿈(\\n)으로 구분. 마크다운(**, -, #) 사용 금지.
+- recommendation: 한국어. 번호 목록 형식으로 작성하되 각 항목을 반드시 줄바꿈(\\n)으로 구분. 예:
+  "1) 즉시 조치: ...\\n2) 원인 분석: ...\\n3) 재발 방지: ..."
+  한 줄에 모든 항목을 이어 쓰지 말 것. 항목 내부는 한 문장으로 간결하게.
+
+{{"severity": "critical 또는 warning 또는 info", "root_cause": "원인 요약\\n근거/세부 설명", "recommendation": "1) 즉시 조치: ...\\n2) 원인 분석: ...\\n3) 재발 방지: ...", "error_category": "오류 카테고리 (예: DB_CONNECTION, MEMORY, NETWORK 등)", "estimated_impact": "예상 영향 범위 (한국어, 1문장)"}}"""
 
 
 # ── Phase 4c: 메트릭 벡터 유사도 분석 ───────────────────────────────────────
@@ -459,7 +481,7 @@ async def analyze_metric_similarity(
 # ── 컬렉션 관리 ──────────────────────────────────────────────────────────────
 
 _HNSW_CONFIG = {"m": 16, "ef_construct": 200, "ef": 128}
-_VECTOR_SIZE  = 1024  # bge-m3 출력 차원
+_VECTOR_SIZE  = 768  # paraphrase-multilingual 출력 차원 (bge-m3의 1024에서 축소)
 
 
 async def ensure_collection(collection_name: str) -> bool:
