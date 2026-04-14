@@ -86,7 +86,17 @@ export function AlertTable({ alerts, onSelect }: AlertTableProps) {
                 )}
               </td>
               <td className="px-4 py-3">
-                <AnomalyTypeBadge type={alert.anomaly_type} />
+                {alert.error_message ? (
+                  <NeuBadge
+                    variant="critical"
+                    // 툴팁으로 실패 사유 노출 (브라우저 기본 title 속성)
+                    // NeuBadge가 title을 프로퍼티로 받지 않는 경우 span으로 래핑
+                  >
+                    <span title={alert.error_message}>분석 실패</span>
+                  </NeuBadge>
+                ) : (
+                  <AnomalyTypeBadge type={alert.anomaly_type} />
+                )}
               </td>
               <td className="text-text-secondary px-4 py-3 text-sm whitespace-nowrap">
                 {formatRelative(alert.created_at)}

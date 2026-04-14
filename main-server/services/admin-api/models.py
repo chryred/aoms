@@ -71,6 +71,8 @@ class AlertHistory(Base):
     similarity_score = Column(Float)
     qdrant_point_id  = Column(String(36))              # UUID
     resolved_at = Column(DateTime)                     # Alertmanager resolved 시 채워짐
+    # LLM/분석 실패 이력: NULL=성공, 값=실패 사유 (UI "분석 실패" 뱃지 렌더링 조건)
+    error_message    = Column(Text)
     created_at = Column(DateTime, default=func.now())
 
     __table_args__ = (
@@ -98,6 +100,8 @@ class LogAnalysisHistory(Base):
     similarity_score = Column(Float)
     qdrant_point_id  = Column(String(36))    # UUID
     has_solution     = Column(Boolean, default=False)
+    # LLM/분석 실패 이력: NULL=성공, 값=실패 사유 (UI "분석 실패" 뱃지 렌더링 조건)
+    error_message    = Column(Text)
     created_at = Column(DateTime, default=func.now())
 
     __table_args__ = (

@@ -23,15 +23,17 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import AsyncSessionLocal
-from models import Contact, System, SystemContact
+from models import Contact, LogAnalysisHistory, System, SystemContact
+from services.llm_client import call_llm_text, LLM_TYPE
 
 logger = logging.getLogger(__name__)
 
 _PROMETHEUS_URL = os.getenv("PROMETHEUS_URL", "").rstrip("/")
 _ANALYZE_INTERVAL = int(os.getenv("PROMETHEUS_ANALYZE_INTERVAL_SECONDS", "300"))
 _TEAMS_WEBHOOK_URL = os.getenv("TEAMS_WEBHOOK_URL", "")
-_LLM_API_URL = os.getenv("LLM_API_URL", "")
-_LLM_API_KEY = os.getenv("LLM_API_KEY", "")
+# LLM 호출은 services.llm_client 의 Strategy 로 일원화 (LLM_TYPE 환경변수로 프로바이더 선택)
+_LLM_API_KEY = os.getenv("LLM_API_KEY", "")  # 담당자별 키가 없을 때 fallback으로 참조
+_LLM_AGENT_CODE = os.getenv("LLM_AGENT_CODE", "")
 
 _CPU_THRESHOLD = float(os.getenv("PROM_ALERT_CPU_THRESHOLD", "85.0"))
 _MEM_THRESHOLD = float(os.getenv("PROM_ALERT_MEM_THRESHOLD", "85.0"))
@@ -430,27 +432,22 @@ async def run_analysis_cycle() -> None:
             prompt = _build_llm_prompt(hc, system_infos)
             logger.info("Anomaly detected — host=%s systems=%s", host, list(hc.systems.keys()))
 
-            analysis = None
-            if _LLM_API_URL and api_key:
-                try:
-                    async with httpx.AsyncClient(timeout=30.0) as client:
-                        resp = await client.post(
-                            f"{_LLM_API_URL}/chat/completions",
-                            headers={"Authorization": f"Bearer {api_key}"},
-                            json={
-                                "model": "gpt-4o-mini",
-                                "messages": [{"role": "user", "content": prompt}],
-                                "max_tokens": 400,
-                                "temperature": 0.3,
-                            },
-                        )
-                        resp.raise_for_status()
-                        analysis = resp.json()["choices"][0]["message"]["content"].strip()
-                except Exception as e:
-                    logger.warning("LLM call failed for host %s: %s", host, e)
+            # LLM 호출 — services.llm_client Strategy로 일원화 (LLM_TYPE 기반)
+            analysis: Optional[str] = None
+            llm_error: Optional[str] = None
+            try:
+                analysis = await call_llm_text(
+                    prompt, max_tokens=400,
+                    api_key=api_key, agent_code=_LLM_AGENT_CODE,
+                )
+                if not analysis:
+                    llm_error = "LLM empty response"
+            except Exception as e:
+                llm_error = f"{type(e).__name__}: {str(e)[:300]}"
+                logger.warning("LLM call failed for host %s: %s", host, e)
 
             if not analysis:
-                # LLM 실패 시 이상 목록만 나열
+                # LLM 실패 시 이상 목록만 나열 (Teams 알림 fallback 유지)
                 lines = [f"[{host}] 다음 이상이 감지되었습니다. 즉시 확인하세요."]
                 for sn, sm in hc.systems.items():
                     if sm.anomalies:
@@ -460,6 +457,29 @@ async def run_analysis_cycle() -> None:
                 analysis = "\n".join(lines)
 
             await _notify_host(hc, analysis, db)
+
+            # 이상 시스템별 LogAnalysisHistory 기록 (성공/실패 모두 누적)
+            for sn, sm in hc.systems.items():
+                if not sm.anomalies:
+                    continue
+                info = system_infos.get(sn)
+                if not info:
+                    continue
+                db.add(LogAnalysisHistory(
+                    system_id=info["id"],
+                    instance_role="prometheus_analyzer",
+                    log_content=analysis[:10000],
+                    analysis_result=analysis,
+                    severity="info",
+                    root_cause=(
+                        "LLM 분석 실패 — 이상 목록만 나열" if llm_error
+                        else analysis[:500]
+                    ),
+                    recommendation="",
+                    error_message=llm_error,  # None=성공, 값=실패 사유
+                    model_used=LLM_TYPE,
+                ))
+            await db.commit()
 
 
 async def run_prometheus_analyzer_loop() -> None:

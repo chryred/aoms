@@ -45,11 +45,12 @@ export function ContactForm({ defaultValues, isPending, onSubmit, onCancel }: Co
     if (data.email) body.email = data.email
     if (data.teams_upn) body.teams_upn = data.teams_upn
     if (data.webhook_url) body.webhook_url = data.webhook_url
-    if (data.agent_code) body.agent_code = data.agent_code
+    // agent_code: 항상 전송 (빈 문자열이면 삭제 의도로 서버가 NULL 처리)
+    body.agent_code = data.agent_code ?? ''
 
-    // llm_api_key: 마스킹 패턴이면 제외, 새 값이면 포함
-    if (data.llm_api_key && !data.llm_api_key.includes('***')) {
-      body.llm_api_key = data.llm_api_key
+    // llm_api_key: 마스킹 패턴이면 미수정 → 전송 제외. 그 외엔 전송 (빈 문자열이면 삭제)
+    if (!data.llm_api_key?.includes('***')) {
+      body.llm_api_key = data.llm_api_key ?? ''
     }
 
     onSubmit(body)

@@ -12,3 +12,5 @@ venv/
 .playwright/
 .playwright-mcp/
 agent/target/debug/*
+docs/security/*
+.env.local

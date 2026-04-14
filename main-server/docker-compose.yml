@@ -110,11 +110,31 @@ services:
     ports:
       - "8080:8080"
     environment:
-      - DATABASE_URL=postgresql://synapse:${DB_PASSWORD}@postgres:5432/synapse
+      - DATABASE_URL=postgresql+asyncpg://synapse:${DB_PASSWORD}@postgres:5432/synapse
       - TEAMS_WEBHOOK_URL=${TEAMS_WEBHOOK_URL}
-      - LLM_API_URL=${LLM_API_URL}
       - LOG_ANALYZER_URL=http://log-analyzer:8000
       - ADMIN_API_EXTERNAL_URL=${ADMIN_API_EXTERNAL_URL}
+      - N8N_WEBHOOK_URL=${N8N_WEBHOOK_URL}
+      # 인증 / 보안
+      - SECRET_KEY=${SECRET_KEY}
+      - DB_ENCRYPTION_KEY=${DB_ENCRYPTION_KEY}
+      - ACCESS_TOKEN_EXPIRE_MINUTES=${ACCESS_TOKEN_EXPIRE_MINUTES:-15}
+      - REFRESH_TOKEN_EXPIRE_DAYS=${REFRESH_TOKEN_EXPIRE_DAYS:-7}
+      - COOKIE_SECURE=${COOKIE_SECURE:-true}
+      - CORS_ORIGINS=${CORS_ORIGINS}
+      # Prometheus (교차 분석 / 에이전트 remote-write)
+      - PROMETHEUS_URL=http://prometheus:9090
+      - AGENT_PROMETHEUS_URL=${AGENT_PROMETHEUS_URL}
+      - PROMETHEUS_ANALYZE_INTERVAL_SECONDS=${PROMETHEUS_ANALYZE_INTERVAL_SECONDS:-300}
+      # LLM (llm_client.py Strategy)
+      - LLM_TYPE=${LLM_TYPE}
+      - LLM_API_URL=${LLM_API_URL}
+      - LLM_API_KEY=${LLM_API_KEY}
+      - LLM_AGENT_CODE=${LLM_AGENT_CODE}
+      - LLM_MODEL=${LLM_MODEL}
+      # DB 수집기
+      - DB_COLLECT_INTERVAL_SECS=${DB_COLLECT_INTERVAL_SECS:-${ORACLE_COLLECT_INTERVAL_SECS:-60}}
+      - AGENT_BINARY_PATH=${AGENT_BINARY_PATH:-/app/bin/agent-v}
     mem_limit: 256m
     cpus: '0.3'
     depends_on:
@@ -131,17 +151,19 @@ services:
       - "8000:8000"
     environment:
       - PROMETHEUS_URL=http://prometheus:9090
-      - LLM_API_URL=${LLM_API_URL}
-      - LLM_API_KEY=${LLM_API_KEY}         # 기본 API key (담당자별 key 미등록 시 사용)
-      - LLM_AGENT_CODE=${LLM_AGENT_CODE}
       - ADMIN_API_URL=http://admin-api:8080
-      - ANALYSIS_INTERVAL_SECONDS=300
-      # 담당자별 API key: contacts.llm_api_key에서 조회
-      # → 시스템별 primary 담당자의 llm_api_key가 있으면 해당 key로 LLM 호출
-      # → 없으면 위 LLM_API_KEY (기본값) 사용
+      - ANALYSIS_INTERVAL_SECONDS=${ANALYSIS_INTERVAL_SECONDS:-300}
+      - TEAMS_WEBHOOK_URL=${TEAMS_WEBHOOK_URL}
+      # LLM (llm_client.py Strategy — ADR-001)
+      # 담당자별 API key: contacts.llm_api_key 우선, 없으면 아래 LLM_API_KEY 폴백
+      - LLM_TYPE=${LLM_TYPE}
+      - LLM_API_URL=${LLM_API_URL}
+      - LLM_API_KEY=${LLM_API_KEY}
+      - LLM_AGENT_CODE=${LLM_AGENT_CODE}
+      - LLM_MODEL=${LLM_MODEL}
       # Phase 4b: 벡터 DB (Server B)
       - OLLAMA_URL=${OLLAMA_URL}
-      - EMBED_MODEL=${EMBED_MODEL:-bge-m3}
+      - EMBED_MODEL=${EMBED_MODEL:-paraphrase-multilingual}
       - QDRANT_URL=${QDRANT_URL}
     mem_limit: 256m
     cpus: '0.3'

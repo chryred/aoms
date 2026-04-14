@@ -1,6 +1,7 @@
 # main-server — 개발 주의사항 (CLAUDE.md)
 
 각 서비스별 상세 가이드는 해당 디렉터리의 `CLAUDE.md`를 참고하세요.
+전체 아키텍처·ADR·데이터 흐름 등 상세 컨텍스트는 **`.claude/memory/`** 에 분리 보관되어 있습니다(필요 시 Read tool로 로드).
 
 ---
 
@@ -31,8 +32,9 @@ docker compose -f docker-compose.dev.yml up -d n8n
 | `N8N_WEBHOOK_URL` | admin-api | 피드백 폼 제출 대상 |
 | `LOG_ANALYZER_URL` | admin-api | 메트릭 유사도 분석 호출 |
 | `LLM_API_URL` / `LLM_API_KEY` | log-analyzer | LLM 호출 |
-| `OLLAMA_URL` / `EMBED_MODEL` | log-analyzer, n8n | 임베딩 |
-| `QDRANT_URL` | log-analyzer, n8n | 벡터 DB |
+| `OLLAMA_URL` / `EMBED_MODEL` | log-analyzer, n8n | 임베딩. 모델: `paraphrase-multilingual` (768dim, ADR-003) |
+| `QDRANT_URL` | log-analyzer, n8n | 벡터 DB. 컬렉션 차원 768 (ADR-003) |
+| `LLM_TYPE` | admin-api, log-analyzer | `devx`/`ollama`/`claude`/`openai` — `llm_client.py` Strategy가 라우팅 (ADR-001) |
 
 ---
 
@@ -70,3 +72,27 @@ make test-api        # 단위 테스트 (인프라 불필요)
 - 그 외 → `log_incidents`
 
 `metric_hourly_patterns` / `aggregation_summaries`는 UI 유사도 검색 프록시(`/aggregation/search`, `/aggregation/similar-period`)가 활용한다.
+
+컬렉션 초기화:
+- `log_incidents` / `metric_baselines`: log-analyzer 부팅 시 자동 `ensure_collection` (ADR-004)
+- `metric_hourly_patterns` / `aggregation_summaries`: `POST /aggregation/collections/setup` 수동 1회 (WF12)
+
+**차원 불일치 주의**: 벡터 차원(`_VECTOR_SIZE`) 변경 시 기존 컬렉션 삭제 후 재생성 필요 (Qdrant는 생성 후 차원 변경 불가).
+
+---
+
+## 폐쇄망 Ollama 모델 배포
+
+폐쇄망 서버에 Ollama 모델을 전송하는 스크립트 (repo root `scripts/`):
+
+| 스크립트 | 용도 | 사용 예 |
+|---|---|---|
+| `scripts/export-ollama-model.sh` | MacBook 컨테이너에서 모델을 tar.gz로 추출 | `./scripts/export-ollama-model.sh dev-ollama paraphrase-multilingual ~/model.tar.gz` |
+| `scripts/import-ollama-model.sh` | 폐쇄망 서버 Ollama 컨테이너에 import | `./import-ollama-model.sh prod-ollama /tmp/model.tar.gz` |
+
+내부 동작:
+1. `ollama show` manifest에서 참조 blob sha256 추출
+2. manifest + 필요한 blob만 선별 tar.gz
+3. 서버 Ollama `/root/.ollama/models/` 에 `tar -xzf`로 복원 (sha256 기반이라 충돌 없음)
+
+기존 모델은 sha256이 달라 **덮어쓰기 없이 공존** — 롤백 대비용으로 일정 기간 보존 후 `ollama rm <old-model>` 권장.

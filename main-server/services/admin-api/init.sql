@@ -66,6 +66,7 @@ CREATE TABLE IF NOT EXISTS alert_history (
     acknowledged_at     TIMESTAMP,
     acknowledged_by     VARCHAR(100),
     escalated           BOOLEAN DEFAULT FALSE,
+    error_message       TEXT,                                   -- LLM/분석 실패 이력: NULL=성공, 값=실패 사유
     created_at          TIMESTAMP DEFAULT NOW()
 );
 
@@ -90,6 +91,7 @@ CREATE TABLE IF NOT EXISTS log_analysis_history (
     similarity_score FLOAT,
     qdrant_point_id  VARCHAR(36),
     has_solution     BOOLEAN DEFAULT FALSE,
+    error_message    TEXT,                                     -- LLM/분석 실패 이력: NULL=성공, 값=실패 사유
     created_at       TIMESTAMP DEFAULT NOW()
 );
 

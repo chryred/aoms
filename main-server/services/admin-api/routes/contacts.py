@@ -59,7 +59,10 @@ async def update_contact(contact_id: int, payload: ContactUpdate, db: AsyncSessi
     contact = await db.get(Contact, contact_id)
     if not contact:
         raise HTTPException(status_code=404, detail="Contact not found")
-    for field, value in payload.model_dump(exclude_none=True).items():
+    nullable_fields = {"email", "teams_upn", "webhook_url", "llm_api_key", "agent_code"}
+    for field, value in payload.model_dump(exclude_unset=True).items():
+        if field in nullable_fields and value == "":
+            value = None
         setattr(contact, field, value)
     await db.commit()
     await db.refresh(contact)

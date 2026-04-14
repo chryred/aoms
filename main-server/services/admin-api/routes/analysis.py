@@ -30,8 +30,9 @@ async def create_analysis(payload: LogAnalysisCreate, db: AsyncSession = Depends
     record = LogAnalysisHistory(**payload.model_dump(exclude={"similar_incidents"}))
     db.add(record)
 
-    # warning/critical 또는 duplicate 분류 시 Teams 발송
-    if payload.anomaly_type == "duplicate" or payload.severity in ("warning", "critical"):
+    # warning/critical 또는 duplicate 분류 시 Teams 발송 (단, 분석 실패 레코드는 제외)
+    is_failure = bool(payload.error_message)
+    if not is_failure and (payload.anomaly_type == "duplicate" or payload.severity in ("warning", "critical")):
         _, contacts = await _get_system_and_contacts(db, system.system_name)
         contacts_data = [{"name": c.name, "teams_upn": c.teams_upn} for c in contacts]
 
@@ -61,27 +62,34 @@ async def create_analysis(payload: LogAnalysisCreate, db: AsyncSession = Depends
             except Exception as exc:
                 logger.warning("Teams 로그 분석 알림 발송 실패: %s", exc)
 
-    # warning/critical 분석 결과를 alert_history에도 기록 (알림 이력 "로그분석" 탭 연동)
-    if payload.severity in ("warning", "critical"):
+    # alert_history에도 기록 (피드백 관리 "로그분석" 탭 연동)
+    # - 성공 warning/critical: 기존 동작 유지
+    # - 분석 실패: severity="info"여도 error_message 필드로 "분석 실패" 뱃지 노출을 위해 삽입
+    should_log_alert = is_failure or payload.severity in ("warning", "critical")
+    if should_log_alert:
         alert_record = AlertHistory(
             system_id=system.id,
             alert_type="log_analysis",
             severity=payload.severity,
             alertname=f"LogAnalysis_{system.system_name}",
-            title=payload.root_cause or payload.analysis_result[:100],
+            title=(
+                "LLM 분석 실패" if is_failure
+                else (payload.root_cause or payload.analysis_result[:100])
+            ),
             description=payload.analysis_result,
             instance_role=payload.instance_role,
             anomaly_type=payload.anomaly_type,
             similarity_score=payload.similarity_score,
             qdrant_point_id=payload.qdrant_point_id,
+            error_message=payload.error_message,   # 실패 사유 전달 (성공 시 None)
         )
         db.add(alert_record)
 
     await db.commit()
     await db.refresh(record)
 
-    # WebSocket 브로드캐스트 — warning/critical 분석 결과만 실시간 전파
-    if payload.severity in ("warning", "critical"):
+    # WebSocket 브로드캐스트 — warning/critical 분석 결과만 실시간 전파 (분석 실패 제외)
+    if not is_failure and payload.severity in ("warning", "critical"):
         await notify_log_analysis({
             "system_id": str(system.id),
             "system_name": system.system_name,

@@ -21,5 +21,7 @@ export interface AlertHistory {
   qdrant_point_id: string | null
   resolved_at: string | null
   notified_contacts: string | null
+  /** LLM/분석 실패 사유 — NULL이면 정상, 값 있으면 UI "분석 실패" 뱃지 표시 */
+  error_message: string | null
   created_at: string
 }
