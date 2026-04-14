@@ -6,7 +6,7 @@
 
 | 문서 | 내용 | 언제 읽어야 하나 |
 |---|---|---|
-| `.claude/memory/architecture.md` | 전체 아키텍처 다이어그램, 서비스 연결 맵(admin-api/log-analyzer/PostgreSQL/n8n), n8n WF1~WF12 표 | 서비스 간 통신·데이터 흐름 분석 시 |
+| `.claude/memory/architecture.md` | 전체 아키텍처 다이어그램, 서비스 연결 맵(admin-api/log-analyzer/PostgreSQL), n8n 보류 워크플로우 표 | 서비스 간 통신·데이터 흐름 분석 시 |
 | `.claude/memory/code-layout.md` | 디렉터리 트리 + Server A/B 포트 맵 | 파일 위치·포트 확인 시 |
 | `.claude/memory/data-flows.md` | 메트릭 알림 / LLM 로그 분석 / 벡터 유사도 분류 / 분석 실패 처리 흐름 | 기능 추가·버그 추적 시 |
 | `.claude/memory/development-notes.md` | system_name 일관성, instance_role 의미, synapse_agent, 폐쇄망 배포, 담당자별 LLM 키 등 | 구현 세부사항 필요 시 |
@@ -21,9 +21,10 @@
 
 ### 서비스 구성 (Server A)
 - **admin-api** (8080): FastAPI. 시스템/담당자 관리, 알림 수신, Teams 발송
-- **log-analyzer** (8000): FastAPI. Prometheus `log_error_total` 조회 → LLM 분석 → admin-api 전송. 내부 스케줄러가 n8n WF1/WF6~WF11 대체
+- **log-analyzer** (8000): FastAPI. Prometheus `log_error_total` 조회 → LLM 분석 → admin-api 전송. 내부 스케줄러가 모든 주기 작업(과거 n8n WF1/WF6~WF11) 처리
 - **frontend** (3001): React + Vite + TailwindCSS, 뉴모피즘 디자인 시스템
-- **PostgreSQL** (5432), **Prometheus** (9090), **Alertmanager** (9093), **Grafana** (3000, 운영), **n8n** (5678)
+- **PostgreSQL** (5432), **Prometheus** (9090), **Alertmanager** (9093), **Grafana** (3000, 운영)
+- **n8n** (5678): 현재 미사용. 컨테이너만 예비 유지(WF4 일일 리포트 / WF5 에스컬레이션은 향후 log-analyzer 이관 예정으로 `main-server/n8n-workflows/`에 JSON만 보존)
 
 ### Server B
 - **Ollama** (11434): `paraphrase-multilingual` 임베딩 모델 (768차원, ADR-003)
@@ -38,6 +39,7 @@
 | `OLLAMA_URL` / `EMBED_MODEL` | `paraphrase-multilingual` (ADR-003) |
 | `QDRANT_URL` | `http://{server-b}:6333` |
 | `TEAMS_WEBHOOK_URL` | 전역 Teams 폴백 (시스템별 `systems.teams_webhook_url`이 우선) |
+| `FRONTEND_EXTERNAL_URL` | Teams 카드 "해결책 등록" 버튼이 여는 React 페이지 외부 접근 URL (예: `http://{server-a-ip}:3001`) |
 | `ANALYSIS_INTERVAL_SECONDS` | 300 (로그 분석 주기) |
 | `PROMETHEUS_ANALYZE_INTERVAL_SECONDS` | 300 (admin-api 메트릭 교차 분석 주기) |
 

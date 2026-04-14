@@ -11,6 +11,7 @@ export const ROUTES = {
   SEARCH: '/search',
   TRENDS: '/trends',
   FEEDBACK: '/feedback',
+  FEEDBACK_SUBMIT: '/feedback/submit',
   PROFILE: '/profile',
   ADMIN_USERS: '/admin/users',
   VECTOR_HEALTH: '/vector-health',

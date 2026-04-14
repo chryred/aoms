@@ -113,8 +113,7 @@ services:
       - DATABASE_URL=postgresql+asyncpg://synapse:${DB_PASSWORD}@postgres:5432/synapse
       - TEAMS_WEBHOOK_URL=${TEAMS_WEBHOOK_URL}
       - LOG_ANALYZER_URL=http://log-analyzer:8000
-      - ADMIN_API_EXTERNAL_URL=${ADMIN_API_EXTERNAL_URL}
-      - N8N_WEBHOOK_URL=${N8N_WEBHOOK_URL}
+      - FRONTEND_EXTERNAL_URL=${FRONTEND_EXTERNAL_URL}
       # 인증 / 보안
       - SECRET_KEY=${SECRET_KEY}
       - DB_ENCRYPTION_KEY=${DB_ENCRYPTION_KEY}

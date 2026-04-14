@@ -48,6 +48,9 @@ const ProfilePage = lazy(() =>
 const FeedbackPage = lazy(() =>
   import('@/pages/FeedbackPage').then((m) => ({ default: m.FeedbackPage })),
 )
+const FeedbackSubmitPage = lazy(() =>
+  import('@/pages/FeedbackSubmitPage').then((m) => ({ default: m.FeedbackSubmitPage })),
+)
 const VectorHealthPage = lazy(() =>
   import('@/pages/VectorHealthPage').then((m) => ({ default: m.VectorHealthPage })),
 )
@@ -77,6 +80,18 @@ export function App() {
             }
           />
         </Route>
+
+        {/* Teams 팝업용 단독 페이지 (사이드바/TopBar 없이 AuthGuard만) */}
+        <Route
+          path={ROUTES.FEEDBACK_SUBMIT}
+          element={
+            <AuthGuard>
+              <Suspense fallback={<LoadingSkeleton shape="card" />}>
+                <FeedbackSubmitPage />
+              </Suspense>
+            </AuthGuard>
+          }
+        />
 
         {/* 앱 레이아웃 */}
         <Route

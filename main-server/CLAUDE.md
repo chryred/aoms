@@ -27,13 +27,12 @@ docker compose -f docker-compose.dev.yml up -d n8n
 | 변수 | 사용 서비스 | 비고 |
 |---|---|---|
 | `DATABASE_URL` | admin-api, log-analyzer | asyncpg URL |
-| `TEAMS_WEBHOOK_URL` | admin-api, n8n | 전역 Teams webhook |
-| `ADMIN_API_EXTERNAL_URL` | admin-api | Teams 카드 피드백 버튼 URL (브라우저 접근 가능해야 함) |
-| `N8N_WEBHOOK_URL` | admin-api | 피드백 폼 제출 대상 |
+| `TEAMS_WEBHOOK_URL` | admin-api | 전역 Teams webhook |
+| `FRONTEND_EXTERNAL_URL` | admin-api | Teams 카드 "해결책 등록" 버튼이 여는 React 페이지 URL (브라우저 접근 가능해야 함, 예: `http://{server-a-ip}:3001`) |
 | `LOG_ANALYZER_URL` | admin-api | 메트릭 유사도 분석 호출 |
 | `LLM_API_URL` / `LLM_API_KEY` | log-analyzer | LLM 호출 |
-| `OLLAMA_URL` / `EMBED_MODEL` | log-analyzer, n8n | 임베딩. 모델: `paraphrase-multilingual` (768dim, ADR-003) |
-| `QDRANT_URL` | log-analyzer, n8n | 벡터 DB. 컬렉션 차원 768 (ADR-003) |
+| `OLLAMA_URL` / `EMBED_MODEL` | log-analyzer | 임베딩. 모델: `paraphrase-multilingual` (768dim, ADR-003) |
+| `QDRANT_URL` | log-analyzer | 벡터 DB. 컬렉션 차원 768 (ADR-003) |
 | `LLM_TYPE` | admin-api, log-analyzer | `devx`/`ollama`/`claude`/`openai` — `llm_client.py` Strategy가 라우팅 (ADR-001) |
 
 ---
@@ -64,8 +63,8 @@ make test-api        # 단위 테스트 (인프라 불필요)
 |---|---|---|
 | `metric_baselines` | log-analyzer | 메트릭 알림 이상 이력 (alert_history.qdrant_point_id) |
 | `log_incidents` | log-analyzer | 로그 분석 이상 이력 (log_analysis_history.qdrant_point_id) |
-| `metric_hourly_patterns` | log-analyzer (Phase 5) | WF6가 저장하는 1시간 집계 LLM 분석 패턴 |
-| `aggregation_summaries` | log-analyzer (Phase 5) | WF7-WF10이 저장하는 일/주/월 리포트 요약 |
+| `metric_hourly_patterns` | log-analyzer (Phase 5) | `_hourly_agg_scheduler`가 저장하는 1시간 집계 LLM 분석 패턴 |
+| `aggregation_summaries` | log-analyzer (Phase 5) | 일/주/월 집계 스케줄러가 저장하는 리포트 요약 |
 
 피드백 등록 시 어느 컬렉션에 해결책을 업데이트할지 `alert_history.alert_type`으로 구분:
 - `metric`, `metric_resolved` → `metric_baselines`
@@ -75,7 +74,7 @@ make test-api        # 단위 테스트 (인프라 불필요)
 
 컬렉션 초기화:
 - `log_incidents` / `metric_baselines`: log-analyzer 부팅 시 자동 `ensure_collection` (ADR-004)
-- `metric_hourly_patterns` / `aggregation_summaries`: `POST /aggregation/collections/setup` 수동 1회 (WF12)
+- `metric_hourly_patterns` / `aggregation_summaries`: `POST /aggregation/collections/setup` 수동 1회
 
 **차원 불일치 주의**: 벡터 차원(`_VECTOR_SIZE`) 변경 시 기존 컬렉션 삭제 후 재생성 필요 (Qdrant는 생성 후 차원 변경 불가).
 

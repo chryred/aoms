@@ -197,7 +197,7 @@ export function useVectorHealth() {
 
 피드백 관리 페이지는 LLM 로그 분석 이력(`log_analysis_history`) 중 **해결책 등록 여부**를 모니터링하는 현황 대시보드다.
 
-> **아키텍처 이해**: 실제 해결책 등록은 Teams 알림의 "해결책 등록" 버튼 → `GET /api/v1/feedback/form` HTML 폼 → n8n WF3 webhook 순으로 진행된다. FEED-01은 이 결과를 조회하는 읽기 전용 뷰다.
+> **아키텍처 이해**: 실제 해결책 등록은 Teams 알림의 "해결책 등록" 버튼 → React `/feedback/submit` 페이지 → admin-api `POST /api/v1/feedback` 직결(ADR-006)로 진행된다. FEED-01은 이 결과를 조회하는 읽기 전용 뷰다.
 
 ### 6.2 컴포넌트 트리
 
@@ -228,15 +228,14 @@ FeedbackManagementPage
 ### 6.3 피드백 폼 연동 (`has_solution=false` 행의 액션 버튼)
 
 ```typescript
-// Teams 알림이 아닌 프론트엔드에서 직접 폼 링크 생성
-function buildFeedbackFormUrl(analysis: LogAnalysis): string {
-  const base = import.meta.env.VITE_ADMIN_API_URL ?? ''
+// React 단독 페이지 `/feedback/submit`로 연결 (ADR-006)
+function buildFeedbackFormUrl(analysis: LogAnalysis, systemName: string): string {
   const params = new URLSearchParams({
-    alert_id: String(analysis.id),
-    system:   analysis.system_id ? String(analysis.system_id) : '',
-    point_id: analysis.qdrant_point_id ?? '',
+    alert_history_id: String(analysis.id),
+    system:           systemName,
+    point_id:         analysis.qdrant_point_id ?? '',
   })
-  return `${base}/api/v1/feedback/form?${params}`
+  return `/feedback/submit?${params}`
 }
 
 // 버튼 클릭 → window.open(url, '_blank', 'noopener,noreferrer')

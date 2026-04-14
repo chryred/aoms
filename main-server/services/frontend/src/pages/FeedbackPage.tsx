@@ -109,7 +109,7 @@ export function FeedbackPage() {
   const handleFeedback = (alert: AlertHistory) => {
     if (!alert.qdrant_point_id) return
     const systemName = systems.find((s) => s.id === alert.system_id)?.system_name ?? ''
-    const url = `/api/v1/feedback/form?alert_id=${alert.id}&system=${encodeURIComponent(systemName)}&point_id=${encodeURIComponent(alert.qdrant_point_id)}`
+    const url = `/feedback/submit?alert_history_id=${alert.id}&system=${encodeURIComponent(systemName)}&point_id=${encodeURIComponent(alert.qdrant_point_id)}`
     window.open(url, '_blank', 'noopener,noreferrer')
   }
 

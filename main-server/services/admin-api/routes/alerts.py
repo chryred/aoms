@@ -159,6 +159,25 @@ async def receive_alertmanager(
             if system and system.teams_webhook_url
             else DEFAULT_WEBHOOK_URL
         )
+        # alert_history 먼저 생성 → flush로 id 확보 → Teams 카드 URL에 alert_history_id 포함
+        summary = alert.annotations.get("summary", alertname)
+        description = alert.annotations.get("description", "")
+        history = AlertHistory(
+            system_id=system_id,
+            alert_type="metric",
+            severity=severity,
+            alertname=alertname,
+            title=summary,
+            description=description,
+            instance_role=instance_role,
+            host=host,
+            anomaly_type=anomaly["type"],
+            similarity_score=anomaly["score"],
+            qdrant_point_id=anomaly["point_id"],
+        )
+        db.add(history)
+        await db.flush()  # history.id 발급
+
         sent = False
         if webhook_url:
             contacts_data = [
@@ -185,6 +204,7 @@ async def receive_alertmanager(
                         for r in anomaly["top_results"]
                     ],
                     point_id=anomaly.get("point_id"),
+                    alert_history_id=history.id,
                 )
             except Exception as exc:
                 logger.warning("Teams 메트릭 알림 발송 실패: %s", exc)
@@ -193,26 +213,10 @@ async def receive_alertmanager(
         if system_id:
             await record_sent(db, system_id, alert_key)
 
-        # alert_history 저장
-        summary = alert.annotations.get("summary", alertname)
-        description = alert.annotations.get("description", "")
-        history = AlertHistory(
-            system_id=system_id,
-            alert_type="metric",
-            severity=severity,
-            alertname=alertname,
-            title=summary,
-            description=description,
-            instance_role=instance_role,
-            host=host,
-            notified_contacts=json.dumps(
+        if sent:
+            history.notified_contacts = json.dumps(
                 [c.name for c in contacts], ensure_ascii=False
-            ) if sent else None,
-            anomaly_type=anomaly["type"],
-            similarity_score=anomaly["score"],
-            qdrant_point_id=anomaly["point_id"],
-        )
-        db.add(history)
+            )
         await db.commit()
 
         # WebSocket 브로드캐스트 (클라이언트 실시간 업데이트)

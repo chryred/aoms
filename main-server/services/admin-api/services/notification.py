@@ -16,9 +16,9 @@ if _SSL_CAFILE is None:
 # httpx verify= 파라미터: CA 파일 경로(str) 또는 True(기본값)
 _SSL_CONTEXT = _SSL_CAFILE if _SSL_CAFILE else True
 
-# 피드백 폼 URL — Teams 카드 버튼이 이 주소로 연결됨 (브라우저에서 열려야 하므로 외부 접근 가능한 주소)
-_ADMIN_API_EXTERNAL_URL = os.getenv(
-    "ADMIN_API_EXTERNAL_URL", "http://localhost:8080"
+# 피드백 React 페이지 URL — Teams 카드 버튼이 이 주소로 연결됨 (브라우저에서 열려야 하므로 외부 접근 가능한 주소)
+_FRONTEND_EXTERNAL_URL = os.getenv(
+    "FRONTEND_EXTERNAL_URL", "http://localhost:3001"
 ).rstrip("/")
 
 # Phase 4b: 이상 분류별 스타일
@@ -106,6 +106,7 @@ class TeamsNotifier:
         has_solution: Optional[bool] = None,
         similar_incidents: Optional[list[dict]] = None,
         point_id: Optional[str] = None,
+        alert_history_id: Optional[int] = None,
     ) -> bool:
         """Adaptive Card 형식으로 메트릭 알림 발송"""
 
@@ -176,8 +177,9 @@ class TeamsNotifier:
                             "type": "Action.OpenUrl",
                             "title": "해결책 등록",
                             "url": (
-                                f"{_ADMIN_API_EXTERNAL_URL}/api/v1/feedback/form"
-                                f"?system={system_name}&point_id={point_id or ''}"
+                                f"{_FRONTEND_EXTERNAL_URL}/feedback/submit"
+                                f"?alert_history_id={alert_history_id or ''}"
+                                f"&system={system_name}&point_id={point_id or ''}"
                             ),
                         }
                     ],
@@ -202,6 +204,7 @@ class TeamsNotifier:
         has_solution: Optional[bool] = None,
         similar_incidents: Optional[list[dict]] = None,
         point_id: Optional[str] = None,
+        alert_history_id: Optional[int] = None,
     ) -> bool:
         """LLM 분석 결과 알림 발송 (Phase 4b: 이상 분류 배지 + 유사 이력 포함)"""
 
@@ -265,8 +268,9 @@ class TeamsNotifier:
                             "type": "Action.OpenUrl",
                             "title": "해결책 등록",
                             "url": (
-                                f"{_ADMIN_API_EXTERNAL_URL}/api/v1/feedback/form"
-                                f"?system={system_name}&point_id={point_id or ''}"
+                                f"{_FRONTEND_EXTERNAL_URL}/feedback/submit"
+                                f"?alert_history_id={alert_history_id or ''}"
+                                f"&system={system_name}&point_id={point_id or ''}"
                             ),
                         }
                     ],

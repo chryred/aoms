@@ -2,7 +2,7 @@ import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { useMutation } from '@tanstack/react-query'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { ROUTES } from '@/constants/routes'
 import { useRef, useState } from 'react'
 import { authApi } from '@/api/auth'
@@ -35,6 +35,8 @@ function calcStrength(pw: string): { pct: number; color: string; label: string }
 
 export function LoginPage() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const redirect = searchParams.get('redirect')
   const login = useAuthStore((s) => s.login)
   const formRef = useRef<HTMLFormElement>(null)
   const [loginDone, setLoginDone] = useState(false)
@@ -65,7 +67,8 @@ export function LoginPage() {
     onSuccess: (resp) => {
       login(resp)
       setLoginDone(true)
-      setTimeout(() => navigate(ROUTES.DASHBOARD, { replace: true }), 700)
+      const target = redirect && redirect.startsWith('/') ? redirect : ROUTES.DASHBOARD
+      setTimeout(() => navigate(target, { replace: true }), 700)
     },
     onError: async (err: unknown) => {
       const resp = (err as { response?: Response })?.response

@@ -30,9 +30,38 @@ async def create_analysis(payload: LogAnalysisCreate, db: AsyncSession = Depends
     record = LogAnalysisHistory(**payload.model_dump(exclude={"similar_incidents"}))
     db.add(record)
 
-    # warning/critical 또는 duplicate 분류 시 Teams 발송 (단, 분석 실패 레코드는 제외)
     is_failure = bool(payload.error_message)
-    if not is_failure and (payload.anomaly_type == "duplicate" or payload.severity in ("warning", "critical")):
+    will_send_teams = not is_failure and (
+        payload.anomaly_type == "duplicate" or payload.severity in ("warning", "critical")
+    )
+    # alert_history에도 기록 (피드백 관리 "로그분석" 탭 + Teams 피드백 버튼 연동)
+    # - 성공 warning/critical: 알림 발송됨
+    # - duplicate(info): 알림 발송됨 → 피드백 등록 가능하려면 alert_history 필요
+    # - 분석 실패: error_message 필드로 "분석 실패" 뱃지 노출
+    should_log_alert = is_failure or will_send_teams
+
+    alert_record: AlertHistory | None = None
+    if should_log_alert:
+        alert_record = AlertHistory(
+            system_id=system.id,
+            alert_type="log_analysis",
+            severity=payload.severity,
+            alertname=f"LogAnalysis_{system.system_name}",
+            title=(
+                "LLM 분석 실패" if is_failure
+                else (payload.root_cause or payload.analysis_result[:100])
+            ),
+            description=payload.analysis_result,
+            instance_role=payload.instance_role,
+            anomaly_type=payload.anomaly_type,
+            similarity_score=payload.similarity_score,
+            qdrant_point_id=payload.qdrant_point_id,
+            error_message=payload.error_message,   # 실패 사유 전달 (성공 시 None)
+        )
+        db.add(alert_record)
+        await db.flush()  # alert_record.id 발급 (Teams 카드 URL에 포함)
+
+    if will_send_teams:
         _, contacts = await _get_system_and_contacts(db, system.system_name)
         contacts_data = [{"name": c.name, "teams_upn": c.teams_upn} for c in contacts]
 
@@ -57,33 +86,11 @@ async def create_analysis(payload: LogAnalysisCreate, db: AsyncSession = Depends
                     has_solution=payload.has_solution,
                     similar_incidents=payload.similar_incidents,
                     point_id=payload.qdrant_point_id,
+                    alert_history_id=alert_record.id if alert_record else None,
                 )
                 record.alert_sent = sent
             except Exception as exc:
                 logger.warning("Teams 로그 분석 알림 발송 실패: %s", exc)
-
-    # alert_history에도 기록 (피드백 관리 "로그분석" 탭 연동)
-    # - 성공 warning/critical: 기존 동작 유지
-    # - 분석 실패: severity="info"여도 error_message 필드로 "분석 실패" 뱃지 노출을 위해 삽입
-    should_log_alert = is_failure or payload.severity in ("warning", "critical")
-    if should_log_alert:
-        alert_record = AlertHistory(
-            system_id=system.id,
-            alert_type="log_analysis",
-            severity=payload.severity,
-            alertname=f"LogAnalysis_{system.system_name}",
-            title=(
-                "LLM 분석 실패" if is_failure
-                else (payload.root_cause or payload.analysis_result[:100])
-            ),
-            description=payload.analysis_result,
-            instance_role=payload.instance_role,
-            anomaly_type=payload.anomaly_type,
-            similarity_score=payload.similarity_score,
-            qdrant_point_id=payload.qdrant_point_id,
-            error_message=payload.error_message,   # 실패 사유 전달 (성공 시 None)
-        )
-        db.add(alert_record)
 
     await db.commit()
     await db.refresh(record)

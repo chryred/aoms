@@ -55,7 +55,7 @@ vi .env
 | `OLLAMA_URL` | Server B Ollama URL | `http://192.168.10.6:11434` |
 | `EMBED_MODEL` | 임베딩 모델명 | `bge-m3` |
 | `QDRANT_URL` | Server B Qdrant URL | `http://192.168.10.6:6333` |
-| `ADMIN_API_EXTERNAL_URL` | Teams 피드백 버튼 URL (브라우저 접근 가능) | `http://192.168.10.5:8080` |
+| `FRONTEND_EXTERNAL_URL` | Teams 카드 "해결책 등록" 버튼이 여는 React 페이지 URL (브라우저 접근 가능) | `http://192.168.10.5:3001` |
 | `DB_ENCRYPTION_KEY` | DB 모니터링 자격증명 암호화 키 (Fernet) | `<fernet_key>` |
 
 > **주의**: `DB_USER`는 반드시 `synapse`이어야 합니다. `docker-compose.yml`의 PostgreSQL 헬스체크와 `DATABASE_URL`이 `synapse`로 하드코딩되어 있어 다른 값 사용 시 admin-api 기동 실패합니다.
@@ -355,161 +355,21 @@ curl -sf http://localhost:8080/docs > /dev/null && echo "admin-api Swagger OK"
 
 ---
 
-### 3-3. n8n 워크플로우 자동화
+### 3-3. n8n (현재 미사용, 컨테이너만 예비 유지)
 
-> **중요**: WF1(로그 분석 트리거)과 WF6~WF11(집계 스케줄러)은 log-analyzer 내부 스케줄러로 이관되었습니다.  
-> n8n에 임포트/활성화할 워크플로우는 **WF2, WF3, WF4, WF5, WF12** 5개만입니다.
+> **중요**: WF1·WF2·WF3·WF6~WF12는 각각 log-analyzer 스케줄러 / admin-api 직접 호출 / frontend 직결로 이관·제거되었습니다 (ADR-006).
+> WF4(일일 장애 리포트)·WF5(반복 이상 에스컬레이션)는 보류 상태로 `n8n-workflows/` 디렉터리에 JSON만 보존되어 있으며,
+> 추후 log-analyzer로 포팅할 때 참고용입니다.
 
-#### n8n 시작
-
-```bash
-cd /app/synapse
-docker compose up -d n8n
-sleep 30   # n8n 초기화 대기
-
-# 상태 확인
-docker logs synapse-n8n 2>&1 | tail -20
-```
-
-#### n8n 초기 계정 설정 (폐쇄망 — DB 직접 설정)
+n8n 컨테이너는 docker-compose에 남아 있지만 워크플로우를 import하지 않아도 됩니다.
 
 ```bash
-# bcrypt 해시 생성
-N8N_PASSWORD=$(grep N8N_PASSWORD /app/synapse/.env | cut -d= -f2)
-
-HASH=$(docker exec synapse-n8n node -e "
-const bcrypt = require('/usr/local/lib/node_modules/n8n/node_modules/bcryptjs');
-bcrypt.hash('${N8N_PASSWORD}', 10, (err, hash) => { process.stdout.write(hash); });
-")
-
-N8N_USER=$(grep N8N_USER /app/synapse/.env | cut -d= -f2 | tr -d '"')
-
-# n8n 스키마의 user 테이블 업데이트
-docker exec synapse-postgres psql -U synapse -d synapse -c "
-UPDATE n8n.\"user\" SET
-  email      = '${N8N_USER}@synapse.local',
-  \"firstName\" = 'Admin',
-  \"lastName\"  = 'Synapse-V',
-  password   = '${HASH}',
-  settings   = '{\"userActivated\": true}'
-WHERE role = 'global:owner';"
-```
-
-#### n8n API 키 발급
-
-```bash
-N8N_USER=$(grep N8N_USER /app/synapse/.env | cut -d= -f2 | tr -d '"')
-N8N_PASSWORD=$(grep N8N_PASSWORD /app/synapse/.env | cut -d= -f2)
-
-# 로그인
-curl -s -c /tmp/n8n_cookies.txt -X POST "http://localhost:5678/rest/login" \
-  -H "Content-Type: application/json" \
-  -d "{\"email\":\"${N8N_USER}@synapse.local\",\"password\":\"${N8N_PASSWORD}\"}"
-
-# API 키 생성
-N8N_API_KEY=$(curl -s -b /tmp/n8n_cookies.txt -X POST "http://localhost:5678/rest/me/api-key" \
-  | python3 -c "import sys,json; print(json.load(sys.stdin)['data']['apiKey'])")
-
-echo "N8N_API_KEY=$N8N_API_KEY"
-# 이 값을 메모해두세요 — 워크플로우 활성화에 사용
-```
-
-#### PostgreSQL 크리덴셜 등록
-
-```bash
-DB_PASSWORD=$(grep DB_PASSWORD /app/synapse/.env | cut -d= -f2)
-
-curl -s -b /tmp/n8n_cookies.txt -X POST "http://localhost:5678/rest/credentials" \
-  -H "Content-Type: application/json" \
-  -d "{
-    \"name\": \"Synapse-V PostgreSQL\",
-    \"type\": \"postgres\",
-    \"data\": {
-      \"host\": \"postgres\",
-      \"port\": 5432,
-      \"database\": \"synapse\",
-      \"user\": \"synapse\",
-      \"password\": \"${DB_PASSWORD}\",
-      \"ssl\": \"disable\"
-    },
-    \"nodesAccess\": []
-  }"
-```
-
-#### 워크플로우 임포트 (WF2/WF3/WF4/WF5/WF12만)
-
-```bash
-cd /app/synapse/n8n-workflows
-
-# 임포트 대상: WF2, WF3, WF4, WF5, WF12
-# WF1, WF6~WF11은 log-analyzer 내부 스케줄러로 이관 — 임포트 불필요
-for WF in WF2 WF3 WF4 WF5 WF12; do
-  FILE=$(ls ${WF}-*.json 2>/dev/null | head -1)
-  if [[ -z "$FILE" ]]; then
-    echo "⚠  $WF 파일 없음, 스킵"
-    continue
-  fi
-
-  python3 -c "
-import json
-with open('$FILE') as f:
-    wf = json.load(f)
-wf['active'] = False
-with open('/tmp/wf_import.json', 'w') as f:
-    json.dump([wf], f, ensure_ascii=False)
-"
-
-  docker cp /tmp/wf_import.json synapse-n8n:/tmp/wf_import.json
-  RESULT=$(docker exec synapse-n8n n8n import:workflow --input=/tmp/wf_import.json 2>&1)
-  echo "$RESULT" | grep -q "imported" && echo "✓ $WF 임포트 완료" || echo "✗ $WF 임포트 실패: $RESULT"
-done
-```
-
-#### Qdrant 컬렉션 초기화 (WF12 실행)
-
-```bash
-# log-analyzer API로 직접 Qdrant 컬렉션 초기화 (WF12 역할)
+# Qdrant 집계 컬렉션 초기화 (과거 WF12 역할) — log-analyzer API 직접 호출
 curl -s -X POST http://localhost:8000/aggregation/collections/setup \
   -H "Content-Type: application/json" | python3 -m json.tool
-
-# 또는 n8n API로 WF12 수동 실행
-WF12_ID=$(curl -s -H "X-N8N-API-KEY: $N8N_API_KEY" \
-  http://localhost:5678/api/v1/workflows | \
-  python3 -c "
-import sys, json
-wfs = json.load(sys.stdin)['data']
-for wf in wfs:
-    if 'WF12' in wf.get('name','') or 'collection' in wf.get('name','').lower():
-        print(wf['id'])
-        break
-")
-
-if [[ -n "$WF12_ID" ]]; then
-  curl -s -X POST "http://localhost:5678/api/v1/workflows/${WF12_ID}/activate" \
-    -H "X-N8N-API-KEY: $N8N_API_KEY"
-  echo "WF12 활성화 완료 (ID: $WF12_ID)"
-fi
 ```
 
-#### 나머지 워크플로우 활성화 (WF2/WF3/WF4/WF5)
-
-```bash
-# 전체 워크플로우 ID 조회
-curl -s -H "X-N8N-API-KEY: $N8N_API_KEY" http://localhost:5678/api/v1/workflows | \
-  python3 -c "
-import sys, json
-wfs = json.load(sys.stdin)['data']
-for wf in wfs:
-    print(f\"{wf['id']}  {wf['name']}\")
-"
-
-# 각 워크플로우 활성화 (WF_ID에 위 조회 결과의 실제 ID 입력)
-for WF_ID in <WF2_ID> <WF3_ID> <WF4_ID> <WF5_ID>; do
-  curl -s -X POST "http://localhost:5678/api/v1/workflows/${WF_ID}/activate" \
-    -H "X-N8N-API-KEY: $N8N_API_KEY"
-  echo "활성화: $WF_ID"
-done
-```
+WF4/WF5 재활용이 필요해질 때만 기존 `docs/workflow/9.phase4c-n8n.md`를 참고해 n8n 초기 계정 설정 + 크리덴셜 등록 + 워크플로우 import 절차를 밟으면 됩니다.
 
 ---
 
