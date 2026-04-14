@@ -4,7 +4,7 @@ import { Sidebar } from './Sidebar'
 import { TopBar } from './TopBar'
 import { CriticalBanner } from '@/components/common/CriticalBanner'
 import { useUiStore } from '@/store/uiStore'
-import { useAlerts } from '@/hooks/queries/useAlerts'
+import { useAlertsCount } from '@/hooks/queries/useAlertsCount'
 import { cn } from '@/lib/utils'
 
 export function AppLayout() {
@@ -13,15 +13,14 @@ export function AppLayout() {
   const sidebarOpen = useUiStore((s) => s.sidebarOpen)
   const closeMobileSidebar = useUiStore((s) => s.closeMobileSidebar)
 
-  const { data: criticalAlerts } = useAlerts({
+  const { data: criticalCountData } = useAlertsCount({
     severity: 'critical',
     acknowledged: false,
-    limit: 100,
   })
 
   useEffect(() => {
-    setCriticalCount(criticalAlerts?.length ?? 0)
-  }, [criticalAlerts, setCriticalCount])
+    setCriticalCount(criticalCountData?.count ?? 0)
+  }, [criticalCountData, setCriticalCount])
 
   return (
     <div className="bg-bg-base flex h-screen overflow-hidden">

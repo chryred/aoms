@@ -1,4 +1,4 @@
-import type { AlertFilterParams } from '@/api/alerts'
+import type { AlertCountParams, AlertFilterParams } from '@/api/alerts'
 import type { HourlyParams } from '@/api/aggregations'
 import type { PeriodType } from '@/types/aggregation'
 import type { ReportType } from '@/types/report'
@@ -7,6 +7,7 @@ export const qk = {
   systems: () => ['systems'] as const,
   system: (id: number) => ['systems', id] as const,
   alerts: (params: AlertFilterParams) => ['alerts', params] as const,
+  alertsCount: (params: AlertCountParams) => ['alerts', 'count', params] as const,
   feedbacks: (alertHistoryId: number) => ['feedbacks', alertHistoryId] as const,
   me: () => ['auth', 'me'] as const,
 

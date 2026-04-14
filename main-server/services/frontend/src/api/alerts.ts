@@ -34,9 +34,16 @@ export interface FeedbackOut {
   created_at: string
 }
 
+export type AlertCountParams = Omit<AlertFilterParams, 'limit' | 'offset'>
+
 export const alertsApi = {
   getAlerts: (params: AlertFilterParams = {}) =>
     adminApi.get('api/v1/alerts', { searchParams: filterParams(params) }).json<AlertHistory[]>(),
+
+  getAlertsCount: (params: AlertCountParams = {}) =>
+    adminApi
+      .get('api/v1/alerts/count', { searchParams: filterParams(params) })
+      .json<{ count: number }>(),
 
   acknowledgeAlert: (id: number, body: { acknowledged_by: string }) =>
     adminApi.post(`api/v1/alerts/${id}/acknowledge`, { json: body }).json<AlertHistory>(),

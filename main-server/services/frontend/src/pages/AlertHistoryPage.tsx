@@ -25,17 +25,32 @@ const TABS: { key: TabType; label: string }[] = [
   { key: 'log_analysis', label: '로그분석' },
 ]
 
+const isSeverity = (v: string): v is Severity =>
+  v === 'critical' || v === 'warning' || v === 'info'
+const isAckFilter = (v: string): v is AckFilter => v === 'all' || v === 'unack' || v === 'ack'
+
 export function AlertHistoryPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const systemFilter = searchParams.get('system_id') ?? ''
+  const severityParam = searchParams.get('severity') ?? ''
+  const ackParam = searchParams.get('acknowledged') ?? 'all'
+
+  const severity: Severity | '' = isSeverity(severityParam) ? severityParam : ''
+  const ackFilter: AckFilter = isAckFilter(ackParam) ? ackParam : 'all'
 
   const [tab, setTab] = useState<TabType>('all')
-  const [severity, setSeverity] = useState<Severity | ''>('')
-  const [ackFilter, setAckFilter] = useState<AckFilter>('all')
   const [offset, setOffset] = useState(0)
   const [selectedAlert, setSelectedAlert] = useState<AlertHistory | null>(null)
 
   const { data: systems = [] } = useSystems()
+
+  const updateParam = (key: string, value: string) => {
+    const next = new URLSearchParams(searchParams)
+    if (value) next.set(key, value)
+    else next.delete(key)
+    setSearchParams(next, { replace: true })
+    setOffset(0)
+  }
 
   const {
     data: alerts,
@@ -52,13 +67,8 @@ export function AlertHistoryPage() {
     offset,
   })
 
-  const handleSystemChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const next = new URLSearchParams(searchParams)
-    if (e.target.value) next.set('system_id', e.target.value)
-    else next.delete('system_id')
-    setSearchParams(next, { replace: true })
-    setOffset(0)
-  }
+  const handleSystemChange = (e: React.ChangeEvent<HTMLSelectElement>) =>
+    updateParam('system_id', e.target.value)
 
   const hasNext = (alerts?.length ?? 0) >= PAGE_SIZE
   const hasPrev = offset > 0
@@ -107,10 +117,7 @@ export function AlertHistoryPage() {
         <div className="w-36">
           <NeuSelect
             value={severity}
-            onChange={(e) => {
-              setSeverity(e.target.value as Severity | '')
-              setOffset(0)
-            }}
+            onChange={(e) => updateParam('severity', e.target.value)}
           >
             <option value="">전체 심각도</option>
             <option value="critical">Critical</option>
@@ -121,10 +128,7 @@ export function AlertHistoryPage() {
         <div className="w-36">
           <NeuSelect
             value={ackFilter}
-            onChange={(e) => {
-              setAckFilter(e.target.value as AckFilter)
-              setOffset(0)
-            }}
+            onChange={(e) => updateParam('acknowledged', e.target.value === 'all' ? '' : e.target.value)}
           >
             <option value="all">전체 상태</option>
             <option value="unack">미확인</option>

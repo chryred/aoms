@@ -5,7 +5,7 @@ from datetime import datetime
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
@@ -256,6 +256,33 @@ async def list_alerts(
         stmt = stmt.where(AlertHistory.acknowledged == acknowledged)
     result = await db.execute(stmt)
     return result.scalars().all()
+
+
+@router.get("/count")
+async def count_alerts(
+    system_id: int | None = Query(None),
+    severity: str | None = Query(None),
+    alert_type: str | None = Query(None),
+    resolved: bool | None = Query(None),
+    acknowledged: bool | None = Query(None),
+    db: AsyncSession = Depends(get_db),
+):
+    """필터 조건에 해당하는 alert 총 건수 (페이지네이션 없이 count만)."""
+    stmt = select(func.count()).select_from(AlertHistory)
+    if system_id is not None:
+        stmt = stmt.where(AlertHistory.system_id == system_id)
+    if severity:
+        stmt = stmt.where(AlertHistory.severity == severity)
+    if alert_type:
+        stmt = stmt.where(AlertHistory.alert_type == alert_type)
+    if resolved is True:
+        stmt = stmt.where(AlertHistory.resolved_at.isnot(None))
+    elif resolved is False:
+        stmt = stmt.where(AlertHistory.resolved_at.is_(None))
+    if acknowledged is not None:
+        stmt = stmt.where(AlertHistory.acknowledged == acknowledged)
+    result = await db.execute(stmt)
+    return {"count": result.scalar_one()}
 
 
 @router.post("/{alert_id}/acknowledge", response_model=AlertHistoryOut)
