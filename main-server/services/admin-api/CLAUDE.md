@@ -1,5 +1,7 @@
 # Synapse-V Admin API - 서비스 개요
 
+> 전체 아키텍처·데이터 흐름·ADR 상세는 `.claude/memory/` 참조 (예: `.claude/memory/adrs.md`의 ADR-001 LLM Strategy, ADR-002 error_message 컬럼).
+
 ## 목적
 
 백화점 통합 모니터링 시스템(Synapse-V)의 관리 API 서비스.
@@ -47,7 +49,8 @@ admin-api/
     ├── cooldown.py              # 알림 중복 발송 방지 (5분 쿨다운)
     ├── notification.py          # TeamsNotifier — Adaptive Card 생성·발송
     ├── ssh_session.py           # SSH 세션 인메모리 관리 (30분 슬라이딩 TTL, DB 저장 금지)
-    ├── prometheus_analyzer.py   # Prometheus PromQL 이상 감지 → LLM 분석 → Teams 알림 (Phase F)
+    ├── llm_client.py            # LLM Strategy (ADR-001, log-analyzer와 SYNC) — devx/ollama/claude/openai
+    ├── prometheus_analyzer.py   # Prometheus PromQL 이상 감지 → LLM 분석 → Teams 알림 (Phase F, ADR-001 반영)
     ├── db_collector.py          # DB 메트릭 수집 루프 (encrypt/decrypt, Gauge, Strategy 디스패치)
     └── db_backends/             # Strategy + Registry 패턴 DB 백엔드
         ├── __init__.py          # DB_AGENT_TYPE, BACKENDS registry, DBBackend Protocol
@@ -64,8 +67,8 @@ admin-api/
 | `systems` | 모니터링 대상 시스템. `system_name`은 Prometheus label과 동일하게 사용 |
 | `contacts` | 담당자. `teams_upn`은 Teams @mention용 이메일 |
 | `system_contacts` | 시스템↔담당자 N:M 매핑. `notify_channels`에 콤마로 채널 지정 |
-| `alert_history` | 모든 알림 발송 이력. `alert_type`: `metric` / `metric_resolved` / `log_analysis` |
-| `log_analysis_history` | LLM 분석 결과 저장. log-analyzer 서비스가 POST로 전달 |
+| `alert_history` | 모든 알림 발송 이력. `alert_type`: `metric` / `metric_resolved` / `log_analysis`. `error_message` 컬럼(ADR-002) 포함 |
+| `log_analysis_history` | LLM 분석 결과 저장. log-analyzer 서비스가 POST로 전달. `error_message`(실패 사유)·`model_used`(LLM_TYPE) 컬럼 포함(ADR-001/002) |
 | `alert_cooldown` | 중복 알림 방지용 쿨다운 추적. key: `{system}:{role}:{alertname}:{severity}` |
 | `system_collector_config` | 수집기 유연 레지스트리. 시스템별 collector_type + metric_group 등록 (Phase 5) |
 | `metric_hourly_aggregations` | 1시간 집계 + LLM 이상 분석 결과 (Phase 5) |
@@ -243,7 +246,7 @@ Alertmanager → POST /api/v1/alerts/receive
 ### 알림 발송 흐름 (LLM 로그 분석)
 ```
 log-analyzer → POST /api/v1/analysis
-  → LogAnalysisHistory 생성
+  → LogAnalysisHistory 생성 (error_message NULL=성공, 값=LLM/분석 실패 사유, ADR-002)
   → severity가 warning/critical이면
     → 시스템 담당자 조회
     → TeamsNotifier.send_log_analysis_alert() → Teams webhook POST

@@ -162,6 +162,13 @@ async def _longperiod_agg_scheduler() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Phase 4b: log_incidents / metric_baselines 컬렉션이 없으면 생성 (런타임 silent 실패 방지)
+    for col in ("log_incidents", "metric_baselines"):
+        try:
+            await vector_client.ensure_collection(col)
+        except Exception as e:
+            logger.warning("컬렉션 초기화 실패 %s — 분석 중 재시도됨: %s", col, e)
+
     tasks = [
         asyncio.create_task(_scheduler()),
         asyncio.create_task(_hourly_agg_scheduler()),
@@ -180,7 +187,6 @@ async def lifespan(app: FastAPI):
     await vector_client._ollama_http.aclose()
     await analyzer._admin_http.aclose()
     await analyzer._prom_http.aclose()
-    await analyzer._llm_http.aclose()
 
 
 app = FastAPI(title="Synapse Log Analyzer", version="1.0.0", lifespan=lifespan)

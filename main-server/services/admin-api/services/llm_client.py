@@ -1,4 +1,4 @@
-# SYNC: keep aligned with main-server/services/admin-api/services/llm_client.py
+# SYNC: keep aligned with main-server/services/log-analyzer/llm_client.py
 # (새 프로바이더 추가 또는 파싱 로직 변경 시 양쪽 동시 수정 필요)
 """
 LLM 멀티 프로바이더 클라이언트 (Strategy 패턴)
@@ -168,23 +168,20 @@ def _parse_json_from_text(text: str) -> dict:
 
     모두 실패하면 마지막 JSONDecodeError 를 re-raise.
     """
-    # 1) 코드펜스 우선
     match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', text, re.DOTALL)
     if match:
         try:
             return json.loads(match.group(1).strip())
         except json.JSONDecodeError:
-            pass  # 다음 단계로
+            pass
 
     stripped = text.strip()
 
-    # 2) 전체 문자열 시도
     try:
         return json.loads(stripped)
     except json.JSONDecodeError as bare_err:
         last_err = bare_err
 
-    # 3) brace-depth 추적으로 첫 균형 {...} 추출
     start = stripped.find("{")
     if start != -1:
         depth = 0
@@ -212,7 +209,7 @@ def _parse_json_from_text(text: str) -> dict:
                         return json.loads(stripped[start:i + 1])
                     except json.JSONDecodeError as inner_err:
                         last_err = inner_err
-                        break  # 첫 블록 추출은 했으나 내부가 깨짐
+                        break
     raise last_err
 
 
@@ -222,7 +219,7 @@ async def call_llm_structured(
     prompt: str, api_key: str = "", agent_code: str = "",
 ) -> dict:
     """
-    JSON dict 반환 (analyzer.py용 — 로그 분석).
+    JSON dict 반환 (분석용).
     LLM 응답을 파싱하여 dict로 반환. 실패 시 응답 snippet을 포함한 예외 발생.
     """
     text = await _strategy.call(prompt, api_key=api_key, agent_code=agent_code)
@@ -231,7 +228,6 @@ async def call_llm_structured(
     try:
         return _parse_json_from_text(text)
     except (ValueError, Exception) as e:
-        # JSON 파싱 실패 시 응답 앞부분을 에러에 포함 → 운영 디버깅 용이 (DevX 필터 거절 등 즉시 식별)
         snippet = text[:150].replace("\n", " ")
         raise ValueError(
             f"LLM 응답 JSON 파싱 실패 (응답: {snippet!r})"
@@ -243,7 +239,7 @@ async def call_llm_text(
     api_key: str = "", agent_code: str = "",
 ) -> str | None:
     """
-    텍스트 반환 (aggregation_processor.py / prometheus_analyzer.py용).
+    텍스트 반환 (집계/프로메테우스 분석용).
     실패 시 None 반환 (호출 측에서 graceful 처리).
 
     api_key / agent_code: 담당자별 키/에이전트 코드 오버라이드 (미지정 시 환경변수 기본값).
