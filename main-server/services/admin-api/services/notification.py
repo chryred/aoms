@@ -122,6 +122,7 @@ class TeamsNotifier:
             "type": "message",
             "attachments": [{
                 "contentType": "application/vnd.microsoft.card.adaptive",
+                "summary": f"{icon} [{severity.upper()}] {alert['annotations'].get('summary', alert_name)}",
                 "content": {
                     "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
                     "type": "AdaptiveCard",
@@ -251,6 +252,7 @@ class TeamsNotifier:
             "type": "message",
             "attachments": [{
                 "contentType": "application/vnd.microsoft.card.adaptive",
+                "summary": f"{icon} [LLM 분석] {analysis.get('summary', '로그 이상 감지')} — {system_display_name}",
                 "content": {
                     "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
                     "type": "AdaptiveCard",
@@ -311,6 +313,7 @@ class TeamsNotifier:
             "type": "message",
             "attachments": [{
                 "contentType": "application/vnd.microsoft.card.adaptive",
+                "summary": f"✅ [정상 복구] {alertname} — {system_display_name}",
                 "content": {
                     "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
                     "type": "AdaptiveCard",
