@@ -76,10 +76,12 @@ PROMQL_MAP: dict[str, dict[str, dict[str, str]]] = {
             "net_tx_mb": 'avg_over_time(rate(network_bytes_total{{system_name="{sn}",direction="tx"}}[5m])[1h:5m]) / 1048576',
         },
         "log": {
-            # synapse_agent는 에러 로그 1건마다 별도 시계열(value=1)을 생성
-            # increase() 대신 count()로 현재 활성 시계열(= 에러 건수) 집계
-            "log_errors":     'count(log_error_total{{system_name="{sn}"}})',
-            "log_errors_err": 'count(log_error_total{{system_name="{sn}",level="ERROR"}})',
+            # synapse_agent는 에러 로그 1건마다 별도 시계열(value=1)을 푸시.
+            # instant count()는 stale marker(기본 5분) 이후 비활성 시계열을 제외해
+            # 가끔 발생하는 로그에 대해 실제 건수보다 훨씬 작게 잡히는 문제가 있음.
+            # → range [1h] 내 존재한 샘플을 모두 합산하도록 수정.
+            "log_errors":     'sum(sum_over_time(log_error_total{{system_name="{sn}"}}[1h])) or vector(0)',
+            "log_errors_err": 'sum(sum_over_time(log_error_total{{system_name="{sn}",level="ERROR"}}[1h])) or vector(0)',
         },
         "web": {
             "req_total":   'sum_over_time(increase(http_request_total{{system_name="{sn}"}}[5m])[1h:5m])',
@@ -327,10 +329,17 @@ async def _process_single_config(
             ]
             summary_text = " | ".join(p for p in summary_parts if p)
 
+            # 임베딩 입력은 검색 의도 필드(이상·원인)만 사용 — 시스템명/수집기/추세/예측 같은
+            # 메타 정보가 쿼리와 방향 일치를 떨어뜨려 짧은 쿼리의 유사도가 낮게 나오던 문제 해소.
+            # payload의 summary_text(표시용)와 임베딩 입력은 분리 관리.
+            embed_input = " ".join(
+                p for p in [anomaly_reason, llm_result.get("root_cause_hypothesis", "")] if p
+            ).strip() or summary_text
+
             point_id = None
             if pg_row_id:
                 try:
-                    embedding = await vector_client.get_embedding(summary_text)
+                    embedding = await vector_client.get_embedding(embed_input)
                     point_id = await aggregation_vector_client.store_hourly_pattern_vector(
                         embedding=embedding,
                         system_id=system_id,
@@ -606,9 +615,15 @@ async def run_daily_aggregation() -> dict:
                     summary_parts.append(f"예측:{predictions_str[:200]}")
                 summary_text = " | ".join(summary_parts)
 
+                # 임베딩 입력은 검색 의도 필드(예측·이상시간)만 사용. 시스템/날짜 같은
+                # 메타는 payload 필터로 처리하고 벡터 공간에서는 제외해 유사도 해상도 확보.
+                embed_input = (
+                    predictions_str or f"이상 {g['anomaly_hours']}시간 발생"
+                ).strip()
+
                 if pg_row_id:
                     try:
-                        embedding = await vector_client.get_embedding(summary_text)
+                        embedding = await vector_client.get_embedding(embed_input)
                         await aggregation_vector_client.store_aggregation_summary_vector(
                             embedding=embedding,
                             system_id=g["system_id"],
