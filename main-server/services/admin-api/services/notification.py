@@ -5,6 +5,8 @@ import httpx
 from datetime import datetime
 from typing import Optional
 
+from .llm_client import LLM_TYPE as _LLM_TYPE
+
 # macOS/Linux 시스템 CA 번들 — httpx 기본 certifi 대신 사용
 _SSL_CAFILE = os.getenv("SSL_CERT_FILE", None)
 if _SSL_CAFILE is None:
@@ -211,7 +213,7 @@ class TeamsNotifier:
         card_body = [
             {
                 "type": "TextBlock",
-                "text": f"{icon} [LLM 분석] {analysis.get('summary', '로그 이상 감지')}",
+                "text": f"{icon} [{_LLM_TYPE} 분석] {analysis.get('summary', '로그 이상 감지')}",
                 "weight": "Bolder",
                 "size": "Medium",
                 "color": "Attention" if severity == "critical" else ("Warning" if severity == "warning" else "Default"),
@@ -252,7 +254,7 @@ class TeamsNotifier:
             "type": "message",
             "attachments": [{
                 "contentType": "application/vnd.microsoft.card.adaptive",
-                "summary": f"{icon} [LLM 분석] {analysis.get('summary', '로그 이상 감지')} — {system_display_name}",
+                "summary": f"{icon} [{_LLM_TYPE} 분석] {analysis.get('summary', '로그 이상 감지')} — {system_display_name}",
                 "content": {
                     "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
                     "type": "AdaptiveCard",
