@@ -14,8 +14,12 @@ services:
       - '--web.config.file=/etc/prometheus/web.yml'                # Basic Auth 활성화
       - '--storage.tsdb.retention.time=15d'
       - '--storage.tsdb.retention.size=15GB'
+      - '--storage.tsdb.wal-compression'                           # WAL 압축 (디스크 절약)
       - '--web.enable-lifecycle'
       - '--web.enable-remote-write-receiver'
+      - '--query.max-concurrency=20'                               # 동시 쿼리 상한
+      - '--query.timeout=2m'                                       # 쿼리 타임아웃
+      - '--query.max-samples=50000000'                             # 쿼리당 최대 샘플 수
     mem_limit: 2560m
     cpus: '1.0'
     restart: unless-stopped

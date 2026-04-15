@@ -1,0 +1,28 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  # 느린 쿼리 추적 로그 (prometheus_data 볼륨 내 저장)
+  query_log_file: /prometheus/query.log
+
+rule_files:
+  - "/etc/prometheus/alert_rules.yml"
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["alertmanager:9093"]
+
+scrape_configs:
+  # Prometheus 자기 자신
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # admin-api /metrics (DB 수집기 게이지 메트릭 노출)
+  - job_name: "admin-api"
+    static_configs:
+      - targets: ["admin-api:8080"]
+    metrics_path: /metrics
+
+# 에이전트(synapse_agent)는 remote_write로 직접 push하므로 scrape 불필요.
+# Prometheus 기동 시 --web.enable-remote-write-receiver 플래그 필수.
