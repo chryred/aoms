@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from auth import get_current_user
 from database import get_db
 from models import Contact, SystemContact, System
 from schemas import ContactCreate, ContactUpdate, ContactOut, SystemBrief
@@ -38,7 +39,7 @@ async def list_contacts(db: AsyncSession = Depends(get_db)):
 
 
 @router.post("", response_model=ContactOut, status_code=status.HTTP_201_CREATED)
-async def create_contact(payload: ContactCreate, db: AsyncSession = Depends(get_db)):
+async def create_contact(payload: ContactCreate, db: AsyncSession = Depends(get_db), _user=Depends(get_current_user)):
     contact = Contact(**payload.model_dump())
     db.add(contact)
     await db.commit()
@@ -55,7 +56,7 @@ async def get_contact(contact_id: int, db: AsyncSession = Depends(get_db)):
 
 
 @router.patch("/{contact_id}", response_model=ContactOut)
-async def update_contact(contact_id: int, payload: ContactUpdate, db: AsyncSession = Depends(get_db)):
+async def update_contact(contact_id: int, payload: ContactUpdate, db: AsyncSession = Depends(get_db), _user=Depends(get_current_user)):
     contact = await db.get(Contact, contact_id)
     if not contact:
         raise HTTPException(status_code=404, detail="Contact not found")
@@ -70,7 +71,7 @@ async def update_contact(contact_id: int, payload: ContactUpdate, db: AsyncSessi
 
 
 @router.delete("/{contact_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_contact(contact_id: int, db: AsyncSession = Depends(get_db)):
+async def delete_contact(contact_id: int, db: AsyncSession = Depends(get_db), _user=Depends(get_current_user)):
     contact = await db.get(Contact, contact_id)
     if not contact:
         raise HTTPException(status_code=404, detail="Contact not found")

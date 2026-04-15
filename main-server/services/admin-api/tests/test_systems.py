@@ -16,8 +16,8 @@ async def create_system(client: AsyncClient, payload: dict = None) -> dict:
 
 # ── 등록 ─────────────────────────────────────────────────────────────────────
 
-async def test_create_system(client: AsyncClient):
-    data = await create_system(client)
+async def test_create_system(authed_client: AsyncClient):
+    data = await create_system(authed_client)
 
     assert data["system_name"] == "was-server"
     assert data["display_name"] == "WAS 서버"
@@ -26,32 +26,32 @@ async def test_create_system(client: AsyncClient):
 
 # ── 조회 ─────────────────────────────────────────────────────────────────────
 
-async def test_list_systems(client: AsyncClient):
-    await create_system(client)
-    resp = await client.get("/api/v1/systems")
+async def test_list_systems(authed_client: AsyncClient):
+    await create_system(authed_client)
+    resp = await authed_client.get("/api/v1/systems")
 
     assert resp.status_code == 200
     assert len(resp.json()) == 1
 
 
-async def test_get_system(client: AsyncClient):
-    created = await create_system(client)
-    resp = await client.get(f"/api/v1/systems/{created['id']}")
+async def test_get_system(authed_client: AsyncClient):
+    created = await create_system(authed_client)
+    resp = await authed_client.get(f"/api/v1/systems/{created['id']}")
 
     assert resp.status_code == 200
     assert resp.json()["system_name"] == "was-server"
 
 
-async def test_get_system_not_found(client: AsyncClient):
-    resp = await client.get("/api/v1/systems/9999")
+async def test_get_system_not_found(authed_client: AsyncClient):
+    resp = await authed_client.get("/api/v1/systems/9999")
     assert resp.status_code == 404
 
 
 # ── 수정 ─────────────────────────────────────────────────────────────────────
 
-async def test_update_system(client: AsyncClient):
-    created = await create_system(client)
-    resp = await client.patch(
+async def test_update_system(authed_client: AsyncClient):
+    created = await create_system(authed_client)
+    resp = await authed_client.patch(
         f"/api/v1/systems/{created['id']}",
         json={"display_name": "WAS 서버 (수정)"}
     )
@@ -61,22 +61,22 @@ async def test_update_system(client: AsyncClient):
     assert resp.json()["system_name"] == "was-server"  # 나머지 필드 유지
 
 
-async def test_update_system_not_found(client: AsyncClient):
-    resp = await client.patch("/api/v1/systems/9999", json={"display_name": "없음"})
+async def test_update_system_not_found(authed_client: AsyncClient):
+    resp = await authed_client.patch("/api/v1/systems/9999", json={"display_name": "없음"})
     assert resp.status_code == 404
 
 
 # ── 삭제 ─────────────────────────────────────────────────────────────────────
 
-async def test_delete_system(client: AsyncClient):
-    created = await create_system(client)
-    resp = await client.delete(f"/api/v1/systems/{created['id']}")
+async def test_delete_system(authed_client: AsyncClient):
+    created = await create_system(authed_client)
+    resp = await authed_client.delete(f"/api/v1/systems/{created['id']}")
     assert resp.status_code == 204
 
-    resp = await client.get(f"/api/v1/systems/{created['id']}")
+    resp = await authed_client.get(f"/api/v1/systems/{created['id']}")
     assert resp.status_code == 404
 
 
-async def test_delete_system_not_found(client: AsyncClient):
-    resp = await client.delete("/api/v1/systems/9999")
+async def test_delete_system_not_found(authed_client: AsyncClient):
+    resp = await authed_client.delete("/api/v1/systems/9999")
     assert resp.status_code == 404

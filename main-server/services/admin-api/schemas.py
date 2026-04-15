@@ -426,9 +426,13 @@ _SAFE_PATH_RE = _re.compile(r'^(/[\w.\-]+)+$')
 
 
 def _validate_unix_path(v: Optional[str]) -> Optional[str]:
-    """쉘 메타문자를 차단하는 Unix 경로 검증."""
-    if v is not None and not _SAFE_PATH_RE.match(v):
+    """쉘 메타문자와 경로 탈출을 차단하는 Unix 경로 검증."""
+    if v is None:
+        return v
+    if not _SAFE_PATH_RE.match(v):
         raise ValueError('경로는 절대 경로여야 하며 특수문자를 포함할 수 없습니다')
+    if '..' in v.split('/'):
+        raise ValueError('경로에 상위 디렉터리 참조(..)를 사용할 수 없습니다')
     return v
 
 

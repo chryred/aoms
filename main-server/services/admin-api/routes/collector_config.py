@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from auth import get_current_user
 from database import get_db
 from models import System, SystemCollectorConfig
 from schemas import CollectorConfigCreate, CollectorConfigOut, CollectorConfigUpdate
@@ -75,6 +76,7 @@ async def list_collector_configs(
 async def create_collector_config(
     body: CollectorConfigCreate,
     db: AsyncSession = Depends(get_db),
+    _user=Depends(get_current_user),
 ):
     """수집기 설정 등록"""
     config = SystemCollectorConfig(**body.model_dump())
@@ -89,6 +91,7 @@ async def update_collector_config(
     config_id: int,
     body: CollectorConfigUpdate,
     db: AsyncSession = Depends(get_db),
+    _user=Depends(get_current_user),
 ):
     """수집기 설정 수정 (활성화/비활성화 등)"""
     result = await db.execute(
@@ -108,6 +111,7 @@ async def update_collector_config(
 async def delete_collector_config(
     config_id: int,
     db: AsyncSession = Depends(get_db),
+    _user=Depends(get_current_user),
 ):
     """수집기 설정 삭제"""
     result = await db.execute(

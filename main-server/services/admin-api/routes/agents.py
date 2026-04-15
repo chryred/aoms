@@ -606,7 +606,8 @@ async def get_agent_status(
     message = ""
 
     if agent.pid_file:
-        cmd = f"cat {agent.pid_file} 2>/dev/null && ps -p $(cat {agent.pid_file} 2>/dev/null) -o pid= 2>/dev/null"
+        pf = shlex.quote(agent.pid_file)
+        cmd = f"cat {pf} 2>/dev/null && ps -p $(cat {pf} 2>/dev/null) -o pid= 2>/dev/null"
         try:
             code, stdout, _ = await asyncio.to_thread(
                 ssh_exec, session["host"], session["port"], session["username"], session["password"], cmd
@@ -682,7 +683,8 @@ async def upload_agent_config(
     # Reload: PID 파일이 있으면 재시작 (synapse_agent는 inotify 자동 감지 지원, 재시작이 더 안정적)
     reload_cmd: str
     if agent.pid_file:
-        stop = f"kill $(cat {agent.pid_file}) 2>/dev/null; rm -f {agent.pid_file}; sleep 1"
+        pf = shlex.quote(agent.pid_file)
+        stop = f"kill $(cat {pf}) 2>/dev/null; rm -f {pf}; sleep 1"
         start = _make_start_cmd(agent)
         reload_cmd = f"{stop} && {start}"
     else:

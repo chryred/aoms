@@ -21,9 +21,9 @@ async def create_system(client: AsyncClient) -> int:
 
 # ── 등록 ─────────────────────────────────────────────────────────────────────
 
-async def test_create_collector_config(client: AsyncClient):
-    system_id = await create_system(client)
-    resp = await client.post("/api/v1/collector-config", json={
+async def test_create_collector_config(authed_client: AsyncClient):
+    system_id = await create_system(authed_client)
+    resp = await authed_client.post("/api/v1/collector-config", json={
         "system_id": system_id,
         "collector_type": "node_exporter",
         "metric_group": "cpu",
@@ -35,10 +35,10 @@ async def test_create_collector_config(client: AsyncClient):
     assert data["enabled"] is True
 
 
-async def test_create_multiple_collector_configs(client: AsyncClient):
-    system_id = await create_system(client)
+async def test_create_multiple_collector_configs(authed_client: AsyncClient):
+    system_id = await create_system(authed_client)
     for group in ("cpu", "memory", "disk"):
-        resp = await client.post("/api/v1/collector-config", json={
+        resp = await authed_client.post("/api/v1/collector-config", json={
             "system_id": system_id,
             "collector_type": "node_exporter",
             "metric_group": group,
@@ -48,16 +48,16 @@ async def test_create_multiple_collector_configs(client: AsyncClient):
 
 # ── 조회 ─────────────────────────────────────────────────────────────────────
 
-async def test_list_collector_configs(client: AsyncClient):
-    system_id = await create_system(client)
+async def test_list_collector_configs(authed_client: AsyncClient):
+    system_id = await create_system(authed_client)
     for group in ("cpu", "memory"):
-        await client.post("/api/v1/collector-config", json={
+        await authed_client.post("/api/v1/collector-config", json={
             "system_id": system_id,
             "collector_type": "node_exporter",
             "metric_group": group,
         })
 
-    resp = await client.get("/api/v1/collector-config", params={"system_id": system_id})
+    resp = await authed_client.get("/api/v1/collector-config", params={"system_id": system_id})
     assert resp.status_code == 200
     items = resp.json()
     assert len(items) == 2
@@ -65,16 +65,16 @@ async def test_list_collector_configs(client: AsyncClient):
     assert groups == {"cpu", "memory"}
 
 
-async def test_list_collector_configs_filter_type(client: AsyncClient):
-    system_id = await create_system(client)
-    await client.post("/api/v1/collector-config", json={
+async def test_list_collector_configs_filter_type(authed_client: AsyncClient):
+    system_id = await create_system(authed_client)
+    await authed_client.post("/api/v1/collector-config", json={
         "system_id": system_id, "collector_type": "node_exporter", "metric_group": "cpu",
     })
-    await client.post("/api/v1/collector-config", json={
+    await authed_client.post("/api/v1/collector-config", json={
         "system_id": system_id, "collector_type": "jmx_exporter", "metric_group": "jvm_heap",
     })
 
-    resp = await client.get("/api/v1/collector-config", params={"collector_type": "jmx_exporter"})
+    resp = await authed_client.get("/api/v1/collector-config", params={"collector_type": "jmx_exporter"})
     assert resp.status_code == 200
     items = resp.json()
     assert all(item["collector_type"] == "jmx_exporter" for item in items)
@@ -82,54 +82,54 @@ async def test_list_collector_configs_filter_type(client: AsyncClient):
 
 # ── 수정 ─────────────────────────────────────────────────────────────────────
 
-async def test_update_collector_config(client: AsyncClient):
-    system_id = await create_system(client)
-    create_resp = await client.post("/api/v1/collector-config", json={
+async def test_update_collector_config(authed_client: AsyncClient):
+    system_id = await create_system(authed_client)
+    create_resp = await authed_client.post("/api/v1/collector-config", json={
         "system_id": system_id,
         "collector_type": "node_exporter",
         "metric_group": "cpu",
     })
     config_id = create_resp.json()["id"]
 
-    resp = await client.patch(f"/api/v1/collector-config/{config_id}", json={"enabled": False})
+    resp = await authed_client.patch(f"/api/v1/collector-config/{config_id}", json={"enabled": False})
     assert resp.status_code == 200
     assert resp.json()["enabled"] is False
 
 
-async def test_update_collector_config_not_found(client: AsyncClient):
-    resp = await client.patch("/api/v1/collector-config/9999", json={"is_active": False})
+async def test_update_collector_config_not_found(authed_client: AsyncClient):
+    resp = await authed_client.patch("/api/v1/collector-config/9999", json={"is_active": False})
     assert resp.status_code == 404
 
 
 # ── 삭제 ─────────────────────────────────────────────────────────────────────
 
-async def test_delete_collector_config(client: AsyncClient):
-    system_id = await create_system(client)
-    create_resp = await client.post("/api/v1/collector-config", json={
+async def test_delete_collector_config(authed_client: AsyncClient):
+    system_id = await create_system(authed_client)
+    create_resp = await authed_client.post("/api/v1/collector-config", json={
         "system_id": system_id,
         "collector_type": "node_exporter",
         "metric_group": "network",
     })
     config_id = create_resp.json()["id"]
 
-    resp = await client.delete(f"/api/v1/collector-config/{config_id}")
+    resp = await authed_client.delete(f"/api/v1/collector-config/{config_id}")
     assert resp.status_code == 200
     assert resp.json()["deleted"] is True
 
-    list_resp = await client.get("/api/v1/collector-config", params={"system_id": system_id})
+    list_resp = await authed_client.get("/api/v1/collector-config", params={"system_id": system_id})
     assert len(list_resp.json()) == 0
 
 
-async def test_delete_collector_config_not_found(client: AsyncClient):
-    resp = await client.delete("/api/v1/collector-config/9999")
+async def test_delete_collector_config_not_found(authed_client: AsyncClient):
+    resp = await authed_client.delete("/api/v1/collector-config/9999")
     assert resp.status_code == 404
 
 
 # ── 템플릿 ────────────────────────────────────────────────────────────────────
 # node_exporter, jmx_exporter는 synapse_agent로 대체되어 제거됨
 
-async def test_get_template_db_exporter(client: AsyncClient):
-    resp = await client.get("/api/v1/collector-config/templates/db_exporter")
+async def test_get_template_db_exporter(authed_client: AsyncClient):
+    resp = await authed_client.get("/api/v1/collector-config/templates/db_exporter")
     assert resp.status_code == 200
     data = resp.json()
     assert data["collector_type"] == "db_exporter"
@@ -138,14 +138,14 @@ async def test_get_template_db_exporter(client: AsyncClient):
     assert "db_query" in groups
 
 
-async def test_get_template_synapse_agent(client: AsyncClient):
-    resp = await client.get("/api/v1/collector-config/templates/synapse_agent")
+async def test_get_template_synapse_agent(authed_client: AsyncClient):
+    resp = await authed_client.get("/api/v1/collector-config/templates/synapse_agent")
     assert resp.status_code == 200
     groups = [g["metric_group"] for g in resp.json()["metric_groups"]]
     assert "cpu" in groups
     assert "memory" in groups
 
 
-async def test_get_template_unknown_type(client: AsyncClient):
-    resp = await client.get("/api/v1/collector-config/templates/unknown_exporter")
+async def test_get_template_unknown_type(authed_client: AsyncClient):
+    resp = await authed_client.get("/api/v1/collector-config/templates/unknown_exporter")
     assert resp.status_code == 404

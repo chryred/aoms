@@ -22,9 +22,9 @@ async def create_system(client: AsyncClient) -> int:
 
 # ── 1시간 집계 ────────────────────────────────────────────────────────────────
 
-async def test_create_hourly(client: AsyncClient):
-    system_id = await create_system(client)
-    resp = await client.post("/api/v1/aggregations/hourly", json={
+async def test_create_hourly(authed_client: AsyncClient):
+    system_id = await create_system(authed_client)
+    resp = await authed_client.post("/api/v1/aggregations/hourly", json={
         "system_id": system_id,
         "hour_bucket": "2026-04-03T10:00:00",
         "collector_type": "node_exporter",
@@ -40,9 +40,9 @@ async def test_create_hourly(client: AsyncClient):
     assert data["llm_severity"] == "warning"
 
 
-async def test_create_hourly_upsert(client: AsyncClient):
+async def test_create_hourly_upsert(authed_client: AsyncClient):
     """동일 키 재전송 시 업데이트 (upsert)"""
-    system_id = await create_system(client)
+    system_id = await create_system(authed_client)
     payload = {
         "system_id": system_id,
         "hour_bucket": "2026-04-03T10:00:00",
@@ -51,21 +51,21 @@ async def test_create_hourly_upsert(client: AsyncClient):
         "metrics_json": "{}",
         "llm_severity": "normal",
     }
-    await client.post("/api/v1/aggregations/hourly", json=payload)
+    await authed_client.post("/api/v1/aggregations/hourly", json=payload)
 
     payload["llm_severity"] = "warning"
-    resp = await client.post("/api/v1/aggregations/hourly", json=payload)
+    resp = await authed_client.post("/api/v1/aggregations/hourly", json=payload)
     assert resp.status_code == 201
     assert resp.json()["llm_severity"] == "warning"
 
     # 중복 저장 안 됨
-    list_resp = await client.get("/api/v1/aggregations/hourly", params={"system_id": system_id})
+    list_resp = await authed_client.get("/api/v1/aggregations/hourly", params={"system_id": system_id})
     assert len(list_resp.json()) == 1
 
 
-async def test_get_hourly(client: AsyncClient):
-    system_id = await create_system(client)
-    create_resp = await client.post("/api/v1/aggregations/hourly", json={
+async def test_get_hourly(authed_client: AsyncClient):
+    system_id = await create_system(authed_client)
+    create_resp = await authed_client.post("/api/v1/aggregations/hourly", json={
         "system_id": system_id,
         "hour_bucket": "2026-04-03T11:00:00",
         "collector_type": "node_exporter",
@@ -75,20 +75,20 @@ async def test_get_hourly(client: AsyncClient):
     })
     agg_id = create_resp.json()["id"]
 
-    resp = await client.get(f"/api/v1/aggregations/hourly/{agg_id}")
+    resp = await authed_client.get(f"/api/v1/aggregations/hourly/{agg_id}")
     assert resp.status_code == 200
     assert resp.json()["metric_group"] == "memory"
 
 
-async def test_get_hourly_not_found(client: AsyncClient):
-    resp = await client.get("/api/v1/aggregations/hourly/9999")
+async def test_get_hourly_not_found(authed_client: AsyncClient):
+    resp = await authed_client.get("/api/v1/aggregations/hourly/9999")
     assert resp.status_code == 404
 
 
-async def test_list_hourly_filter_severity(client: AsyncClient):
-    system_id = await create_system(client)
+async def test_list_hourly_filter_severity(authed_client: AsyncClient):
+    system_id = await create_system(authed_client)
     for i, severity in enumerate(["normal", "warning", "critical"]):
-        await client.post("/api/v1/aggregations/hourly", json={
+        await authed_client.post("/api/v1/aggregations/hourly", json={
             "system_id": system_id,
             "hour_bucket": f"2026-04-03T{10+i}:00:00",
             "collector_type": "node_exporter",
@@ -97,17 +97,17 @@ async def test_list_hourly_filter_severity(client: AsyncClient):
             "llm_severity": severity,
         })
 
-    resp = await client.get("/api/v1/aggregations/hourly", params={"severity": "warning"})
+    resp = await authed_client.get("/api/v1/aggregations/hourly", params={"severity": "warning"})
     assert resp.status_code == 200
     items = resp.json()
     assert all(item["llm_severity"] == "warning" for item in items)
 
 
-async def test_trend_alert(client: AsyncClient):
-    system_id = await create_system(client)
+async def test_trend_alert(authed_client: AsyncClient):
+    system_id = await create_system(authed_client)
     # llm_prediction 있는 critical 항목 생성 (현재 시각 기준 hour_bucket)
     now_str = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:00:00")
-    await client.post("/api/v1/aggregations/hourly", json={
+    await authed_client.post("/api/v1/aggregations/hourly", json={
         "system_id": system_id,
         "hour_bucket": now_str,
         "collector_type": "node_exporter",
@@ -117,7 +117,7 @@ async def test_trend_alert(client: AsyncClient):
         "llm_prediction": "2시간 내 디스크 용량 고갈 예상",
     })
 
-    resp = await client.get("/api/v1/aggregations/trend-alert")
+    resp = await authed_client.get("/api/v1/aggregations/trend-alert")
     assert resp.status_code == 200
     items = resp.json()
     assert isinstance(items, list)
@@ -127,9 +127,9 @@ async def test_trend_alert(client: AsyncClient):
 
 # ── 1일 집계 ─────────────────────────────────────────────────────────────────
 
-async def test_create_and_list_daily(client: AsyncClient):
-    system_id = await create_system(client)
-    resp = await client.post("/api/v1/aggregations/daily", json={
+async def test_create_and_list_daily(authed_client: AsyncClient):
+    system_id = await create_system(authed_client)
+    resp = await authed_client.post("/api/v1/aggregations/daily", json={
         "system_id": system_id,
         "day_bucket": "2026-04-03T00:00:00",
         "collector_type": "node_exporter",
@@ -138,12 +138,12 @@ async def test_create_and_list_daily(client: AsyncClient):
     })
     assert resp.status_code == 201
 
-    list_resp = await client.get("/api/v1/aggregations/daily", params={"system_id": system_id})
+    list_resp = await authed_client.get("/api/v1/aggregations/daily", params={"system_id": system_id})
     assert len(list_resp.json()) == 1
 
 
-async def test_create_daily_upsert(client: AsyncClient):
-    system_id = await create_system(client)
+async def test_create_daily_upsert(authed_client: AsyncClient):
+    system_id = await create_system(authed_client)
     payload = {
         "system_id": system_id,
         "day_bucket": "2026-04-03T00:00:00",
@@ -151,18 +151,18 @@ async def test_create_daily_upsert(client: AsyncClient):
         "metric_group": "cpu",
         "metrics_json": "{}",
     }
-    await client.post("/api/v1/aggregations/daily", json=payload)
-    await client.post("/api/v1/aggregations/daily", json=payload)
+    await authed_client.post("/api/v1/aggregations/daily", json=payload)
+    await authed_client.post("/api/v1/aggregations/daily", json=payload)
 
-    list_resp = await client.get("/api/v1/aggregations/daily", params={"system_id": system_id})
+    list_resp = await authed_client.get("/api/v1/aggregations/daily", params={"system_id": system_id})
     assert len(list_resp.json()) == 1
 
 
 # ── 7일 집계 ─────────────────────────────────────────────────────────────────
 
-async def test_create_and_list_weekly(client: AsyncClient):
-    system_id = await create_system(client)
-    resp = await client.post("/api/v1/aggregations/weekly", json={
+async def test_create_and_list_weekly(authed_client: AsyncClient):
+    system_id = await create_system(authed_client)
+    resp = await authed_client.post("/api/v1/aggregations/weekly", json={
         "system_id": system_id,
         "week_start": "2026-03-30T00:00:00",
         "collector_type": "node_exporter",
@@ -171,15 +171,15 @@ async def test_create_and_list_weekly(client: AsyncClient):
     })
     assert resp.status_code == 201
 
-    list_resp = await client.get("/api/v1/aggregations/weekly", params={"system_id": system_id})
+    list_resp = await authed_client.get("/api/v1/aggregations/weekly", params={"system_id": system_id})
     assert len(list_resp.json()) == 1
 
 
 # ── 월간 집계 ────────────────────────────────────────────────────────────────
 
-async def test_create_and_list_monthly(client: AsyncClient):
-    system_id = await create_system(client)
-    resp = await client.post("/api/v1/aggregations/monthly", json={
+async def test_create_and_list_monthly(authed_client: AsyncClient):
+    system_id = await create_system(authed_client)
+    resp = await authed_client.post("/api/v1/aggregations/monthly", json={
         "system_id": system_id,
         "period_start": "2026-04-01T00:00:00",
         "period_type": "monthly",
@@ -190,18 +190,18 @@ async def test_create_and_list_monthly(client: AsyncClient):
     assert resp.status_code == 201
     assert resp.json()["period_type"] == "monthly"
 
-    list_resp = await client.get("/api/v1/aggregations/monthly", params={"system_id": system_id})
+    list_resp = await authed_client.get("/api/v1/aggregations/monthly", params={"system_id": system_id})
     assert len(list_resp.json()) == 1
 
 
-async def test_create_monthly_various_period_types(client: AsyncClient):
-    system_id = await create_system(client)
+async def test_create_monthly_various_period_types(authed_client: AsyncClient):
+    system_id = await create_system(authed_client)
     for period_type, period_start in [
         ("quarterly", "2026-01-01T00:00:00"),
         ("half_year", "2026-01-01T01:00:00"),
         ("annual",    "2026-01-01T02:00:00"),
     ]:
-        resp = await client.post("/api/v1/aggregations/monthly", json={
+        resp = await authed_client.post("/api/v1/aggregations/monthly", json={
             "system_id": system_id,
             "period_start": period_start,
             "period_type": period_type,
