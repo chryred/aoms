@@ -25,8 +25,7 @@ const TABS: { key: TabType; label: string }[] = [
   { key: 'log_analysis', label: '로그분석' },
 ]
 
-const isSeverity = (v: string): v is Severity =>
-  v === 'critical' || v === 'warning' || v === 'info'
+const isSeverity = (v: string): v is Severity => v === 'critical' || v === 'warning' || v === 'info'
 const isAckFilter = (v: string): v is AckFilter => v === 'all' || v === 'unack' || v === 'ack'
 
 export function AlertHistoryPage() {
@@ -115,10 +114,7 @@ export function AlertHistoryPage() {
           </NeuSelect>
         </div>
         <div className="w-36">
-          <NeuSelect
-            value={severity}
-            onChange={(e) => updateParam('severity', e.target.value)}
-          >
+          <NeuSelect value={severity} onChange={(e) => updateParam('severity', e.target.value)}>
             <option value="">전체 심각도</option>
             <option value="critical">Critical</option>
             <option value="warning">Warning</option>
@@ -128,7 +124,9 @@ export function AlertHistoryPage() {
         <div className="w-36">
           <NeuSelect
             value={ackFilter}
-            onChange={(e) => updateParam('acknowledged', e.target.value === 'all' ? '' : e.target.value)}
+            onChange={(e) =>
+              updateParam('acknowledged', e.target.value === 'all' ? '' : e.target.value)
+            }
           >
             <option value="all">전체 상태</option>
             <option value="unack">미확인</option>

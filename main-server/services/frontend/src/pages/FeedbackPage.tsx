@@ -78,8 +78,7 @@ export function FeedbackPage() {
   const hasPrev = offset > 0
   const currentPage = Math.floor(offset / PAGE_SIZE) + 1
 
-  const isFilterActive =
-    systemFilter !== '' || ackFilter !== 'all' || feedbackFilter !== 'all'
+  const isFilterActive = systemFilter !== '' || ackFilter !== 'all' || feedbackFilter !== 'all'
 
   const resetFilters = () => {
     setSystemFilter('')
@@ -171,9 +170,7 @@ export function FeedbackPage() {
           <NeuCard
             className={cn(
               'text-center transition-shadow',
-              feedbackFilter === 'ack'
-                ? 'ring-accent ring-1'
-                : 'hover:ring-accent/30 hover:ring-1',
+              feedbackFilter === 'ack' ? 'ring-accent ring-1' : 'hover:ring-accent/30 hover:ring-1',
             )}
           >
             <p className="text-normal text-2xl font-bold">{acknowledgedCount}</p>
@@ -208,12 +205,7 @@ export function FeedbackPage() {
             <option value="ack">확인 완료</option>
           </NeuSelect>
         </div>
-        <NeuButton
-          variant="ghost"
-          size="sm"
-          disabled={!isFilterActive}
-          onClick={resetFilters}
-        >
+        <NeuButton variant="ghost" size="sm" disabled={!isFilterActive} onClick={resetFilters}>
           <RotateCcw className="mr-1 h-4 w-4" />
           필터 초기화
         </NeuButton>

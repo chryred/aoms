@@ -1,4 +1,5 @@
 import { memo, useState, useMemo } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { EnhancedSystemCard } from './EnhancedSystemCard'
 import { EmptyState } from '@/components/common/EmptyState'
 import { NeuCard } from '@/components/neumorphic/NeuCard'
@@ -9,6 +10,9 @@ import type { SystemHealthData } from '@/hooks/queries/useDashboardHealth'
 
 type SortKey = 'status' | 'name'
 type FilterStatus = 'all' | 'critical' | 'warning' | 'normal'
+
+const isFilterStatus = (v: string): v is FilterStatus =>
+  v === 'all' || v === 'critical' || v === 'warning' || v === 'normal'
 
 const FILTER_LABELS: Record<FilterStatus, string> = {
   all: '전체',
@@ -32,7 +36,16 @@ export const SystemHealthGrid = memo(function SystemHealthGrid({
   onAddSystem,
 }: SystemHealthGridProps) {
   const [sortBy, setSortBy] = useState<SortKey>('status')
-  const [filterStatus, setFilterStatus] = useState<FilterStatus>('all')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const statusParam = searchParams.get('status') ?? 'all'
+  const filterStatus: FilterStatus = isFilterStatus(statusParam) ? statusParam : 'all'
+
+  const updateStatusFilter = (next: FilterStatus) => {
+    const params = new URLSearchParams(searchParams)
+    if (next === 'all') params.delete('status')
+    else params.set('status', next)
+    setSearchParams(params, { replace: true })
+  }
 
   // 스파크라인 데이터 bulk fetch (24h CPU, 전체 시스템)
   const { fromDt } = useMemo(() => {
@@ -89,27 +102,37 @@ export const SystemHealthGrid = memo(function SystemHealthGrid({
   }
 
   return (
-    <div className="space-y-4">
+    <div id="system-grid" className="space-y-4">
       {/* 필터 + 정렬 — 뉴모피즘 탭 패턴 */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <span className="text-text-disabled text-xs font-semibold uppercase">필터</span>
           <div className="bg-bg-base shadow-neu-pressed flex gap-0.5 rounded-sm p-1">
-            {(['all', 'critical', 'warning', 'normal'] as const).map((status) => (
-              <button
-                key={status}
-                onClick={() => setFilterStatus(status)}
-                className={cn(
-                  'rounded-sm px-3 py-1.5 text-xs font-medium transition-all duration-150',
-                  'focus:ring-accent focus:ring-1 focus:outline-none',
-                  filterStatus === status
-                    ? 'bg-accent text-accent-contrast shadow-neu-pressed font-semibold'
-                    : 'text-text-secondary hover:bg-hover-subtle hover:text-text-primary',
-                )}
-              >
-                {FILTER_LABELS[status]}
-              </button>
-            ))}
+            {(['all', 'critical', 'warning', 'normal'] as const).map((status) => {
+              const activeColorClass =
+                status === 'critical'
+                  ? 'bg-red-500 text-white'
+                  : status === 'warning'
+                    ? 'bg-yellow-500 text-white'
+                    : status === 'normal'
+                      ? 'bg-green-500 text-white'
+                      : 'bg-accent text-accent-contrast'
+              return (
+                <button
+                  key={status}
+                  onClick={() => updateStatusFilter(status)}
+                  className={cn(
+                    'rounded-sm px-3 py-1.5 text-xs font-medium transition-all duration-150',
+                    'focus:ring-accent focus:ring-1 focus:outline-none',
+                    filterStatus === status
+                      ? cn('shadow-neu-pressed font-semibold', activeColorClass)
+                      : 'text-text-secondary hover:bg-hover-subtle hover:text-text-primary',
+                  )}
+                >
+                  {FILTER_LABELS[status]}
+                </button>
+              )
+            })}
           </div>
         </div>
 

@@ -1,5 +1,7 @@
 import { useMemo, useState } from 'react'
-import { Terminal, Plus, Lock, LogOut } from 'lucide-react'
+import { useSearchParams } from 'react-router-dom'
+import { useQueries } from '@tanstack/react-query'
+import { Terminal, Plus, Lock, LogOut, AlertCircle } from 'lucide-react'
 import { PageHeader } from '@/components/common/PageHeader'
 import { EmptyState } from '@/components/common/EmptyState'
 import { LoadingSkeleton } from '@/components/common/LoadingSkeleton'
@@ -12,6 +14,7 @@ import { useAgents } from '@/hooks/queries/useAgents'
 import { useSystems } from '@/hooks/queries/useSystems'
 import { useSSHSessionStore } from '@/store/sshSessionStore'
 import { agentsApi } from '@/api/agents'
+import { qk } from '@/constants/queryKeys'
 import { cn } from '@/lib/utils'
 import type { AgentType } from '@/types/agent'
 
@@ -21,7 +24,14 @@ const AGENT_TYPE_OPTIONS: Array<{ value: AgentType | 'all'; label: string }> = [
   { value: 'db', label: 'DB 수집기' },
 ]
 
+type HealthFilter = 'all' | 'stale'
+const isHealthFilter = (v: string): v is HealthFilter => v === 'all' || v === 'stale'
+
 export function AgentListPage() {
+  const [searchParams, setSearchParams] = useSearchParams()
+  const healthParam = searchParams.get('health') ?? 'all'
+  const healthFilter: HealthFilter = isHealthFilter(healthParam) ? healthParam : 'all'
+
   const [filterType, setFilterType] = useState<AgentType | 'all'>('all')
   const [showSSHModal, setShowSSHModal] = useState(false)
   const [showFormModal, setShowFormModal] = useState(false)
@@ -33,22 +43,66 @@ export function AgentListPage() {
   const { data: systems, isLoading: systemsLoading } = useSystems()
   const isLoading = agentsLoading || systemsLoading
 
+  // stale 필터가 켜져 있을 때만 각 에이전트의 live-status를 batch 조회
+  const liveStatusQueries = useQueries({
+    queries: (agents ?? []).map((agent) => ({
+      queryKey: qk.agentLiveStatus(agent.id),
+      queryFn: () => agentsApi.getLiveStatus(agent.id),
+      enabled:
+        healthFilter === 'stale' &&
+        (agent.agent_type === 'synapse_agent' || agent.agent_type === 'db'),
+      staleTime: 55_000,
+      refetchInterval: 60_000 as const,
+    })),
+  })
+
+  // agent_id → 수집 여부 (collecting 인가)
+  const liveCollectingMap = useMemo(() => {
+    if (healthFilter !== 'stale' || !agents) return null
+    const map = new Map<number, boolean>()
+    agents.forEach((agent, idx) => {
+      const q = liveStatusQueries[idx]
+      const ls = q?.data?.live_status
+      // collecting 이면 true (건강), 그 외(delayed/stale/no_data)는 false(stale로 간주)
+      map.set(agent.id, ls === 'collecting')
+    })
+    return map
+  }, [agents, liveStatusQueries, healthFilter])
+
+  const liveLoading =
+    healthFilter === 'stale' && liveStatusQueries.some((q) => q.isLoading || q.isFetching)
+
+  const visibleAgents = useMemo(() => {
+    if (!agents) return []
+    return agents.filter((a) => {
+      if (filterType !== 'all' && a.agent_type !== filterType) return false
+      if (healthFilter === 'stale' && liveCollectingMap) {
+        // live-status 조회 대상이 아닌 타입은 제외 (예: 미지원 타입)
+        if (a.agent_type !== 'synapse_agent' && a.agent_type !== 'db') return false
+        // collecting = true → 건강. 숨김.
+        if (liveCollectingMap.get(a.id) === true) return false
+      }
+      return true
+    })
+  }, [agents, filterType, healthFilter, liveCollectingMap])
+
   const grouped = useMemo(() => {
-    if (!agents || !systems) return []
+    if (!systems) return []
+    const visibleIds = new Set(visibleAgents.map((a) => a.id))
     return systems
       .map((system) => ({
         system,
-        agents: agents.filter(
-          (a) => a.system_id === system.id && (filterType === 'all' || a.agent_type === filterType),
-        ),
+        agents: visibleAgents.filter((a) => a.system_id === system.id && visibleIds.has(a.id)),
       }))
       .filter((g) => g.agents.length > 0)
-  }, [agents, systems, filterType])
+  }, [visibleAgents, systems])
 
-  const allAgentsFiltered = useMemo(() => {
-    if (!agents) return []
-    return agents.filter((a) => filterType === 'all' || a.agent_type === filterType)
-  }, [agents, filterType])
+  const updateHealthFilter = (next: HealthFilter) => {
+    const params = new URLSearchParams(searchParams)
+    if (next === 'all') params.delete('health')
+    else params.set('health', next)
+    setSearchParams(params, { replace: true })
+  }
 
   async function handleLogout() {
     if (token) {
@@ -92,6 +146,25 @@ export function AgentListPage() {
           </div>
         }
       />
+
+      {/* stale 필터 배너 */}
+      {healthFilter === 'stale' && (
+        <div className="mb-6 flex items-center gap-3 rounded-sm border border-[rgba(239,68,68,0.20)] bg-[rgba(239,68,68,0.06)] px-4 py-3">
+          <AlertCircle className="text-critical h-4 w-4 shrink-0" />
+          <p className="text-critical text-sm">
+            수집이 중단된 에이전트만 표시 중입니다
+            {liveLoading && <span className="text-text-secondary ml-2">(조회 중...)</span>}
+          </p>
+          <NeuButton
+            size="sm"
+            variant="ghost"
+            onClick={() => updateHealthFilter('all')}
+            className="ml-auto shrink-0"
+          >
+            전체 보기
+          </NeuButton>
+        </div>
+      )}
 
       {/* 세션 안내 배너 */}
       {!sessionActive && (
@@ -140,12 +213,24 @@ export function AgentListPage() {
       {isLoading && <LoadingSkeleton shape="card" count={4} />}
       {isError && <ErrorCard onRetry={refetch} />}
 
-      {!isLoading && !isError && allAgentsFiltered.length === 0 && (
+      {!isLoading && !isError && visibleAgents.length === 0 && (
         <EmptyState
           icon={<Terminal className="text-text-secondary h-12 w-12" />}
-          title="등록된 에이전트가 없습니다"
-          description="에이전트 등록 버튼을 눌러 수집기를 추가하세요."
-          cta={{ label: '에이전트 등록', onClick: () => setShowFormModal(true) }}
+          title={
+            healthFilter === 'stale'
+              ? '수집이 중단된 에이전트가 없습니다'
+              : '등록된 에이전트가 없습니다'
+          }
+          description={
+            healthFilter === 'stale'
+              ? '모든 에이전트가 정상 수집 중입니다.'
+              : '에이전트 등록 버튼을 눌러 수집기를 추가하세요.'
+          }
+          cta={
+            healthFilter === 'stale'
+              ? { label: '전체 보기', onClick: () => updateHealthFilter('all') }
+              : { label: '에이전트 등록', onClick: () => setShowFormModal(true) }
+          }
         />
       )}
 

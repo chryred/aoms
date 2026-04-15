@@ -283,15 +283,17 @@ export function AgentDetailPage() {
           </dl>
 
           {/* 호스트 불일치 경고 */}
-          {sessionActive && agent.agent_type !== 'db' && (() => {
-            const sessionHost = useSSHSessionStore.getState().host
-            return sessionHost && agent.host !== sessionHost ? (
-              <p className="text-warning mb-3 text-xs">
-                SSH 세션 호스트({sessionHost})와 에이전트 호스트({agent.host})가 다릅니다.
-                제어 명령이 올바르게 동작하지 않을 수 있습니다.
-              </p>
-            ) : null
-          })()}
+          {sessionActive &&
+            agent.agent_type !== 'db' &&
+            (() => {
+              const sessionHost = useSSHSessionStore.getState().host
+              return sessionHost && agent.host !== sessionHost ? (
+                <p className="text-warning mb-3 text-xs">
+                  SSH 세션 호스트({sessionHost})와 에이전트 호스트({agent.host})가 다릅니다. 제어
+                  명령이 올바르게 동작하지 않을 수 있습니다.
+                </p>
+              ) : null
+            })()}
 
           {/* 제어 버튼 */}
           <div className="flex flex-wrap gap-2">
@@ -336,9 +338,7 @@ export function AgentDetailPage() {
               onClick={() =>
                 isDbAgent
                   ? refetch()
-                  : runAction('상태 확인', () =>
-                      agentsApi.getStatus(agentId, token ?? undefined),
-                    )
+                  : runAction('상태 확인', () => agentsApi.getStatus(agentId, token ?? undefined))
               }
               loading={actionLoading === '상태 확인'}
               disabled={!isDbAgent && !sessionActive}

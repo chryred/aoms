@@ -56,8 +56,8 @@ export function FeedbackSubmitPage() {
               잘못된 접근입니다
             </h1>
             <p className="text-text-secondary text-sm">
-              알림 식별자(alert_history_id)가 누락되었거나 유효하지 않습니다. Teams 알림 카드에서 다시
-              &lsquo;해결책 등록&rsquo; 버튼을 눌러주세요.
+              알림 식별자(alert_history_id)가 누락되었거나 유효하지 않습니다. Teams 알림 카드에서
+              다시 &lsquo;해결책 등록&rsquo; 버튼을 눌러주세요.
             </p>
             <NeuButton onClick={() => navigate(ROUTES.DASHBOARD)} className="mt-2">
               대시보드로 이동

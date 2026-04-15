@@ -50,10 +50,14 @@ export const agentsApi = {
 
   // ── 제어 (동기) ───────────────────────────────────────────
   startAgent: (id: number, token?: string) =>
-    adminApi.post(`api/v1/agents/${id}/start`, token ? withSession(token) : {}).json<AgentStatusOut>(),
+    adminApi
+      .post(`api/v1/agents/${id}/start`, token ? withSession(token) : {})
+      .json<AgentStatusOut>(),
 
   stopAgent: (id: number, token?: string) =>
-    adminApi.post(`api/v1/agents/${id}/stop`, token ? withSession(token) : {}).json<AgentStatusOut>(),
+    adminApi
+      .post(`api/v1/agents/${id}/stop`, token ? withSession(token) : {})
+      .json<AgentStatusOut>(),
 
   restartAgent: (id: number, token?: string) =>
     adminApi

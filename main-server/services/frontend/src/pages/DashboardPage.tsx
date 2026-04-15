@@ -1,6 +1,6 @@
-import { useState, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { RefreshCw, Wifi, WifiOff } from 'lucide-react'
+import { useCallback, useState } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
+import { RefreshCw, Wifi, WifiOff, RotateCw } from 'lucide-react'
 import { ROUTES } from '@/constants/routes'
 import { useDashboardHealth } from '@/hooks/queries/useDashboardHealth'
 import { useAgentHealthSummary } from '@/hooks/queries/useAgents'
@@ -16,6 +16,7 @@ import { formatKST, cn } from '@/lib/utils'
 
 export function DashboardPage() {
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [lastAlertUpdate, setLastAlertUpdate] = useState<Date | null>(null)
 
@@ -25,7 +26,6 @@ export function DashboardPage() {
   // WebSocket 연결 (실시간 알림 수신)
   const { isConnected: wsConnected, isConnecting: wsConnecting } = useWebSocketDashboard({
     onMessage: (message) => {
-      // 알림이 도착하면 UI에 피드백
       setLastAlertUpdate(new Date())
       console.log('[Dashboard] Received real-time update:', message.type)
     },
@@ -42,6 +42,21 @@ export function DashboardPage() {
     }
   }, [refetch])
 
+  const handleStatusCardClick = useCallback(
+    (status: 'critical' | 'warning' | 'normal') => {
+      const next = new URLSearchParams(searchParams)
+      next.set('status', status)
+      setSearchParams(next, { replace: true })
+      // 다음 tick에 스크롤 (필터 반영 후)
+      requestAnimationFrame(() => {
+        document
+          .getElementById('system-grid')
+          ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      })
+    },
+    [searchParams, setSearchParams],
+  )
+
   const summary = dashboardData?.summary
   const systems = dashboardData?.systems ?? []
   const lastUpdated = summary?.last_updated ? new Date(summary.last_updated) : new Date()
@@ -51,14 +66,19 @@ export function DashboardPage() {
       {/* 헤더 + WebSocket 상태 */}
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
-          <PageHeader
-            title="운영 대시보드"
-            description={`마지막 갱신: ${formatKST(lastUpdated.toISOString(), 'HH:mm:ss')}`}
-          />
-          {/* WebSocket 상태 표시 */}
+          <PageHeader title="운영 대시보드" />
+          <h2 className="text-text-primary -mt-4 mb-2 flex items-center gap-2 text-lg font-semibold">
+            <RotateCw className="h-5 w-5" />
+            <span>
+              {systems.length}개 시스템 모니터링 중
+              <span className="text-text-secondary"> · 최근 10분 · </span>
+              <span className="text-accent font-bold">시스템 수 기준</span>
+            </span>
+          </h2>
+          {/* WebSocket 상태 + 갱신 시각 */}
           <div
             className={cn(
-              '-mt-4 flex flex-wrap items-center gap-1.5 text-xs',
+              'flex flex-wrap items-center gap-1.5 text-xs',
               wsConnected ? 'text-green-500' : 'text-text-secondary',
             )}
           >
@@ -83,6 +103,9 @@ export function DashboardPage() {
                 <span>실시간 연결 대기</span>
               </>
             )}
+            <span className="text-text-disabled">
+              · 갱신 {formatKST(lastUpdated.toISOString(), 'HH:mm:ss')}
+            </span>
           </div>
         </div>
         <NeuButton
@@ -106,8 +129,12 @@ export function DashboardPage() {
         <ErrorCard onRetry={() => refetch()} />
       ) : summary ? (
         <>
-          {/* 상단: compact 통계 바 (로그분석 통계 통합) */}
-          <DashboardSummaryStats summary={summary} agentSummary={agentHealth} />
+          {/* 상단: compact 통계 바 (클릭 가능, 6카드 구성) */}
+          <DashboardSummaryStats
+            summary={summary}
+            agentSummary={agentHealth}
+            onStatusCardClick={handleStatusCardClick}
+          />
 
           {/* 추이 모니터 — 전체/다중 시스템 집계 추이 */}
           <TrendMonitorSection systems={systems} />
@@ -122,14 +149,6 @@ export function DashboardPage() {
             </h2>
             <SystemHealthGrid systems={systems} onAddSystem={handleAddSystem} />
           </section>
-
-          {/* 하단: 최근 알림 피드 (향후: WebSocket 연동) */}
-          {/* <section>
-            <h2 className="mb-4 text-lg font-semibold text-text-primary">
-              최근 알림
-            </h2>
-            <AlertFeed alerts={recentAlerts ?? []} loading={alertsLoading} />
-          </section> */}
         </>
       ) : null}
     </div>
