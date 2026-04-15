@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom'
-import { Settings, ChevronRight } from 'lucide-react'
+import { Cpu, Database, ChevronRight } from 'lucide-react'
 import { NeuCard } from '@/components/neumorphic/NeuCard'
 import { AgentStatusBadge } from './AgentStatusBadge'
 import { ROUTES } from '@/constants/routes'
@@ -31,7 +31,11 @@ export function AgentCard({ agent }: AgentCardProps) {
     >
       <div className="flex min-w-0 items-center gap-3">
         <div className="bg-glass-bg flex h-8 w-8 shrink-0 items-center justify-center rounded-sm">
-          <Settings className="text-accent h-4 w-4" />
+          {agent.agent_type === 'db' ? (
+            <Database className="text-accent h-4 w-4" />
+          ) : (
+            <Cpu className="text-accent h-4 w-4" />
+          )}
         </div>
         <div className="min-w-0">
           <div className="flex items-center gap-2">

@@ -20,7 +20,7 @@ import type { AgentType } from '@/types/agent'
 
 const AGENT_TYPE_OPTIONS: Array<{ value: AgentType | 'all'; label: string }> = [
   { value: 'all', label: '전체' },
-  { value: 'synapse_agent', label: 'Synapse Agent' },
+  { value: 'synapse_agent', label: 'Synapse 수집기' },
   { value: 'db', label: 'DB 수집기' },
 ]
 
@@ -119,7 +119,7 @@ export function AgentListPage() {
     <div>
       <PageHeader
         title="에이전트 관리"
-        description="Synapse Agent / DB 수집기 설치·제어"
+        description="Synapse 수집기 / DB 수집기 설치·제어"
         action={
           <div className="flex items-center gap-2">
             {sessionActive ? (

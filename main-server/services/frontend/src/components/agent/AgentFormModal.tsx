@@ -12,7 +12,7 @@ import type { AgentType, AgentInstance, OsType, ServerType, DbType } from '@/typ
 import type { System } from '@/types/system'
 
 const AGENT_TYPES: { value: AgentType; label: string }[] = [
-  { value: 'synapse_agent', label: 'Synapse Agent (통합 수집기)' },
+  { value: 'synapse_agent', label: 'Synapse 수집기' },
   { value: 'db', label: 'DB 수집기' },
 ]
 

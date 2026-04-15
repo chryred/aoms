@@ -67,7 +67,7 @@ export function anomalyColor(type: AnomalyType | null): string {
 
 // 에이전트 타입 라벨 (공통)
 export const AGENT_TYPE_LABEL: Record<AgentType, string> = {
-  synapse_agent: 'Synapse Agent',
+  synapse_agent: 'Synapse 수집기',
   db: 'DB 수집기',
 }
 
