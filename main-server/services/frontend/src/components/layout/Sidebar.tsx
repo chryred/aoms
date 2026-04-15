@@ -11,6 +11,7 @@ import {
   Activity,
   Search,
   MessageSquare,
+  FileSearch,
   UserCircle,
   ShieldCheck,
   Database,
@@ -33,6 +34,7 @@ function NavItem({
   badge,
   collapsed,
   onNavigate,
+  end,
 }: {
   to: string
   icon: React.ReactNode
@@ -40,10 +42,12 @@ function NavItem({
   badge?: number
   collapsed: boolean
   onNavigate?: () => void
+  end?: boolean
 }) {
   return (
     <NavLink
       to={to}
+      end={end}
       onClick={onNavigate}
       className={({ isActive }) =>
         cn(
@@ -183,6 +187,14 @@ export function Sidebar() {
             to={ROUTES.FEEDBACK}
             icon={<MessageSquare className="h-4 w-4" />}
             label="피드백"
+            collapsed={collapsed}
+            onNavigate={closeMobileSidebar}
+            end
+          />
+          <NavItem
+            to={ROUTES.FEEDBACK_SEARCH}
+            icon={<FileSearch className="h-4 w-4" />}
+            label="해결책 검색"
             collapsed={collapsed}
             onNavigate={closeMobileSidebar}
           />

@@ -22,9 +22,6 @@ const AlertHistoryPage = lazy(() =>
 const ContactListPage = lazy(() =>
   import('@/pages/ContactListPage').then((m) => ({ default: m.ContactListPage })),
 )
-const ContactFormPage = lazy(() =>
-  import('@/pages/ContactFormPage').then((m) => ({ default: m.ContactFormPage })),
-)
 const DashboardSystemDetailPage = lazy(() =>
   import('@/pages/DashboardSystemDetailPage').then((m) => ({
     default: m.DashboardSystemDetailPage,
@@ -50,6 +47,9 @@ const FeedbackPage = lazy(() =>
 )
 const FeedbackSubmitPage = lazy(() =>
   import('@/pages/FeedbackSubmitPage').then((m) => ({ default: m.FeedbackSubmitPage })),
+)
+const FeedbackSearchPage = lazy(() =>
+  import('@/pages/FeedbackSearchPage').then((m) => ({ default: m.FeedbackSearchPage })),
 )
 const VectorHealthPage = lazy(() =>
   import('@/pages/VectorHealthPage').then((m) => ({ default: m.VectorHealthPage })),
@@ -147,22 +147,6 @@ export function App() {
             }
           />
           <Route
-            path="/contacts/new"
-            element={
-              <Suspense fallback={<LoadingSkeleton shape="card" />}>
-                <ContactFormPage />
-              </Suspense>
-            }
-          />
-          <Route
-            path="/contacts/:id/edit"
-            element={
-              <Suspense fallback={<LoadingSkeleton shape="card" />}>
-                <ContactFormPage />
-              </Suspense>
-            }
-          />
-          <Route
             path="/reports"
             element={
               <Suspense fallback={<LoadingSkeleton shape="card" count={3} />}>
@@ -199,6 +183,14 @@ export function App() {
             element={
               <Suspense fallback={<LoadingSkeleton shape="card" count={4} />}>
                 <FeedbackPage />
+              </Suspense>
+            }
+          />
+          <Route
+            path={ROUTES.FEEDBACK_SEARCH}
+            element={
+              <Suspense fallback={<LoadingSkeleton shape="table" />}>
+                <FeedbackSearchPage />
               </Suspense>
             }
           />

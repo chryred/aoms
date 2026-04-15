@@ -6,13 +6,19 @@ import os
 
 import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth import get_current_user
 from database import get_db
-from models import AlertFeedback, AlertHistory
-from schemas import FeedbackCreateRequest, FeedbackOut, FeedbackUpdateRequest
+from models import AlertFeedback, AlertHistory, System
+from schemas import (
+    FeedbackCreateRequest,
+    FeedbackOut,
+    FeedbackSearchOut,
+    FeedbackSearchResponse,
+    FeedbackUpdateRequest,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +60,73 @@ async def list_feedbacks(
         .order_by(AlertFeedback.created_at.desc())
     )
     return result.scalars().all()
+
+
+@router.get("/search", response_model=FeedbackSearchResponse)
+async def search_feedbacks(
+    system_id: int | None = None,
+    q: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+    db: AsyncSession = Depends(get_db),
+    _user=Depends(get_current_user),
+):
+    """해결책 검색 — 시스템 + 원인/해결책 키워드 ILIKE"""
+    limit = max(1, min(limit, 200))
+    offset = max(0, offset)
+
+    conditions = []
+    if system_id is not None:
+        conditions.append(AlertFeedback.system_id == system_id)
+    if q:
+        like = f"%{q}%"
+        conditions.append(or_(AlertFeedback.error_type.ilike(like), AlertFeedback.solution.ilike(like)))
+
+    base = (
+        select(
+            AlertFeedback,
+            AlertHistory.severity,
+            AlertHistory.alert_type,
+            AlertHistory.title,
+            System.system_name,
+            System.display_name,
+        )
+        .select_from(AlertFeedback)
+        .outerjoin(AlertHistory, AlertFeedback.alert_history_id == AlertHistory.id)
+        .outerjoin(System, AlertFeedback.system_id == System.id)
+    )
+    for cond in conditions:
+        base = base.where(cond)
+
+    total_stmt = select(func.count()).select_from(AlertFeedback)
+    for cond in conditions:
+        total_stmt = total_stmt.where(cond)
+    total = (await db.execute(total_stmt)).scalar_one()
+
+    rows = (
+        await db.execute(
+            base.order_by(AlertFeedback.created_at.desc()).limit(limit).offset(offset)
+        )
+    ).all()
+
+    items = [
+        FeedbackSearchOut(
+            id=fb.id,
+            system_id=fb.system_id,
+            alert_history_id=fb.alert_history_id,
+            error_type=fb.error_type,
+            solution=fb.solution,
+            resolver=fb.resolver,
+            created_at=fb.created_at,
+            severity=severity,
+            alert_type=alert_type,
+            title=title,
+            system_name=system_name,
+            system_display_name=display_name,
+        )
+        for fb, severity, alert_type, title, system_name, display_name in rows
+    ]
+    return FeedbackSearchResponse(items=items, total=total)
 
 
 @router.post("", response_model=FeedbackOut)

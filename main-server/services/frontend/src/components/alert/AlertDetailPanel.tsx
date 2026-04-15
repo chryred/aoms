@@ -99,7 +99,16 @@ export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
   const [editErrorType, setEditErrorType] = useState('기타')
   const [editSolution, setEditSolution] = useState('')
 
-  const parsedDesc = useMemo(() => parseDescription(alert?.description), [alert?.description])
+  // 닫힘 애니메이션 중에도 컨텐츠가 보이도록 마지막 alert를 유지
+  const lastAlertRef = useRef<AlertHistory | null>(null)
+  if (alert) lastAlertRef.current = alert
+  const displayAlert = alert ?? lastAlertRef.current
+  const open = !!alert
+
+  const parsedDesc = useMemo(
+    () => parseDescription(displayAlert?.description),
+    [displayAlert?.description],
+  )
 
   // 확인된 알림일 때만 피드백 조회
   const { data: feedbacks } = useFeedbacks(alert?.acknowledged && alert.id ? alert.id : null)
@@ -162,17 +171,19 @@ export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [alert, onClose])
 
-  if (!alert) return null
+  if (!displayAlert) return null
 
   const handleAck = () => {
+    if (!alert) return
+    const alertId = displayAlert.id
     acknowledge(
-      { id: alert.id, by: user?.name ?? 'unknown' },
+      { id: alertId, by: user?.name ?? 'unknown' },
       {
         onSuccess: () => {
           if (showSolution && solution.trim()) {
             createFeedback(
               {
-                alert_history_id: alert.id,
+                alert_history_id: alertId,
                 error_type: errorType,
                 solution: solution.trim(),
                 resolver: user?.name ?? 'unknown',
@@ -204,22 +215,33 @@ export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
 
   return (
     <>
-      <div className="bg-overlay fixed inset-0 z-40" onClick={onClose} aria-hidden="true" />
+      <div
+        className={cn(
+          'bg-overlay fixed inset-0 z-40 transition-opacity duration-200',
+          open ? 'opacity-100' : 'pointer-events-none opacity-0',
+        )}
+        onClick={onClose}
+        aria-hidden="true"
+      />
       <div
         ref={panelRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby={PANEL_TITLE_ID}
-        className="border-border bg-bg-base fixed top-0 right-0 bottom-0 z-50 flex w-full max-w-[460px] flex-col border-l shadow-[-8px_0_32px_rgba(0,0,0,0.4)]"
+        aria-hidden={!open}
+        className={cn(
+          'border-border bg-bg-base fixed top-0 right-0 bottom-0 z-50 flex w-full max-w-[460px] flex-col border-l shadow-[-8px_0_32px_rgba(0,0,0,0.4)] transition-transform duration-200',
+          open ? 'translate-x-0' : 'translate-x-full',
+        )}
       >
         {/* 헤더 */}
         <div className="border-border flex items-start justify-between border-b px-6 py-4">
           <div className="flex flex-wrap items-center gap-2">
-            <NeuBadge variant={SEVERITY_VARIANT[alert.severity]}>{alert.severity}</NeuBadge>
+            <NeuBadge variant={SEVERITY_VARIANT[displayAlert.severity]}>{displayAlert.severity}</NeuBadge>
             <span className="text-text-secondary text-sm">
-              {ALERT_TYPE_LABELS[alert.alert_type] ?? alert.alert_type}
+              {ALERT_TYPE_LABELS[displayAlert.alert_type] ?? displayAlert.alert_type}
             </span>
-            {alert.acknowledged && (
+            {displayAlert.acknowledged && (
               <NeuBadge variant="normal">
                 <CheckCircle className="mr-0.5 h-3 w-3" />
                 확인됨
@@ -239,7 +261,7 @@ export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
         <div className="flex-1 space-y-5 overflow-y-auto px-6 py-5">
           <div>
             <h3 id={PANEL_TITLE_ID} className="text-text-primary text-base font-semibold">
-              {formatAlertTitle(alert.title)}
+              {formatAlertTitle(displayAlert.title)}
             </h3>
           </div>
 
@@ -247,41 +269,41 @@ export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
           <div className="grid grid-cols-2 gap-3 text-sm">
             <div>
               <p className="type-label">발생 시각</p>
-              <p className="text-text-primary mt-0.5">{formatKST(alert.created_at)}</p>
+              <p className="text-text-primary mt-0.5">{formatKST(displayAlert.created_at)}</p>
             </div>
-            {alert.resolved_at && (
+            {displayAlert.resolved_at && (
               <div>
                 <p className="type-label">복구 시각</p>
-                <p className="text-normal mt-0.5">{formatKST(alert.resolved_at)}</p>
+                <p className="text-normal mt-0.5">{formatKST(displayAlert.resolved_at)}</p>
               </div>
             )}
-            {alert.alertname && (
+            {displayAlert.alertname && (
               <div>
                 <p className="type-label">Alert Name</p>
                 <p className="text-text-primary mt-0.5 font-mono text-xs break-all">
-                  {alert.alertname}
+                  {displayAlert.alertname}
                 </p>
               </div>
             )}
-            {alert.instance_role && (
+            {displayAlert.instance_role && (
               <div>
                 <p className="type-label">인스턴스 역할</p>
-                <p className="text-text-primary mt-0.5">{alert.instance_role}</p>
+                <p className="text-text-primary mt-0.5">{displayAlert.instance_role}</p>
               </div>
             )}
-            {alert.host && (
+            {displayAlert.host && (
               <div>
                 <p className="type-label">호스트</p>
-                <p className="text-text-primary mt-0.5 font-mono text-xs break-all">{alert.host}</p>
+                <p className="text-text-primary mt-0.5 font-mono text-xs break-all">{displayAlert.host}</p>
               </div>
             )}
           </div>
 
           {/* 유사도 분석 */}
-          {alert.anomaly_type && (
+          {displayAlert.anomaly_type && (
             <div>
               <p className="type-label mb-1.5">이상 유형</p>
-              <AnomalyTypeBadge type={alert.anomaly_type} score={alert.similarity_score} />
+              <AnomalyTypeBadge type={displayAlert.anomaly_type} score={displayAlert.similarity_score} />
             </div>
           )}
 
@@ -298,12 +320,12 @@ export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
             </div>
           ) : (
             !parsedDesc &&
-            alert.description && (
+            displayAlert.description && (
               <div>
                 <p className="type-label mb-1.5">상세 내용</p>
                 <div className="bg-bg-base shadow-neu-inset rounded-sm p-4">
                   <p className="text-text-primary text-sm leading-relaxed break-words whitespace-pre-wrap">
-                    {alert.description}
+                    {displayAlert.description}
                   </p>
                 </div>
               </div>
@@ -311,18 +333,18 @@ export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
           )}
 
           {/* 확인 처리 이력 */}
-          {alert.acknowledged && alert.acknowledged_by && (
+          {displayAlert.acknowledged && displayAlert.acknowledged_by && (
             <div>
               <p className="type-label mb-1.5">처리 정보</p>
               <p className="text-text-secondary text-sm">
-                {alert.acknowledged_by}
-                {alert.acknowledged_at && ` · ${formatKST(alert.acknowledged_at)}`}
+                {displayAlert.acknowledged_by}
+                {displayAlert.acknowledged_at && ` · ${formatKST(displayAlert.acknowledged_at)}`}
               </p>
             </div>
           )}
 
           {/* 피드백 미등록 상태 — 확인 완료 후 신규 등록 */}
-          {alert.acknowledged && !existingFeedback && (
+          {displayAlert.acknowledged && !existingFeedback && (
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <p className="type-label">피드백 등록</p>
@@ -372,7 +394,7 @@ export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
                       onClick={() =>
                         createFeedback(
                           {
-                            alert_history_id: alert.id,
+                            alert_history_id: displayAlert.id,
                             error_type: errorType,
                             solution: solution.trim(),
                             resolver: user?.name ?? 'unknown',
@@ -406,7 +428,7 @@ export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
           )}
 
           {/* 등록된 피드백 — 확인된 알림에서만 표시 */}
-          {alert.acknowledged && existingFeedback && !isEditing && (
+          {displayAlert.acknowledged && existingFeedback && !isEditing && (
             <div>
               <div className="mb-1.5 flex items-center justify-between">
                 <p className="type-label">등록된 피드백</p>
@@ -436,7 +458,7 @@ export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
           )}
 
           {/* 등록된 피드백 수정 모드 */}
-          {alert.acknowledged && existingFeedback && isEditing && (
+          {displayAlert.acknowledged && existingFeedback && isEditing && (
             <div className="space-y-3">
               <p className="type-label">피드백 수정</p>
               <NeuSelect
@@ -476,7 +498,7 @@ export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
         </div>
 
         {/* 푸터 */}
-        {!alert.acknowledged && (
+        {!displayAlert.acknowledged && (
           <div className="border-border space-y-3 border-t px-6 py-4">
             <button
               type="button"

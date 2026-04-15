@@ -1,6 +1,4 @@
 import { useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { ROUTES } from '@/constants/routes'
 import { Pencil, Trash2, Users, X } from 'lucide-react'
 import { PageHeader } from '@/components/common/PageHeader'
 import { NeuButton } from '@/components/neumorphic/NeuButton'
@@ -8,6 +6,7 @@ import { NeuInput } from '@/components/neumorphic/NeuInput'
 import { NeuBadge } from '@/components/neumorphic/NeuBadge'
 import { EmptyState } from '@/components/common/EmptyState'
 import { LoadingSkeleton } from '@/components/common/LoadingSkeleton'
+import { ContactFormDrawer } from '@/components/contacts/ContactFormDrawer'
 import { useContacts } from '@/hooks/queries/useContacts'
 import { useDeleteContact } from '@/hooks/mutations/useDeleteContact'
 import { formatKST } from '@/lib/utils'
@@ -62,12 +61,23 @@ function SystemsCell({ systems }: { systems: ContactSystem[] }) {
 }
 
 export function ContactListPage() {
-  const navigate = useNavigate()
   const { data: contacts = [], isLoading } = useContacts()
   const deleteMutation = useDeleteContact()
 
   const [search, setSearch] = useState('')
   const [confirmId, setConfirmId] = useState<number | null>(null)
+  const [drawerOpen, setDrawerOpen] = useState(false)
+  const [editTarget, setEditTarget] = useState<Contact | null>(null)
+
+  const openCreate = () => {
+    setEditTarget(null)
+    setDrawerOpen(true)
+  }
+  const openEdit = (contact: Contact) => {
+    setEditTarget(contact)
+    setDrawerOpen(true)
+  }
+  const closeDrawer = () => setDrawerOpen(false)
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase()
@@ -93,7 +103,7 @@ export function ContactListPage() {
     <div>
       <PageHeader
         title="담당자 관리"
-        action={<NeuButton onClick={() => navigate(ROUTES.CONTACTS_NEW)}>담당자 등록</NeuButton>}
+        action={<NeuButton onClick={openCreate}>담당자 등록</NeuButton>}
       />
 
       <div className="mb-4 max-w-xs">
@@ -108,7 +118,7 @@ export function ContactListPage() {
         <EmptyState
           icon={<Users className="h-10 w-10" />}
           title="담당자가 없습니다"
-          cta={{ label: '담당자 등록', onClick: () => navigate(ROUTES.CONTACTS_NEW) }}
+          cta={{ label: '담당자 등록', onClick: openCreate }}
         />
       ) : (
         <div className="bg-bg-base shadow-neu-flat overflow-hidden rounded-sm">
@@ -132,7 +142,7 @@ export function ContactListPage() {
                 <ContactRow
                   key={c.id}
                   contact={c}
-                  onEdit={() => navigate(ROUTES.contactEdit(c.id))}
+                  onEdit={() => openEdit(c)}
                   onDelete={() => setConfirmId(c.id)}
                 />
               ))}
@@ -140,6 +150,8 @@ export function ContactListPage() {
           </table>
         </div>
       )}
+
+      <ContactFormDrawer open={drawerOpen} onClose={closeDrawer} editTarget={editTarget} />
 
       {/* Confirm Dialog */}
       {confirmId !== null && (

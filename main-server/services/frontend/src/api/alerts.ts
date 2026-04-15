@@ -34,6 +34,26 @@ export interface FeedbackOut {
   created_at: string
 }
 
+export interface FeedbackSearchParams {
+  system_id?: number
+  q?: string
+  limit?: number
+  offset?: number
+}
+
+export interface FeedbackSearchItem extends FeedbackOut {
+  severity: string | null
+  alert_type: string | null
+  title: string | null
+  system_name: string | null
+  system_display_name: string | null
+}
+
+export interface FeedbackSearchResponse {
+  items: FeedbackSearchItem[]
+  total: number
+}
+
 export type AlertCountParams = Omit<AlertFilterParams, 'limit' | 'offset'>
 
 export const alertsApi = {
@@ -60,4 +80,9 @@ export const alertsApi = {
 
   updateFeedback: (id: number, body: FeedbackUpdateBody) =>
     adminApi.put(`api/v1/feedback/${id}`, { json: body }).json<FeedbackOut>(),
+
+  searchFeedbacks: (params: FeedbackSearchParams = {}) =>
+    adminApi
+      .get('api/v1/feedback/search', { searchParams: filterParams(params) })
+      .json<FeedbackSearchResponse>(),
 }

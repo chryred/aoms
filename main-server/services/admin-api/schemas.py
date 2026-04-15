@@ -203,6 +203,26 @@ class FeedbackOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class FeedbackSearchOut(BaseModel):
+    id: int
+    system_id: Optional[int] = None
+    alert_history_id: Optional[int] = None
+    error_type: str
+    solution: str
+    resolver: str
+    created_at: datetime
+    severity: Optional[str] = None
+    alert_type: Optional[str] = None
+    title: Optional[str] = None
+    system_name: Optional[str] = None
+    system_display_name: Optional[str] = None
+
+
+class FeedbackSearchResponse(BaseModel):
+    items: list[FeedbackSearchOut]
+    total: int
+
+
 # ── LogAnalysis ──────────────────────────────────────────────────────────
 class LogAnalysisCreate(BaseModel):
     system_id: int

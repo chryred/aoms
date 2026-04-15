@@ -38,7 +38,7 @@ admin-api/
 │   ├── contacts.py          # /api/v1/contacts
 │   ├── alerts.py            # /api/v1/alerts
 │   ├── analysis.py          # /api/v1/analysis
-│   ├── feedback.py          # /api/v1/feedback (frontend /feedback/submit이 직접 호출)
+│   ├── feedback.py          # /api/v1/feedback (frontend /feedback/submit이 직접 호출, /search = 해결책 검색)
 │   ├── collector_config.py  # /api/v1/collector-config (Phase 5)
 │   ├── aggregations.py      # /api/v1/aggregations (Phase 5)
 │   ├── reports.py           # /api/v1/reports (Phase 5)
@@ -367,3 +367,11 @@ Teams 카드 "해결책 등록" 버튼
 - HTML 폼(`GET /api/v1/feedback/form`)과 n8n WF3은 제거됨
 - 동일 백엔드 엔드포인트를 `AlertDetailPanel` 인라인 폼도 그대로 사용하므로 한 곳만 유지보수
 - 자세한 결정 배경 + 이관 이력은 `.claude/memory/adrs.md` ADR-006 참조
+
+### 해결책 검색 API
+
+- `GET /api/v1/feedback/search?system_id=&q=&limit=&offset=`
+  - 프론트 `/feedback/search` 페이지 전용
+  - `AlertHistory`/`System` outer join → `severity`, `alert_type`, `title`, `system_name`, `system_display_name` 동반 반환 (alert_history 연결이 없으면 각 필드 null)
+  - `q`는 `alert_feedback.error_type` / `solution` 두 컬럼 ILIKE OR 검색
+  - 응답: `FeedbackSearchResponse { items: FeedbackSearchOut[], total: number }`

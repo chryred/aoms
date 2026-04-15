@@ -9,7 +9,6 @@ describe('ROUTES', () => {
     expect(ROUTES.SYSTEMS).toBe('/systems')
     expect(ROUTES.ALERTS).toBe('/alerts')
     expect(ROUTES.CONTACTS).toBe('/contacts')
-    expect(ROUTES.CONTACTS_NEW).toBe('/contacts/new')
     expect(ROUTES.REPORTS).toBe('/reports')
     expect(ROUTES.REPORTS_HISTORY).toBe('/reports/history')
     expect(ROUTES.SEARCH).toBe('/search')
@@ -19,15 +18,6 @@ describe('ROUTES', () => {
     expect(ROUTES.ADMIN_USERS).toBe('/admin/users')
     expect(ROUTES.VECTOR_HEALTH).toBe('/vector-health')
     expect(ROUTES.AGENTS).toBe('/agents')
-  })
-
-  it('contactEdit 함수 — 숫자 ID', () => {
-    expect(ROUTES.contactEdit(1)).toBe('/contacts/1/edit')
-    expect(ROUTES.contactEdit(99)).toBe('/contacts/99/edit')
-  })
-
-  it('contactEdit 함수 — 문자열 ID', () => {
-    expect(ROUTES.contactEdit('abc')).toBe('/contacts/abc/edit')
   })
 
   it('systemDetail 함수', () => {

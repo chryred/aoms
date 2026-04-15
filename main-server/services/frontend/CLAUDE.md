@@ -54,6 +54,7 @@ src/
 │   ├── DashboardPage.tsx              # 통합 대시보드 (하이브리드: 상단 통계 + 하단 시스템 카드)
 │   ├── DashboardSystemDetailPage.tsx  # 시스템 상세 (활성 알림 + 로그분석 + 담당자)
 │   ├── FeedbackSubmitPage.tsx        # Teams 카드 "해결책 등록" 버튼 진입 단독 페이지 (AppLayout 외부)
+│   ├── FeedbackSearchPage.tsx        # 해결책 검색 (/feedback/search, 시스템 + 원인/해결책 키워드 ILIKE)
 │   ├── AgentListPage.tsx             # 에이전트 목록 (시스템별 그룹, SSH 세션 관리) (Phase 6)
 │   └── AgentDetailPage.tsx           # 에이전트 제어 + 설정 파일 편집기 (Phase 6)
 ├── store/         # Zustand 스토어 (authStore, uiStore, wizardStore, sshSessionStore)

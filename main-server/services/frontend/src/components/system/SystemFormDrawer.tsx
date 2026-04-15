@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { cn } from '@/lib/utils'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -32,7 +33,11 @@ interface SystemFormDrawerProps {
 }
 
 export function SystemFormDrawer({ open, onClose, onCreated, editTarget }: SystemFormDrawerProps) {
-  const isEdit = Boolean(editTarget)
+  // 닫힘 애니메이션 중에도 컨텐츠 유지
+  const lastEditRef = useRef<System | undefined>(editTarget)
+  if (open) lastEditRef.current = editTarget
+  const displayEdit = open ? editTarget : lastEditRef.current
+  const isEdit = Boolean(displayEdit)
   const drawerRef = useRef<HTMLDivElement>(null)
   const { mutate: create, isPending: isCreating } = useCreateSystem()
   const { mutate: update, isPending: isUpdating } = useUpdateSystem(editTarget?.id ?? 0)
@@ -116,19 +121,28 @@ export function SystemFormDrawer({ open, onClose, onCreated, editTarget }: Syste
     }
   }
 
-  if (!open) return null
-
   return (
     <>
       {/* 오버레이 */}
-      <div className="bg-overlay fixed inset-0 z-40" onClick={onClose} />
+      <div
+        className={cn(
+          'bg-overlay fixed inset-0 z-40 transition-opacity duration-200',
+          open ? 'opacity-100' : 'pointer-events-none opacity-0',
+        )}
+        onClick={onClose}
+        aria-hidden="true"
+      />
       {/* 드로어 */}
       <div
         ref={drawerRef}
         role="dialog"
         aria-modal="true"
+        aria-hidden={!open}
         aria-label={isEdit ? '시스템 수정' : '시스템 등록'}
-        className="border-border bg-bg-base fixed top-0 right-0 bottom-0 z-50 flex w-full max-w-[480px] flex-col border-l shadow-[-8px_0_32px_rgba(0,0,0,0.4)]"
+        className={cn(
+          'border-border bg-bg-base fixed top-0 right-0 bottom-0 z-50 flex w-full max-w-[480px] flex-col border-l shadow-[-8px_0_32px_rgba(0,0,0,0.4)] transition-transform duration-200',
+          open ? 'translate-x-0' : 'translate-x-full',
+        )}
       >
         {/* 헤더 */}
         <div className="border-border flex items-center justify-between border-b px-6 py-4">
@@ -183,10 +197,10 @@ export function SystemFormDrawer({ open, onClose, onCreated, editTarget }: Syste
           </form>
 
           {/* 담당자 연결 — 수정 모드에서만 표시 */}
-          {isEdit && editTarget && (
+          {isEdit && displayEdit && (
             <div className="border-border mt-6 border-t pt-5">
               <p className="type-label mb-3">담당자</p>
-              <SystemContactPanel systemId={editTarget.id} />
+              <SystemContactPanel systemId={displayEdit.id} />
             </div>
           )}
         </div>

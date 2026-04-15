@@ -17,6 +17,7 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/trends', label: '장애 예측', group: '운영' },
   { to: '/alerts', label: '알림 이력', group: '알림' },
   { to: '/feedback', label: '피드백', group: '알림' },
+  { to: '/feedback/search', label: '해결책 검색', group: '알림' },
   { to: '/reports', label: '안정성 리포트', group: '분석' },
   { to: '/search', label: '유사 장애 검색', group: '분석' },
   { to: '/agents', label: '에이전트 관리', group: '관리' },
