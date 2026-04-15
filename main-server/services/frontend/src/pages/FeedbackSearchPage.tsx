@@ -129,7 +129,7 @@ export function FeedbackSearchPage() {
         <NeuCard className="overflow-hidden p-0">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
-              <thead className="border-border text-text-secondary border-b text-left text-xs uppercase tracking-wider">
+              <thead className="border-border text-text-primary border-b text-left text-xs font-semibold uppercase tracking-wider">
                 <tr>
                   <th className="whitespace-nowrap px-3 py-2.5">번호</th>
                   <th className="whitespace-nowrap px-3 py-2.5">심각도</th>

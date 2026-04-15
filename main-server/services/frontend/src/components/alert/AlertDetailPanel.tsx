@@ -1,24 +1,21 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { X, CheckCircle, ChevronDown, Pencil, Lightbulb } from 'lucide-react'
+import { X, CheckCircle, ChevronDown, Pencil, Lightbulb, FileText } from 'lucide-react'
 import { NeuButton } from '@/components/neumorphic/NeuButton'
 import { NeuBadge } from '@/components/neumorphic/NeuBadge'
 import { NeuSelect } from '@/components/neumorphic/NeuSelect'
 import { NeuTextarea } from '@/components/neumorphic/NeuTextarea'
 import { AnomalyTypeBadge } from './AnomalyTypeBadge'
+import { SeverityBadge } from '@/components/charts/SeverityBadge'
 import { formatAlertTitle } from './alertTitle'
 import { useAcknowledgeAlert } from '@/hooks/mutations/useAcknowledgeAlert'
 import { useCreateFeedback } from '@/hooks/mutations/useCreateFeedback'
 import { useUpdateFeedback } from '@/hooks/mutations/useUpdateFeedback'
 import { useFeedbacks } from '@/hooks/queries/useFeedbacks'
+import { useSystems } from '@/hooks/queries/useSystems'
 import { useAuthStore } from '@/store/authStore'
 import { cn, formatKST } from '@/lib/utils'
+import { IncidentReportModal } from './IncidentReportModal'
 import type { AlertHistory, Severity } from '@/types/alert'
-
-const SEVERITY_VARIANT: Record<Severity, 'critical' | 'warning' | 'info'> = {
-  critical: 'critical',
-  warning: 'warning',
-  info: 'info',
-}
 
 const ALERT_TYPE_LABELS: Record<string, string> = {
   metric: '메트릭 알림',
@@ -88,11 +85,13 @@ export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
   const { mutate: acknowledge, isPending } = useAcknowledgeAlert()
   const { mutate: createFeedback, isPending: isFeedbackPending } = useCreateFeedback()
   const { mutate: updateFeedback, isPending: isUpdatePending } = useUpdateFeedback()
+  const { data: systems = [] } = useSystems()
   const panelRef = useRef<HTMLDivElement>(null)
 
   const [showSolution, setShowSolution] = useState(false)
   const [errorType, setErrorType] = useState('기타')
   const [solution, setSolution] = useState('')
+  const [showIncidentModal, setShowIncidentModal] = useState(false)
 
   // 기등록 피드백 수정 상태
   const [isEditing, setIsEditing] = useState(false)
@@ -120,6 +119,7 @@ export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
     setErrorType('기타')
     setSolution('')
     setIsEditing(false)
+    setShowIncidentModal(false)
   }, [alert?.id])
 
   // 수정 모드 진입 시 기존 피드백 값으로 폼 초기화
@@ -170,6 +170,10 @@ export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [alert, onClose])
+
+  const systemName = displayAlert?.system_id != null
+    ? (systems.find((s) => s.id === displayAlert.system_id)?.display_name ?? undefined)
+    : undefined
 
   if (!displayAlert) return null
 
@@ -237,7 +241,7 @@ export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
         {/* 헤더 */}
         <div className="border-border flex items-start justify-between border-b px-6 py-4">
           <div className="flex flex-wrap items-center gap-2">
-            <NeuBadge variant={SEVERITY_VARIANT[displayAlert.severity]}>{displayAlert.severity}</NeuBadge>
+            <SeverityBadge severity={displayAlert.severity} size="md" />
             <span className="text-text-secondary text-sm">
               {ALERT_TYPE_LABELS[displayAlert.alert_type] ?? displayAlert.alert_type}
             </span>
@@ -497,6 +501,19 @@ export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
           )}
         </div>
 
+        {/* 장애요약 작성 버튼 — 확인 여부 무관하게 항상 표시 */}
+        <div className="border-border border-t px-6 py-3">
+          <NeuButton
+            variant="ghost"
+            size="sm"
+            className="w-full"
+            onClick={() => setShowIncidentModal(true)}
+          >
+            <FileText className="h-4 w-4" />
+            장애요약 작성
+          </NeuButton>
+        </div>
+
         {/* 푸터 */}
         {!displayAlert.acknowledged && (
           <div className="border-border space-y-3 border-t px-6 py-4">
@@ -547,6 +564,12 @@ export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
           </div>
         )}
       </div>
+
+      <IncidentReportModal
+        alert={showIncidentModal ? displayAlert : null}
+        systemName={systemName}
+        onClose={() => setShowIncidentModal(false)}
+      />
     </>
   )
 }

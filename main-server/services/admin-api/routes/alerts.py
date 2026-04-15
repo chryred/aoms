@@ -1,17 +1,19 @@
 import json
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from auth import get_current_user
 from database import get_db
 from models import AlertHistory, System, Contact, SystemContact
-from schemas import AlertHistoryOut, AlertmanagerPayload, AcknowledgeRequest
+from schemas import AlertHistoryOut, AlertmanagerPayload, AcknowledgeRequest, IncidentReportOut
 from services.cooldown import is_in_cooldown, make_alert_key, record_sent
+from services.llm_client import call_llm_text
 from services.notification import TeamsNotifier
 from .websocket import notify_alert_fired, notify_alert_resolved
 
@@ -304,3 +306,95 @@ async def acknowledge_alert(
     await db.commit()
     await db.refresh(alert)
     return alert
+
+
+_KST = timezone(timedelta(hours=9))
+
+
+@router.post("/{alert_id}/incident-report", response_model=IncidentReportOut)
+async def generate_incident_report(
+    alert_id: int,
+    db: AsyncSession = Depends(get_db),
+    _current_user=Depends(get_current_user),
+):
+    """알림 데이터를 바탕으로 LLM이 한국어 장애보고서를 자동 생성한다."""
+    alert = await db.get(AlertHistory, alert_id)
+    if not alert:
+        raise HTTPException(status_code=404, detail="Alert not found")
+
+    # 시스템 display_name 조회 + primary 담당자 API 키 조회
+    system_display_name = "알 수 없음"
+    api_key = ""
+    agent_code = ""
+    if alert.system_id:
+        system = await db.get(System, alert.system_id)
+        if system:
+            system_display_name = system.display_name
+
+        primary_result = await db.execute(
+            select(Contact)
+            .join(SystemContact, SystemContact.contact_id == Contact.id)
+            .where(SystemContact.system_id == alert.system_id)
+            .where(SystemContact.role == "primary")
+            .limit(1)
+        )
+        primary_contact = primary_result.scalar_one_or_none()
+        if primary_contact:
+            api_key = primary_contact.llm_api_key or ""
+            agent_code = primary_contact.agent_code or ""
+
+    # description JSON 파싱 (root_cause, recommendation 추출)
+    root_cause = ""
+    recommendation = ""
+    description_text = alert.description or ""
+    if description_text:
+        try:
+            desc_obj = json.loads(description_text)
+            if isinstance(desc_obj, dict):
+                root_cause = desc_obj.get("root_cause", "")
+                recommendation = desc_obj.get("recommendation", "")
+                description_text = desc_obj.get("summary", description_text)
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+    # 발생 시각 KST 변환
+    created_at_kst = alert.created_at.replace(tzinfo=timezone.utc).astimezone(_KST)
+    created_at_str = created_at_kst.strftime("%Y년 %m월 %d일 %H시 %M분")
+
+    resolved_str = ""
+    if alert.resolved_at:
+        resolved_kst = alert.resolved_at.replace(tzinfo=timezone.utc).astimezone(_KST)
+        resolved_str = resolved_kst.strftime("%H시 %M분")
+
+    time_range = f"{created_at_str} ~ {resolved_str}" if resolved_str else f"{created_at_str} ~ 현재 진행 중"
+
+    prompt = f"""다음 시스템 장애 알림 데이터를 바탕으로 아래 양식에 맞는 한국어 장애보고서를 작성하세요.
+
+[알림 정보]
+- 시스템명: {system_display_name}
+- 심각도: {alert.severity}
+- 제목: {alert.title or ''}
+- 발생일시: {created_at_str}
+- 인스턴스: {alert.instance_role or '알 수 없음'} / {alert.host or '알 수 없음'}
+- 설명: {description_text}
+- 원인 분석: {root_cause}
+- 권고 조치: {recommendation}
+
+다음 양식을 반드시 그대로 사용하고, 각 항목을 한국어로 구체적으로 작성하세요.
+추측이 필요한 항목은 가능한 범위에서 합리적으로 추정하여 작성하고, 정보가 부족하면 "(확인 필요)"로 표시하세요.
+
+<장애보고>
+[백화점CX팀] (제목: 현상위주로 작성)
+○ 장애발생일시 : {time_range}
+○ 장애인지 : (모니터링 시스템 자동 감지 경위 및 인지 시각)
+○ 영향범위 : (피해 서비스 및 사용자 영향 중심 서술)
+○ 장애원인 : (IT 기술 용어를 비즈니스 관점으로 설명 포함)
+○ 조치사항 : (현재까지 조치 내역 및 진행 중인 조치)
+○ 고객반응 : (관계사·현업 인지 여부 및 VOC 등 반응)
+○ 기타 : (그 외 추가 상황 및 진행 중인 내용)"""
+
+    report = await call_llm_text(prompt, max_tokens=1500, api_key=api_key, agent_code=agent_code)
+    if not report:
+        raise HTTPException(status_code=503, detail="LLM 서비스 응답 없음. 잠시 후 다시 시도하세요.")
+
+    return IncidentReportOut(report=report)

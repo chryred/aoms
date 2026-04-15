@@ -514,3 +514,9 @@ class AgentStatusOut(BaseModel):
     status: str             # running | stopped | unknown
     pid: Optional[int]
     message: str
+
+
+# ── Incident Report ──────────────────────────────────────────────────────────
+
+class IncidentReportOut(BaseModel):
+    report: str

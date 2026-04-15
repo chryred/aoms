@@ -1,19 +1,14 @@
 import { useMemo } from 'react'
 import { Bell, CheckCircle } from 'lucide-react'
 import { NeuBadge } from '@/components/neumorphic/NeuBadge'
+import { SeverityBadge } from '@/components/charts/SeverityBadge'
 import { AnomalyTypeBadge } from './AnomalyTypeBadge'
 import { formatAlertTitle } from './alertTitle'
 import { EmptyState } from '@/components/common/EmptyState'
 import { useSystems } from '@/hooks/queries/useSystems'
 import { formatRelative } from '@/lib/utils'
 import { cn } from '@/lib/utils'
-import type { AlertHistory, Severity } from '@/types/alert'
-
-const SEVERITY_VARIANT: Record<Severity, 'critical' | 'warning' | 'info'> = {
-  critical: 'critical',
-  warning: 'warning',
-  info: 'info',
-}
+import type { AlertHistory } from '@/types/alert'
 
 const ALERT_TYPE_LABELS: Record<string, string> = {
   metric: '메트릭',
@@ -58,7 +53,7 @@ export function AlertTable({ alerts, onSelect }: AlertTableProps) {
         <thead>
           <tr className="border-border border-b">
             {['ID', '심각도', '유형', '시스템', '제목', '이상 유형', '발생 시각', '확인'].map((h) => (
-              <th key={h} className="type-label px-4 py-3 text-left">
+              <th key={h} className="text-text-primary whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider">
                 {h}
               </th>
             ))}
@@ -87,11 +82,11 @@ export function AlertTable({ alerts, onSelect }: AlertTableProps) {
               <td className="text-text-secondary px-4 py-3 font-mono text-xs whitespace-nowrap">
                 #{alert.id}
               </td>
-              <td className="px-4 py-3">
-                <NeuBadge variant={SEVERITY_VARIANT[alert.severity]}>{alert.severity}</NeuBadge>
+              <td className="whitespace-nowrap px-4 py-3">
+                <SeverityBadge severity={alert.severity} />
               </td>
-              <td className="px-4 py-3">
-                <NeuBadge variant="muted">{getTypeLabel(alert)}</NeuBadge>
+              <td className="text-text-secondary whitespace-nowrap px-4 py-3 text-xs">
+                {getTypeLabel(alert)}
               </td>
               <td className="px-4 py-3">
                 <p className="text-text-primary max-w-[140px] truncate text-sm">
