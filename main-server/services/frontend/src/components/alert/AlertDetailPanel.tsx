@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { X, CheckCircle, ChevronDown, Pencil } from 'lucide-react'
+import { X, CheckCircle, ChevronDown, Pencil, Lightbulb } from 'lucide-react'
 import { NeuButton } from '@/components/neumorphic/NeuButton'
 import { NeuBadge } from '@/components/neumorphic/NeuBadge'
 import { NeuSelect } from '@/components/neumorphic/NeuSelect'
@@ -279,28 +279,22 @@ export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
             </div>
           )}
 
-          {/* 설명 — JSON 파싱 성공 시 원인/해결방안 분리 표시, 실패 시 원문 표시 */}
-          {parsedDesc ? (
-            <div className="space-y-3">
-              {parsedDesc.root_cause && (
-                <NeuTextarea
-                  label="원인"
-                  rows={5}
-                  readOnly
-                  value={parsedDesc.root_cause}
-                />
-              )}
-              {parsedDesc.recommendation && (
-                <NeuTextarea
-                  label="해결방안"
-                  rows={6}
-                  readOnly
-                  value={parsedDesc.recommendation}
-                />
-              )}
+          {/* 해결방안 — 화면의 시각 앵커. 원인은 상단 타이틀이 이미 보여주므로 중복 제거 */}
+          {parsedDesc?.recommendation ? (
+            <div className="border-accent rounded-sm border p-4">
+
+              <div className="mb-2.5 flex items-center gap-2">
+                <Lightbulb className="text-accent h-5 w-5" aria-hidden="true" />
+                <p className="text-accent text-lg font-bold tracking-tight">
+                  해결방안
+                </p>
+              </div>
+              <p className="text-text-primary text-base leading-relaxed font-medium break-words whitespace-pre-wrap">
+                {parsedDesc.recommendation}
+              </p>
             </div>
           ) : (
-            alert.description && (
+            !parsedDesc && alert.description && (
               <div>
                 <p className="type-label mb-1.5">상세 내용</p>
                 <div className="bg-bg-base shadow-neu-inset rounded-sm p-4">

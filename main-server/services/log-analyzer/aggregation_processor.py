@@ -220,6 +220,60 @@ async def _send_teams(
         logger.warning("Teams 알림 발송 실패: %s", exc)
 
 
+def _build_report_card_body(
+    title: str,
+    llm_summary: str,
+    system_summary: dict[str, dict],
+    period_range: str | None = None,
+) -> list[dict]:
+    """
+    공통 Adaptive Card body 빌더.
+    system_summary values: { display_name, total_anomaly_hours, worst_severity, cause? }
+    period_range: 장기 리포트용 "YYYY-MM-DD ~ YYYY-MM-DD" (None이면 생략)
+    """
+    body: list[dict] = [
+        {"type": "TextBlock", "text": title, "weight": "Bolder", "size": "Medium"},
+        {"type": "TextBlock", "text": llm_summary, "wrap": True},
+    ]
+
+    if period_range:
+        body.append({"type": "TextBlock", "text": f"기간: {period_range}", "weight": "Bolder"})
+
+    sys_list = "\n".join(f"  └ {s['display_name']}" for s in system_summary.values())
+    body.append({"type": "TextBlock", "text": f"모니터링 시스템 {len(system_summary)}개", "weight": "Bolder"})
+    if sys_list:
+        body.append({"type": "TextBlock", "text": sys_list, "wrap": True})
+
+    def _cause_suffix(s: dict) -> str:
+        cause = (s.get("cause") or "").strip()
+        return f" ({cause[:35]})" if cause else ""
+
+    total_anomaly = sum(s["total_anomaly_hours"] for s in system_summary.values())
+    anomaly_lines = "\n".join(
+        f"  └ {s['display_name']}: {round(s['total_anomaly_hours'])}시간{_cause_suffix(s)}"
+        for s in system_summary.values()
+        if s["total_anomaly_hours"] > 0
+    )
+    body.append({"type": "TextBlock", "text": f"이상발생 시간 총 {round(total_anomaly)}h", "weight": "Bolder"})
+    if anomaly_lines:
+        body.append({"type": "TextBlock", "text": anomaly_lines, "wrap": True})
+
+    critical_systems = [s for s in system_summary.values() if s["worst_severity"] == "critical"]
+    if critical_systems:
+        crit_list = "\n".join(
+            f"  └ {s['display_name']}{_cause_suffix(s)}" for s in critical_systems
+        )
+        body.append({
+            "type": "TextBlock",
+            "text": f"Critical 시스템 총 {len(critical_systems)}개",
+            "weight": "Bolder",
+            "color": "Attention",
+        })
+        body.append({"type": "TextBlock", "text": crit_list, "wrap": True})
+
+    return body
+
+
 # ── WF6: run_hourly_aggregation ───────────────────────────────────────────────
 
 async def _process_single_config(
@@ -648,6 +702,65 @@ async def run_daily_aggregation() -> dict:
                 )
                 errors += 1
 
+        # ── 일별 Teams 알림 (시스템 단위 롤업) ──────────────────────────
+        daily_system_summary: dict[str, dict] = {}
+        for g in groups.values():
+            sn = g["system_name"]
+            if sn not in daily_system_summary:
+                daily_system_summary[sn] = {
+                    "display_name":        g["display_name"],
+                    "total_anomaly_hours": 0.0,
+                    "worst_severity":      "normal",
+                    "cause":               g["predictions"][0] if g["predictions"] else "",
+                }
+            ds = daily_system_summary[sn]
+            ds["total_anomaly_hours"] += g["anomaly_hours"]
+            if g["worst_severity"] == "critical":
+                ds["worst_severity"] = "critical"
+            elif g["worst_severity"] == "warning" and ds["worst_severity"] != "critical":
+                ds["worst_severity"] = "warning"
+            if not ds["cause"] and g["predictions"]:
+                ds["cause"] = g["predictions"][0]
+
+        if daily_system_summary:
+            day_label = yesterday_start.strftime("%Y년 %m월 %d일")
+            daily_system_lines = [
+                f"- {ds['display_name']}: 이상 {round(ds['total_anomaly_hours'])}시간, "
+                f"심각도: {ds['worst_severity']}"
+                + (f", 주요원인: {ds['cause'][:50]}" if ds.get("cause") else "")
+                for ds in daily_system_summary.values()
+            ]
+            daily_llm_prompt = (
+                f"다음은 {day_label} 시스템 모니터링 일별 집계 데이터입니다.\n\n"
+                + "\n".join(daily_system_lines)
+                + f"\n\n총 {len(daily_system_summary)}개 시스템. "
+                "한국어로 1-2 문장으로 핵심을 요약해 주세요."
+            )
+            try:
+                daily_llm_text = await call_llm_text(daily_llm_prompt, max_tokens=200)
+            except Exception as exc:
+                logger.warning("일별 LLM 요약 실패: %s", exc)
+                daily_llm_text = None
+            daily_llm_summary = daily_llm_text if daily_llm_text else "일별 요약 생성 실패"
+
+            daily_card = {
+                "type": "message",
+                "attachments": [{
+                    "contentType": "application/vnd.microsoft.card.adaptive",
+                    "content": {
+                        "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                        "type": "AdaptiveCard",
+                        "version": "1.4",
+                        "body": _build_report_card_body(
+                            title=f"일별 모니터링 리포트: {day_label}",
+                            llm_summary=daily_llm_summary,
+                            system_summary=daily_system_summary,
+                        ),
+                    },
+                }],
+            }
+            await _send_teams(client, "", daily_card)
+
     logger.info("daily 집계 완료 — processed=%d errors=%d", processed, errors)
     return {"processed": processed, "errors": errors}
 
@@ -703,6 +816,7 @@ async def run_weekly_report() -> dict:
                     "total_anomaly_hours": 0,
                     "worst_severity":      "normal",
                     "metrics":             [],
+                    "cause":               "",
                 }
             s = system_summary[sn]
             try:
@@ -715,6 +829,10 @@ async def run_weekly_report() -> dict:
                 s["worst_severity"] = "critical"
             elif sev == "warning" and s["worst_severity"] != "critical":
                 s["worst_severity"] = "warning"
+            if not s["cause"]:
+                trend = row.get("llm_trend", "")
+                if trend:
+                    s["cause"] = trend
 
         sorted_systems = sorted(
             system_summary.values(),
@@ -749,9 +867,6 @@ async def run_weekly_report() -> dict:
             llm_text if llm_text else "주간 요약 생성 실패"
         )
 
-        total_anomaly = sum(s["total_anomaly_hours"] for s in system_summary.values())
-        critical_cnt  = sum(1 for s in system_summary.values() if s["worst_severity"] == "critical")
-
         card = {
             "type": "message",
             "attachments": [{
@@ -760,23 +875,11 @@ async def run_weekly_report() -> dict:
                     "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
                     "type": "AdaptiveCard",
                     "version": "1.4",
-                    "body": [
-                        {
-                            "type": "TextBlock",
-                            "text": f"주간 모니터링 리포트: {date_range}",
-                            "weight": "Bolder",
-                            "size": "Medium",
-                        },
-                        {"type": "TextBlock", "text": llm_summary, "wrap": True},
-                        {
-                            "type": "FactSet",
-                            "facts": [
-                                {"title": "모니터링 시스템", "value": f"{len(system_summary)}개"},
-                                {"title": "총 이상 발생",    "value": f"{round(total_anomaly)}시간"},
-                                {"title": "Critical 시스템", "value": f"{critical_cnt}개"},
-                            ],
-                        },
-                    ],
+                    "body": _build_report_card_body(
+                        title=f"주간 모니터링 리포트: {date_range}",
+                        llm_summary=llm_summary,
+                        system_summary=system_summary,
+                    ),
                 },
             }],
         }
@@ -879,6 +982,7 @@ async def run_monthly_report() -> dict:
                     "total_anomaly_hours": 0,
                     "worst_severity":      "normal",
                     "trends":              [],
+                    "cause":               "",
                 }
             s = system_summary[sn]
             try:
@@ -894,6 +998,8 @@ async def run_monthly_report() -> dict:
             trend = row.get("llm_trend")
             if trend:
                 s["trends"].append(trend[:100])
+                if not s["cause"]:
+                    s["cause"] = trend
 
         sorted_systems = sorted(
             system_summary.values(),
@@ -920,9 +1026,6 @@ async def run_monthly_report() -> dict:
         llm_text = await call_llm_text(llm_prompt, max_tokens=400)
         llm_summary = llm_text if llm_text else "월간 요약 생성 실패"
 
-        total_anomaly = sum(s["total_anomaly_hours"] for s in system_summary.values())
-        critical_cnt  = sum(1 for s in system_summary.values() if s["worst_severity"] == "critical")
-
         card = {
             "type": "message",
             "attachments": [{
@@ -931,23 +1034,11 @@ async def run_monthly_report() -> dict:
                     "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
                     "type": "AdaptiveCard",
                     "version": "1.4",
-                    "body": [
-                        {
-                            "type": "TextBlock",
-                            "text": f"월간 모니터링 리포트: {month_name}",
-                            "weight": "Bolder",
-                            "size": "Medium",
-                        },
-                        {"type": "TextBlock", "text": llm_summary, "wrap": True},
-                        {
-                            "type": "FactSet",
-                            "facts": [
-                                {"title": "모니터링 시스템", "value": f"{len(system_summary)}개"},
-                                {"title": "총 이상 발생",    "value": f"{round(total_anomaly)}시간"},
-                                {"title": "Critical 시스템", "value": f"{critical_cnt}개"},
-                            ],
-                        },
-                    ],
+                    "body": _build_report_card_body(
+                        title=f"월간 모니터링 리포트: {month_name}",
+                        llm_summary=llm_summary,
+                        system_summary=system_summary,
+                    ),
                 },
             }],
         }
@@ -1016,6 +1107,7 @@ async def _run_single_period_report(
                 "total_anomaly_hours": 0,
                 "worst_severity":      "normal",
                 "trends":              [],
+                "cause":               "",
             }
         s = system_summary[sn]
         try:
@@ -1028,6 +1120,10 @@ async def _run_single_period_report(
             s["worst_severity"] = "critical"
         elif sev == "warning" and s["worst_severity"] != "critical":
             s["worst_severity"] = "warning"
+        if not s["cause"]:
+            trend = row.get("llm_trend", "")
+            if trend:
+                s["cause"] = trend
 
     sorted_systems = sorted(
         system_summary.values(),
@@ -1059,9 +1155,6 @@ async def _run_single_period_report(
     llm_text = await call_llm_text(llm_prompt, max_tokens=500)
     llm_summary = llm_text if llm_text else "장기 요약 생성 실패"
 
-    total_anomaly = sum(s["total_anomaly_hours"] for s in system_summary.values())
-    critical_cnt  = sum(1 for s in system_summary.values() if s["worst_severity"] == "critical")
-
     period_emoji = {"annual": "🗓️", "half_year": "📆"}.get(period_type, "📊")
 
     card = {
@@ -1072,30 +1165,15 @@ async def _run_single_period_report(
                 "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
                 "type": "AdaptiveCard",
                 "version": "1.4",
-                "body": [
-                    {
-                        "type": "TextBlock",
-                        "text": f"{period_emoji} {label} 모니터링 리포트",
-                        "weight": "Bolder",
-                        "size": "Medium",
-                    },
-                    {"type": "TextBlock", "text": llm_summary, "wrap": True},
-                    {
-                        "type": "FactSet",
-                        "facts": [
-                            {
-                                "title": "기간",
-                                "value": (
-                                    f"{period_start.strftime('%Y-%m-%d')} ~ "
-                                    f"{period_end.strftime('%Y-%m-%d')}"
-                                ),
-                            },
-                            {"title": "모니터링 시스템", "value": f"{len(system_summary)}개"},
-                            {"title": "총 이상 발생",    "value": f"{round(total_anomaly)}시간"},
-                            {"title": "Critical 시스템", "value": f"{critical_cnt}개"},
-                        ],
-                    },
-                ],
+                "body": _build_report_card_body(
+                    title=f"{period_emoji} {label} 모니터링 리포트",
+                    llm_summary=llm_summary,
+                    system_summary=system_summary,
+                    period_range=(
+                        f"{period_start.strftime('%Y-%m-%d')} ~ "
+                        f"{period_end.strftime('%Y-%m-%d')}"
+                    ),
+                ),
             },
         }],
     }

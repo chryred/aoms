@@ -213,6 +213,19 @@ class TeamsNotifier:
 
         mention_text = _build_mention_text(contacts)
 
+        is_duplicate = anomaly_type == "duplicate"
+        facts = [
+            {"title": "시스템", "value": f"{system_display_name} / {instance_role}"},
+            {"title": "심각도", "value": severity.upper()},
+        ]
+        if is_duplicate:
+            facts.append({"title": "중복 여부", "value": "⚠️ 중복 알림 (기존 분석 결과 표시)"})
+        facts.extend([
+            {"title": "원인 추정", "value": analysis.get("root_cause") or "-"},
+            {"title": "권장 조치", "value": analysis.get("recommendation") or "-"},
+            {"title": "분석 시각", "value": datetime.now().strftime("%Y-%m-%d %H:%M:%S")},
+        ])
+
         card_body = [
             {
                 "type": "TextBlock",
@@ -221,16 +234,7 @@ class TeamsNotifier:
                 "size": "Medium",
                 "color": "Attention" if severity == "critical" else ("Warning" if severity == "warning" else "Default"),
             },
-            {
-                "type": "FactSet",
-                "facts": [
-                    {"title": "시스템",   "value": f"{system_display_name} / {instance_role}"},
-                    {"title": "심각도",   "value": severity.upper()},
-                    {"title": "원인 추정", "value": analysis.get("root_cause", "-")},
-                    {"title": "권장 조치", "value": analysis.get("recommendation", "-")},
-                    {"title": "분석 시각", "value": datetime.now().strftime("%Y-%m-%d %H:%M:%S")},
-                ],
-            },
+            {"type": "FactSet", "facts": facts},
             {
                 "type": "TextBlock",
                 "text": f"**원본 로그 샘플:**\n```\n{log_sample[:400]}\n```",

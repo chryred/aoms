@@ -227,15 +227,8 @@ async def analyze_with_vector_context(
         prev_resolution     = top_payload.get("resolution")
         return {
             "severity":          "info",
-            "root_cause": (
-                prev_root_cause
-                or "중복 이상 감지 — 이전에 동일한 패턴의 이상이 발생하였습니다."
-            ),
-            "recommendation": (
-                prev_resolution
-                or prev_recommendation
-                or "이전 분석 결과를 참고하세요."
-            ),
+            "root_cause":        prev_root_cause or "",
+            "recommendation":    prev_resolution or prev_recommendation or "",
             "anomaly_type":      "duplicate",
             "similarity_score":  anomaly_info["score"],
             "qdrant_point_id":   None,

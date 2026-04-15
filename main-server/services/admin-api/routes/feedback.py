@@ -5,7 +5,7 @@ import logging
 import os
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -27,7 +27,7 @@ async def _propagate_solution_to_qdrant(alert: AlertHistory, solution: str, reso
         return
     collection_type = "metric" if alert.alert_type == "metric" else "log"
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=30.0) as client:
             await client.post(
                 f"{LOG_ANALYZER_URL}/solution/update",
                 json={
@@ -59,6 +59,7 @@ async def list_feedbacks(
 @router.post("", response_model=FeedbackOut)
 async def create_feedback(
     payload: FeedbackCreateRequest,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     _user=Depends(get_current_user),
 ):
@@ -78,7 +79,11 @@ async def create_feedback(
     await db.commit()
     await db.refresh(feedback)
 
-    await _propagate_solution_to_qdrant(alert, payload.solution, payload.resolver)
+    # Qdrant 전파는 best-effort — 응답 지연 방지를 위해 백그라운드 실행
+    if alert.qdrant_point_id:
+        background_tasks.add_task(
+            _propagate_solution_to_qdrant, alert, payload.solution, payload.resolver
+        )
     return feedback
 
 
@@ -86,6 +91,7 @@ async def create_feedback(
 async def update_feedback(
     feedback_id: int,
     payload: FeedbackUpdateRequest,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     _user=Depends(get_current_user),
 ):
@@ -102,6 +108,8 @@ async def update_feedback(
 
     if feedback.alert_history_id is not None:
         alert = await db.get(AlertHistory, feedback.alert_history_id)
-        if alert:
-            await _propagate_solution_to_qdrant(alert, payload.solution, payload.resolver)
+        if alert and alert.qdrant_point_id:
+            background_tasks.add_task(
+                _propagate_solution_to_qdrant, alert, payload.solution, payload.resolver
+            )
     return feedback
