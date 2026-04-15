@@ -15,7 +15,7 @@ interface SSHSessionState {
   ) => void
   clearSession: () => void
   isValid: () => boolean
-  refreshExpiry: () => void // 서버 슬라이딩 TTL과 동기화 (30분 리셋)
+  refreshExpiry: () => void // 서버 슬라이딩 TTL과 동기화 (10분 리셋)
 }
 
 export const useSSHSessionStore = create<SSHSessionState>((set, get) => ({
@@ -45,6 +45,6 @@ export const useSSHSessionStore = create<SSHSessionState>((set, get) => ({
   refreshExpiry: () => {
     const { token } = get()
     if (!token) return
-    set({ expiresAt: Date.now() + 30 * 60 * 1000 })
+    set({ expiresAt: Date.now() + 10 * 60 * 1000 })
   },
 }))

@@ -1,7 +1,7 @@
 """
 SSH 세션 매니저 — 계정 정보 인메모리 관리 (DB 저장 금지)
 
-- 세션 생성 시 UUID 토큰 발급, 30분 슬라이딩 TTL
+- 세션 생성 시 UUID 토큰 발급, 10분 슬라이딩 TTL
 - 작업마다 last_used 갱신 (슬라이딩)
 - 백그라운드 정리 태스크: 60초 주기로 만료 세션 삭제
 - Paramiko SSH 연결은 호출 시점에 생성 후 즉시 닫음 (상태 없는 단발성 연결)
@@ -16,7 +16,7 @@ import paramiko
 
 # 인메모리 세션 저장소 (DB 저장 금지)
 _sessions: dict[str, dict] = {}
-_SESSION_TTL_MINUTES = 30
+_SESSION_TTL_MINUTES = 10
 _CLEANUP_INTERVAL_SECONDS = 60
 
 

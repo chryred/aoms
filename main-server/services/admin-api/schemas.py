@@ -417,7 +417,7 @@ class SSHSessionOut(BaseModel):
     host: str
     port: int
     username: str
-    expires_in: int   # 초 단위 (1800)
+    expires_in: int   # 초 단위 (600)
 
 
 import re as _re

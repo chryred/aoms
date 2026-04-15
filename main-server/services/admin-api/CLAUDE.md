@@ -48,7 +48,7 @@ admin-api/
 └── services/
     ├── cooldown.py              # 알림 중복 발송 방지 (5분 쿨다운)
     ├── notification.py          # TeamsNotifier — Adaptive Card 생성·발송
-    ├── ssh_session.py           # SSH 세션 인메모리 관리 (30분 슬라이딩 TTL, DB 저장 금지)
+    ├── ssh_session.py           # SSH 세션 인메모리 관리 (10분 슬라이딩 TTL, DB 저장 금지)
     ├── llm_client.py            # LLM Strategy (ADR-001, log-analyzer와 SYNC) — devx/ollama/claude/openai
     ├── prometheus_analyzer.py   # Prometheus PromQL 이상 감지 → LLM 분석 → Teams 알림 (Phase F, ADR-001 반영)
     ├── db_collector.py          # DB 메트릭 수집 루프 (encrypt/decrypt, Gauge, Strategy 디스패치)
@@ -141,7 +141,7 @@ docker exec -it aoms-admin-api \
 - `POST /` — 리포트 발송 기록 저장 (log-analyzer 일/주/월/장기 스케줄러 호출, 동일 type + period_start 중복 시 업데이트)
 
 ### SSH 세션 `/api/v1/ssh` (Phase 6)
-- `POST /session` — 계정 등록 → session_token 발급 (30분 슬라이딩 TTL, SSH 연결 사전 검증)
+- `POST /session` — 계정 등록 → session_token 발급 (10분 슬라이딩 TTL, SSH 연결 사전 검증)
 - `DELETE /session` — 세션 삭제 (로그아웃). `X-SSH-Session` 헤더 필요
 
 ### 에이전트 제어 `/api/v1/agents` (Phase 6)

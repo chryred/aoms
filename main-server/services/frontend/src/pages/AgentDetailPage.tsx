@@ -102,6 +102,14 @@ export function AgentDetailPage() {
 
   const isDbAgent = agent?.agent_type === 'db'
 
+  const hostMismatch =
+    sessionActive &&
+    !isDbAgent &&
+    (() => {
+      const sessionHost = useSSHSessionStore.getState().host
+      return !!sessionHost && agent?.host !== sessionHost
+    })()
+
   async function runAction(action: string, fn: () => Promise<unknown>) {
     if (!token && !isDbAgent) {
       setShowSSHModal(true)
@@ -283,17 +291,13 @@ export function AgentDetailPage() {
           </dl>
 
           {/* 호스트 불일치 경고 */}
-          {sessionActive &&
-            agent.agent_type !== 'db' &&
-            (() => {
-              const sessionHost = useSSHSessionStore.getState().host
-              return sessionHost && agent.host !== sessionHost ? (
-                <p className="text-warning mb-3 text-xs">
-                  SSH 세션 호스트({sessionHost})와 에이전트 호스트({agent.host})가 다릅니다. 제어
-                  명령이 올바르게 동작하지 않을 수 있습니다.
-                </p>
-              ) : null
-            })()}
+          {hostMismatch && (
+            <p className="text-warning mb-3 text-xs">
+              SSH 세션 호스트({useSSHSessionStore.getState().host})와 에이전트 호스트(
+              {agent.host})가 다릅니다. 제어 명령을 사용하려면 해당 호스트로 SSH 세션을
+              재등록하세요.
+            </p>
+          )}
 
           {/* 제어 버튼 */}
           <div className="flex flex-wrap gap-2">
@@ -303,7 +307,7 @@ export function AgentDetailPage() {
                 runAction('실행', () => agentsApi.startAgent(agentId, token ?? undefined))
               }
               loading={actionLoading === '실행'}
-              disabled={!isDbAgent && !sessionActive}
+              disabled={(!isDbAgent && !sessionActive) || hostMismatch}
             >
               <Play className="h-3.5 w-3.5" />
               실행
@@ -315,7 +319,7 @@ export function AgentDetailPage() {
                 runAction('중지', () => agentsApi.stopAgent(agentId, token ?? undefined))
               }
               loading={actionLoading === '중지'}
-              disabled={!isDbAgent && !sessionActive}
+              disabled={(!isDbAgent && !sessionActive) || hostMismatch}
             >
               <Square className="h-3.5 w-3.5" />
               중지
@@ -327,7 +331,7 @@ export function AgentDetailPage() {
                 runAction('재시작', () => agentsApi.restartAgent(agentId, token ?? undefined))
               }
               loading={actionLoading === '재시작'}
-              disabled={!isDbAgent && !sessionActive}
+              disabled={(!isDbAgent && !sessionActive) || hostMismatch}
             >
               <RotateCw className="h-3.5 w-3.5" />
               재시작
@@ -341,7 +345,7 @@ export function AgentDetailPage() {
                   : runAction('상태 확인', () => agentsApi.getStatus(agentId, token ?? undefined))
               }
               loading={actionLoading === '상태 확인'}
-              disabled={!isDbAgent && !sessionActive}
+              disabled={(!isDbAgent && !sessionActive) || hostMismatch}
             >
               <RefreshCw className="h-3.5 w-3.5" />
               상태 갱신
@@ -353,7 +357,7 @@ export function AgentDetailPage() {
             <p className="text-text-secondary mb-2 text-xs">
               설치 (바이너리 다운로드 + 디렉터리 구성)
             </p>
-            <NeuButton size="sm" variant="glass" onClick={handleInstall} disabled={!sessionActive}>
+            <NeuButton size="sm" variant="glass" onClick={handleInstall} disabled={!sessionActive || hostMismatch}>
               <Download className="h-3.5 w-3.5" />
               설치 실행
             </NeuButton>

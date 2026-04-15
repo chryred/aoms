@@ -103,7 +103,7 @@ async def create_ssh_session(
         host=body.host,
         port=body.port,
         username=body.username,
-        expires_in=1800,
+        expires_in=600,
     )
 
 
