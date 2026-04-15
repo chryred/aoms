@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import { Bell, CheckCircle } from 'lucide-react'
 import { NeuBadge } from '@/components/neumorphic/NeuBadge'
 import { AnomalyTypeBadge } from './AnomalyTypeBadge'
+import { formatAlertTitle } from './alertTitle'
 import { EmptyState } from '@/components/common/EmptyState'
 import { useSystems } from '@/hooks/queries/useSystems'
 import { formatRelative } from '@/lib/utils'
@@ -56,7 +57,7 @@ export function AlertTable({ alerts, onSelect }: AlertTableProps) {
       <table className="w-full">
         <thead>
           <tr className="border-border border-b">
-            {['심각도', '유형', '시스템', '제목', '이상 유형', '발생 시각', '확인'].map((h) => (
+            {['ID', '심각도', '유형', '시스템', '제목', '이상 유형', '발생 시각', '확인'].map((h) => (
               <th key={h} className="type-label px-4 py-3 text-left">
                 {h}
               </th>
@@ -83,6 +84,9 @@ export function AlertTable({ alerts, onSelect }: AlertTableProps) {
                 alert.acknowledged && 'opacity-60',
               )}
             >
+              <td className="text-text-secondary px-4 py-3 font-mono text-xs whitespace-nowrap">
+                #{alert.id}
+              </td>
               <td className="px-4 py-3">
                 <NeuBadge variant={SEVERITY_VARIANT[alert.severity]}>{alert.severity}</NeuBadge>
               </td>
@@ -96,7 +100,7 @@ export function AlertTable({ alerts, onSelect }: AlertTableProps) {
               </td>
               <td className="px-4 py-3">
                 <p className="text-text-primary max-w-xs truncate text-sm font-medium">
-                  {alert.title}
+                  {formatAlertTitle(alert.title)}
                 </p>
                 {alert.alertname && (
                   <p className="text-text-secondary font-mono text-xs">{alert.alertname}</p>

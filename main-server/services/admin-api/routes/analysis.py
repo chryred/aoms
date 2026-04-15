@@ -49,7 +49,11 @@ async def create_analysis(payload: LogAnalysisCreate, db: AsyncSession = Depends
             alertname=f"LogAnalysis_{system.system_name}",
             title=(
                 "LLM 분석 실패" if is_failure
-                else (payload.root_cause or payload.analysis_result[:100])
+                else (
+                    (payload.root_cause or "").strip()
+                    or (payload.recommendation or "").strip()
+                    or f"로그 이상 감지 - {system.display_name}"
+                )
             ),
             description=payload.analysis_result,
             instance_role=payload.instance_role,

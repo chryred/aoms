@@ -204,3 +204,60 @@ async def test_create_analysis_failure_inserts_alert_history(client: AsyncClient
     assert len(failure_alerts) >= 1
     assert failure_alerts[0]["error_message"] == "RuntimeError: LLM endpoint unreachable"
     assert failure_alerts[0]["title"] == "LLM 분석 실패"
+
+
+# ── alert_history.title 폴백 우선순위 ────────────────────────────────────────
+
+async def _get_log_analysis_alert(client: AsyncClient) -> dict:
+    alerts = (await client.get("/api/v1/alerts?alert_type=log_analysis")).json()
+    assert len(alerts) == 1
+    return alerts[0]
+
+
+async def test_alert_title_uses_root_cause(client: AsyncClient):
+    system = await create_system(client)
+    payload = {
+        **ANALYSIS_PAYLOAD,
+        "system_id": system["id"],
+        "severity": "warning",
+        "root_cause": "슬로우 쿼리",
+        "recommendation": "인덱스 추가",
+    }
+    await client.post("/api/v1/analysis", json=payload)
+
+    alert = await _get_log_analysis_alert(client)
+    assert alert["title"] == "슬로우 쿼리"
+
+
+async def test_alert_title_falls_back_to_recommendation_when_root_cause_blank(client: AsyncClient):
+    """root_cause가 빈 문자열이면 recommendation을 사용 (JSON 원문 폴백 금지)"""
+    system = await create_system(client)
+    payload = {
+        **ANALYSIS_PAYLOAD,
+        "system_id": system["id"],
+        "severity": "warning",
+        "analysis_result": '{"severity":"warning","root_cause":"","recommendation":"디비 재기동"}',
+        "root_cause": "",
+        "recommendation": "디비 재기동",
+    }
+    await client.post("/api/v1/analysis", json=payload)
+
+    alert = await _get_log_analysis_alert(client)
+    assert alert["title"] == "디비 재기동"
+    assert "{" not in alert["title"]  # JSON 원문이 들어가면 안 됨
+
+
+async def test_alert_title_falls_back_to_system_name_when_all_blank(client: AsyncClient):
+    system = await create_system(client)
+    payload = {
+        **ANALYSIS_PAYLOAD,
+        "system_id": system["id"],
+        "severity": "warning",
+        "analysis_result": '{"severity":"warning","root_cause":"","recommendation":""}',
+        "root_cause": "",
+        "recommendation": "",
+    }
+    await client.post("/api/v1/analysis", json=payload)
+
+    alert = await _get_log_analysis_alert(client)
+    assert alert["title"] == f"로그 이상 감지 - {SYSTEM_PAYLOAD['display_name']}"

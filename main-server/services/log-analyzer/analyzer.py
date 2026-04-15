@@ -180,10 +180,9 @@ async def analyze_with_vector_context(
     처리 순서:
       1. 로그 정규화 및 압축
       2. Ollama 임베딩 생성 (Server B)
-      3. Qdrant 유사 이력 검색
-      4. duplicate 판정 시 알림 억제 (조기 반환)
-      5. 강화 프롬프트 구성 + LLM 호출
-      6. 분석 결과 Qdrant 저장
+      3. Qdrant 유사 이력 검색 (anomaly_type 판정만 수행 — duplicate/recurring/related/new)
+      4. 강화 프롬프트 구성 + LLM 호출 (duplicate 포함 전 케이스에서 호출 — 표기는 anomaly_type으로 구분)
+      5. 분석 결과 Qdrant 저장
     """
     # 1. 로그 정규화 및 압축
     log_text   = mask_sensitive_data("\n".join(entry["line"] for entry in logs[:50]))
@@ -210,37 +209,20 @@ async def analyze_with_vector_context(
                 f"Qdrant 검색 실패: {type(e).__name__}: {e!r} → 신규 이상으로 처리"
             )
 
-    # 4. duplicate면 LLM 호출 없이 이전 분석 결과 재활용하여 알림 발송
     if anomaly_info["type"] == "duplicate":
-        logger.info(f"{system_name}/{instance_role}: 중복 이상 감지 (score={anomaly_info['score']:.2f}) → 중복 알림 발송")
-        top_payload = anomaly_info.get("top_results", [{}])[0].get("payload", {}) if anomaly_info.get("top_results") else {}
-        similar_incidents = [
-            {
-                "score":       r["score"],
-                "log_pattern": r["payload"].get("log_pattern", ""),
-                "resolution":  r["payload"].get("resolution"),
-            }
-            for r in anomaly_info.get("top_results", [])
-        ]
-        prev_root_cause     = top_payload.get("root_cause")
-        prev_recommendation = top_payload.get("recommendation")
-        prev_resolution     = top_payload.get("resolution")
-        return {
-            "severity":          "info",
-            "root_cause":        prev_root_cause or "",
-            "recommendation":    prev_resolution or prev_recommendation or "",
-            "anomaly_type":      "duplicate",
-            "similarity_score":  anomaly_info["score"],
-            "qdrant_point_id":   None,
-            "has_solution":      anomaly_info["has_solution"],
-            "similar_incidents": similar_incidents,
-        }
+        # 중복 패턴이어도 LLM 분석은 매번 수행한다 (재분석 비용 < 빈 root_cause 로 인한
+        # UX 저하·해결책 재현 실패 위험). anomaly_type 만 "duplicate"로 남겨 UI/Teams가
+        # 중복 뱃지를 달고 기존 해결책을 제안할 수 있게 한다.
+        logger.info(
+            f"{system_name}/{instance_role}: 중복 이상 감지 "
+            f"(score={anomaly_info['score']:.2f}) → LLM 재분석 진행"
+        )
 
-    # 5. 강화 프롬프트 구성 + LLM 호출
+    # 4. 강화 프롬프트 구성 + LLM 호출
     prompt   = build_enhanced_prompt(log_text, system_name, instance_role, anomaly_info)
     analysis = await call_llm_structured(prompt, api_key, agent_code)
 
-    # 6. 벡터 저장 (새로운 분석 결과 누적)
+    # 5. 벡터 저장 (새로운 분석 결과 누적 — duplicate 포함)
     point_id = None
     qdrant_store_error: str | None = None
     if embedding:

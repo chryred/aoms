@@ -5,6 +5,7 @@ import { NeuBadge } from '@/components/neumorphic/NeuBadge'
 import { NeuSelect } from '@/components/neumorphic/NeuSelect'
 import { NeuTextarea } from '@/components/neumorphic/NeuTextarea'
 import { AnomalyTypeBadge } from './AnomalyTypeBadge'
+import { formatAlertTitle } from './alertTitle'
 import { useAcknowledgeAlert } from '@/hooks/mutations/useAcknowledgeAlert'
 import { useCreateFeedback } from '@/hooks/mutations/useCreateFeedback'
 import { useUpdateFeedback } from '@/hooks/mutations/useUpdateFeedback'
@@ -62,7 +63,14 @@ function parseDescription(desc: string | null | undefined): ParsedDescription | 
   if (!desc) return null
   try {
     const obj = JSON.parse(desc)
-    if (obj && typeof obj === 'object' && (obj.root_cause || obj.recommendation)) {
+    // 분석 결과 JSON 스키마로 인식할 수 있는 키가 하나라도 있으면 "파싱 성공"으로 본다.
+    // root_cause·recommendation이 모두 빈 문자열인 케이스도 파싱된 것으로 처리하여
+    // 하단 fallback 블록이 JSON 원문을 그대로 덤프하지 않게 한다.
+    if (
+      obj &&
+      typeof obj === 'object' &&
+      ('root_cause' in obj || 'recommendation' in obj || 'anomaly_type' in obj || 'severity' in obj)
+    ) {
       return {
         ...obj,
         root_cause: normalizeMultiline(obj.root_cause),
@@ -94,9 +102,7 @@ export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
   const parsedDesc = useMemo(() => parseDescription(alert?.description), [alert?.description])
 
   // 확인된 알림일 때만 피드백 조회
-  const { data: feedbacks } = useFeedbacks(
-    alert?.acknowledged && alert.id ? alert.id : null,
-  )
+  const { data: feedbacks } = useFeedbacks(alert?.acknowledged && alert.id ? alert.id : null)
   const existingFeedback = feedbacks?.[0] ?? null
 
   // Reset all transient state when alert changes
@@ -233,7 +239,7 @@ export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
         <div className="flex-1 space-y-5 overflow-y-auto px-6 py-5">
           <div>
             <h3 id={PANEL_TITLE_ID} className="text-text-primary text-base font-semibold">
-              {alert.title}
+              {formatAlertTitle(alert.title)}
             </h3>
           </div>
 
@@ -282,19 +288,17 @@ export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
           {/* 해결방안 — 화면의 시각 앵커. 원인은 상단 타이틀이 이미 보여주므로 중복 제거 */}
           {parsedDesc?.recommendation ? (
             <div className="border-accent rounded-sm border p-4">
-
               <div className="mb-2.5 flex items-center gap-2">
                 <Lightbulb className="text-accent h-5 w-5" aria-hidden="true" />
-                <p className="text-accent text-lg font-bold tracking-tight">
-                  해결방안
-                </p>
+                <p className="text-accent text-lg font-bold tracking-tight">해결방안</p>
               </div>
               <p className="text-text-primary text-base leading-relaxed font-medium break-words whitespace-pre-wrap">
                 {parsedDesc.recommendation}
               </p>
             </div>
           ) : (
-            !parsedDesc && alert.description && (
+            !parsedDesc &&
+            alert.description && (
               <div>
                 <p className="type-label mb-1.5">상세 내용</p>
                 <div className="bg-bg-base shadow-neu-inset rounded-sm p-4">
@@ -335,7 +339,8 @@ export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
               </div>
               {!showSolution ? (
                 <p className="text-text-secondary text-sm">
-                  아직 등록된 피드백이 없습니다. 해결책을 등록하면 벡터 DB에 반영되어 향후 유사 장애 대응에 활용됩니다.
+                  아직 등록된 피드백이 없습니다. 해결책을 등록하면 벡터 DB에 반영되어 향후 유사 장애
+                  대응에 활용됩니다.
                 </p>
               ) : (
                 <>
