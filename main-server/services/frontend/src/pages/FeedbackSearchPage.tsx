@@ -129,15 +129,15 @@ export function FeedbackSearchPage() {
         <NeuCard className="overflow-hidden p-0">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
-              <thead className="border-border text-text-primary border-b text-left text-xs font-semibold uppercase tracking-wider">
+              <thead className="border-border text-text-primary border-b text-left text-xs font-semibold tracking-wider uppercase">
                 <tr>
-                  <th className="whitespace-nowrap px-3 py-2.5">번호</th>
-                  <th className="whitespace-nowrap px-3 py-2.5">심각도</th>
-                  <th className="whitespace-nowrap px-3 py-2.5">유형</th>
-                  <th className="whitespace-nowrap px-3 py-2.5">시스템명</th>
+                  <th className="px-3 py-2.5 whitespace-nowrap">번호</th>
+                  <th className="px-3 py-2.5 whitespace-nowrap">심각도</th>
+                  <th className="px-3 py-2.5 whitespace-nowrap">유형</th>
+                  <th className="px-3 py-2.5 whitespace-nowrap">시스템명</th>
                   <th className="px-3 py-2.5">제목</th>
-                  <th className="whitespace-nowrap px-3 py-2.5">등록자</th>
-                  <th className="whitespace-nowrap px-3 py-2.5">등록일</th>
+                  <th className="px-3 py-2.5 whitespace-nowrap">등록자</th>
+                  <th className="px-3 py-2.5 whitespace-nowrap">등록일</th>
                 </tr>
               </thead>
               <tbody>
@@ -152,29 +152,29 @@ export function FeedbackSearchPage() {
                         active ? 'bg-accent-muted' : 'hover:bg-hover-subtle',
                       )}
                     >
-                      <td className="text-text-secondary whitespace-nowrap px-3 py-2.5 font-mono text-xs">
+                      <td className="text-text-secondary px-3 py-2.5 font-mono text-xs whitespace-nowrap">
                         {row.id}
                       </td>
-                      <td className="whitespace-nowrap px-3 py-2.5">
+                      <td className="px-3 py-2.5 whitespace-nowrap">
                         {row.severity ? (
                           <SeverityBadge severity={row.severity as Severity} />
                         ) : (
                           <span className="text-text-disabled">-</span>
                         )}
                       </td>
-                      <td className="text-text-secondary whitespace-nowrap px-3 py-2.5 text-xs">
+                      <td className="text-text-secondary px-3 py-2.5 text-xs whitespace-nowrap">
                         {row.alert_type
-                          ? ALERT_TYPE_LABEL[row.alert_type] ?? row.alert_type
+                          ? (ALERT_TYPE_LABEL[row.alert_type] ?? row.alert_type)
                           : '-'}
                       </td>
-                      <td className="whitespace-nowrap px-3 py-2.5">
+                      <td className="px-3 py-2.5 whitespace-nowrap">
                         {row.system_display_name ?? row.system_name ?? '-'}
                       </td>
                       <td className="px-3 py-2.5" title={row.title ?? undefined}>
                         <span className="block max-w-[260px] truncate">{row.title ?? '-'}</span>
                       </td>
-                      <td className="whitespace-nowrap px-3 py-2.5">{row.resolver}</td>
-                      <td className="text-text-secondary whitespace-nowrap px-3 py-2.5 text-xs">
+                      <td className="px-3 py-2.5 whitespace-nowrap">{row.resolver}</td>
+                      <td className="text-text-secondary px-3 py-2.5 text-xs whitespace-nowrap">
                         {formatKST(row.created_at, 'datetime')}
                       </td>
                     </tr>
@@ -222,7 +222,7 @@ export function FeedbackSearchPage() {
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <section>
-      <h3 className="text-text-secondary mb-1.5 text-xs font-semibold uppercase tracking-wider">
+      <h3 className="text-text-secondary mb-1.5 text-xs font-semibold tracking-wider uppercase">
         {label}
       </h3>
       <p className="text-text-primary text-sm leading-relaxed break-words">{children}</p>
@@ -249,14 +249,14 @@ function FeedbackDetailDrawer({ item, onClose }: FeedbackDetailDrawerProps) {
       />
       <aside
         className={cn(
-          'border-border bg-bg-base fixed right-0 top-0 z-50 flex h-full w-full max-w-[480px] flex-col border-l shadow-[-8px_0_32px_rgba(0,0,0,0.4)] transition-transform duration-200',
+          'border-border bg-bg-base fixed top-0 right-0 z-50 flex h-full w-full max-w-[480px] flex-col border-l shadow-[-8px_0_32px_rgba(0,0,0,0.4)] transition-transform duration-200',
           open ? 'translate-x-0' : 'translate-x-full',
         )}
         aria-hidden={!open}
       >
         {item && (
           <>
-            <header className="border-border flex items-start justify-between gap-3 border-b px-6 pb-5 pt-7">
+            <header className="border-border flex items-start justify-between gap-3 border-b px-6 pt-7 pb-5">
               <div className="min-w-0">
                 <div className="text-text-secondary mb-2 flex items-center gap-2 text-xs">
                   {item.severity && <SeverityBadge severity={item.severity as Severity} />}
@@ -266,7 +266,7 @@ function FeedbackDetailDrawer({ item, onClose }: FeedbackDetailDrawerProps) {
                   <span>·</span>
                   <span>{formatKST(item.created_at, 'datetime')}</span>
                 </div>
-                <h2 className="text-text-primary text-base font-semibold leading-snug">
+                <h2 className="text-text-primary text-base leading-snug font-semibold">
                   해결책 상세
                 </h2>
               </div>
@@ -283,16 +283,14 @@ function FeedbackDetailDrawer({ item, onClose }: FeedbackDetailDrawerProps) {
               <Field label="번호">
                 <span className="font-mono">#{item.id}</span>
               </Field>
-              <Field label="시스템명">
-                {item.system_display_name ?? item.system_name ?? '-'}
-              </Field>
+              <Field label="시스템명">{item.system_display_name ?? item.system_name ?? '-'}</Field>
               <Field label="제목">{item.title ?? '-'}</Field>
               <Field label="오류 타입">{item.error_type}</Field>
               <section>
-                <h3 className="text-text-secondary mb-2 text-xs font-semibold uppercase tracking-wider">
+                <h3 className="text-text-secondary mb-2 text-xs font-semibold tracking-wider uppercase">
                   해결책
                 </h3>
-                <div className="bg-bg-base shadow-neu-inset text-text-primary min-h-[16rem] whitespace-pre-wrap rounded-sm p-4 text-sm leading-relaxed">
+                <div className="bg-bg-base shadow-neu-inset text-text-primary min-h-[16rem] rounded-sm p-4 text-sm leading-relaxed whitespace-pre-wrap">
                   {item.solution}
                 </div>
               </section>

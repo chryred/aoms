@@ -185,7 +185,10 @@ function ConfigDrawer({ open, onClose, editTarget }: DrawerProps) {
               onChange={(e) => setForm({ ...form, agent_code: e.target.value })}
             />
             <div>
-              <label htmlFor="drawer-description" className="text-text-secondary mb-1.5 block text-sm font-medium">
+              <label
+                htmlFor="drawer-description"
+                className="text-text-secondary mb-1.5 block text-sm font-medium"
+              >
                 설명
               </label>
               <textarea
@@ -198,7 +201,9 @@ function ConfigDrawer({ open, onClose, editTarget }: DrawerProps) {
               />
             </div>
             <div>
-              <label className="text-text-secondary mb-1.5 block text-sm font-medium">활성 상태</label>
+              <label className="text-text-secondary mb-1.5 block text-sm font-medium">
+                활성 상태
+              </label>
               <button
                 type="button"
                 onClick={() => setForm({ ...form, is_active: !form.is_active })}
@@ -279,7 +284,10 @@ export function LlmAgentConfigPage() {
           <thead>
             <tr className="border-border border-b">
               {['영역 코드', '영역명', '설명', '활성', '수정일', ''].map((h) => (
-                <th key={h} className="text-text-secondary px-4 py-2.5 text-left text-xs font-medium">
+                <th
+                  key={h}
+                  className="text-text-secondary px-4 py-2.5 text-left text-xs font-medium"
+                >
                   {h}
                 </th>
               ))}

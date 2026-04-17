@@ -66,7 +66,7 @@ export function IncidentReportModal({ alert, systemName, onClose }: IncidentRepo
       <div className="bg-overlay absolute inset-0" onClick={onClose} aria-hidden="true" />
 
       {/* 모달 본체 */}
-      <NeuCard className="relative mx-4 flex w-full max-w-2xl max-h-[80vh] flex-col p-0 overflow-hidden">
+      <NeuCard className="relative mx-4 flex max-h-[80vh] w-full max-w-2xl flex-col overflow-hidden p-0">
         {/* 헤더 */}
         <div className="border-border flex items-center justify-between border-b px-5 py-4">
           <div className="flex items-center gap-2">
@@ -86,20 +86,15 @@ export function IncidentReportModal({ alert, systemName, onClose }: IncidentRepo
         {/* 서브헤더: 알림 정보 */}
         <div className="border-border flex items-center gap-2 border-b px-5 py-2.5">
           <span className="text-text-secondary font-mono text-xs">#{alert.id}</span>
-          <NeuBadge variant={SEVERITY_VARIANT[alert.severity]}>{SEVERITY_LABEL[alert.severity]}</NeuBadge>
-          {systemName && (
-            <span className="text-text-secondary text-xs">{systemName}</span>
-          )}
+          <NeuBadge variant={SEVERITY_VARIANT[alert.severity]}>
+            {SEVERITY_LABEL[alert.severity]}
+          </NeuBadge>
+          {systemName && <span className="text-text-secondary text-xs">{systemName}</span>}
         </div>
 
         {/* 액션 바 */}
         <div className="border-border flex items-center justify-end border-b px-5 py-2">
-          <NeuButton
-            variant="ghost"
-            size="sm"
-            disabled={!report || isPending}
-            onClick={handleCopy}
-          >
+          <NeuButton variant="ghost" size="sm" disabled={!report || isPending} onClick={handleCopy}>
             <Copy className="h-3.5 w-3.5" />
             복사
           </NeuButton>
@@ -110,7 +105,11 @@ export function IncidentReportModal({ alert, systemName, onClose }: IncidentRepo
           {isPending && (
             <div className="space-y-3">
               {Array.from({ length: 8 }).map((_, i) => (
-                <div key={i} className="bg-border animate-pulse rounded-sm h-4 w-full" style={{ width: `${70 + (i % 3) * 10}%` }} />
+                <div
+                  key={i}
+                  className="bg-border h-4 w-full animate-pulse rounded-sm"
+                  style={{ width: `${70 + (i % 3) * 10}%` }}
+                />
               ))}
             </div>
           )}
@@ -126,7 +125,7 @@ export function IncidentReportModal({ alert, systemName, onClose }: IncidentRepo
           )}
 
           {!isPending && !isError && report && (
-            <pre className="text-text-primary font-mono text-sm leading-relaxed whitespace-pre-wrap break-words">
+            <pre className="text-text-primary font-mono text-sm leading-relaxed break-words whitespace-pre-wrap">
               {report}
             </pre>
           )}

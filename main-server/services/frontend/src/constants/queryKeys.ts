@@ -1,8 +1,4 @@
-import type {
-  AlertCountParams,
-  AlertFilterParams,
-  FeedbackSearchParams,
-} from '@/api/alerts'
+import type { AlertCountParams, AlertFilterParams, FeedbackSearchParams } from '@/api/alerts'
 import type { HourlyParams } from '@/api/aggregations'
 import type { PeriodType } from '@/types/aggregation'
 import type { ReportType } from '@/types/report'

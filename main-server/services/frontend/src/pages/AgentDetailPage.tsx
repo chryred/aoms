@@ -357,7 +357,12 @@ export function AgentDetailPage() {
             <p className="text-text-secondary mb-2 text-xs">
               설치 (바이너리 다운로드 + 디렉터리 구성)
             </p>
-            <NeuButton size="sm" variant="glass" onClick={handleInstall} disabled={!sessionActive || hostMismatch}>
+            <NeuButton
+              size="sm"
+              variant="glass"
+              onClick={handleInstall}
+              disabled={!sessionActive || hostMismatch}
+            >
               <Download className="h-3.5 w-3.5" />
               설치 실행
             </NeuButton>

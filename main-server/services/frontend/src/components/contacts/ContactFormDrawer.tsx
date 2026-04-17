@@ -18,7 +18,7 @@ export function ContactFormDrawer({ open, onClose, editTarget }: ContactFormDraw
   // 닫힘 애니메이션 중에도 컨텐츠 유지
   const lastEditRef = useRef<Contact | null>(null)
   if (open) lastEditRef.current = editTarget ?? null
-  const displayEdit = open ? editTarget ?? null : lastEditRef.current
+  const displayEdit = open ? (editTarget ?? null) : lastEditRef.current
   const isEdit = Boolean(displayEdit)
   const contactId = displayEdit?.id ?? 0
 
@@ -35,8 +35,7 @@ export function ContactFormDrawer({ open, onClose, editTarget }: ContactFormDraw
     if (!open) return
     const drawer = drawerRef.current
     if (!drawer) return
-    const FOCUSABLE =
-      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+    const FOCUSABLE = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
     const getFocusable = () => Array.from(drawer.querySelectorAll<HTMLElement>(FOCUSABLE))
     getFocusable()[0]?.focus()
 

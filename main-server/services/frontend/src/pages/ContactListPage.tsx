@@ -125,16 +125,14 @@ export function ContactListPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-border border-b">
-                {['이름', '이메일', 'Teams UPN', '연결된 시스템', '등록일', ''].map(
-                  (h) => (
-                    <th
-                      key={h}
-                      className="text-text-secondary px-4 py-3 text-left text-xs font-semibold"
-                    >
-                      {h}
-                    </th>
-                  ),
-                )}
+                {['이름', '이메일', 'Teams UPN', '연결된 시스템', '등록일', ''].map((h) => (
+                  <th
+                    key={h}
+                    className="text-text-secondary px-4 py-3 text-left text-xs font-semibold"
+                  >
+                    {h}
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody>

@@ -52,11 +52,16 @@ export function AlertTable({ alerts, onSelect }: AlertTableProps) {
       <table className="w-full">
         <thead>
           <tr className="border-border border-b">
-            {['ID', '심각도', '유형', '시스템', '제목', '이상 유형', '발생 시각', '확인'].map((h) => (
-              <th key={h} className="text-text-primary whitespace-nowrap px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider">
-                {h}
-              </th>
-            ))}
+            {['ID', '심각도', '유형', '시스템', '제목', '이상 유형', '발생 시각', '확인'].map(
+              (h) => (
+                <th
+                  key={h}
+                  className="text-text-primary px-4 py-3 text-left text-xs font-semibold tracking-wider whitespace-nowrap uppercase"
+                >
+                  {h}
+                </th>
+              ),
+            )}
           </tr>
         </thead>
         <tbody className="divide-border divide-y">
@@ -82,10 +87,10 @@ export function AlertTable({ alerts, onSelect }: AlertTableProps) {
               <td className="text-text-secondary px-4 py-3 font-mono text-xs whitespace-nowrap">
                 #{alert.id}
               </td>
-              <td className="whitespace-nowrap px-4 py-3">
+              <td className="px-4 py-3 whitespace-nowrap">
                 <SeverityBadge severity={alert.severity} />
               </td>
-              <td className="text-text-secondary whitespace-nowrap px-4 py-3 text-xs">
+              <td className="text-text-secondary px-4 py-3 text-xs whitespace-nowrap">
                 {getTypeLabel(alert)}
               </td>
               <td className="px-4 py-3">
