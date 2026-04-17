@@ -98,7 +98,11 @@ export function DashboardPage() {
           <span
             className={cn(
               'flex items-center gap-1.5',
-              wsConnected ? 'text-normal-text' : 'text-text-secondary',
+              wsConnected
+                ? 'text-normal-text'
+                : wsConnecting
+                  ? 'text-warning-text'
+                  : 'text-text-secondary',
             )}
           >
             {wsConnected ? (
