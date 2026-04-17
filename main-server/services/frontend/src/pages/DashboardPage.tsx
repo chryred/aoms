@@ -69,59 +69,79 @@ export function DashboardPage() {
   const systems = dashboardData?.systems ?? []
   const lastUpdated = summary?.last_updated ? new Date(summary.last_updated) : new Date()
 
+  const eventSecondsAgo = lastAlertUpdate
+    ? Math.max(0, Math.floor((now - lastAlertUpdate.getTime()) / 1000))
+    : null
+
   return (
     <div className="space-y-6">
-      {/* 헤더 — 제목만 간결하게, description은 WS bar로 통합 */}
-      <PageHeader
-        title="운영 대시보드"
-        action={
-          <NeuButton
-            variant="secondary"
-            size="sm"
-            onClick={handleRefresh}
-            disabled={isRefreshing}
-            className="flex items-center gap-2 whitespace-nowrap"
-          >
-            <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
-            새로고침
-          </NeuButton>
-        }
-      />
+      {/* 헤더 블록 — 제목 + 실시간 메타. 내부는 자연스러운 tight rhythm */}
+      <header>
+        <PageHeader
+          title="운영 대시보드"
+          action={
+            <NeuButton
+              variant="secondary"
+              size="sm"
+              onClick={handleRefresh}
+              disabled={isRefreshing}
+              className="flex items-center gap-2 whitespace-nowrap"
+            >
+              <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+              새로고침
+            </NeuButton>
+          }
+        />
 
-      {/* 메타 정보 — 실시간 상태 + 시스템 수 + 갱신 시각 (통합) */}
-      <div
-        className={cn(
-          '-mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs',
-          wsConnected ? 'text-normal-text' : 'text-text-secondary',
-        )}
-      >
-        {wsConnected ? (
-          <>
-            <Wifi className="h-3 w-3 flex-shrink-0" />
-            <span>실시간 연결됨</span>
-          </>
-        ) : wsConnecting ? (
-          <>
-            <Wifi className="h-3 w-3 flex-shrink-0 animate-pulse" />
-            <span>실시간 연결 중...</span>
-          </>
-        ) : (
-          <>
-            <WifiOff className="h-3 w-3 flex-shrink-0" />
-            <span>실시간 연결 대기</span>
-          </>
-        )}
-        <span className="text-text-disabled">
-          · {systems.length}개 시스템 · 최근 10분 기준 · 갱신{' '}
-          {formatKST(lastUpdated.toISOString(), 'HH:mm:ss')}
-          {lastAlertUpdate && (
+        {/* 메타 바 — 상태 배지 + 메타데이터 조각들. 각 조각은 독립 span, dot은 aria-hidden */}
+        <div className="-mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+          <span
+            className={cn(
+              'flex items-center gap-1.5',
+              wsConnected ? 'text-normal-text' : 'text-text-secondary',
+            )}
+          >
+            {wsConnected ? (
+              <Wifi className="h-3 w-3 flex-shrink-0" />
+            ) : wsConnecting ? (
+              <Wifi className="h-3 w-3 flex-shrink-0 animate-pulse" />
+            ) : (
+              <WifiOff className="h-3 w-3 flex-shrink-0" />
+            )}
+            {wsConnected
+              ? '실시간 연결됨'
+              : wsConnecting
+                ? '실시간 연결 중...'
+                : '실시간 연결 대기'}
+          </span>
+
+          <span aria-hidden className="text-text-disabled">
+            ·
+          </span>
+          <span className="text-text-disabled">{systems.length}개 시스템</span>
+
+          <span aria-hidden className="text-text-disabled">
+            ·
+          </span>
+          <span className="text-text-disabled">최근 10분 기준</span>
+
+          <span aria-hidden className="text-text-disabled">
+            ·
+          </span>
+          <span className="text-text-disabled">
+            갱신 {formatKST(lastUpdated.toISOString(), 'HH:mm:ss')}
+          </span>
+
+          {eventSecondsAgo !== null && (
             <>
-              {' '}
-              · 최근 이벤트 {Math.max(0, Math.floor((now - lastAlertUpdate.getTime()) / 1000))}초 전
+              <span aria-hidden className="text-text-disabled">
+                ·
+              </span>
+              <span className="text-text-disabled">최근 이벤트 {eventSecondsAgo}초 전</span>
             </>
           )}
-        </span>
-      </div>
+        </div>
+      </header>
 
       {isLoading ? (
         <>
