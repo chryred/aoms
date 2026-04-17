@@ -147,11 +147,8 @@ export function DashboardPage() {
             <div>
               <h2 className="type-heading text-text-primary text-lg font-semibold">
                 모니터링 시스템
-                <span className="text-text-secondary ml-2 text-sm font-normal">
-                  ({systems.length}개)
-                </span>
               </h2>
-              <p className="text-text-disabled mt-1 text-xs">
+              <p className="text-text-disabled mt-1 max-w-[60ch] text-xs leading-relaxed">
                 시스템별 상태·메트릭·이상 감지 내역. 시스템 이름 클릭 시 상세 페이지로 이동합니다.
               </p>
             </div>
