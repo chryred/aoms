@@ -46,8 +46,6 @@ class ContactCreate(BaseModel):
     email: Optional[str] = None
     teams_upn: Optional[str] = None
     webhook_url: Optional[str] = None
-    llm_api_key: Optional[str] = None
-    agent_code: Optional[str] = None
 
 
 class ContactUpdate(BaseModel):
@@ -55,8 +53,6 @@ class ContactUpdate(BaseModel):
     email: Optional[str] = None
     teams_upn: Optional[str] = None
     webhook_url: Optional[str] = None
-    llm_api_key: Optional[str] = None
-    agent_code: Optional[str] = None
 
 
 class ContactOut(BaseModel):
@@ -65,30 +61,48 @@ class ContactOut(BaseModel):
     email: Optional[str]
     teams_upn: Optional[str]
     webhook_url: Optional[str]
-    llm_api_key: Optional[str]
-    agent_code: Optional[str]
     created_at: datetime
     systems: list["SystemBrief"] = []
 
     model_config = {"from_attributes": True}
 
-    @field_validator("llm_api_key", mode="before")
-    @classmethod
-    def mask_api_key(cls, v: Optional[str]) -> Optional[str]:
-        if v is None or len(v) <= 6:
-            return v
-        return v[:6] + "***"
-
 
 class ContactWithRoleOut(BaseModel):
-    """log-analyzer의 LLM 설정 조회용 (role + llm_api_key + agent_code 포함)"""
+    """log-analyzer용: 시스템명으로 담당자 조회 (role 포함)"""
     id: int
     name: str
     role: str
     teams_upn: Optional[str]
     webhook_url: Optional[str]
-    llm_api_key: Optional[str]
-    agent_code: Optional[str]
+
+    model_config = {"from_attributes": True}
+
+
+# ── LLM Agent Config ──────────────────────────────────────────────────
+class LlmAgentConfigCreate(BaseModel):
+    area_code: str
+    area_name: str
+    agent_code: str
+    description: Optional[str] = None
+    is_active: bool = True
+
+
+class LlmAgentConfigUpdate(BaseModel):
+    area_name: Optional[str] = None
+    agent_code: Optional[str] = None
+    description: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+class LlmAgentConfigOut(BaseModel):
+    id: int
+    area_code: str
+    area_name: str
+    agent_code: str
+    description: Optional[str]
+    is_active: bool
+    created_at: datetime
+    updated_at: datetime
 
     model_config = {"from_attributes": True}
 
@@ -225,6 +239,8 @@ class FeedbackSearchResponse(BaseModel):
 
 # ── LogAnalysis ──────────────────────────────────────────────────────────
 class LogAnalysisCreate(BaseModel):
+    model_config = {"protected_namespaces": ()}
+
     system_id: int
     instance_role: Optional[str] = None
     log_content: str
@@ -244,6 +260,8 @@ class LogAnalysisCreate(BaseModel):
 
 
 class LogAnalysisOut(BaseModel):
+    model_config = {"from_attributes": True, "protected_namespaces": ()}
+
     id: int
     system_id: Optional[int]
     instance_role: Optional[str]
@@ -258,8 +276,6 @@ class LogAnalysisOut(BaseModel):
     has_solution:     Optional[bool]
     error_message:    Optional[str]   # NULL=성공, 값=LLM/분석 실패 사유
     created_at: datetime
-
-    model_config = {"from_attributes": True}
 
 
 # ── Alertmanager Webhook ──────────────────────────────────────────────────

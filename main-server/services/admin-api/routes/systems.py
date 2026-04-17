@@ -58,7 +58,7 @@ async def delete_system(system_id: int, db: AsyncSession = Depends(get_db), _use
 
 @router.get("/name/{system_name}/contacts", response_model=list[ContactWithRoleOut])
 async def list_system_contacts_by_name(system_name: str, db: AsyncSession = Depends(get_db)):
-    """log-analyzer용: 시스템명으로 담당자 조회 (role + llm_api_key 포함)"""
+    """log-analyzer용: 시스템명으로 담당자 조회 (role 포함)"""
     result = await db.execute(
         select(Contact, SystemContact.role)
         .join(SystemContact, SystemContact.contact_id == Contact.id)
@@ -74,8 +74,6 @@ async def list_system_contacts_by_name(system_name: str, db: AsyncSession = Depe
             role=role,
             teams_upn=contact.teams_upn,
             webhook_url=contact.webhook_url,
-            llm_api_key=contact.llm_api_key,
-            agent_code=contact.agent_code,
         )
         for contact, role in rows
     ]

@@ -10,7 +10,7 @@ from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 from database import engine, Base, AsyncSessionLocal
 from routes import alerts, analysis, contacts, feedback, systems
 from routes import collector_config, aggregations, reports, auth as auth_router
-from routes import agents as agents_router, dashboard, websocket
+from routes import agents as agents_router, dashboard, websocket, llm_config
 from services.ssh_session import run_cleanup_loop
 from services.prometheus_analyzer import run_prometheus_analyzer_loop
 from services.db_collector import db_collection_loop
@@ -69,6 +69,7 @@ app.include_router(reports.router)
 app.include_router(agents_router.router)
 app.include_router(dashboard.router)
 app.include_router(websocket.router)
+app.include_router(llm_config.router)
 
 
 @app.get("/health")

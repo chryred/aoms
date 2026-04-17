@@ -30,7 +30,7 @@ docker compose -f docker-compose.dev.yml up -d n8n
 | `TEAMS_WEBHOOK_URL` | admin-api | 전역 Teams webhook |
 | `FRONTEND_EXTERNAL_URL` | admin-api | Teams 카드 "해결책 등록" 버튼이 여는 React 페이지 URL (브라우저 접근 가능해야 함, 예: `http://{server-a-ip}:3001`) |
 | `LOG_ANALYZER_URL` | admin-api | 메트릭 유사도 분석 호출 |
-| `LLM_API_URL` / `LLM_API_KEY` | log-analyzer | LLM 호출 |
+| `DEVX_CLIENT_ID` / `DEVX_CLIENT_SECRET` | admin-api, log-analyzer | DevX OAuth 인증 |
 | `OLLAMA_URL` / `EMBED_MODEL` | log-analyzer | 임베딩. 모델: `paraphrase-multilingual` (768dim, ADR-003) |
 | `QDRANT_URL` | log-analyzer | 벡터 DB. 컬렉션 차원 768 (ADR-003) |
 | `LLM_TYPE` | admin-api, log-analyzer | `devx`/`ollama`/`claude`/`openai` — `llm_client.py` Strategy가 라우팅 (ADR-001) |

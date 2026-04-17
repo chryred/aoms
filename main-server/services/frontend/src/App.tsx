@@ -39,6 +39,9 @@ const RegisterPage = lazy(() =>
 const UserManagementPage = lazy(() =>
   import('@/pages/admin/UserManagementPage').then((m) => ({ default: m.UserManagementPage })),
 )
+const LlmAgentConfigPage = lazy(() =>
+  import('@/pages/admin/LlmAgentConfigPage').then((m) => ({ default: m.LlmAgentConfigPage })),
+)
 const ProfilePage = lazy(() =>
   import('@/pages/ProfilePage').then((m) => ({ default: m.ProfilePage })),
 )
@@ -242,6 +245,14 @@ export function App() {
               element={
                 <Suspense fallback={<LoadingSkeleton shape="table" />}>
                   <UserManagementPage />
+                </Suspense>
+              }
+            />
+            <Route
+              path="/admin/llm-config"
+              element={
+                <Suspense fallback={<LoadingSkeleton shape="table" />}>
+                  <LlmAgentConfigPage />
                 </Suspense>
               }
             />

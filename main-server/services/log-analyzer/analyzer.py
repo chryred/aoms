@@ -5,7 +5,7 @@ Synapse Log Analyzer — 핵심 분석 로직
   1. Admin API에서 활성 시스템 목록 조회
   2. 시스템별 Prometheus에서 최근 5분 log_error_total 메트릭 조회
   3. instance_role별 그룹화
-  4. 담당자별 LLM API key / agent_code 조회 후 DevX API 호출
+  4. 업무영역별 agent_code 조회 후 DevX OAuth API 호출
      (Phase 4b) 벡터 임베딩 → Qdrant 유사도 검색 → 강화 프롬프트 구성
   5. 분석 결과를 Admin API로 전송 (Teams 알림은 Admin API가 처리)
 
@@ -30,7 +30,7 @@ from vector_client import (
     store_incident_vector,
 )
 
-from llm_client import call_llm_structured, LLM_API_KEY, LLM_AGENT_CODE, LLM_TYPE
+from llm_client import call_llm_structured, LLM_AGENT_CODE, LLM_TYPE
 
 logger = logging.getLogger(__name__)
 
@@ -77,28 +77,34 @@ async def get_systems() -> list[dict]:
     return resp.json()
 
 
-async def get_llm_config_for_system(system_name: str) -> tuple[str, str]:
-    """
-    시스템의 primary 담당자 LLM 설정 조회.
-    반환: (api_key, agent_code)
+_area_configs: dict[str, str] = {}
+_area_configs_loaded_at: float = 0.0
 
-    1순위: contacts의 llm_api_key / agent_code (담당자 등록 값)
-    2순위: 환경변수 LLM_API_KEY / LLM_AGENT_CODE (공용 기본값)
-    """
+
+async def _load_area_configs() -> dict[str, str]:
+    """admin-api에서 활성 LLM agent config 목록 조회 (5분 캐시)."""
+    global _area_configs, _area_configs_loaded_at
+    import time
+    if _area_configs and (time.monotonic() - _area_configs_loaded_at) < 300:
+        return _area_configs
     try:
         resp = await _admin_http.get(
-            f"{ADMIN_API_URL}/api/v1/systems/name/{system_name}/contacts",
+            f"{ADMIN_API_URL}/api/v1/llm-agent-configs",
+            params={"is_active": "true"},
             timeout=5.0,
         )
         if resp.status_code == 200:
-            for contact in resp.json():
-                if contact.get("role") == "primary":
-                    api_key = contact.get("llm_api_key") or LLM_API_KEY
-                    agent_code = contact.get("agent_code") or LLM_AGENT_CODE
-                    return api_key, agent_code
+            _area_configs = {c["area_code"]: c["agent_code"] for c in resp.json()}
+            _area_configs_loaded_at = time.monotonic()
     except Exception as e:
-        logger.warning(f"LLM 설정 조회 실패 ({system_name}): {e}")
-    return LLM_API_KEY, LLM_AGENT_CODE
+        logger.warning(f"LLM agent config 조회 실패: {e}")
+    return _area_configs
+
+
+async def get_agent_code_for_area(area_code: str) -> str:
+    """업무 영역 코드로 agent_code 반환. 미등록 시 환경변수 폴백."""
+    configs = await _load_area_configs()
+    return configs.get(area_code, LLM_AGENT_CODE)
 
 
 async def fetch_logs_for_system(system_name: str) -> dict[str, list[dict]]:
@@ -171,7 +177,6 @@ async def analyze_with_vector_context(
     system_name: str,
     instance_role: str,
     logs: list[dict],
-    api_key: str,
     agent_code: str,
 ) -> dict:
     """
@@ -220,7 +225,7 @@ async def analyze_with_vector_context(
 
     # 4. 강화 프롬프트 구성 + LLM 호출
     prompt   = build_enhanced_prompt(log_text, system_name, instance_role, anomaly_info)
-    analysis = await call_llm_structured(prompt, api_key, agent_code)
+    analysis = await call_llm_structured(prompt, agent_code=agent_code)
 
     # 5. 벡터 저장 (새로운 분석 결과 누적 — duplicate 포함)
     point_id = None
@@ -337,7 +342,7 @@ async def run_analysis() -> dict:
                 results["no_logs"] += 1
                 continue
 
-            api_key, agent_code = await get_llm_config_for_system(system_name)
+            agent_code = await get_agent_code_for_area("log_analysis")
 
             for instance_role, logs in logs_by_role.items():
                 # masked_log는 성공/실패 두 경로 모두에서 필요 → try 진입 전 구성
@@ -346,7 +351,7 @@ async def run_analysis() -> dict:
                 )
                 try:
                     analysis = await analyze_with_vector_context(
-                        system_name, instance_role, logs, api_key, agent_code
+                        system_name, instance_role, logs, agent_code
                     )
 
                     severity       = analysis.get("severity", "info")

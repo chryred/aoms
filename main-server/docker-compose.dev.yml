@@ -104,7 +104,6 @@ services:
       - QDRANT_URL=http://host.docker.internal:6333
       - EMBED_MODEL=bge-m3
       - LLM_API_URL=${LLM_API_URL:-}
-      - LLM_API_KEY=${LLM_API_KEY:-}
     volumes:
       - n8n_dev_data:/home/node/.n8n
     extra_hosts:

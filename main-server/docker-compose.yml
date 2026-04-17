@@ -129,12 +129,12 @@ services:
       - PROMETHEUS_URL=http://prometheus:9090
       - AGENT_PROMETHEUS_URL=${AGENT_PROMETHEUS_URL}
       - PROMETHEUS_ANALYZE_INTERVAL_SECONDS=${PROMETHEUS_ANALYZE_INTERVAL_SECONDS:-300}
-      # LLM (llm_client.py Strategy)
+      # LLM (llm_client.py Strategy — DevX OAuth)
       - LLM_TYPE=${LLM_TYPE}
       - LLM_API_URL=${LLM_API_URL}
-      - LLM_API_KEY=${LLM_API_KEY}
-      - LLM_AGENT_CODE=${LLM_AGENT_CODE}
       - LLM_MODEL=${LLM_MODEL}
+      - DEVX_CLIENT_ID=${DEVX_CLIENT_ID}
+      - DEVX_CLIENT_SECRET=${DEVX_CLIENT_SECRET}
       # DB 수집기
       - DB_COLLECT_INTERVAL_SECS=${DB_COLLECT_INTERVAL_SECS:-${ORACLE_COLLECT_INTERVAL_SECS:-60}}
       - AGENT_BINARY_PATH=${AGENT_BINARY_PATH:-/app/bin/agent-v}
@@ -157,13 +157,12 @@ services:
       - ADMIN_API_URL=http://admin-api:8080
       - ANALYSIS_INTERVAL_SECONDS=${ANALYSIS_INTERVAL_SECONDS:-300}
       - TEAMS_WEBHOOK_URL=${TEAMS_WEBHOOK_URL}
-      # LLM (llm_client.py Strategy — ADR-001)
-      # 담당자별 API key: contacts.llm_api_key 우선, 없으면 아래 LLM_API_KEY 폴백
+      # LLM (llm_client.py Strategy — DevX OAuth)
       - LLM_TYPE=${LLM_TYPE}
       - LLM_API_URL=${LLM_API_URL}
-      - LLM_API_KEY=${LLM_API_KEY}
-      - LLM_AGENT_CODE=${LLM_AGENT_CODE}
       - LLM_MODEL=${LLM_MODEL}
+      - DEVX_CLIENT_ID=${DEVX_CLIENT_ID}
+      - DEVX_CLIENT_SECRET=${DEVX_CLIENT_SECRET}
       # Phase 4b: 벡터 DB (Server B)
       - OLLAMA_URL=${OLLAMA_URL}
       - EMBED_MODEL=${EMBED_MODEL:-paraphrase-multilingual}

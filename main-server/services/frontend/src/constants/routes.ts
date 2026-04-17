@@ -14,6 +14,7 @@ export const ROUTES = {
   FEEDBACK_SEARCH: '/feedback/search',
   PROFILE: '/profile',
   ADMIN_USERS: '/admin/users',
+  ADMIN_LLM_CONFIG: '/admin/llm-config',
   VECTOR_HEALTH: '/vector-health',
   GRAFANA: '/grafana-dashboard',
   AGENTS: '/agents',

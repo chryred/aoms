@@ -4,16 +4,18 @@
 LLM 멀티 프로바이더 클라이언트 (Strategy 패턴)
 
 LLM_TYPE 환경변수로 프로바이더를 선택하고, 동일 인터페이스로 호출.
-- devx:   운영 내부 LLM API (기존 방식)
+- devx:   DevX OAuth (client_credentials → agent chat)
 - ollama: 로컬 Ollama 서버
 - claude: Anthropic Claude Messages API
 - openai: OpenAI Chat Completions API
 """
 
+import asyncio
 import json
 import logging
 import os
 import re
+import time
 from abc import ABC, abstractmethod
 
 import httpx
@@ -24,9 +26,15 @@ logger = logging.getLogger(__name__)
 
 LLM_TYPE       = os.getenv("LLM_TYPE", "devx")
 LLM_API_URL    = os.getenv("LLM_API_URL", "")
-LLM_API_KEY    = os.getenv("LLM_API_KEY", "")
-LLM_AGENT_CODE = os.getenv("LLM_AGENT_CODE", "")
+LLM_API_KEY    = os.getenv("LLM_API_KEY", "")          # claude/openai Strategy 용
+LLM_AGENT_CODE = os.getenv("LLM_AGENT_CODE", "")       # agent_code 폴백 (area config 미조회 시)
 LLM_MODEL      = os.getenv("LLM_MODEL", "")
+
+# DevX OAuth (client_credentials)
+DEVX_CLIENT_ID     = os.getenv("DEVX_CLIENT_ID", "")
+DEVX_CLIENT_SECRET = os.getenv("DEVX_CLIENT_SECRET", "")
+DEVX_TOKEN_URL     = os.getenv("DEVX_TOKEN_URL", "https://devx-gw.shinsegae-inc.com/api/v1/auth/token")
+DEVX_CHAT_URL      = os.getenv("DEVX_CHAT_URL", "https://devx-gw.shinsegae-inc.com/api/v1/agent/chat")
 
 # 공용 HTTP 클라이언트
 _http = httpx.AsyncClient(timeout=120.0)
@@ -46,26 +54,67 @@ class LLMStrategy(ABC):
 # ── 구현체 ──────────────────────────────────────────────────────────────────
 
 class DevxStrategy(LLMStrategy):
-    """운영 내부 DevX API"""
+    """DevX OAuth (client_credentials) → agent chat API"""
+
+    def __init__(self):
+        self._token: str = ""
+        self._expires_at: float = 0.0
+        self._lock = asyncio.Lock()
+
+    async def _ensure_token(self) -> str:
+        """OAuth access_token 발급/갱신 (double-check lock 패턴)."""
+        if self._token and time.monotonic() < self._expires_at:
+            return self._token
+        async with self._lock:
+            if self._token and time.monotonic() < self._expires_at:
+                return self._token
+            resp = await _http.post(
+                DEVX_TOKEN_URL,
+                data={
+                    "grant_type": "client_credentials",
+                    "client_id": DEVX_CLIENT_ID,
+                    "client_secret": DEVX_CLIENT_SECRET,
+                },
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+            )
+            resp.raise_for_status()
+            body = resp.json()
+            self._token = body["access_token"]
+            expires_in = body.get("expires_in", 3600)
+            self._expires_at = time.monotonic() + expires_in - 60  # 만료 60초 전 갱신
+            logger.info("DevX OAuth token acquired (expires_in=%s)", expires_in)
+            return self._token
 
     async def call(self, prompt, *, api_key="", agent_code="", max_tokens=1024):
-        key = api_key or LLM_API_KEY
         code = agent_code or LLM_AGENT_CODE
-        if not LLM_API_URL:
-            logger.warning("LLM_API_URL 미설정 — LLM 호출 생략")
+        if not DEVX_CLIENT_ID:
+            logger.warning("DEVX_CLIENT_ID 미설정 — LLM 호출 생략")
             return ""
-        resp = await _http.post(
-            LLM_API_URL,
-            headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-            json={"agent_code": code, "query": prompt, "response_mode": "blocking"},
-        )
-        resp.raise_for_status()
-        raw = resp.json()
-        answer = (
-            raw.get("external_response", {}).get("dify_response", {}).get("answer")
-            or raw.get("answer")
-            or ""
-        )
+        token = await self._ensure_token()
+        # streaming SSE로 호출 후 workflow_finished에서 answer 추출
+        answer = ""
+        async with _http.stream(
+            "POST",
+            DEVX_CHAT_URL,
+            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+            json={"agent_code": code, "query": prompt, "response_mode": "streaming", "user": "synapse-v"},
+        ) as resp:
+            resp.raise_for_status()
+            async for line in resp.aiter_lines():
+                if not line.startswith("data:"):
+                    continue
+                try:
+                    evt = json.loads(line[5:].strip())
+                except (json.JSONDecodeError, ValueError):
+                    continue
+                event_type = evt.get("event", "")
+                if event_type == "workflow_finished":
+                    outputs = evt.get("data", {}).get("outputs") or {}
+                    answer = outputs.get("answer") or outputs.get("result") or ""
+                elif event_type == "message_end":
+                    # workflow_finished가 없는 경우 message_end 폴백
+                    if not answer:
+                        answer = evt.get("answer") or ""
         return answer
 
 
@@ -246,7 +295,7 @@ async def call_llm_text(
     텍스트 반환 (aggregation_processor.py / prometheus_analyzer.py용).
     실패 시 None 반환 (호출 측에서 graceful 처리).
 
-    api_key / agent_code: 담당자별 키/에이전트 코드 오버라이드 (미지정 시 환경변수 기본값).
+    api_key / agent_code: 오버라이드 (미지정 시 환경변수 기본값).
     """
     try:
         text = await _strategy.call(

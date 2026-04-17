@@ -23,7 +23,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import AsyncSessionLocal
-from models import Contact, LogAnalysisHistory, System, SystemContact
+from models import Contact, LlmAgentConfig, LogAnalysisHistory, System, SystemContact
 from services.llm_client import call_llm_text, LLM_TYPE
 
 logger = logging.getLogger(__name__)
@@ -31,9 +31,6 @@ logger = logging.getLogger(__name__)
 _PROMETHEUS_URL = os.getenv("PROMETHEUS_URL", "").rstrip("/")
 _ANALYZE_INTERVAL = int(os.getenv("PROMETHEUS_ANALYZE_INTERVAL_SECONDS", "300"))
 _TEAMS_WEBHOOK_URL = os.getenv("TEAMS_WEBHOOK_URL", "")
-# LLM 호출은 services.llm_client 의 Strategy 로 일원화 (LLM_TYPE 환경변수로 프로바이더 선택)
-_LLM_API_KEY = os.getenv("LLM_API_KEY", "")  # 담당자별 키가 없을 때 fallback으로 참조
-_LLM_AGENT_CODE = os.getenv("LLM_AGENT_CODE", "")
 
 _CPU_THRESHOLD = float(os.getenv("PROM_ALERT_CPU_THRESHOLD", "85.0"))
 _MEM_THRESHOLD = float(os.getenv("PROM_ALERT_MEM_THRESHOLD", "85.0"))
@@ -131,17 +128,10 @@ async def _get_system_info(db: AsyncSession, system_name: str) -> Optional[dict]
         "display_name": system.display_name,
         "teams_webhook_url": system.teams_webhook_url,
         "contacts": [
-            {"name": c.name, "teams_upn": c.teams_upn, "llm_api_key": c.llm_api_key}
+            {"name": c.name, "teams_upn": c.teams_upn}
             for c in contacts
         ],
     }
-
-
-def _pick_api_key(contacts: list[dict]) -> str:
-    for c in contacts:
-        if c.get("llm_api_key"):
-            return c["llm_api_key"]
-    return _LLM_API_KEY
 
 
 # ── 메트릭 수집 → HostContext 구성 ──────────────────────────────────────────
@@ -412,15 +402,12 @@ async def run_analysis_cycle() -> None:
 
     async with AsyncSessionLocal() as db:
         for host, hc in anomalous_hosts.items():
-            # 담당자 API 키 수집 (이상 시스템 우선)
-            api_key = _LLM_API_KEY
-            for sn in (sn for sn, sm in hc.systems.items() if sm.anomalies):
-                info = await _get_system_info(db, sn)
-                if info:
-                    key = _pick_api_key(info["contacts"])
-                    if key != _LLM_API_KEY:
-                        api_key = key
-                        break
+            # 업무영역별 agent_code 조회
+            _cfg_result = await db.execute(
+                select(LlmAgentConfig.agent_code)
+                .where(LlmAgentConfig.area_code == "infra_analysis", LlmAgentConfig.is_active == True)
+            )
+            _infra_agent_code = _cfg_result.scalar_one_or_none() or ""
 
             # LLM 분석
             system_infos = {}
@@ -438,7 +425,7 @@ async def run_analysis_cycle() -> None:
             try:
                 analysis = await call_llm_text(
                     prompt, max_tokens=400,
-                    api_key=api_key, agent_code=_LLM_AGENT_CODE,
+                    agent_code=_infra_agent_code,
                 )
                 if not analysis:
                     llm_error = "LLM empty response"

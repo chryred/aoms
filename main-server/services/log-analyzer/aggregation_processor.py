@@ -27,6 +27,7 @@ logger = logging.getLogger(__name__)
 # ── 환경변수 ────────────────────────────────────────────────────────────────
 
 from llm_client import call_llm_text
+from analyzer import get_agent_code_for_area
 
 ADMIN_API_URL    = os.getenv("ADMIN_API_URL",    "http://admin-api:8080")
 PROMETHEUS_URL   = os.getenv("PROMETHEUS_URL",   "http://prometheus:9090")
@@ -359,7 +360,8 @@ async def _process_single_config(
                 "}"
             )
 
-            llm_text = await call_llm_text(llm_prompt, max_tokens=400)
+            _hourly_agent_code = await get_agent_code_for_area("metric_hourly_aggregation")
+            llm_text = await call_llm_text(llm_prompt, max_tokens=400, agent_code=_hourly_agent_code)
             llm_result = _parse_llm_json(llm_text, {
                 "severity": "warning", "trend": "LLM 파싱 오류", "prediction": None,
                 "root_cause_hypothesis": "", "recommendation": "",
@@ -737,7 +739,8 @@ async def run_daily_aggregation() -> dict:
                 "한국어로 1-2 문장으로 핵심을 요약해 주세요."
             )
             try:
-                daily_llm_text = await call_llm_text(daily_llm_prompt, max_tokens=200)
+                _daily_agent_code = await get_agent_code_for_area("metric_daily_aggregation")
+                daily_llm_text = await call_llm_text(daily_llm_prompt, max_tokens=200, agent_code=_daily_agent_code)
             except Exception as exc:
                 logger.warning("일별 LLM 요약 실패: %s", exc)
                 daily_llm_text = None
@@ -862,7 +865,8 @@ async def run_weekly_report() -> dict:
             "가장 주의가 필요한 시스템과 전체적인 추세를 포함해 주세요."
         )
 
-        llm_text = await call_llm_text(llm_prompt, max_tokens=300)
+        _weekly_agent_code = await get_agent_code_for_area("metric_weekly_aggregation")
+        llm_text = await call_llm_text(llm_prompt, max_tokens=300, agent_code=_weekly_agent_code)
         llm_summary = (
             llm_text if llm_text else "주간 요약 생성 실패"
         )
@@ -1023,7 +1027,8 @@ async def run_monthly_report() -> dict:
             "다음 달 주의사항을 한국어로 3-4 문장으로 요약해 주세요."
         )
 
-        llm_text = await call_llm_text(llm_prompt, max_tokens=400)
+        _monthly_agent_code = await get_agent_code_for_area("metric_monthly_aggregation")
+        llm_text = await call_llm_text(llm_prompt, max_tokens=400, agent_code=_monthly_agent_code)
         llm_summary = llm_text if llm_text else "월간 요약 생성 실패"
 
         card = {
@@ -1152,7 +1157,8 @@ async def _run_single_period_report(
         "우려되는 장기 추세, 향후 권고사항을 한국어로 4-5 문장으로 요약해 주세요."
     )
 
-    llm_text = await call_llm_text(llm_prompt, max_tokens=500)
+    _longperiod_agent_code = await get_agent_code_for_area("metric_longperiod_aggregation")
+    llm_text = await call_llm_text(llm_prompt, max_tokens=500, agent_code=_longperiod_agent_code)
     llm_summary = llm_text if llm_text else "장기 요약 생성 실패"
 
     period_emoji = {"annual": "🗓️", "half_year": "📆"}.get(period_type, "📊")
@@ -1301,7 +1307,8 @@ async def _process_single_trend_alert(
                 "}"
             )
 
-            llm_text = await call_llm_text(llm_prompt, max_tokens=300)
+            _trend_agent_code = await get_agent_code_for_area("trend_alert")
+            llm_text = await call_llm_text(llm_prompt, max_tokens=300, agent_code=_trend_agent_code)
             llm_result = _parse_llm_json(llm_text, {
                 "severity": "warning",
                 "trend_summary": "분석 실패",

@@ -19,6 +19,7 @@ import {
   ChevronRight,
   ChevronUp,
   Terminal,
+  Bot,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useUiStore } from '@/store/uiStore'
@@ -251,7 +252,7 @@ export function Sidebar() {
             accountMenuOpen ? 'max-h-[200px] opacity-100' : 'pointer-events-none max-h-0 opacity-0',
           )}
         >
-          <div className="border-border bg-surface space-y-0.5 border-t px-2 pt-1 pb-1">
+          <div className="border-border bg-bg-deep space-y-0.5 rounded-sm border px-2 pt-1 pb-1 shadow-[0_-4px_12px_rgba(0,0,0,0.3)]">
             <NavItem
               to={ROUTES.PROFILE}
               icon={<UserCircle className="h-4 w-4" />}
@@ -266,6 +267,13 @@ export function Sidebar() {
                   icon={<ShieldCheck className="h-4 w-4" />}
                   label="사용자 관리"
                   badge={pendingCount}
+                  collapsed={collapsed}
+                  onNavigate={closeMobileSidebar}
+                />
+                <NavItem
+                  to={ROUTES.ADMIN_LLM_CONFIG}
+                  icon={<Bot className="h-4 w-4" />}
+                  label="DevX AgentCode 관리"
                   collapsed={collapsed}
                   onNavigate={closeMobileSidebar}
                 />

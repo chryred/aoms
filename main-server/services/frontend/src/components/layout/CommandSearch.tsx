@@ -25,6 +25,7 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/contacts', label: '담당자 관리', group: '관리' },
   { to: '/profile', label: '내 프로필', group: '계정' },
   { to: '/admin/users', label: '사용자 관리', group: '계정', adminOnly: true },
+  { to: '/admin/llm-config', label: 'DevX AgentCode 관리', group: '계정', adminOnly: true },
   { to: '/vector-health', label: '벡터 상태', group: '계정', adminOnly: true },
 ]
 

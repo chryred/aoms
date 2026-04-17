@@ -13,8 +13,6 @@ export interface Contact {
   email: string | null
   teams_upn: string | null
   webhook_url: string | null
-  llm_api_key: string | null
-  agent_code: string | null
   created_at: string
   updated_at: string
   systems: ContactSystem[]
@@ -25,8 +23,6 @@ export interface ContactCreate {
   email?: string
   teams_upn?: string
   webhook_url?: string
-  llm_api_key?: string
-  agent_code?: string
 }
 
 export interface SystemContact {

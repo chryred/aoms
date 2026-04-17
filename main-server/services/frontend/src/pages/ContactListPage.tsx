@@ -125,7 +125,7 @@ export function ContactListPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-border border-b">
-                {['이름', '이메일', 'Teams UPN', '연결된 시스템', 'LLM 키', '등록일', ''].map(
+                {['이름', '이메일', 'Teams UPN', '연결된 시스템', '등록일', ''].map(
                   (h) => (
                     <th
                       key={h}
@@ -197,9 +197,6 @@ function ContactRow({
       <td className="text-text-secondary px-4 py-3">{contact.teams_upn ?? '-'}</td>
       <td className="px-4 py-3">
         <SystemsCell systems={contact.systems} />
-      </td>
-      <td className="text-text-secondary px-4 py-3">
-        {contact.llm_api_key ? contact.llm_api_key : '-'}
       </td>
       <td className="text-text-secondary px-4 py-3">{formatKST(contact.created_at, 'date')}</td>
       <td className="px-4 py-3">

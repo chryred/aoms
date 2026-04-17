@@ -25,7 +25,7 @@ admin-api/
 ├── main.py              # FastAPI 앱 초기화, 라우터 등록, lifespan(테이블 자동 생성 + SSH 세션 정리 루프 + Prometheus 분석 루프)
 ├── database.py          # DB 엔진·세션 팩토리, get_db() 의존성
 ├── models.py            # SQLAlchemy ORM 모델 (16개 테이블 — agent_instances, agent_install_jobs 포함)
-├── schemas.py           # Pydantic 입출력 스키마 (ContactOut.llm_api_key 마스킹 포함)
+├── schemas.py           # Pydantic 입출력 스키마 (LlmAgentConfig 스키마 포함)
 ├── auth.py              # JWT 발급/검증, bcrypt, get_current_user, require_admin Dependency
 ├── init.sql             # 최초 DB 스키마 생성용 SQL (운영 권장)
 ├── requirements.txt
@@ -65,7 +65,8 @@ admin-api/
 | 테이블 | 설명 |
 |---|---|
 | `systems` | 모니터링 대상 시스템. `system_name`은 Prometheus label과 동일하게 사용 |
-| `contacts` | 담당자. `teams_upn`은 Teams @mention용 이메일 |
+| `contacts` | 담당자. `teams_upn`은 Teams @mention용 이메일 (LLM 관련 필드 제거됨 — ADR-007) |
+| `llm_agent_configs` | 업무 영역별 DevX agent_code 관리 (9개 영역). `area_code` 유니크 (ADR-007) |
 | `system_contacts` | 시스템↔담당자 N:M 매핑. `notify_channels`에 콤마로 채널 지정 |
 | `alert_history` | 모든 알림 발송 이력. `alert_type`: `metric` / `metric_resolved` / `log_analysis`. `error_message` 컬럼(ADR-002) 포함 |
 | `log_analysis_history` | LLM 분석 결과 저장. log-analyzer 서비스가 POST로 전달. `error_message`(실패 사유)·`model_used`(LLM_TYPE) 컬럼 포함(ADR-001/002) |
@@ -105,6 +106,13 @@ docker exec -it aoms-admin-api \
 
 ### 담당자 관리 `/api/v1/contacts`
 - `GET /`, `POST /`, `GET /{id}`, `PATCH /{id}`, `DELETE /{id}` — 기본 CRUD
+
+### LLM Agent 설정 `/api/v1/llm-agent-configs` (ADR-007)
+- `GET /` — 전체 조회 (`?is_active=true` 필터 지원)
+- `GET /{area_code}` — area_code로 단건 조회 (log-analyzer 내부 호출용)
+- `POST /` — 생성 (admin 인증 필수)
+- `PATCH /{id}` — 수정 (admin 인증 필수)
+- `DELETE /{id}` — 삭제 (admin 인증 필수)
 
 ### 알림 `/api/v1/alerts`
 - `POST /receive` — **Alertmanager webhook 수신** 엔드포인트

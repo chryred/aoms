@@ -27,10 +27,22 @@ class Contact(Base):
     email = Column(String(200))
     teams_upn = Column(String(200))                    # Teams mention용 UPN (예: user@company.com)
     webhook_url = Column(Text)
-    llm_api_key = Column(Text)                         # 담당자별 LLM API key (비용 분리 청구용)
-    agent_code = Column(String(100))                   # 담당자별 LLM Agent code
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+
+
+class LlmAgentConfig(Base):
+    """업무 영역별 LLM agent_code 관리 (DevX OAuth 마이그레이션)"""
+    __tablename__ = "llm_agent_configs"
+
+    id          = Column(Integer, primary_key=True)
+    area_code   = Column(String(50), unique=True, nullable=False)   # log_analysis, metric_hourly_aggregation, ...
+    area_name   = Column(String(200), nullable=False)               # 한국어 표시명
+    agent_code  = Column(String(200), nullable=False)               # DevX agent code
+    description = Column(Text)
+    is_active   = Column(Boolean, default=True, server_default="true")
+    created_at  = Column(DateTime, default=func.now(), server_default=func.now())
+    updated_at  = Column(DateTime, default=func.now(), onupdate=func.now(), server_default=func.now())
 
 
 class SystemContact(Base):

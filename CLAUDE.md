@@ -35,7 +35,7 @@
 |---|---|
 | `DATABASE_URL` | `postgresql+asyncpg://...` |
 | `LLM_TYPE` | `devx` / `ollama` / `claude` / `openai` — `llm_client.py` Strategy가 라우팅 (ADR-001) |
-| `LLM_API_URL` / `LLM_API_KEY` / `LLM_AGENT_CODE` | 프로바이더별 설정 |
+| `DEVX_CLIENT_ID` / `DEVX_CLIENT_SECRET` | DevX OAuth client_credentials 인증 (시스템 발급) |
 | `OLLAMA_URL` / `EMBED_MODEL` | `paraphrase-multilingual` (ADR-003) |
 | `QDRANT_URL` | `http://{server-b}:6333` |
 | `TEAMS_WEBHOOK_URL` | 전역 Teams 폴백 (시스템별 `systems.teams_webhook_url`이 우선) |
@@ -115,3 +115,8 @@ make test-api        # 단위 테스트 (SQLite in-memory)
 ### [LLM 파이프라인] llm_client.py 이중화 관리 (ADR-001)
 - `log-analyzer/llm_client.py`와 `admin-api/services/llm_client.py`는 **동일 내용 복제본**. 파일 상단 `# SYNC:` 주석 확인.
 - 새 프로바이더 추가·로직 변경 시 **양쪽 파일 동시 수정**.
+
+### [LLM 파이프라인] DevX OAuth + 업무영역별 agent_code (ADR-007)
+- DevX 인증은 시스템 OAuth(`client_credentials`) 방식. `DEVX_CLIENT_ID`/`DEVX_CLIENT_SECRET` 환경변수로 토큰 발급.
+- `agent_code`는 `llm_agent_configs` 테이블에서 업무 영역별 관리 (9개 영역). 담당자(contacts)와 무관.
+- 관리 페이지: `/admin/llm-config` (admin 전용)

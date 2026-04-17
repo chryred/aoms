@@ -13,6 +13,12 @@ const SEVERITY_VARIANT: Record<Severity, 'critical' | 'warning' | 'info'> = {
   info: 'info',
 }
 
+const SEVERITY_LABEL: Record<Severity, string> = {
+  critical: '위험',
+  warning: '경고',
+  info: '정보',
+}
+
 interface IncidentReportModalProps {
   alert: AlertHistory | null
   systemName?: string
@@ -80,7 +86,7 @@ export function IncidentReportModal({ alert, systemName, onClose }: IncidentRepo
         {/* 서브헤더: 알림 정보 */}
         <div className="border-border flex items-center gap-2 border-b px-5 py-2.5">
           <span className="text-text-secondary font-mono text-xs">#{alert.id}</span>
-          <NeuBadge variant={SEVERITY_VARIANT[alert.severity]}>{alert.severity}</NeuBadge>
+          <NeuBadge variant={SEVERITY_VARIANT[alert.severity]}>{SEVERITY_LABEL[alert.severity]}</NeuBadge>
           {systemName && (
             <span className="text-text-secondary text-xs">{systemName}</span>
           )}

@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth import get_current_user
 from database import get_db
-from models import AlertHistory, System, Contact, SystemContact
+from models import AlertHistory, LlmAgentConfig, System, Contact, SystemContact
 from schemas import AlertHistoryOut, AlertmanagerPayload, AcknowledgeRequest, IncidentReportOut
 from services.cooldown import is_in_cooldown, make_alert_key, record_sent
 from services.llm_client import call_llm_text
@@ -322,26 +322,18 @@ async def generate_incident_report(
     if not alert:
         raise HTTPException(status_code=404, detail="Alert not found")
 
-    # 시스템 display_name 조회 + primary 담당자 API 키 조회
+    # 시스템 display_name 조회 + 업무영역별 agent_code 조회
     system_display_name = "알 수 없음"
-    api_key = ""
-    agent_code = ""
     if alert.system_id:
         system = await db.get(System, alert.system_id)
         if system:
             system_display_name = system.display_name
 
-        primary_result = await db.execute(
-            select(Contact)
-            .join(SystemContact, SystemContact.contact_id == Contact.id)
-            .where(SystemContact.system_id == alert.system_id)
-            .where(SystemContact.role == "primary")
-            .limit(1)
-        )
-        primary_contact = primary_result.scalar_one_or_none()
-        if primary_contact:
-            api_key = primary_contact.llm_api_key or ""
-            agent_code = primary_contact.agent_code or ""
+    cfg_result = await db.execute(
+        select(LlmAgentConfig.agent_code)
+        .where(LlmAgentConfig.area_code == "incident_report", LlmAgentConfig.is_active == True)
+    )
+    agent_code = cfg_result.scalar_one_or_none() or ""
 
     # description JSON 파싱 (root_cause, recommendation 추출)
     root_cause = ""
@@ -393,7 +385,7 @@ async def generate_incident_report(
 ○ 고객반응 : (관계사·현업 인지 여부 및 VOC 등 반응)
 ○ 기타 : (그 외 추가 상황 및 진행 중인 내용)"""
 
-    report = await call_llm_text(prompt, max_tokens=1500, api_key=api_key, agent_code=agent_code)
+    report = await call_llm_text(prompt, max_tokens=1500, agent_code=agent_code)
     if not report:
         raise HTTPException(status_code=503, detail="LLM 서비스 응답 없음. 잠시 후 다시 시도하세요.")
 

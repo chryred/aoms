@@ -23,15 +23,35 @@ CREATE TABLE IF NOT EXISTS contacts (
     email       VARCHAR(200),
     teams_upn   VARCHAR(200),          -- Teams mention용 UPN
     webhook_url TEXT,
-    llm_api_key     VARCHAR(500),
-    agent_code      VARCHAR(100),
     created_at  TIMESTAMP DEFAULT NOW(),
     updated_at  TIMESTAMP DEFAULT NOW()
 );
 
 COMMENT ON COLUMN contacts.teams_upn IS 'Microsoft Teams UPN (알림 멘션용)';
-COMMENT ON COLUMN contacts.llm_api_key IS '담당자별 LLM API key — NULL이면 .env 기본값 사용';
-COMMENT ON COLUMN contacts.agent_code IS 'LLM AGENT CODE';
+
+-- ── LLM Agent Config (업무 영역별 agent_code 관리) ───────────────────
+CREATE TABLE IF NOT EXISTS llm_agent_configs (
+    id          SERIAL PRIMARY KEY,
+    area_code   VARCHAR(50) UNIQUE NOT NULL,   -- log_analysis, metric_hourly_aggregation, ...
+    area_name   VARCHAR(200) NOT NULL,         -- 한국어 표시명
+    agent_code  VARCHAR(200) NOT NULL,         -- DevX agent code
+    description TEXT,
+    is_active   BOOLEAN DEFAULT TRUE,
+    created_at  TIMESTAMP DEFAULT NOW(),
+    updated_at  TIMESTAMP DEFAULT NOW()
+);
+
+INSERT INTO llm_agent_configs (area_code, area_name, agent_code, description) VALUES
+    ('log_analysis',                  '실시간 로그 분석',   'custom_8f9ee032e5594452bff5602c03e966eb', '5분 주기 로그 에러 분석'),
+    ('metric_hourly_aggregation',     '시간별 메트릭 집계', 'custom_8f9ee032e5594452bff5602c03e966eb', '매 시간 Prometheus 메트릭 집계 분석'),
+    ('metric_daily_aggregation',      '일별 메트릭 집계',   'custom_8f9ee032e5594452bff5602c03e966eb', '매일 07:30 일별 롤업 집계'),
+    ('metric_weekly_aggregation',     '주별 메트릭 집계',   'custom_8f9ee032e5594452bff5602c03e966eb', '매주 월요일 08:00 주간 리포트'),
+    ('metric_monthly_aggregation',    '월별 메트릭 집계',   'custom_8f9ee032e5594452bff5602c03e966eb', '매월 1일 08:00 월간 리포트'),
+    ('metric_longperiod_aggregation', '장기 메트릭 집계',   'custom_8f9ee032e5594452bff5602c03e966eb', '매월 1일 09:00 분기/반기/연간 리포트'),
+    ('trend_alert',                   '추세 이상 알림',     'custom_8f9ee032e5594452bff5602c03e966eb', '4시간 주기 지속 이상 감지'),
+    ('infra_analysis',                '인프라 메트릭 분석', 'custom_8f9ee032e5594452bff5602c03e966eb', 'Prometheus 호스트별 교차 분석'),
+    ('incident_report',               '장애보고서 생성',    'custom_8f9ee032e5594452bff5602c03e966eb', '장애 알림 기반 한국어 보고서')
+ON CONFLICT (area_code) DO NOTHING;
 
 -- ── 시스템-담당자 매핑 (N:M) ──────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS system_contacts (
