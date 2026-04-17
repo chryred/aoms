@@ -27,7 +27,7 @@ export function formatKST(
   return kst.toISOString().slice(0, 16).replace('T', ' ')
 }
 
-// 상대 시간 (1시간 이내: "3분 전", 이상: KST 절대)
+// 상대 시간 (1시간 이내: "3분 전", 7일 이내: "N시간/일 전", 이상: KST 절대)
 export function formatRelative(utcDate: string): string {
   // naive UTC 문자열(타임존 접미사 없음)을 UTC로 해석
   const normalized =
@@ -38,6 +38,8 @@ export function formatRelative(utcDate: string): string {
   if (mins < 60) return `${mins}분 전`
   const hours = Math.floor(diff / 3_600_000)
   if (hours < 24) return `${hours}시간 전`
+  const days = Math.floor(diff / 86_400_000)
+  if (days < 7) return `${days}일 전`
   return formatKST(utcDate, 'date')
 }
 

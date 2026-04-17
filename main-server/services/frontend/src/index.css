@@ -587,6 +587,55 @@ pre {
   animation: popup-slide-down 0.3s cubic-bezier(0.25, 1, 0.5, 1) both;
 }
 
+/* AgentListPage — 배너 entrance (위→아래, 220ms) */
+@keyframes banner-slide-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* AgentListPage — 배너 exit (아래→위, 160ms — 입장보다 빠름) */
+@keyframes banner-fade-out {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+/* AgentListPage — 섹션 stagger reveal */
+@keyframes section-enter {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-banner-enter {
+  animation: banner-slide-in 0.22s cubic-bezier(0.25, 1, 0.5, 1) both;
+}
+
+.animate-banner-exit {
+  animation: banner-fade-out 0.16s cubic-bezier(0.4, 0, 1, 1) both;
+  pointer-events: none;
+}
+
+.animate-section-enter {
+  animation: section-enter 0.25s cubic-bezier(0.25, 1, 0.5, 1) both;
+}
+
 /* 체크마크 선 그리기 */
 @keyframes check-draw {
   to {

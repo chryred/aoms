@@ -16,8 +16,8 @@ const ALERT_TYPE_LABELS: Record<string, string> = {
 }
 
 function getTypeLabel(alert: AlertHistory): string {
-  if (alert.alert_type === 'metric' && alert.resolved_at) return '복구'
-  if ((alert.alert_type as string) === 'metric_resolved') return '복구'
+  if (alert.alert_type === 'metric' && alert.resolved_at) return '복구됨'
+  if ((alert.alert_type as string) === 'metric_resolved') return '복구됨'
   return ALERT_TYPE_LABELS[alert.alert_type] ?? alert.alert_type
 }
 

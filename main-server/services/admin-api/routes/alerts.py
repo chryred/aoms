@@ -236,18 +236,7 @@ async def receive_alertmanager(
     return {"processed": processed}
 
 
-@router.get("", response_model=list[AlertHistoryOut])
-async def list_alerts(
-    system_id: int | None = Query(None),
-    severity: str | None = Query(None),
-    alert_type: str | None = Query(None),
-    resolved: bool | None = Query(None),
-    acknowledged: bool | None = Query(None),
-    limit: int = Query(50, le=500),
-    offset: int = Query(0, ge=0),
-    db: AsyncSession = Depends(get_db),
-):
-    stmt = select(AlertHistory).order_by(AlertHistory.created_at.desc()).offset(offset).limit(limit)
+def _apply_alert_filters(stmt, *, system_id, severity, alert_type, resolved, acknowledged, date_from, date_to):
     if system_id is not None:
         stmt = stmt.where(AlertHistory.system_id == system_id)
     if severity:
@@ -260,6 +249,33 @@ async def list_alerts(
         stmt = stmt.where(AlertHistory.resolved_at.is_(None))
     if acknowledged is not None:
         stmt = stmt.where(AlertHistory.acknowledged == acknowledged)
+    if date_from:
+        stmt = stmt.where(AlertHistory.created_at >= datetime.fromisoformat(date_from))
+    if date_to:
+        stmt = stmt.where(AlertHistory.created_at <= datetime.fromisoformat(date_to))
+    return stmt
+
+
+@router.get("", response_model=list[AlertHistoryOut])
+async def list_alerts(
+    system_id: int | None = Query(None),
+    severity: str | None = Query(None),
+    alert_type: str | None = Query(None),
+    resolved: bool | None = Query(None),
+    acknowledged: bool | None = Query(None),
+    date_from: str | None = Query(None, description="UTC ISO datetime (e.g. 2026-04-16T15:00:00)"),
+    date_to: str | None = Query(None, description="UTC ISO datetime (e.g. 2026-04-17T14:59:59)"),
+    limit: int = Query(50, le=500),
+    offset: int = Query(0, ge=0),
+    db: AsyncSession = Depends(get_db),
+):
+    stmt = select(AlertHistory).order_by(AlertHistory.created_at.desc()).offset(offset).limit(limit)
+    stmt = _apply_alert_filters(
+        stmt,
+        system_id=system_id, severity=severity, alert_type=alert_type,
+        resolved=resolved, acknowledged=acknowledged,
+        date_from=date_from, date_to=date_to,
+    )
     result = await db.execute(stmt)
     return result.scalars().all()
 
@@ -271,22 +287,18 @@ async def count_alerts(
     alert_type: str | None = Query(None),
     resolved: bool | None = Query(None),
     acknowledged: bool | None = Query(None),
+    date_from: str | None = Query(None),
+    date_to: str | None = Query(None),
     db: AsyncSession = Depends(get_db),
 ):
     """필터 조건에 해당하는 alert 총 건수 (페이지네이션 없이 count만)."""
     stmt = select(func.count()).select_from(AlertHistory)
-    if system_id is not None:
-        stmt = stmt.where(AlertHistory.system_id == system_id)
-    if severity:
-        stmt = stmt.where(AlertHistory.severity == severity)
-    if alert_type:
-        stmt = stmt.where(AlertHistory.alert_type == alert_type)
-    if resolved is True:
-        stmt = stmt.where(AlertHistory.resolved_at.isnot(None))
-    elif resolved is False:
-        stmt = stmt.where(AlertHistory.resolved_at.is_(None))
-    if acknowledged is not None:
-        stmt = stmt.where(AlertHistory.acknowledged == acknowledged)
+    stmt = _apply_alert_filters(
+        stmt,
+        system_id=system_id, severity=severity, alert_type=alert_type,
+        resolved=resolved, acknowledged=acknowledged,
+        date_from=date_from, date_to=date_to,
+    )
     result = await db.execute(stmt)
     return {"count": result.scalar_one()}
 
