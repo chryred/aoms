@@ -9,7 +9,7 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from 'recharts'
-import { TrendingUp, Clock } from 'lucide-react'
+import { Clock } from 'lucide-react'
 import { aggregationsApi } from '@/api/aggregations'
 import { NeuMultiSelect } from '@/components/neumorphic/NeuMultiSelect'
 import { LoadingSkeleton } from '@/components/common/LoadingSkeleton'
@@ -114,7 +114,7 @@ function TrendChart({
 
   return (
     <div className="bg-bg-base shadow-neu-flat rounded-sm p-4">
-      <h3 className="text-text-primary mb-3 text-sm font-semibold">
+      <h3 className="type-heading text-text-primary mb-3 text-sm font-semibold">
         {title}
         {unit && ` (${unit})`}
       </h3>
@@ -282,10 +282,7 @@ export function TrendMonitorSection({ systems }: TrendMonitorSectionProps) {
   return (
     <section className="space-y-3">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <h2 className="text-text-primary flex items-center gap-2 text-lg font-semibold">
-          <TrendingUp className="h-5 w-5" />
-          추이 모니터
-        </h2>
+        <h2 className="type-heading text-text-primary text-lg font-semibold">추이 모니터</h2>
         <NeuMultiSelect
           options={selectOptions}
           selected={selectedSystems}

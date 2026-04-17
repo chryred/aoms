@@ -145,7 +145,7 @@ export function DashboardPage() {
           {/* 시스템 카드 그리드 + 필터 */}
           <section className="space-y-3">
             <div>
-              <h2 className="text-text-primary text-lg font-semibold">
+              <h2 className="type-heading text-text-primary text-lg font-semibold">
                 모니터링 시스템
                 <span className="text-text-secondary ml-2 text-sm font-normal">
                   ({systems.length}개)

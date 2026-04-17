@@ -106,7 +106,7 @@ export const SystemHealthGrid = memo(function SystemHealthGrid({
       {/* 필터 + 정렬 — 뉴모피즘 탭 패턴 */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
-          <span className="text-text-disabled text-xs font-semibold uppercase">필터</span>
+          <span className="type-label">필터</span>
           <div className="bg-bg-base shadow-neu-pressed flex gap-0.5 rounded-sm p-1">
             {(['all', 'critical', 'warning', 'normal'] as const).map((status) => (
               <button
@@ -127,7 +127,7 @@ export const SystemHealthGrid = memo(function SystemHealthGrid({
         </div>
 
         <div className="flex items-center gap-2">
-          <span className="text-text-disabled text-xs font-semibold uppercase">정렬</span>
+          <span className="type-label">정렬</span>
           <div className="bg-bg-base shadow-neu-pressed flex gap-0.5 rounded-sm p-1">
             {(['status', 'name'] as const).map((sort) => (
               <button

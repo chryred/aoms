@@ -162,7 +162,9 @@ function SystemStatusBar({ critical, warning, normal, onFilterClick }: SystemSta
       <div className="flex items-baseline gap-2">
         {hasCritical ? (
           <>
-            <span className="text-critical-text text-4xl font-bold tabular-nums">{critical}</span>
+            <span className="type-heading text-critical-text text-4xl font-bold tabular-nums">
+              {critical}
+            </span>
             <span className="text-critical-text text-sm font-semibold">위험 시스템</span>
             <span className="text-text-secondary text-xs">
               · {total}개 중 {criticalPct.toFixed(0)}%
@@ -170,7 +172,9 @@ function SystemStatusBar({ critical, warning, normal, onFilterClick }: SystemSta
           </>
         ) : (
           <>
-            <span className="text-normal-text text-4xl font-bold tabular-nums">{normal}</span>
+            <span className="type-heading text-normal-text text-4xl font-bold tabular-nums">
+              {normal}
+            </span>
             <span className="text-normal-text text-sm font-semibold">모두 정상</span>
             <span className="text-text-secondary text-xs">· {total}개 시스템</span>
           </>
@@ -208,8 +212,8 @@ function SystemStatusBar({ critical, warning, normal, onFilterClick }: SystemSta
             aria-label={`${seg.label} 시스템 ${seg.count}개 보기`}
           >
             <span className={cn('h-2 w-2 rounded-full', seg.dotClass)} />
-            <span className="text-text-secondary">{seg.label}</span>
-            <span className={cn('font-semibold tabular-nums', seg.textClass)}>{seg.count}</span>
+            <span className="text-text-secondary font-medium">{seg.label}</span>
+            <span className={cn('font-bold tabular-nums', seg.textClass)}>{seg.count}</span>
           </button>
         ))}
       </div>
@@ -241,7 +245,7 @@ export const DashboardSummaryStats = memo(function DashboardSummaryStats({
     <div className="space-y-4">
       {/* 시스템 상태 — 수평 비율 바 (hero 숫자 강조) */}
       <div>
-        <h2 className="text-text-primary mb-3 text-lg font-semibold">시스템 상태</h2>
+        <h2 className="type-heading text-text-primary mb-3 text-lg font-semibold">시스템 상태</h2>
         <SystemStatusBar
           critical={summary.critical_systems}
           warning={summary.warning_systems}
@@ -252,7 +256,7 @@ export const DashboardSummaryStats = memo(function DashboardSummaryStats({
 
       {/* 운영 현황 — 알림 / 예방 / 수집 */}
       <div>
-        <h2 className="text-text-primary mb-3 text-lg font-semibold">운영 현황</h2>
+        <h2 className="type-heading text-text-primary mb-3 text-lg font-semibold">운영 현황</h2>
         <div className="flex flex-wrap gap-2">
           <StatCell
             label="알림"
