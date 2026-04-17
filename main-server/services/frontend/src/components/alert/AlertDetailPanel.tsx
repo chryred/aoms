@@ -15,7 +15,7 @@ import { useSystems } from '@/hooks/queries/useSystems'
 import { useAuthStore } from '@/store/authStore'
 import { cn, formatKST } from '@/lib/utils'
 import { IncidentReportModal } from './IncidentReportModal'
-import type { AlertHistory, Severity } from '@/types/alert'
+import type { AlertHistory } from '@/types/alert'
 
 const ALERT_TYPE_LABELS: Record<string, string> = {
   metric: '메트릭 알림',
@@ -171,9 +171,10 @@ export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [alert, onClose])
 
-  const systemName = displayAlert?.system_id != null
-    ? (systems.find((s) => s.id === displayAlert.system_id)?.display_name ?? undefined)
-    : undefined
+  const systemName =
+    displayAlert?.system_id != null
+      ? (systems.find((s) => s.id === displayAlert.system_id)?.display_name ?? undefined)
+      : undefined
 
   if (!displayAlert) return null
 
@@ -298,7 +299,9 @@ export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
             {displayAlert.host && (
               <div>
                 <p className="type-label">호스트</p>
-                <p className="text-text-primary mt-0.5 font-mono text-xs break-all">{displayAlert.host}</p>
+                <p className="text-text-primary mt-0.5 font-mono text-xs break-all">
+                  {displayAlert.host}
+                </p>
               </div>
             )}
           </div>
@@ -307,7 +310,10 @@ export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
           {displayAlert.anomaly_type && (
             <div>
               <p className="type-label mb-1.5">이상 유형</p>
-              <AnomalyTypeBadge type={displayAlert.anomaly_type} score={displayAlert.similarity_score} />
+              <AnomalyTypeBadge
+                type={displayAlert.anomaly_type}
+                score={displayAlert.similarity_score}
+              />
             </div>
           )}
 

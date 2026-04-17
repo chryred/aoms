@@ -26,9 +26,9 @@ export function NeuButton({
         'transition-[box-shadow,background-color,opacity] duration-150',
         'focus:ring-accent focus:ring-offset-bg-base focus:ring-1 focus:ring-offset-2 focus:outline-none',
         'disabled:cursor-not-allowed disabled:opacity-40',
-        size === 'sm' && 'px-3 py-1.5 text-sm',
-        size === 'md' && 'px-4 py-2 text-sm',
-        size === 'lg' && 'px-6 py-3 text-base',
+        size === 'sm' && 'min-h-[32px] px-3 py-1.5 text-sm',
+        size === 'md' && 'min-h-[40px] px-4 py-2 text-sm',
+        size === 'lg' && 'min-h-[48px] px-6 py-3 text-base',
         variant === 'primary' && [
           'bg-accent text-accent-contrast font-semibold',
           'shadow-neu-flat',

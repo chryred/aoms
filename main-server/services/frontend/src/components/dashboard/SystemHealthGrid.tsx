@@ -108,31 +108,21 @@ export const SystemHealthGrid = memo(function SystemHealthGrid({
         <div className="flex items-center gap-2">
           <span className="text-text-disabled text-xs font-semibold uppercase">필터</span>
           <div className="bg-bg-base shadow-neu-pressed flex gap-0.5 rounded-sm p-1">
-            {(['all', 'critical', 'warning', 'normal'] as const).map((status) => {
-              const activeColorClass =
-                status === 'critical'
-                  ? 'bg-red-500 text-white'
-                  : status === 'warning'
-                    ? 'bg-yellow-500 text-white'
-                    : status === 'normal'
-                      ? 'bg-green-500 text-white'
-                      : 'bg-accent text-accent-contrast'
-              return (
-                <button
-                  key={status}
-                  onClick={() => updateStatusFilter(status)}
-                  className={cn(
-                    'rounded-sm px-3 py-1.5 text-xs font-medium transition-all duration-150',
-                    'focus:ring-accent focus:ring-1 focus:outline-none',
-                    filterStatus === status
-                      ? cn('shadow-neu-pressed font-semibold', activeColorClass)
-                      : 'text-text-secondary hover:bg-hover-subtle hover:text-text-primary',
-                  )}
-                >
-                  {FILTER_LABELS[status]}
-                </button>
-              )
-            })}
+            {(['all', 'critical', 'warning', 'normal'] as const).map((status) => (
+              <button
+                key={status}
+                onClick={() => updateStatusFilter(status)}
+                className={cn(
+                  'rounded-sm px-3 py-1.5 text-xs font-medium transition-all duration-150',
+                  'focus:ring-accent focus:ring-1 focus:outline-none',
+                  filterStatus === status
+                    ? 'bg-accent text-accent-contrast shadow-neu-pressed font-semibold'
+                    : 'text-text-secondary hover:bg-hover-subtle hover:text-text-primary',
+                )}
+              >
+                {FILTER_LABELS[status]}
+              </button>
+            ))}
           </div>
         </div>
 

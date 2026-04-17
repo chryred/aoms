@@ -119,11 +119,44 @@
   --t-muted-bg: rgba(255, 255, 255, 0.06);
   --t-muted-border: rgba(255, 255, 255, 0.1);
 
+  /* 시맨틱: 메트릭 알림(blue) — severity 아님, 기능 분류 */
+  --t-metric-alert: #3b82f6;
+  --t-metric-alert-text: #60a5fa;
+  --t-metric-alert-bg: rgba(59, 130, 246, 0.12);
+  --t-metric-alert-border: rgba(59, 130, 246, 0.25);
+  --t-metric-alert-card-bg: rgba(59, 130, 246, 0.04);
+
+  /* 시맨틱: 예방 패턴(purple) */
+  --t-proactive: #a855f7;
+  --t-proactive-text: #c084fc;
+  --t-proactive-bg: rgba(168, 85, 247, 0.12);
+  --t-proactive-border: rgba(168, 85, 247, 0.25);
+  --t-proactive-card-bg: rgba(168, 85, 247, 0.04);
+
+  /* 시맨틱: 에이전트 수집(sky) */
+  --t-agent-collect: #7dd3fc;
+  --t-agent-collect-text: #7dd3fc;
+  --t-agent-collect-bg: rgba(125, 211, 252, 0.12);
+  --t-agent-collect-border: rgba(125, 211, 252, 0.25);
+  --t-agent-collect-card-bg: rgba(125, 211, 252, 0.04);
+
   /* 뉴모피즘 그림자 */
   --t-shadow-neu-flat: 3px 3px 7px #111317, -3px -3px 7px #2b2f37;
   --t-shadow-neu-flat-hover: 4px 4px 10px #111317, -4px -4px 10px #2b2f37;
   --t-shadow-neu-inset: inset 2px 2px 5px #111317, inset -2px -2px 5px #2b2f37;
   --t-shadow-neu-pressed: inset 1px 1px 3px #111317, inset -1px -1px 3px #2b2f37;
+
+  /* Glow shadows (뉴모피즘 + semantic 컬러 광채) */
+  --t-shadow-glow-critical:
+    3px 3px 7px #111317, -3px -3px 7px #2b2f37, 0 0 12px rgba(239, 68, 68, 0.2);
+  --t-shadow-glow-warning:
+    3px 3px 7px #111317, -3px -3px 7px #2b2f37, 0 0 12px rgba(245, 158, 11, 0.15);
+  --t-shadow-glow-metric-alert:
+    3px 3px 7px #111317, -3px -3px 7px #2b2f37, 0 0 12px rgba(59, 130, 246, 0.12);
+  --t-shadow-glow-proactive:
+    3px 3px 7px #111317, -3px -3px 7px #2b2f37, 0 0 12px rgba(168, 85, 247, 0.12);
+  --t-shadow-glow-agent-collect:
+    3px 3px 7px #111317, -3px -3px 7px #2b2f37, 0 0 12px rgba(125, 211, 252, 0.15);
 
   /* 기타 */
   --t-color-scheme: dark;
@@ -186,6 +219,27 @@
   --t-muted-bg: rgba(0, 0, 0, 0.04);
   --t-muted-border: rgba(0, 0, 0, 0.08);
 
+  /* 시맨틱: 메트릭 알림(blue) — light */
+  --t-metric-alert: #2563eb;
+  --t-metric-alert-text: #1d4ed8;
+  --t-metric-alert-bg: rgba(37, 99, 235, 0.08);
+  --t-metric-alert-border: rgba(37, 99, 235, 0.2);
+  --t-metric-alert-card-bg: rgba(37, 99, 235, 0.04);
+
+  /* 시맨틱: 예방 패턴 — light */
+  --t-proactive: #9333ea;
+  --t-proactive-text: #7e22ce;
+  --t-proactive-bg: rgba(147, 51, 234, 0.08);
+  --t-proactive-border: rgba(147, 51, 234, 0.2);
+  --t-proactive-card-bg: rgba(147, 51, 234, 0.04);
+
+  /* 시맨틱: 에이전트 수집 — light */
+  --t-agent-collect: #0284c7;
+  --t-agent-collect-text: #0369a1;
+  --t-agent-collect-bg: rgba(2, 132, 199, 0.08);
+  --t-agent-collect-border: rgba(2, 132, 199, 0.2);
+  --t-agent-collect-card-bg: rgba(2, 132, 199, 0.04);
+
   /* 뉴모피즘 그림자 (라이트 — 더 강한 대비) */
   --t-shadow-neu-flat: 3px 3px 8px rgba(0, 0, 0, 0.12), -3px -3px 8px rgba(255, 255, 255, 0.9);
   --t-shadow-neu-flat-hover:
@@ -194,6 +248,23 @@
     inset 2px 2px 5px rgba(0, 0, 0, 0.1), inset -2px -2px 5px rgba(255, 255, 255, 0.7);
   --t-shadow-neu-pressed:
     inset 1px 1px 3px rgba(0, 0, 0, 0.08), inset -1px -1px 3px rgba(255, 255, 255, 0.6);
+
+  /* Glow shadows (light — 은은하게) */
+  --t-shadow-glow-critical:
+    3px 3px 8px rgba(0, 0, 0, 0.12), -3px -3px 8px rgba(255, 255, 255, 0.9),
+    0 0 12px rgba(244, 63, 94, 0.15);
+  --t-shadow-glow-warning:
+    3px 3px 8px rgba(0, 0, 0, 0.12), -3px -3px 8px rgba(255, 255, 255, 0.9),
+    0 0 12px rgba(249, 115, 22, 0.12);
+  --t-shadow-glow-metric-alert:
+    3px 3px 8px rgba(0, 0, 0, 0.12), -3px -3px 8px rgba(255, 255, 255, 0.9),
+    0 0 12px rgba(37, 99, 235, 0.1);
+  --t-shadow-glow-proactive:
+    3px 3px 8px rgba(0, 0, 0, 0.12), -3px -3px 8px rgba(255, 255, 255, 0.9),
+    0 0 12px rgba(147, 51, 234, 0.1);
+  --t-shadow-glow-agent-collect:
+    3px 3px 8px rgba(0, 0, 0, 0.12), -3px -3px 8px rgba(255, 255, 255, 0.9),
+    0 0 12px rgba(2, 132, 199, 0.12);
 
   /* 기타 */
   --t-color-scheme: light;
@@ -217,6 +288,13 @@
   --shadow-neu-flat-hover: var(--t-shadow-neu-flat-hover);
   --shadow-neu-inset: var(--t-shadow-neu-inset);
   --shadow-neu-pressed: var(--t-shadow-neu-pressed);
+
+  /* Semantic glow shadow 토큰 */
+  --shadow-glow-critical: var(--t-shadow-glow-critical);
+  --shadow-glow-warning: var(--t-shadow-glow-warning);
+  --shadow-glow-metric-alert: var(--t-shadow-glow-metric-alert);
+  --shadow-glow-proactive: var(--t-shadow-glow-proactive);
+  --shadow-glow-agent-collect: var(--t-shadow-glow-agent-collect);
 
   /* 색상 팔레트 */
   --color-bg-base: var(--t-bg-base);
@@ -253,6 +331,24 @@
   --color-normal-border: var(--t-normal-border);
   --color-muted-bg: var(--t-muted-bg);
   --color-muted-border: var(--t-muted-border);
+
+  /* 기능 분류 색상 (severity 아님) */
+  --color-metric-alert: var(--t-metric-alert);
+  --color-metric-alert-text: var(--t-metric-alert-text);
+  --color-metric-alert-bg: var(--t-metric-alert-bg);
+  --color-metric-alert-border: var(--t-metric-alert-border);
+  --color-metric-alert-card-bg: var(--t-metric-alert-card-bg);
+  --color-proactive: var(--t-proactive);
+  --color-proactive-text: var(--t-proactive-text);
+  --color-proactive-bg: var(--t-proactive-bg);
+  --color-proactive-border: var(--t-proactive-border);
+  --color-proactive-card-bg: var(--t-proactive-card-bg);
+  --color-agent-collect: var(--t-agent-collect);
+  --color-agent-collect-text: var(--t-agent-collect-text);
+  --color-agent-collect-bg: var(--t-agent-collect-bg);
+  --color-agent-collect-border: var(--t-agent-collect-border);
+  --color-agent-collect-card-bg: var(--t-agent-collect-card-bg);
+
   --color-overlay: var(--t-overlay);
   --color-overlay-heavy: var(--t-overlay-heavy);
 

@@ -1,15 +1,6 @@
 import { memo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import {
-  AlertCircle,
-  AlertTriangle,
-  CheckCircle,
-  ShieldAlert,
-  TrendingUp,
-  Radio,
-  Activity,
-  Gauge,
-} from 'lucide-react'
+import { AlertCircle, AlertTriangle, CheckCircle, ShieldAlert, TrendingUp, Radio } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { ROUTES } from '@/constants/routes'
 import type { DashboardSummary } from '@/hooks/queries/useDashboardHealth'
@@ -25,16 +16,6 @@ interface DashboardSummaryProps {
 const NEU_RAISED = 'shadow-neu-flat'
 const NEU_PRESSED = 'shadow-neu-pressed'
 
-function glowShadow(color: string, opacity = 0.15) {
-  return `shadow-[3px_3px_7px_#111317,-3px_-3px_7px_#2B2F37,0_0_12px_rgba(${color},${opacity})]`
-}
-
-const GLOW_RED = glowShadow('239,68,68', 0.2)
-const GLOW_YELLOW = glowShadow('245,158,11', 0.15)
-const GLOW_BLUE = glowShadow('59,130,246', 0.12)
-const GLOW_PURPLE = glowShadow('168,85,247', 0.12)
-const GLOW_SKY = glowShadow('125,211,252', 0.15)
-
 // ── StatCell 내부 컴포넌트 ───────────────────────────────────────────────
 
 interface StatCellProps {
@@ -44,7 +25,6 @@ interface StatCellProps {
   icon: React.ElementType
   color: string
   glowClass?: string
-  borderClass?: string
   bgClass?: string
   onClick?: () => void
   ariaLabel?: string
@@ -57,7 +37,6 @@ function StatCell({
   icon: Icon,
   color,
   glowClass,
-  borderClass,
   bgClass,
   onClick,
   ariaLabel,
@@ -71,7 +50,7 @@ function StatCell({
     isZero
       ? cn(NEU_PRESSED, 'px-3 py-2')
       : isAlerted
-        ? cn(glowClass, 'border-l-4 px-3.5 py-3', borderClass, bgClass)
+        ? cn(glowClass, 'px-3.5 py-3', bgClass)
         : cn(NEU_RAISED, 'px-3.5 py-3'),
     clickable &&
       'focus:ring-accent cursor-pointer text-left focus:ring-1 focus:outline-none hover:brightness-110',
@@ -134,18 +113,14 @@ export const DashboardSummaryStats = memo(function DashboardSummaryStats({
     <div className="space-y-4">
       {/* 시스템 상태 — 위험 / 경고 / 정상 */}
       <div>
-        <h2 className="text-text-primary mb-3 flex items-center gap-2 text-lg font-semibold">
-          <Activity className="h-5 w-5" />
-          시스템 상태
-        </h2>
+        <h2 className="text-text-primary mb-3 text-lg font-semibold">시스템 상태</h2>
         <div className="flex flex-wrap gap-2">
           <StatCell
             label="위험"
             value={summary.critical_systems}
             icon={AlertCircle}
-            color="text-red-500"
-            glowClass={GLOW_RED}
-            borderClass="border-red-500"
+            color="text-critical-text"
+            glowClass="shadow-glow-critical"
             bgClass="bg-critical-card-bg"
             onClick={() => handleStatusClick('critical')}
             ariaLabel={`위험 시스템 ${summary.critical_systems}개 보기`}
@@ -154,9 +129,8 @@ export const DashboardSummaryStats = memo(function DashboardSummaryStats({
             label="경고"
             value={summary.warning_systems}
             icon={AlertTriangle}
-            color="text-yellow-500"
-            glowClass={GLOW_YELLOW}
-            borderClass="border-yellow-500"
+            color="text-warning-text"
+            glowClass="shadow-glow-warning"
             bgClass="bg-warning-card-bg"
             onClick={() => handleStatusClick('warning')}
             ariaLabel={`경고 시스템 ${summary.warning_systems}개 보기`}
@@ -165,7 +139,7 @@ export const DashboardSummaryStats = memo(function DashboardSummaryStats({
             label="정상"
             value={summary.normal_systems}
             icon={CheckCircle}
-            color="text-green-500"
+            color="text-normal-text"
             onClick={() => handleStatusClick('normal')}
             ariaLabel={`정상 시스템 ${summary.normal_systems}개 보기`}
           />
@@ -174,19 +148,15 @@ export const DashboardSummaryStats = memo(function DashboardSummaryStats({
 
       {/* 운영 현황 — 알림 / 예방 / 수집 */}
       <div>
-        <h2 className="text-text-primary mb-3 flex items-center gap-2 text-lg font-semibold">
-          <Gauge className="h-5 w-5" />
-          운영 현황
-        </h2>
+        <h2 className="text-text-primary mb-3 text-lg font-semibold">운영 현황</h2>
         <div className="flex flex-wrap gap-2">
           <StatCell
             label="알림"
             value={summary.total_metric_alerts}
             icon={TrendingUp}
-            color="text-blue-400"
-            glowClass={GLOW_BLUE}
-            borderClass="border-blue-500"
-            bgClass="bg-[rgba(59,130,246,0.04)]"
+            color="text-metric-alert-text"
+            glowClass="shadow-glow-metric-alert"
+            bgClass="bg-metric-alert-card-bg"
             onClick={() => navigate(`${ROUTES.ALERTS}?acknowledged=unack`)}
             ariaLabel={`미확인 알림 ${summary.total_metric_alerts}건 보기`}
           />
@@ -195,10 +165,9 @@ export const DashboardSummaryStats = memo(function DashboardSummaryStats({
             label="예방"
             value={summary.proactive_systems ?? 0}
             icon={ShieldAlert}
-            color="text-purple-400"
-            glowClass={GLOW_PURPLE}
-            borderClass="border-purple-500"
-            bgClass="bg-[rgba(168,85,247,0.04)]"
+            color="text-proactive-text"
+            glowClass="shadow-glow-proactive"
+            bgClass="bg-proactive-card-bg"
             onClick={() => navigate(ROUTES.TRENDS)}
             ariaLabel={`예방 시스템 ${summary.proactive_systems ?? 0}개 보기`}
           />
@@ -212,13 +181,12 @@ export const DashboardSummaryStats = memo(function DashboardSummaryStats({
               className={cn(
                 'bg-bg-base flex min-w-[100px] flex-1 items-center gap-2.5 rounded-sm text-left transition-shadow duration-200',
                 'focus:ring-accent cursor-pointer hover:brightness-110 focus:ring-1 focus:outline-none',
-                GLOW_SKY,
-                'border-l-4 border-sky-300 bg-[rgba(125,211,252,0.04)] px-3.5 py-3',
+                'shadow-glow-agent-collect bg-agent-collect-card-bg px-3.5 py-3',
               )}
             >
-              <Radio className="h-3.5 w-3.5 flex-shrink-0 text-sky-300" />
+              <Radio className="text-agent-collect-text h-3.5 w-3.5 flex-shrink-0" />
               <div className="flex items-baseline gap-1.5">
-                <span className="text-lg font-bold tabular-nums text-sky-300">
+                <span className="text-agent-collect-text text-lg font-bold tabular-nums">
                   {agentCollecting}
                 </span>
                 <span className="text-text-disabled text-xs">/{agentTotal}</span>

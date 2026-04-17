@@ -1,6 +1,6 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { RefreshCw, Wifi, WifiOff, RotateCw } from 'lucide-react'
+import { RefreshCw, Wifi, WifiOff } from 'lucide-react'
 import { ROUTES } from '@/constants/routes'
 import { useDashboardHealth } from '@/hooks/queries/useDashboardHealth'
 import { useAgentHealthSummary } from '@/hooks/queries/useAgents'
@@ -19,9 +19,17 @@ export function DashboardPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [lastAlertUpdate, setLastAlertUpdate] = useState<Date | null>(null)
+  const [now, setNow] = useState(() => Date.now())
 
   const { data: dashboardData, isLoading, error, refetch } = useDashboardHealth()
   const { data: agentHealth } = useAgentHealthSummary()
+
+  // "X초 전" 자동 갱신 — lastAlertUpdate 존재 시에만 interval 동작
+  useEffect(() => {
+    if (!lastAlertUpdate) return
+    const id = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(id)
+  }, [lastAlertUpdate])
 
   // WebSocket 연결 (실시간 알림 수신)
   const { isConnected: wsConnected, isConnecting: wsConnecting } = useWebSocketDashboard({
@@ -63,61 +71,55 @@ export function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      {/* 헤더 + WebSocket 상태 */}
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0 flex-1">
-          <PageHeader title="운영 대시보드" />
-          <h2 className="text-text-primary -mt-4 mb-2 flex items-center gap-2 text-lg font-semibold">
-            <RotateCw className="h-5 w-5" />
-            <span>
-              {systems.length}개 시스템 모니터링 중
-              <span className="text-text-secondary"> · 최근 10분 · </span>
-              <span className="text-accent font-bold">시스템 수 기준</span>
-            </span>
-          </h2>
-          {/* WebSocket 상태 + 갱신 시각 */}
-          <div
-            className={cn(
-              'flex flex-wrap items-center gap-1.5 text-xs',
-              wsConnected ? 'text-green-500' : 'text-text-secondary',
-            )}
+      {/* 헤더 */}
+      <PageHeader
+        title="운영 대시보드"
+        description={`${systems.length}개 시스템 · 최근 10분 기준`}
+        action={
+          <NeuButton
+            variant="secondary"
+            size="sm"
+            onClick={handleRefresh}
+            disabled={isRefreshing}
+            className="flex items-center gap-2 whitespace-nowrap"
           >
-            {wsConnected ? (
-              <>
-                <Wifi className="h-3 w-3 flex-shrink-0" />
-                <span>실시간 알림 수신 중</span>
-                {lastAlertUpdate && (
-                  <span className="text-text-secondary">
-                    · {Math.floor((Date.now() - lastAlertUpdate.getTime()) / 1000)}초 전
-                  </span>
-                )}
-              </>
-            ) : wsConnecting ? (
-              <>
-                <Wifi className="h-3 w-3 flex-shrink-0 animate-pulse" />
-                <span>실시간 연결 중...</span>
-              </>
-            ) : (
-              <>
-                <WifiOff className="h-3 w-3 flex-shrink-0" />
-                <span>실시간 연결 대기</span>
-              </>
+            <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+            새로고침
+          </NeuButton>
+        }
+      />
+
+      {/* WebSocket 상태 + 갱신 시각 — 헤더 하단 보조 정보 */}
+      <div
+        className={cn(
+          '-mt-3 flex flex-wrap items-center gap-1.5 text-xs',
+          wsConnected ? 'text-normal-text' : 'text-text-secondary',
+        )}
+      >
+        {wsConnected ? (
+          <>
+            <Wifi className="h-3 w-3 flex-shrink-0" />
+            <span>실시간 알림 수신 중</span>
+            {lastAlertUpdate && (
+              <span className="text-text-secondary">
+                · {Math.max(0, Math.floor((now - lastAlertUpdate.getTime()) / 1000))}초 전
+              </span>
             )}
-            <span className="text-text-disabled">
-              · 갱신 {formatKST(lastUpdated.toISOString(), 'HH:mm:ss')}
-            </span>
-          </div>
-        </div>
-        <NeuButton
-          variant="secondary"
-          size="sm"
-          onClick={handleRefresh}
-          disabled={isRefreshing}
-          className="mt-1 flex flex-shrink-0 items-center gap-2 whitespace-nowrap"
-        >
-          <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
-          새로고침
-        </NeuButton>
+          </>
+        ) : wsConnecting ? (
+          <>
+            <Wifi className="h-3 w-3 flex-shrink-0 animate-pulse" />
+            <span>실시간 연결 중...</span>
+          </>
+        ) : (
+          <>
+            <WifiOff className="h-3 w-3 flex-shrink-0" />
+            <span>실시간 연결 대기</span>
+          </>
+        )}
+        <span className="text-text-disabled">
+          · 갱신 {formatKST(lastUpdated.toISOString(), 'HH:mm:ss')}
+        </span>
       </div>
 
       {isLoading ? (

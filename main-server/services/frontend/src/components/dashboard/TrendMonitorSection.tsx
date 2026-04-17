@@ -124,7 +124,7 @@ function TrendChart({
         </div>
       ) : (
         <>
-          <ResponsiveContainer width="100%" height={200}>
+          <ResponsiveContainer width="100%" height={180}>
             <ComposedChart data={data}>
               <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
               <XAxis dataKey="timestamp" tick={{ fontSize: 11, fill: tickColor }} />

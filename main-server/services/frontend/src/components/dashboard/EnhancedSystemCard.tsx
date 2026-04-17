@@ -14,24 +14,24 @@ interface EnhancedSystemCardProps {
 
 const STATUS_CONFIG = {
   critical: {
-    color: 'text-red-500',
-    dotBg: 'bg-red-500',
-    borderColor: 'border-l-4 border-red-500',
-    sparkColor: '#EF4444',
+    color: 'text-critical-text',
+    dotBg: 'bg-critical',
+    borderColor: 'border-l-4 border-critical',
+    sparkColor: 'var(--t-critical)',
     label: '위험',
   },
   warning: {
-    color: 'text-yellow-500',
-    dotBg: 'bg-yellow-500',
-    borderColor: 'border-l-4 border-yellow-500',
-    sparkColor: '#F59E0B',
+    color: 'text-warning-text',
+    dotBg: 'bg-warning',
+    borderColor: 'border-l-4 border-warning',
+    sparkColor: 'var(--t-warning)',
     label: '경고',
   },
   normal: {
-    color: 'text-green-500',
-    dotBg: 'bg-green-500/50',
-    borderColor: 'border-l-4 border-green-500/30',
-    sparkColor: '#00D4FF',
+    color: 'text-normal-text',
+    dotBg: 'bg-normal/50',
+    borderColor: 'border-l-4 border-normal/30',
+    sparkColor: 'var(--t-accent)',
     label: '정상',
   },
 }
@@ -89,7 +89,7 @@ export const EnhancedSystemCard = memo(function EnhancedSystemCard({
       onClick={() => navigate(ROUTES.systemDetail(system.system_id))}
       className={cn(
         'bg-bg-base flex w-full items-center gap-3 px-4 py-2.5 text-left transition-all duration-100',
-        'hover:bg-[rgba(0,212,255,0.04)]',
+        'hover:bg-accent-muted',
         'focus-visible:ring-accent focus:outline-none focus-visible:ring-1',
         'group',
         statusConfig.borderColor,
@@ -134,7 +134,7 @@ export const EnhancedSystemCard = memo(function EnhancedSystemCard({
 
       {/* 예방 패턴 */}
       {system.proactive_count > 0 && (
-        <span className="flex flex-shrink-0 items-center gap-1 rounded-full border border-[rgba(168,85,247,0.25)] bg-[rgba(168,85,247,0.12)] px-2 py-0.5 text-xs whitespace-nowrap text-purple-400">
+        <span className="border-proactive-border bg-proactive-bg text-proactive-text flex flex-shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-xs whitespace-nowrap">
           <ShieldAlert className="h-3 w-3" />
           {system.proactive_count}
         </span>
