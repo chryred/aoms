@@ -71,10 +71,9 @@ export function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      {/* 헤더 */}
+      {/* 헤더 — 제목만 간결하게, description은 WS bar로 통합 */}
       <PageHeader
         title="운영 대시보드"
-        description={`${systems.length}개 시스템 · 최근 10분 기준`}
         action={
           <NeuButton
             variant="secondary"
@@ -89,22 +88,17 @@ export function DashboardPage() {
         }
       />
 
-      {/* WebSocket 상태 + 갱신 시각 — 헤더 하단 보조 정보 */}
+      {/* 메타 정보 — 실시간 상태 + 시스템 수 + 갱신 시각 (통합) */}
       <div
         className={cn(
-          '-mt-3 flex flex-wrap items-center gap-1.5 text-xs',
+          '-mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs',
           wsConnected ? 'text-normal-text' : 'text-text-secondary',
         )}
       >
         {wsConnected ? (
           <>
             <Wifi className="h-3 w-3 flex-shrink-0" />
-            <span>실시간 알림 수신 중</span>
-            {lastAlertUpdate && (
-              <span className="text-text-secondary">
-                · {Math.max(0, Math.floor((now - lastAlertUpdate.getTime()) / 1000))}초 전
-              </span>
-            )}
+            <span>실시간 연결됨</span>
           </>
         ) : wsConnecting ? (
           <>
@@ -118,7 +112,14 @@ export function DashboardPage() {
           </>
         )}
         <span className="text-text-disabled">
-          · 갱신 {formatKST(lastUpdated.toISOString(), 'HH:mm:ss')}
+          · {systems.length}개 시스템 · 최근 10분 기준 · 갱신{' '}
+          {formatKST(lastUpdated.toISOString(), 'HH:mm:ss')}
+          {lastAlertUpdate && (
+            <>
+              {' '}
+              · 최근 이벤트 {Math.max(0, Math.floor((now - lastAlertUpdate.getTime()) / 1000))}초 전
+            </>
+          )}
         </span>
       </div>
 
@@ -142,13 +143,18 @@ export function DashboardPage() {
           <TrendMonitorSection systems={systems} />
 
           {/* 시스템 카드 그리드 + 필터 */}
-          <section className="space-y-4">
-            <h2 className="text-text-primary text-lg font-semibold">
-              모니터링 시스템
-              <span className="text-text-secondary ml-2 text-sm font-normal">
-                ({systems.length}개)
-              </span>
-            </h2>
+          <section className="space-y-3">
+            <div>
+              <h2 className="text-text-primary text-lg font-semibold">
+                모니터링 시스템
+                <span className="text-text-secondary ml-2 text-sm font-normal">
+                  ({systems.length}개)
+                </span>
+              </h2>
+              <p className="text-text-disabled mt-1 text-xs">
+                시스템별 상태·메트릭·이상 감지 내역. 시스템 이름 클릭 시 상세 페이지로 이동합니다.
+              </p>
+            </div>
             <SystemHealthGrid systems={systems} onAddSystem={handleAddSystem} />
           </section>
         </>

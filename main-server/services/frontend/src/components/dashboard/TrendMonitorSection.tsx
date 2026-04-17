@@ -119,8 +119,13 @@ function TrendChart({
         {unit && ` (${unit})`}
       </h3>
       {data.length === 0 ? (
-        <div className="text-text-secondary flex h-32 items-center justify-center text-sm">
-          데이터 없음
+        <div className="flex h-36 flex-col items-center justify-center gap-1 text-center">
+          <span className="text-text-secondary text-sm">수집된 데이터 없음</span>
+          <span className="text-text-disabled text-xs leading-relaxed">
+            선택된 시스템에 해당 수집기가
+            <br />
+            구성되지 않았을 수 있습니다
+          </span>
         </div>
       ) : (
         <>
@@ -290,12 +295,11 @@ export function TrendMonitorSection({ systems }: TrendMonitorSectionProps) {
         />
       </div>
 
-      <div className="bg-surface border-border flex items-center gap-2 rounded-sm border px-3 py-2">
-        <Clock className="text-text-secondary h-3.5 w-3.5 flex-shrink-0" />
-        <span className="text-text-secondary text-xs">조회 조건:</span>
-        <span className="text-text-primary text-xs font-medium">{conditionLabel}</span>
-        <span className="text-text-secondary text-xs">·</span>
-        <span className="text-text-primary text-xs font-medium">최근 {HOURS}시간</span>
+      <div className="flex items-center gap-1.5">
+        <Clock className="text-text-disabled h-3 w-3 flex-shrink-0" />
+        <span className="text-text-disabled text-xs">
+          최근 {HOURS}시간 · {isAllSelected ? '전체 시스템' : conditionLabel}
+        </span>
       </div>
 
       {isLoading ? (

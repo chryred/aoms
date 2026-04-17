@@ -1,6 +1,6 @@
 import { memo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { AlertCircle, AlertTriangle, CheckCircle, ShieldAlert, TrendingUp, Radio } from 'lucide-react'
+import { ShieldAlert, TrendingUp, Radio } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { ROUTES } from '@/constants/routes'
 import type { DashboardSummary } from '@/hooks/queries/useDashboardHealth'
@@ -28,6 +28,7 @@ interface StatCellProps {
   bgClass?: string
   onClick?: () => void
   ariaLabel?: string
+  tooltip?: string
 }
 
 function StatCell({
@@ -40,6 +41,7 @@ function StatCell({
   bgClass,
   onClick,
   ariaLabel,
+  tooltip,
 }: StatCellProps) {
   const isZero = value === 0
   const isAlerted = !isZero && glowClass !== undefined
@@ -80,13 +82,139 @@ function StatCell({
 
   if (clickable) {
     return (
-      <button type="button" onClick={onClick} aria-label={ariaLabel ?? label} className={baseClass}>
+      <button
+        type="button"
+        onClick={onClick}
+        aria-label={ariaLabel ?? label}
+        title={tooltip}
+        className={baseClass}
+      >
         {content}
       </button>
     )
   }
 
-  return <div className={baseClass}>{content}</div>
+  return (
+    <div title={tooltip} className={baseClass}>
+      {content}
+    </div>
+  )
+}
+
+// ── SystemStatusBar — 3-card 대체 수평 비율 바 ──────────────────────────
+
+interface SystemStatusBarProps {
+  critical: number
+  warning: number
+  normal: number
+  onFilterClick?: (status: StatusFilter) => void
+}
+
+function SystemStatusBar({ critical, warning, normal, onFilterClick }: SystemStatusBarProps) {
+  const total = critical + warning + normal
+
+  if (total === 0) {
+    return (
+      <div className="bg-bg-base shadow-neu-pressed text-text-disabled rounded-sm px-4 py-6 text-center text-sm">
+        등록된 시스템이 없습니다
+      </div>
+    )
+  }
+
+  const criticalPct = (critical / total) * 100
+  const warningPct = (warning / total) * 100
+  const normalPct = (normal / total) * 100
+  const hasCritical = critical > 0
+
+  const segments = [
+    {
+      key: 'critical' as const,
+      count: critical,
+      pct: criticalPct,
+      label: '위험',
+      barClass: 'bg-critical',
+      textClass: 'text-critical-text',
+      dotClass: 'bg-critical',
+    },
+    {
+      key: 'warning' as const,
+      count: warning,
+      pct: warningPct,
+      label: '경고',
+      barClass: 'bg-warning',
+      textClass: 'text-warning-text',
+      dotClass: 'bg-warning',
+    },
+    {
+      key: 'normal' as const,
+      count: normal,
+      pct: normalPct,
+      label: '정상',
+      barClass: 'bg-normal',
+      textClass: 'text-normal-text',
+      dotClass: 'bg-normal',
+    },
+  ]
+
+  return (
+    <div className="space-y-3">
+      {/* Hero: 위험 있으면 빨간 대형 숫자, 없으면 정상 초록 대형 */}
+      <div className="flex items-baseline gap-2">
+        {hasCritical ? (
+          <>
+            <span className="text-critical-text text-4xl font-bold tabular-nums">{critical}</span>
+            <span className="text-critical-text text-sm font-semibold">위험 시스템</span>
+            <span className="text-text-secondary text-xs">
+              · {total}개 중 {criticalPct.toFixed(0)}%
+            </span>
+          </>
+        ) : (
+          <>
+            <span className="text-normal-text text-4xl font-bold tabular-nums">{normal}</span>
+            <span className="text-normal-text text-sm font-semibold">모두 정상</span>
+            <span className="text-text-secondary text-xs">· {total}개 시스템</span>
+          </>
+        )}
+      </div>
+
+      {/* 수평 스택 바 */}
+      <div className="bg-bg-base shadow-neu-pressed flex h-3 overflow-hidden rounded-sm">
+        {segments.map((seg) =>
+          seg.count > 0 ? (
+            <button
+              key={seg.key}
+              type="button"
+              onClick={() => onFilterClick?.(seg.key)}
+              style={{ width: `${seg.pct}%` }}
+              className={cn(
+                seg.barClass,
+                'focus:ring-accent transition-all hover:brightness-110 focus:ring-1 focus:outline-none',
+              )}
+              aria-label={`${seg.label} 시스템 ${seg.count}개 보기`}
+              title={`${seg.label} ${seg.count}개 (${seg.pct.toFixed(0)}%)`}
+            />
+          ) : null,
+        )}
+      </div>
+
+      {/* 범례 — 클릭 가능 */}
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
+        {segments.map((seg) => (
+          <button
+            key={seg.key}
+            type="button"
+            onClick={() => onFilterClick?.(seg.key)}
+            className="focus:ring-accent flex items-center gap-1.5 rounded-sm px-1 py-0.5 hover:brightness-110 focus:ring-1 focus:outline-none"
+            aria-label={`${seg.label} 시스템 ${seg.count}개 보기`}
+          >
+            <span className={cn('h-2 w-2 rounded-full', seg.dotClass)} />
+            <span className="text-text-secondary">{seg.label}</span>
+            <span className={cn('font-semibold tabular-nums', seg.textClass)}>{seg.count}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  )
 }
 
 // ── DashboardSummaryStats ────────────────────────────────────────────────
@@ -111,39 +239,15 @@ export const DashboardSummaryStats = memo(function DashboardSummaryStats({
 
   return (
     <div className="space-y-4">
-      {/* 시스템 상태 — 위험 / 경고 / 정상 */}
+      {/* 시스템 상태 — 수평 비율 바 (hero 숫자 강조) */}
       <div>
         <h2 className="text-text-primary mb-3 text-lg font-semibold">시스템 상태</h2>
-        <div className="flex flex-wrap gap-2">
-          <StatCell
-            label="위험"
-            value={summary.critical_systems}
-            icon={AlertCircle}
-            color="text-critical-text"
-            glowClass="shadow-glow-critical"
-            bgClass="bg-critical-card-bg"
-            onClick={() => handleStatusClick('critical')}
-            ariaLabel={`위험 시스템 ${summary.critical_systems}개 보기`}
-          />
-          <StatCell
-            label="경고"
-            value={summary.warning_systems}
-            icon={AlertTriangle}
-            color="text-warning-text"
-            glowClass="shadow-glow-warning"
-            bgClass="bg-warning-card-bg"
-            onClick={() => handleStatusClick('warning')}
-            ariaLabel={`경고 시스템 ${summary.warning_systems}개 보기`}
-          />
-          <StatCell
-            label="정상"
-            value={summary.normal_systems}
-            icon={CheckCircle}
-            color="text-normal-text"
-            onClick={() => handleStatusClick('normal')}
-            ariaLabel={`정상 시스템 ${summary.normal_systems}개 보기`}
-          />
-        </div>
+        <SystemStatusBar
+          critical={summary.critical_systems}
+          warning={summary.warning_systems}
+          normal={summary.normal_systems}
+          onFilterClick={handleStatusClick}
+        />
       </div>
 
       {/* 운영 현황 — 알림 / 예방 / 수집 */}
@@ -159,6 +263,7 @@ export const DashboardSummaryStats = memo(function DashboardSummaryStats({
             bgClass="bg-metric-alert-card-bg"
             onClick={() => navigate(`${ROUTES.ALERTS}?acknowledged=unack`)}
             ariaLabel={`미확인 알림 ${summary.total_metric_alerts}건 보기`}
+            tooltip="아직 확인(acknowledge)되지 않은 메트릭 알림 건수 — 클릭하여 이력 열기"
           />
 
           <StatCell
@@ -170,6 +275,7 @@ export const DashboardSummaryStats = memo(function DashboardSummaryStats({
             bgClass="bg-proactive-card-bg"
             onClick={() => navigate(ROUTES.TRENDS)}
             ariaLabel={`예방 시스템 ${summary.proactive_systems ?? 0}개 보기`}
+            tooltip="AI가 사전 탐지한 이상 패턴이 있는 시스템 수 — 장애 전 대응 가능"
           />
 
           {/* 수집 에이전트 — total > 0 일 때만 노출 */}
@@ -178,6 +284,7 @@ export const DashboardSummaryStats = memo(function DashboardSummaryStats({
               type="button"
               onClick={() => navigate(`${ROUTES.AGENTS}?health=stale`)}
               aria-label={`수집 중 에이전트 ${agentCollecting}/${agentTotal}, 중단된 에이전트 보기`}
+              title={`데이터 수집 중인 에이전트 ${agentCollecting}/${agentTotal} — 클릭하여 중단된 에이전트 확인`}
               className={cn(
                 'bg-bg-base flex min-w-[100px] flex-1 items-center gap-2.5 rounded-sm text-left transition-shadow duration-200',
                 'focus:ring-accent cursor-pointer hover:brightness-110 focus:ring-1 focus:outline-none',
@@ -201,6 +308,7 @@ export const DashboardSummaryStats = memo(function DashboardSummaryStats({
               color="text-text-disabled"
               onClick={() => navigate(ROUTES.AGENTS)}
               ariaLabel="등록된 에이전트 없음, 에이전트 목록 보기"
+              tooltip="등록된 에이전트 없음 — 클릭하여 에이전트 관리 페이지 이동"
             />
           )}
         </div>
