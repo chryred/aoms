@@ -648,6 +648,63 @@ pre {
   animation: check-draw 0.35s ease-out 0.05s forwards;
 }
 
+/* TrendChart 확대/축소 애니메이션 */
+@keyframes chart-panel-in {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes chart-panel-out {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+}
+
+@keyframes chart-backdrop-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes chart-backdrop-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+.chart-panel-enter {
+  animation: chart-panel-in 0.28s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.chart-panel-exit {
+  animation: chart-panel-out 0.2s cubic-bezier(0.55, 0, 1, 0.45) both;
+}
+
+.chart-backdrop-enter {
+  animation: chart-backdrop-in 0.2s ease-out both;
+}
+
+.chart-backdrop-exit {
+  animation: chart-backdrop-out 0.18s ease-in both;
+}
+
 /* ── 타이포그래피 유틸리티 ───────────────────────── */
 
 /* 대문자 섹션 레이블 (반복 패턴 토큰화) */

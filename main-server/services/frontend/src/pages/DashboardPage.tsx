@@ -12,7 +12,7 @@ import { DashboardSummaryStats } from '@/components/dashboard/DashboardSummary'
 import { TrendMonitorSection } from '@/components/dashboard/TrendMonitorSection'
 import { SystemHealthGrid } from '@/components/dashboard/SystemHealthGrid'
 import { NeuButton } from '@/components/neumorphic/NeuButton'
-import { formatKST, cn } from '@/lib/utils'
+import { formatKST, formatRelative, cn } from '@/lib/utils'
 
 export function DashboardPage() {
   const navigate = useNavigate()
@@ -69,9 +69,8 @@ export function DashboardPage() {
   const systems = dashboardData?.systems ?? []
   const lastUpdated = summary?.last_updated ? new Date(summary.last_updated) : new Date()
 
-  const eventSecondsAgo = lastAlertUpdate
-    ? Math.max(0, Math.floor((now - lastAlertUpdate.getTime()) / 1000))
-    : null
+  // now 상태가 1초마다 리렌더를 유발 → formatRelative 결과 자동 갱신
+  void now
 
   return (
     <div className="space-y-6">
@@ -116,7 +115,7 @@ export function DashboardPage() {
               ? '실시간 연결됨'
               : wsConnecting
                 ? '실시간 연결 중...'
-                : '실시간 연결 대기'}
+                : '실시간 연결 끊김'}
           </span>
 
           <span aria-hidden className="text-text-disabled">
@@ -127,16 +126,16 @@ export function DashboardPage() {
           <span aria-hidden className="text-text-disabled">
             ·
           </span>
-          <span className="text-text-disabled">최근 10분 기준</span>
+          <span className="text-text-disabled">알림 집계: 최근 10분</span>
 
           <span aria-hidden className="text-text-disabled">
             ·
           </span>
           <span className="text-text-disabled">
-            갱신 {formatKST(lastUpdated.toISOString(), 'HH:mm:ss')}
+            조회 {formatKST(lastUpdated.toISOString(), 'HH:mm:ss')}
           </span>
 
-          {eventSecondsAgo !== null && lastAlertUpdate && (
+          {lastAlertUpdate && (
             <>
               <span aria-hidden className="text-text-disabled">
                 ·
@@ -145,7 +144,7 @@ export function DashboardPage() {
                 key={lastAlertUpdate.getTime()}
                 className="text-text-disabled animate-fade-in-up-subtle"
               >
-                최근 이벤트 {eventSecondsAgo}초 전
+                마지막 알림 수신 {formatRelative(lastAlertUpdate.toISOString())}
               </span>
             </>
           )}
@@ -178,7 +177,7 @@ export function DashboardPage() {
                 모니터링 시스템
               </h2>
               <p className="text-text-disabled mt-1 max-w-[60ch] text-xs leading-relaxed">
-                시스템별 상태·메트릭·이상 감지 내역. 시스템 이름 클릭 시 상세 페이지로 이동합니다.
+                시스템별 실시간 상태 · 메트릭 · 이상 감지 내역
               </p>
             </div>
             <SystemHealthGrid systems={systems} onAddSystem={handleAddSystem} />

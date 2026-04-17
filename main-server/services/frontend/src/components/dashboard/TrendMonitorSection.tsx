@@ -1,4 +1,6 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useCallback, useEffect, useRef } from 'react'
+import type { CSSProperties } from 'react'
+import { createPortal } from 'react-dom'
 import { useQueries } from '@tanstack/react-query'
 import {
   ComposedChart,
@@ -14,7 +16,7 @@ import { aggregationsApi } from '@/api/aggregations'
 import { NeuMultiSelect } from '@/components/neumorphic/NeuMultiSelect'
 import { LoadingSkeleton } from '@/components/common/LoadingSkeleton'
 import { useUiStore } from '@/store/uiStore'
-import { formatKST } from '@/lib/utils'
+import { formatKST, cn } from '@/lib/utils'
 import type { SystemHealthData } from '@/hooks/queries/useDashboardHealth'
 import type { HourlyAggregation } from '@/types/aggregation'
 
@@ -58,6 +60,8 @@ const LINE_COLORS_LIGHT = ['#0891B2', '#059669', '#D97706', '#DB2777', '#0D9488'
 
 const HOURS = 6
 const STEP = 300
+const EXPAND_DURATION = 340
+const COLLAPSE_DURATION = 280
 
 interface TrendDataPoint {
   timestamp: string
@@ -68,6 +72,11 @@ interface TrendTooltipEntry {
   name: string
   value: number | string
   color: string
+}
+
+interface ExpandRects {
+  from: DOMRect
+  to: DOMRect
 }
 
 function TrendTooltip({
@@ -95,80 +104,290 @@ function TrendTooltip({
   )
 }
 
+// FLIP 확대 패널 — content 영역(main)의 bounds로 자연스럽게 팽창
+function ExpandedPanel({
+  rects,
+  isClosing,
+  title,
+  unit,
+  lineColors,
+  gridColor,
+  tickColor,
+  data,
+  systemNames,
+  showLegend,
+  onClose,
+}: {
+  rects: ExpandRects
+  isClosing: boolean
+  title: string
+  unit: string
+  lineColors: string[]
+  gridColor: string
+  tickColor: string
+  data: TrendDataPoint[]
+  systemNames: string[]
+  showLegend: boolean
+  onClose: () => void
+}) {
+  // FLIP: 처음엔 카드 위치에서 시작 → 다음 프레임에 transform 제거로 content 영역까지 팽창
+  const [played, setPlayed] = useState(false)
+
+  useEffect(() => {
+    const id = requestAnimationFrame(() => {
+      requestAnimationFrame(() => setPlayed(true))
+    })
+    return () => cancelAnimationFrame(id)
+  }, [])
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    document.addEventListener('keydown', handler)
+    return () => document.removeEventListener('keydown', handler)
+  }, [onClose])
+
+  const { from, to } = rects
+  const dx = from.left - to.left
+  const dy = from.top - to.top
+  const sx = from.width / to.width
+  const sy = from.height / to.height
+
+  // 닫힐 때: 다시 카드 위치로 역방향 FLIP
+  const atCardPos = !played || isClosing
+
+  const panelStyle: CSSProperties = {
+    position: 'fixed',
+    top: to.top,
+    left: to.left,
+    width: to.width,
+    height: to.height,
+    transformOrigin: 'top left',
+    transform: atCardPos ? `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})` : 'none',
+    transition: played
+      ? `transform ${isClosing ? COLLAPSE_DURATION : EXPAND_DURATION}ms cubic-bezier(0.22, 1, 0.36, 1)`
+      : 'none',
+    zIndex: 40,
+    overflow: 'hidden',
+  }
+
+  return (
+    <div style={panelStyle} className="bg-bg-base" onDoubleClick={onClose}>
+      <div className="flex h-full flex-col p-5">
+        <div className="mb-3 flex shrink-0 items-center justify-between">
+          <h3 className="type-heading text-text-primary text-base font-semibold">
+            {title}
+            {unit && ` (${unit})`}
+          </h3>
+          <span className="text-text-disabled cursor-zoom-out select-none text-[10px]">
+            더블클릭 또는 ESC로 닫기
+          </span>
+        </div>
+
+        {data.length === 0 ? (
+          <div className="flex flex-1 flex-col items-center justify-center gap-1 text-center">
+            <span className="text-text-secondary text-sm">수집된 데이터 없음</span>
+            <span className="text-text-disabled text-xs leading-relaxed">
+              선택된 시스템에 해당 수집기가
+              <br />
+              구성되지 않았을 수 있습니다
+            </span>
+          </div>
+        ) : (
+          <>
+            <div className="min-h-0 flex-1">
+              <ResponsiveContainer width="100%" height="100%">
+                <ComposedChart data={data}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
+                  <XAxis dataKey="timestamp" tick={{ fontSize: 12, fill: tickColor }} />
+                  <YAxis tick={{ fontSize: 12, fill: tickColor }} unit={unit} />
+                  <Tooltip content={<TrendTooltip unit={unit} />} />
+                  {systemNames.map((name, i) => (
+                    <Line
+                      key={name}
+                      name={name}
+                      type="monotone"
+                      dataKey={name}
+                      stroke={lineColors[i % lineColors.length]}
+                      dot={false}
+                      strokeWidth={2}
+                    />
+                  ))}
+                </ComposedChart>
+              </ResponsiveContainer>
+            </div>
+            {showLegend && (
+              <div className="mt-3 flex shrink-0 flex-wrap items-center justify-center gap-x-4 gap-y-1">
+                {systemNames.map((name, i) => (
+                  <div key={name} className="flex items-center gap-1.5 py-0.5">
+                    <span
+                      className="inline-block h-2.5 w-2.5 rounded-full"
+                      style={{ backgroundColor: lineColors[i % lineColors.length] }}
+                    />
+                    <span className="text-text-secondary text-[11px]">{name}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function TrendChart({
   data,
   systemNames,
   title,
   unit,
+  isExpanded,
+  isClosing,
+  expandRects,
+  onToggle,
 }: {
   data: TrendDataPoint[]
   systemNames: string[]
   title: string
   unit: string
+  isExpanded: boolean
+  isClosing: boolean
+  expandRects: ExpandRects | null
+  onToggle: (cardEl: HTMLDivElement) => void
 }) {
+  const cardRef = useRef<HTMLDivElement>(null)
   const theme = useUiStore((s) => s.theme)
   const lineColors = theme === 'dark' ? LINE_COLORS_DARK : LINE_COLORS_LIGHT
   const gridColor = theme === 'dark' ? '#2B2F37' : '#E5E7EB'
   const tickColor = theme === 'dark' ? '#8B97AD' : '#6B7280'
   const showLegend = systemNames.length > 1
 
+  const handleDoubleClick = () => {
+    if (cardRef.current) onToggle(cardRef.current)
+  }
+
   return (
-    <div className="bg-bg-base shadow-neu-flat rounded-sm p-4">
-      <h3 className="type-heading text-text-primary mb-3 text-sm font-semibold">
-        {title}
-        {unit && ` (${unit})`}
-      </h3>
-      {data.length === 0 ? (
-        <div className="flex h-36 flex-col items-center justify-center gap-1 text-center">
-          <span className="text-text-secondary text-sm">수집된 데이터 없음</span>
-          <span className="text-text-disabled text-xs leading-relaxed">
-            선택된 시스템에 해당 수집기가
-            <br />
-            구성되지 않았을 수 있습니다
-          </span>
+    <>
+      {/* 일반 카드 — 확대 중엔 투명하게 자리 유지 (레이아웃 점프 방지) */}
+      <div
+        ref={cardRef}
+        className={cn(
+          'bg-bg-base shadow-neu-flat rounded-sm p-4 select-none transition-opacity duration-200',
+          isExpanded ? 'opacity-0 pointer-events-none' : 'cursor-zoom-in',
+        )}
+        onDoubleClick={handleDoubleClick}
+      >
+        <div className="mb-3 flex items-center justify-between">
+          <h3 className="type-heading text-text-primary text-sm font-semibold">
+            {title}
+            {unit && ` (${unit})`}
+          </h3>
+          <span className="text-text-disabled text-[10px]">더블클릭하여 확대</span>
         </div>
-      ) : (
-        <>
-          <ResponsiveContainer width="100%" height={180}>
-            <ComposedChart data={data}>
-              <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
-              <XAxis dataKey="timestamp" tick={{ fontSize: 11, fill: tickColor }} />
-              <YAxis tick={{ fontSize: 11, fill: tickColor }} unit={unit} />
-              <Tooltip content={<TrendTooltip unit={unit} />} />
-              {systemNames.map((name, i) => (
-                <Line
-                  key={name}
-                  name={name}
-                  type="monotone"
-                  dataKey={name}
-                  stroke={lineColors[i % lineColors.length]}
-                  dot={false}
-                  strokeWidth={1.5}
-                />
-              ))}
-            </ComposedChart>
-          </ResponsiveContainer>
-          {showLegend && (
-            <div className="mt-2 flex flex-wrap items-center justify-center gap-x-4 gap-y-1">
-              {systemNames.map((name, i) => (
-                <div key={name} className="flex items-center gap-1.5 py-0.5">
-                  <span
-                    className="inline-block h-2.5 w-2.5 rounded-full"
-                    style={{ backgroundColor: lineColors[i % lineColors.length] }}
+
+        {data.length === 0 ? (
+          <div className="flex h-36 flex-col items-center justify-center gap-1 text-center">
+            <span className="text-text-secondary text-sm">수집된 데이터 없음</span>
+            <span className="text-text-disabled text-xs leading-relaxed">
+              선택된 시스템에 해당 수집기가
+              <br />
+              구성되지 않았을 수 있습니다
+            </span>
+          </div>
+        ) : (
+          <>
+            <ResponsiveContainer width="100%" height={180}>
+              <ComposedChart data={data}>
+                <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
+                <XAxis dataKey="timestamp" tick={{ fontSize: 11, fill: tickColor }} />
+                <YAxis tick={{ fontSize: 11, fill: tickColor }} unit={unit} />
+                <Tooltip content={<TrendTooltip unit={unit} />} />
+                {systemNames.map((name, i) => (
+                  <Line
+                    key={name}
+                    name={name}
+                    type="monotone"
+                    dataKey={name}
+                    stroke={lineColors[i % lineColors.length]}
+                    dot={false}
+                    strokeWidth={1.5}
                   />
-                  <span className="text-text-secondary text-[11px]">{name}</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </>
-      )}
-    </div>
+                ))}
+              </ComposedChart>
+            </ResponsiveContainer>
+            {showLegend && (
+              <div className="mt-2 flex flex-wrap items-center justify-center gap-x-4 gap-y-1">
+                {systemNames.map((name, i) => (
+                  <div key={name} className="flex items-center gap-1.5 py-0.5">
+                    <span
+                      className="inline-block h-2.5 w-2.5 rounded-full"
+                      style={{ backgroundColor: lineColors[i % lineColors.length] }}
+                    />
+                    <span className="text-text-secondary text-[11px]">{name}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* FLIP 확대 패널 — 카드 위치에서 content 영역까지 자연스럽게 팽창 */}
+      {isExpanded &&
+        expandRects &&
+        createPortal(
+          <ExpandedPanel
+            rects={expandRects}
+            isClosing={isClosing}
+            title={title}
+            unit={unit}
+            lineColors={lineColors}
+            gridColor={gridColor}
+            tickColor={tickColor}
+            data={data}
+            systemNames={systemNames}
+            showLegend={showLegend}
+            onClose={handleDoubleClick}
+          />,
+          document.body,
+        )}
+    </>
   )
 }
 
 export function TrendMonitorSection({ systems }: TrendMonitorSectionProps) {
   const [selectedSystems, setSelectedSystems] = useState<(string | number)[]>([])
+  const [expandedChart, setExpandedChart] = useState<string | null>(null)
+  const [closingChart, setClosingChart] = useState<string | null>(null)
+  const [expandRects, setExpandRects] = useState<ExpandRects | null>(null)
+
+  const handleToggle = useCallback(
+    (key: string, cardEl: HTMLDivElement) => {
+      if (expandedChart === key) {
+        // 역방향 FLIP 시작 후 DOM에서 제거
+        setClosingChart(key)
+        setTimeout(() => {
+          setExpandedChart(null)
+          setClosingChart(null)
+          setExpandRects(null)
+        }, COLLAPSE_DURATION + 40)
+        return
+      }
+
+      // content 영역(main)의 bounds를 target으로 사용
+      const mainEl = document.querySelector('main')
+      if (mainEl) {
+        setExpandRects({
+          from: cardEl.getBoundingClientRect(),
+          to: mainEl.getBoundingClientRect(),
+        })
+      }
+      setExpandedChart(key)
+      setClosingChart(null)
+    },
+    [expandedChart],
+  )
 
   const isAllSelected = selectedSystems.length === 0
 
@@ -212,7 +431,6 @@ export function TrendMonitorSection({ systems }: TrendMonitorSectionProps) {
 
   const isLoading = queries.some((q) => q.isLoading)
 
-  // 시스템별 데이터를 metric_group별로 정리
   const perSystemData = useMemo(() => {
     const result = new Map<string, Map<number, HourlyAggregation[]>>()
     for (const chart of TREND_CHARTS) {
@@ -312,6 +530,10 @@ export function TrendMonitorSection({ systems }: TrendMonitorSectionProps) {
                 systemNames={systemNames}
                 title={chart.title}
                 unit={chart.unit}
+                isExpanded={expandedChart === chart.metricGroup}
+                isClosing={closingChart === chart.metricGroup}
+                expandRects={expandedChart === chart.metricGroup ? expandRects : null}
+                onToggle={(cardEl) => handleToggle(chart.metricGroup, cardEl)}
               />
             )
           })}
