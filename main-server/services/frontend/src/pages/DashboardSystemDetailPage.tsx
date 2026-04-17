@@ -170,7 +170,7 @@ function ProcessTreemap({ data }: { data: ProcessSummary[] }) {
             key={m}
             onClick={() => setMode(m)}
             className={cn(
-              'rounded-sm px-3 py-1 text-xs font-medium transition-all',
+              'rounded-sm px-3 py-1 text-xs font-medium transition-all duration-150 active:scale-[0.97]',
               mode === m
                 ? 'bg-accent text-accent-contrast shadow-neu-flat font-semibold'
                 : 'text-text-secondary hover:bg-hover-subtle hover:text-text-primary',
@@ -386,7 +386,7 @@ export function DashboardSystemDetailPage() {
               key={r}
               onClick={() => setTimeRange(r)}
               className={cn(
-                'rounded-sm px-3 py-1 text-xs font-medium transition-all',
+                'rounded-sm px-3 py-1 text-xs font-medium transition-all duration-150 active:scale-[0.97]',
                 timeRange === r
                   ? 'bg-accent text-accent-contrast shadow-neu-flat font-semibold'
                   : 'text-text-secondary hover:bg-hover-subtle hover:text-text-primary',
@@ -436,8 +436,8 @@ export function DashboardSystemDetailPage() {
                             key={group}
                             onClick={() => clickable && setChartPopup({ group, collectorType: ct })}
                             className={cn(
-                              'bg-bg-base shadow-neu-flat flex items-center justify-between rounded-sm px-3 py-2 transition-colors',
-                              clickable && 'hover:bg-surface cursor-pointer',
+                              'bg-bg-base shadow-neu-flat flex items-center justify-between rounded-sm px-3 py-2 transition-[transform,background-color] duration-150',
+                              clickable && 'hover:bg-surface cursor-pointer active:scale-[0.98]',
                             )}
                           >
                             <span className="text-text-tertiary text-xs font-medium">
