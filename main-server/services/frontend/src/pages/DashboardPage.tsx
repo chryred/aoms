@@ -136,12 +136,17 @@ export function DashboardPage() {
             갱신 {formatKST(lastUpdated.toISOString(), 'HH:mm:ss')}
           </span>
 
-          {eventSecondsAgo !== null && (
+          {eventSecondsAgo !== null && lastAlertUpdate && (
             <>
               <span aria-hidden className="text-text-disabled">
                 ·
               </span>
-              <span className="text-text-disabled">최근 이벤트 {eventSecondsAgo}초 전</span>
+              <span
+                key={lastAlertUpdate.getTime()}
+                className="text-text-disabled animate-fade-in-up-subtle"
+              >
+                최근 이벤트 {eventSecondsAgo}초 전
+              </span>
             </>
           )}
         </div>
