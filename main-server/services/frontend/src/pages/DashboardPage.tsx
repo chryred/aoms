@@ -10,6 +10,7 @@ import { LoadingSkeleton } from '@/components/common/LoadingSkeleton'
 import { ErrorCard } from '@/components/common/ErrorCard'
 import { DashboardSummaryStats } from '@/components/dashboard/DashboardSummary'
 import { TrendMonitorSection } from '@/components/dashboard/TrendMonitorSection'
+import { TraceTreemapSection } from '@/components/dashboard/TraceTreemapSection'
 import { SystemHealthGrid } from '@/components/dashboard/SystemHealthGrid'
 import { NeuButton } from '@/components/neumorphic/NeuButton'
 import { formatKST, formatRelative, cn } from '@/lib/utils'
@@ -169,6 +170,9 @@ export function DashboardPage() {
 
           {/* 추이 모니터 — 전체/다중 시스템 집계 추이 */}
           <TrendMonitorSection systems={systems} />
+
+          {/* 성능 분석 — OTel 등록 시스템별 에러율 treemap */}
+          <TraceTreemapSection systems={systems} />
 
           {/* 시스템 카드 그리드 + 필터 */}
           <section className="space-y-3">

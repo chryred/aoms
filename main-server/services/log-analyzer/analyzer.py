@@ -31,6 +31,7 @@ from vector_client import (
 )
 
 from llm_client import call_llm_structured, LLM_AGENT_CODE, LLM_TYPE
+from trace_summarizer import build_trace_context
 
 logger = logging.getLogger(__name__)
 
@@ -178,6 +179,8 @@ async def analyze_with_vector_context(
     instance_role: str,
     logs: list[dict],
     agent_code: str,
+    trace_context: str = "",
+    trace_tier: str = "5min",
 ) -> dict:
     """
     T4.14 — 벡터 유사도 검색 + LLM 분석 통합 파이프라인
@@ -189,6 +192,10 @@ async def analyze_with_vector_context(
       4. 강화 프롬프트 구성 + LLM 호출 (duplicate 포함 전 케이스에서 호출 — 표기는 anomaly_type으로 구분)
       5. 분석 결과 Qdrant 저장
     """
+    # trace context 로컬 바인딩 (build_enhanced_prompt에 주입)
+    _trace_context = trace_context
+    _trace_tier = trace_tier
+
     # 1. 로그 정규화 및 압축
     log_text   = mask_sensitive_data("\n".join(entry["line"] for entry in logs[:50]))
     normalized = normalize_log_for_embedding(log_text)
@@ -224,7 +231,12 @@ async def analyze_with_vector_context(
         )
 
     # 4. 강화 프롬프트 구성 + LLM 호출
-    prompt   = build_enhanced_prompt(log_text, system_name, instance_role, anomaly_info)
+    # trace_context / trace_tier는 run_analysis()에서 주입 (OTel 미적용 시 기본값 유지)
+    prompt   = build_enhanced_prompt(
+        log_text, system_name, instance_role, anomaly_info,
+        trace_context=_trace_context,
+        trace_tier=_trace_tier,
+    )
     analysis = await call_llm_structured(prompt, agent_code=agent_code)
 
     # 5. 벡터 저장 (새로운 분석 결과 누적 — duplicate 포함)
@@ -280,6 +292,8 @@ async def submit_analysis(
     similar_incidents: list[dict] | None = None,
     error_message: str | None = None,
     model_used: str | None = None,
+    referenced_trace_ids: list[str] | None = None,
+    trace_summary_text: str | None = None,
 ) -> dict:
     """Admin API에 LLM 분석 결과 제출 (Teams 알림은 Admin API가 처리)
 
@@ -302,7 +316,9 @@ async def submit_analysis(
     if qdrant_point_id   is not None: payload["qdrant_point_id"]   = qdrant_point_id
     if has_solution      is not None: payload["has_solution"]      = has_solution
     if similar_incidents is not None: payload["similar_incidents"] = similar_incidents
-    if error_message     is not None: payload["error_message"]     = error_message
+    if error_message          is not None: payload["error_message"]          = error_message
+    if referenced_trace_ids   is not None: payload["referenced_trace_ids"]   = referenced_trace_ids
+    if trace_summary_text     is not None: payload["trace_summary_text"]     = trace_summary_text
 
     resp = await _admin_http.post(f"{ADMIN_API_URL}/api/v1/analysis", json=payload)
     resp.raise_for_status()
@@ -327,6 +343,21 @@ async def run_analysis() -> dict:
         logger.error(f"시스템 목록 조회 실패: {e}")
         return results
 
+    # OTel gating: has_otel 시스템 set (dashboard API 재사용)
+    otel_system_ids: set[int] = set()
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as hc:
+            health_resp = await hc.get(
+                f"{ADMIN_API_URL}/api/v1/dashboard/system-health",
+                headers={"Authorization": "Bearer internal"},
+            )
+            if health_resp.status_code == 200:
+                for s in health_resp.json().get("systems", []):
+                    if s.get("has_otel"):
+                        otel_system_ids.add(s["system_id"])
+    except Exception as exc:
+        logger.debug("OTel system set 조회 실패 (분석 계속): %s", exc)
+
     for system in systems:
         if system.get("status") != "active":
             results["skipped"] += 1
@@ -334,6 +365,7 @@ async def run_analysis() -> dict:
 
         system_name = system["system_name"]
         system_id = system["id"]
+        has_otel = system_id in otel_system_ids
 
         try:
             logs_by_role = await fetch_logs_for_system(system_name)
@@ -344,6 +376,20 @@ async def run_analysis() -> dict:
 
             agent_code = await get_agent_code_for_area("log_analysis")
 
+            # OTel gating: trace_context 조회 (5분 window)
+            trace_ctx = ""
+            trace_ref_ids: list[str] = []
+            if has_otel:
+                import time as _time
+                now_ns = int(_time.time() * 1e9)
+                start_ns = now_ns - 5 * 60 * 1_000_000_000
+                try:
+                    trace_ctx, trace_ref_ids = await build_trace_context(
+                        system_name, start_ns, now_ns, tier="5min"
+                    )
+                except Exception as exc:
+                    logger.debug("trace_context 조회 실패 → fallback: %s", exc)
+
             for instance_role, logs in logs_by_role.items():
                 # masked_log는 성공/실패 두 경로 모두에서 필요 → try 진입 전 구성
                 masked_log = mask_sensitive_data(
@@ -351,7 +397,9 @@ async def run_analysis() -> dict:
                 )
                 try:
                     analysis = await analyze_with_vector_context(
-                        system_name, instance_role, logs, agent_code
+                        system_name, instance_role, logs, agent_code,
+                        trace_context=trace_ctx,
+                        trace_tier="5min",
                     )
 
                     severity       = analysis.get("severity", "info")
@@ -373,6 +421,8 @@ async def run_analysis() -> dict:
                         similar_incidents=analysis.get("similar_incidents"),
                         # LLM은 성공했으나 Qdrant 저장만 실패한 경우 사유 기록
                         error_message=analysis.get("qdrant_store_error"),
+                        referenced_trace_ids=trace_ref_ids or None,
+                        trace_summary_text=trace_ctx or None,
                     )
                     results["analyzed"] += 1
                     results["systems"].append(f"{system_name}/{instance_role}")

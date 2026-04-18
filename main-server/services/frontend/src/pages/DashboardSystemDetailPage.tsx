@@ -18,7 +18,10 @@ import {
   useMetricsLiveSummary,
   useProcessSummary,
 } from '@/hooks/queries/useAggregations'
-import { useSystemLiveStatus } from '@/hooks/queries/useAgents'
+import { useSystemLiveStatus, useAgents } from '@/hooks/queries/useAgents'
+import { TraceDotChart } from '@/components/dashboard/TraceDotChart'
+import { TraceDetailPanel } from '@/components/trace/TraceDetailPanel'
+import { ROUTES } from '@/constants/routes'
 import { LoadingSkeleton } from '@/components/common/LoadingSkeleton'
 import { ErrorCard } from '@/components/common/ErrorCard'
 import { NeuCard } from '@/components/neumorphic/NeuCard'
@@ -257,6 +260,13 @@ export function DashboardSystemDetailPage() {
   const { data: systemLive } = useSystemLiveStatus(numericId || undefined)
   const isSystemLive = systemLive?.is_live ?? false
 
+  const { data: otelAgents = [] } = useAgents({
+    system_id: numericId || undefined,
+    agent_type: 'otel_javaagent',
+  })
+  const hasOtel = otelAgents.some((a) => a.status === 'running')
+  const [selectedTraceId, setSelectedTraceId] = useState<string | null>(null)
+
   const { data: minuteData = [], isLoading: minuteLoading } = useMetricsRange(
     chartPopup
       ? {
@@ -476,6 +486,30 @@ export function DashboardSystemDetailPage() {
           <ProcessTreemap data={processSummary} />
         </section>
       )}
+
+      {/* 성능 분석 (OTel) — 수집 현황과 함께 "현재 상태" 그룹 */}
+      <section className="space-y-4">
+        <h2 className="text-text-primary text-lg font-semibold">성능 분석</h2>
+        {hasOtel ? (
+          <TraceDotChart
+            systemId={numericId}
+            systemName={detail.display_name}
+            windowMinutes={60}
+            height={280}
+            onTraceSelect={setSelectedTraceId}
+          />
+        ) : (
+          <NeuCard className="text-text-secondary py-6 text-center text-sm">
+            OTel Java 수집기가 등록되지 않았습니다.
+            <Link
+              to={ROUTES.AGENTS}
+              className="text-accent hover:text-accent/80 ml-2 font-medium underline-offset-2 hover:underline"
+            >
+              에이전트 관리에서 등록하기 →
+            </Link>
+          </NeuCard>
+        )}
+      </section>
 
       {/* 1️⃣ 활성 알림 */}
       <section className="space-y-4">
@@ -724,6 +758,8 @@ export function DashboardSystemDetailPage() {
           </div>
         )}
       </section>
+
+      <TraceDetailPanel traceId={selectedTraceId} onClose={() => setSelectedTraceId(null)} />
 
       {/* 4️⃣ 담당자 */}
       <section className="space-y-4">

@@ -8,12 +8,28 @@ import { agentsApi } from '@/api/agents'
 import { useQueryClient } from '@tanstack/react-query'
 import { qk } from '@/constants/queryKeys'
 import { useSSHSessionStore } from '@/store/sshSessionStore'
-import type { AgentType, AgentInstance, OsType, ServerType, DbType } from '@/types/agent'
+import type {
+  AgentType,
+  AgentInstance,
+  OsType,
+  ServerType,
+  DbType,
+  OtelServiceType,
+} from '@/types/agent'
 import type { System } from '@/types/system'
 
 const AGENT_TYPES: { value: AgentType; label: string }[] = [
   { value: 'synapse_agent', label: 'Synapse 수집기' },
   { value: 'db', label: 'DB 수집기' },
+  { value: 'otel_javaagent', label: 'OTel Java 수집기' },
+]
+
+const OTEL_SERVICE_TYPES: { value: OtelServiceType; label: string }[] = [
+  { value: 'tomcat', label: 'Tomcat (setenv.sh)' },
+  { value: 'jboss', label: 'JBoss / WildFly (standalone.conf.d)' },
+  { value: 'jeus', label: 'JEUS (otel.sh)' },
+  { value: 'systemd', label: 'systemd (root 필요)' },
+  { value: 'standalone', label: '독립 실행 (otel-launch.sh)' },
 ]
 
 const DB_TYPE_OPTIONS: {
@@ -49,6 +65,12 @@ const DEFAULT_PATHS: Record<
     install: '~/synapse/agent-v',
     config: '~/synapse/config.toml',
     pid: '~/synapse/agent.pid',
+    port: 0,
+  },
+  otel_javaagent: {
+    install: '~/otel',
+    config: '~/otel/otel-env.sh',
+    pid: '',
     port: 0,
   },
 }
@@ -122,6 +144,12 @@ export function AgentFormModal({ systems, onClose, onCreated }: AgentFormModalPr
     { paths: '', log_type: 'app', keywords: 'ERROR, CRITICAL, PANIC, Fatal, Exception' },
   ])
 
+  // otel_javaagent 전용 필드
+  const [otelServiceName, setOtelServiceName] = useState('')
+  const [otelServiceType, setOtelServiceType] = useState<OtelServiceType>('standalone')
+  const [otelJdkVersion, setOtelJdkVersion] = useState('17')
+  const [otelServicePath, setOtelServicePath] = useState('')
+
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
@@ -178,6 +206,16 @@ export function AgentFormModal({ systems, onClose, onCreated }: AgentFormModalPr
         collect_interval_secs: Math.max(10, Number(dbInterval) || 60),
       })
     }
+    if (agentType === 'otel_javaagent') {
+      const system = systems.find((s) => s.id === selectedSystemId)
+      return JSON.stringify({
+        tempo_service_name: otelServiceName || system?.system_name || '',
+        service_type: otelServiceType,
+        jdk_version: otelJdkVersion,
+        install_path: installPath,
+        service_path: otelServicePath || undefined,
+      })
+    }
     const system = systems.find((s) => s.id === selectedSystemId)
     if (agentType !== 'synapse_agent' || !system) return ''
     const info = {
@@ -205,14 +243,19 @@ export function AgentFormModal({ systems, onClose, onCreated }: AgentFormModalPr
     setError(null)
     setLoading(true)
     const isDb = agentType === 'db'
+    const isOtelSubmit = agentType === 'otel_javaagent'
     try {
       const agent = await agentsApi.createAgent({
         system_id: selectedSystemId,
         host,
         ...(isDb ? {} : { ssh_username: sshUsername }),
         agent_type: agentType,
-        ...(isDb ? {} : { install_path: installPath, config_path: configPath }),
-        pid_file: pidFile || undefined,
+        ...(isDb
+          ? {}
+          : isOtelSubmit
+            ? { install_path: installPath }
+            : { install_path: installPath, config_path: configPath }),
+        pid_file: isOtelSubmit ? undefined : pidFile || undefined,
         port: isDb
           ? port
             ? Number(port)
@@ -243,6 +286,7 @@ export function AgentFormModal({ systems, onClose, onCreated }: AgentFormModalPr
 
   const isSynapse = agentType === 'synapse_agent'
   const isDb = agentType === 'db'
+  const isOtel = agentType === 'otel_javaagent'
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
@@ -433,8 +477,8 @@ export function AgentFormModal({ systems, onClose, onCreated }: AgentFormModalPr
             </div>
           )}
 
-          {/* 경로 — db 에이전트는 바이너리/설정/PID 불필요 */}
-          {!isDb && (
+          {/* 경로 — db 에이전트는 바이너리/설정/PID 불필요, OTel은 설치 경로만 */}
+          {isSynapse && (
             <>
               <div>
                 <label className="text-text-secondary mb-1 block text-xs">바이너리 경로</label>
@@ -447,7 +491,7 @@ export function AgentFormModal({ systems, onClose, onCreated }: AgentFormModalPr
               <div>
                 <label className="text-text-secondary mb-1 block text-xs">
                   설정 파일 경로
-                  {isSynapse && <span className="text-text-secondary/60"> (자동 생성)</span>}
+                  <span className="text-text-secondary/60"> (자동 생성)</span>
                 </label>
                 <NeuInput value={configPath} onChange={(e) => setConfigPath(e.target.value)} />
               </div>
@@ -456,18 +500,90 @@ export function AgentFormModal({ systems, onClose, onCreated }: AgentFormModalPr
                   <label className="text-text-secondary mb-1 block text-xs">PID 파일 경로</label>
                   <NeuInput value={pidFile} onChange={(e) => setPidFile(e.target.value)} />
                 </div>
-                {!isSynapse && (
-                  <div className="w-28">
-                    <label className="text-text-secondary mb-1 block text-xs">포트</label>
-                    <NeuInput
-                      type="number"
-                      value={port}
-                      onChange={(e) => setPort(e.target.value)}
-                    />
-                  </div>
-                )}
               </div>
             </>
+          )}
+
+          {/* otel_javaagent 전용 필드 */}
+          {isOtel && (
+            <div className="border-border bg-bg-deep space-y-3 rounded-sm border p-3">
+              <p className="text-text-secondary text-xs font-medium">OTel Java 수집기 설정</p>
+              <p className="text-text-secondary/70 text-[11px] leading-relaxed">
+                WAS 기동 계정으로 SSH 접속하여 사용자 홈 디렉토리에 설치합니다. systemd 시스템
+                모드만 root가 필요합니다.
+              </p>
+              <div>
+                <label className="text-text-secondary mb-1 block text-xs">설치 경로</label>
+                <NeuInput
+                  value={installPath}
+                  onChange={(e) => setInstallPath(e.target.value)}
+                  placeholder="~/otel"
+                  required
+                />
+              </div>
+              <div>
+                <label className="text-text-secondary mb-1 block text-xs">
+                  Tempo 서비스명{' '}
+                  <span className="text-text-secondary/60">(비워두면 system_name 사용)</span>
+                </label>
+                <NeuInput
+                  value={otelServiceName}
+                  onChange={(e) => setOtelServiceName(e.target.value)}
+                  placeholder={
+                    systems.find((s) => s.id === selectedSystemId)?.system_name ?? 'service-name'
+                  }
+                />
+              </div>
+              <div className="flex gap-3">
+                <div className="flex-1">
+                  <label className="text-text-secondary mb-1 block text-xs">서비스 유형</label>
+                  <NeuSelect
+                    value={otelServiceType}
+                    onChange={(e) => setOtelServiceType(e.target.value as OtelServiceType)}
+                  >
+                    {OTEL_SERVICE_TYPES.map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </NeuSelect>
+                </div>
+                <div className="w-36">
+                  <label className="text-text-secondary mb-1 block text-xs">JDK 버전</label>
+                  <NeuSelect
+                    value={otelJdkVersion}
+                    onChange={(e) => setOtelJdkVersion(e.target.value)}
+                  >
+                    <option value="8">JDK 8 (v1.33.x)</option>
+                    <option value="11">JDK 11+ (v2.x)</option>
+                    <option value="17">JDK 17+ (v2.x)</option>
+                    <option value="21">JDK 21+ (v2.x)</option>
+                  </NeuSelect>
+                </div>
+              </div>
+              {(otelServiceType === 'tomcat' ||
+                otelServiceType === 'jboss' ||
+                otelServiceType === 'jeus') && (
+                <div>
+                  <label className="text-text-secondary mb-1 block text-xs">
+                    WAS 설치 경로{' '}
+                    <span className="text-text-secondary/60">(env 주입 대상 서비스 경로)</span>
+                  </label>
+                  <NeuInput
+                    value={otelServicePath}
+                    onChange={(e) => setOtelServicePath(e.target.value)}
+                    placeholder={
+                      otelServiceType === 'tomcat'
+                        ? '~/tomcat'
+                        : otelServiceType === 'jboss'
+                          ? '~/jboss'
+                          : '~/jeus'
+                    }
+                    required
+                  />
+                </div>
+              )}
+            </div>
           )}
 
           {/* synapse_agent 전용: 수집기 선택 */}

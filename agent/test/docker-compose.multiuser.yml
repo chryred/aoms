@@ -43,6 +43,7 @@ services:
     hostname: target-server
     ports:
       - "2222:22"    # SSH: ssh -p 2222 jeussic@localhost (test123)
+      - "8081:8081"  # SampleApp HTTP: curl http://localhost:8081/ok|slow|error|dependency
     extra_hosts:
       - "host.docker.internal:host-gateway"  # host machine 접근 (dev-prometheus:9090)
     restart: unless-stopped

@@ -87,6 +87,8 @@ CREATE TABLE IF NOT EXISTS alert_history (
     acknowledged_by     VARCHAR(100),
     escalated           BOOLEAN DEFAULT FALSE,
     error_message       TEXT,                                   -- LLM/분석 실패 이력: NULL=성공, 값=실패 사유
+    -- Phase OTel: 메트릭 알림 ↔ trace 링크
+    related_trace_ids   JSONB,                                  -- Alertmanager 수신 시점 ±60s 에러 trace top 3 (NULL = OTel 미적용)
     created_at          TIMESTAMP DEFAULT NOW()
 );
 
@@ -112,6 +114,9 @@ CREATE TABLE IF NOT EXISTS log_analysis_history (
     qdrant_point_id  VARCHAR(36),
     has_solution     BOOLEAN DEFAULT FALSE,
     error_message    TEXT,                                     -- LLM/분석 실패 이력: NULL=성공, 값=실패 사유
+    -- Phase OTel: 분산 추적 상관 컬럼
+    referenced_trace_ids  JSONB,                              -- ["a1b2c3d4…", ...] 최대 5개 (NULL = OTel 미적용)
+    trace_summary_text    TEXT,                               -- 프롬프트 주입 원문 (감사·디버그용, NULL = OTel 미적용)
     created_at       TIMESTAMP DEFAULT NOW()
 );
 

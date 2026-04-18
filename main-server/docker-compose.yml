@@ -138,6 +138,8 @@ services:
       # DB 수집기
       - DB_COLLECT_INTERVAL_SECS=${DB_COLLECT_INTERVAL_SECS:-${ORACLE_COLLECT_INTERVAL_SECS:-60}}
       - AGENT_BINARY_PATH=${AGENT_BINARY_PATH:-/app/bin/agent-v}
+      # OTel / Tempo
+      - TEMPO_URL=${TEMPO_URL:-http://tempo:3200}
     mem_limit: 256m
     cpus: '0.3'
     depends_on:
@@ -181,6 +183,42 @@ services:
     mem_limit: 64m
     cpus: '0.1'
     depends_on: [admin-api, log-analyzer]
+    restart: unless-stopped
+    networks:
+      - synapse-net
+
+  tempo:
+    image: grafana/tempo:2.9.1
+    container_name: synapse-tempo
+    command: ["-config.file=/etc/tempo/tempo.yml"]
+    volumes:
+      - ./configs/tempo/tempo.yml:/etc/tempo/tempo.yml:ro,z
+      - tempo_data:/var/tempo:z
+    mem_limit: 1g
+    cpus: '0.5'
+    restart: unless-stopped
+    networks:
+      - synapse-net
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.123.0
+    container_name: synapse-otel-collector
+    command: ["--config=/etc/otel/otel-collector-config.yml"]
+    volumes:
+      - ./configs/otel-collector/otel-collector-config.yml:/etc/otel/otel-collector-config.yml:ro,z
+    ports:
+      # 127.0.0.1 바인딩 — 외부 네트워크에서 무인증 span 주입 방지
+      - "127.0.0.1:4317:4317"   # OTLP gRPC
+      - "127.0.0.1:4318:4318"   # OTLP HTTP
+    mem_limit: 2g
+    cpus: '0.5'
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:13133/"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    depends_on:
+      - tempo
     restart: unless-stopped
     networks:
       - synapse-net
@@ -234,6 +272,7 @@ volumes:
   grafana_data:
   postgres_data:
   n8n_data:
+  tempo_data:
 
 networks:
   synapse-net:

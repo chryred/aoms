@@ -11,7 +11,7 @@ from typing import Optional
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import and_, desc, select
+from sqlalchemy import and_, desc, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth import get_current_user
@@ -285,6 +285,15 @@ async def get_dashboard_health(
     summary["total_log_critical"] = sum(1 for r in _log_stat_rows if r.severity == "critical")
     summary["total_log_warning"]  = sum(1 for r in _log_stat_rows if r.severity == "warning")
 
+    # OTel gating: running otel_javaagent 보유 system_id 집합 (한 번에 조회)
+    otel_result = await db.execute(
+        text(
+            "SELECT DISTINCT system_id FROM agent_instances"
+            " WHERE agent_type='otel_javaagent' AND status='running'"
+        )
+    )
+    otel_system_ids = {row[0] for row in otel_result.fetchall()}
+
     for sys in systems:
         health = await _get_system_health(db, sys.id, sys.system_name)
 
@@ -295,6 +304,7 @@ async def get_dashboard_health(
             "status":         health.status,
             "reason":         health.reason,
             "proactive_count": health.proactive_count,
+            "has_otel":       sys.id in otel_system_ids,
         })
 
         summary["total_systems"] += 1

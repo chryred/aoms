@@ -1,0 +1,27 @@
+#!/bin/sh
+# OTel Java Agent 환경변수 샘플 — Phase 4 admin-api install이 생성하는 otel-env.sh와 동일 포맷
+# 실제 install 시 ${QUOTED_*} 자리에 shlex.quote 처리된 값이 들어감
+
+# JVM에게 OTel Java Agent 주입 지시 (서비스 계정 홈 = admin-api install 기본값 ~/otel)
+INSTALL_DIR=/home/jeussic/otel
+export JAVA_OPTS="${JAVA_OPTS} -javaagent:${INSTALL_DIR}/opentelemetry-javaagent.jar"
+
+# service.name = Tempo TraceQL에서 시스템 식별자 (Prometheus system_name과 동일값)
+export OTEL_SERVICE_NAME='crm-was1'
+
+# OTel 표준 + Synapse 커스텀 리소스 어트리뷰트
+export OTEL_RESOURCE_ATTRIBUTES='service.name=crm-was1,display.name=CRM WAS1,instance.role=was,host.name=crm-was1-host'
+
+# Collector 주소 (Server A 내부 — admin-api가 MAIN_SERVER_IP를 알고 있음)
+export OTEL_EXPORTER_OTLP_ENDPOINT='http://127.0.0.1:4317'
+export OTEL_EXPORTER_OTLP_PROTOCOL='grpc'
+
+# Tail-based sampling: Collector가 최종 결정 → SDK는 항상 OFF
+export OTEL_TRACES_SAMPLER='parentbased_alwaysoff'
+
+# 메트릭/로그는 synapse_agent + log-analyzer가 담당 → OTel에서 비활성
+export OTEL_METRICS_EXPORTER='none'
+export OTEL_LOGS_EXPORTER='none'
+
+# CVE-2026-33701 완화 (JDK 8 + v1.33.x 라인 필수, v2.x는 패치됨)
+export OTEL_INSTRUMENTATION_RMI_ENABLED='false'

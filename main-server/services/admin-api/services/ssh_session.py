@@ -139,3 +139,32 @@ def ssh_get_file(host: str, port: int, username: str, password: str, remote_path
         return buf.getvalue().decode("utf-8", errors="replace")
     finally:
         client.close()
+
+
+def ssh_read_file(host: str, port: int, username: str, password: str, remote_path: str) -> Optional[str]:
+    """원격 파일 내용을 반환. 파일이 없으면 None. 동기 함수 — asyncio.to_thread로 호출.
+
+    - 파일이 존재하지 않는 경우(FileNotFoundError/IOError)만 None을 반환한다.
+    - 권한 오류 등 기타 예외는 그대로 re-raise 한다.
+    """
+    client = _ssh_connect(host, port, username, password)
+    try:
+        sftp = client.open_sftp()
+        try:
+            with sftp.open(remote_path, "r") as f:
+                data = f.read()
+        except FileNotFoundError:
+            return None
+        except IOError as exc:
+            # paramiko는 "No such file" 케이스를 IOError로 올리기도 함
+            msg = str(exc).lower()
+            if "no such file" in msg or "not found" in msg:
+                return None
+            raise
+        finally:
+            sftp.close()
+        if isinstance(data, bytes):
+            return data.decode("utf-8", errors="replace")
+        return data
+    finally:
+        client.close()

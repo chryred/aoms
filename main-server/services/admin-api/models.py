@@ -3,6 +3,7 @@ from sqlalchemy import (
     Boolean, Column, DateTime, Float, ForeignKey, Index, Integer,
     String, Text, UniqueConstraint, func
 )
+from sqlalchemy import JSON as JSONB
 from database import Base
 
 
@@ -85,6 +86,8 @@ class AlertHistory(Base):
     resolved_at = Column(DateTime)                     # Alertmanager resolved 시 채워짐
     # LLM/분석 실패 이력: NULL=성공, 값=실패 사유 (UI "분석 실패" 뱃지 렌더링 조건)
     error_message    = Column(Text)
+    # Phase OTel: 메트릭 알림 ↔ trace 링크 (NULL = OTel 미적용)
+    related_trace_ids = Column(JSONB)
     created_at = Column(DateTime, default=func.now())
 
     __table_args__ = (
@@ -112,8 +115,11 @@ class LogAnalysisHistory(Base):
     similarity_score = Column(Float)
     qdrant_point_id  = Column(String(36))    # UUID
     has_solution     = Column(Boolean, default=False)
-    # LLM/분석 실패 이력: NULL=성공, 값=실패 사유 (UI "분석 실패" 뱃지 렌더링 조건)
+    # LLM/분석 실패 이력: NULL=성공, 값=실패 사유 (UI "분析 실패" 뱃지 렌더링 조건)
     error_message    = Column(Text)
+    # Phase OTel: 분산 추적 상관 컬럼 (NULL = OTel 미적용)
+    referenced_trace_ids = Column(JSONB)
+    trace_summary_text   = Column(Text)
     created_at = Column(DateTime, default=func.now())
 
     __table_args__ = (

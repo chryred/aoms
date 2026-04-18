@@ -438,7 +438,7 @@ class SSHSessionOut(BaseModel):
 
 import re as _re
 
-_SAFE_PATH_RE = _re.compile(r'^(/[\w.\-]+)+$')
+_SAFE_PATH_RE = _re.compile(r'^(~|~/[\w.\-]+(/[\w.\-]+)*|(/[\w.\-]+)+)$')
 
 
 def _validate_unix_path(v: Optional[str]) -> Optional[str]:
@@ -456,7 +456,9 @@ class AgentInstanceCreate(BaseModel):
     system_id: int
     host: str
     ssh_username: Optional[str] = None   # db 에이전트는 SSH 불필요
-    agent_type: str = Field(pattern="^(alloy|node_exporter|jmx_exporter|synapse_agent|db)$")
+    agent_type: str = Field(
+        pattern="^(alloy|node_exporter|jmx_exporter|synapse_agent|db|otel_javaagent)$"
+    )
     install_path: Optional[str] = None   # db 에이전트는 바이너리 없음
     config_path: Optional[str] = None    # db 에이전트는 설정 파일 없음
     port: Optional[int] = None

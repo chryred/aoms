@@ -1,4 +1,13 @@
-export type AgentType = 'synapse_agent' | 'db'
+export type AgentType = 'synapse_agent' | 'db' | 'otel_javaagent'
+
+export type OtelServiceType = 'tomcat' | 'jboss' | 'jeus' | 'systemd' | 'standalone'
+
+export interface OtelAgentLabelInfo {
+  tempo_service_name: string
+  service_type: OtelServiceType
+  jdk_version: string
+  install_path: string
+}
 
 export type DbType = 'oracle' | 'postgresql' | 'mssql' | 'mysql'
 

@@ -28,6 +28,7 @@ logger = logging.getLogger(__name__)
 
 from llm_client import call_llm_text
 from analyzer import get_agent_code_for_area
+from trace_summarizer import build_trace_context
 
 ADMIN_API_URL    = os.getenv("ADMIN_API_URL",    "http://admin-api:8080")
 PROMETHEUS_URL   = os.getenv("PROMETHEUS_URL",   "http://prometheus:9090")
@@ -282,6 +283,7 @@ async def _process_single_config(
     sem: asyncio.Semaphore,
     config: dict,
     hour_bucket_iso: str,
+    otel_system_ids: set[int] | None = None,
 ) -> dict:
     """
     단일 collector_config에 대한 1시간 집계 처리.
@@ -342,13 +344,27 @@ async def _process_single_config(
             if not anomaly_detected:
                 return {"status": "ok", "system": system_name, "anomaly": False}
 
+            # OTel gating: running otel_javaagent 있는 시스템이면 hourly trace context 조회
+            trace_section = ""
+            has_otel = otel_system_ids is not None and system_id in otel_system_ids
+            if has_otel:
+                import time as _time
+                now_ns = int(_time.time() * 1e9)
+                start_ns = now_ns - 3600 * 1_000_000_000
+                try:
+                    trace_ctx, _ = await build_trace_context(system_name, start_ns, now_ns, tier="hourly")
+                    if trace_ctx:
+                        trace_section = f"\n[분산 추적 요약 (hourly)]\n{trace_ctx}\n"
+                except Exception as exc:
+                    logger.debug("hourly trace_context 실패 → 생략: %s", exc)
+
             # 이상 감지 → LLM 분석
             metrics_formatted = "\n".join(f"  {k}: {v}" for k, v in metrics.items())
             llm_prompt = (
                 f"시스템: {display_name} ({system_name})\n"
                 f"시간대: {hour_bucket_iso} (1시간 집계)\n"
                 f"수집기: {collector_type} / {metric_group}\n"
-                f"이상 감지 사유: {anomaly_reason}\n\n"
+                f"이상 감지 사유: {anomaly_reason}\n{trace_section}\n"
                 f"[현재 시간 집계 메트릭]\n{metrics_formatted}\n\n"
                 "위 메트릭 데이터를 분석하여 다음 JSON 형식으로만 응답하세요:\n"
                 "{\n"
@@ -515,9 +531,20 @@ async def run_hourly_aggregation() -> dict:
             logger.info("활성 수집기 설정 없음")
             return {"processed": 0, "skipped": 0, "anomalies": 0, "errors": 0}
 
+        # OTel gating: has_otel 시스템 set 조회
+        otel_system_ids: set[int] = set()
+        try:
+            health_resp = await client.get(f"{ADMIN_API_URL}/api/v1/dashboard/system-health", timeout=5.0)
+            if health_resp.status_code == 200:
+                for s in health_resp.json().get("systems", []):
+                    if s.get("has_otel"):
+                        otel_system_ids.add(s["system_id"])
+        except Exception as exc:
+            logger.debug("hourly OTel system set 조회 실패: %s", exc)
+
         sem = asyncio.Semaphore(20)
         tasks = [
-            _process_single_config(client, sem, cfg, hour_bucket_iso)
+            _process_single_config(client, sem, cfg, hour_bucket_iso, otel_system_ids)
             for cfg in configs
         ]
         results = await asyncio.gather(*tasks, return_exceptions=True)

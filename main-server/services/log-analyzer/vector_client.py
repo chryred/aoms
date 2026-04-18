@@ -221,11 +221,17 @@ def build_enhanced_prompt(
     system_name: str,
     instance_role: str,
     anomaly_info: dict,
+    trace_context: str = "",
+    trace_tier: str = "5min",
 ) -> str:
     """
     유사 이력 + 해결책을 포함한 강화 프롬프트 생성.
-    토큰 예산: 4,000 토큰 이내 (log_content 3,000자 + 컨텍스트 1,000자)
+    토큰 예산: 4,000 토큰 이내 (log_content 3,000자 기본 + 컨텍스트 1,000자)
+    trace_context가 있으면 log_content를 tier별로 축소하고 trace 섹션 삽입.
     """
+    # trace_context 있을 때 log_content tier별 축소
+    log_limit_map = {"5min": 2600, "hourly": 2700, "daily": 2800}
+    log_limit = log_limit_map.get(trace_tier, 3000) if trace_context else 3000
     similar      = anomaly_info.get("top_results", [])
     anomaly_type = anomaly_info["type"]
     score        = anomaly_info.get("score", 0.0)
@@ -266,10 +272,15 @@ def build_enhanced_prompt(
         "duplicate": f"중복 이상 (유사도 {score:.0%})",
     }.get(anomaly_type, "미분류")
 
+    # trace 섹션 (OTel 적용 시스템만)
+    trace_section = ""
+    if trace_context:
+        trace_section = f"\n=== 분산 추적 요약 ({trace_tier}) ===\n{trace_context}\n"
+
     return f"""=== 현재 이상 분류: {type_label} ===
 시스템: {system_name} / {instance_role}
-
-{log_content[:3000]}
+{trace_section}
+{log_content[:log_limit]}
 
 === 과거 유사 장애 이력 (상위 3건) ===
 {history_ctx}

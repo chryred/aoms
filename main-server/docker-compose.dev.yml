@@ -146,6 +146,43 @@ services:
   # frontend는 Docker 이미지 없이 `make run-frontend` (npm run dev)로 실행
   # docker compose에서 제외 — 빌드된 이미지(synapse-frontend:1.0) 없어도 dev-up 가능
 
+  tempo:
+    image: grafana/tempo:2.9.1
+    container_name: dev-tempo
+    command: ["-config.file=/etc/tempo/tempo.yml"]
+    volumes:
+      - ./configs/tempo/tempo.yml:/etc/tempo/tempo.yml:ro
+      - tempo_dev_data:/var/tempo
+    ports:
+      - "3200:3200"
+    mem_limit: 1g
+    restart: unless-stopped
+    networks:
+      - dev-net
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.123.0
+    container_name: dev-otel-collector
+    command: ["--config=/etc/otel/otel-collector-config.yml"]
+    volumes:
+      - ./configs/otel-collector/otel-collector-config.yml:/etc/otel/otel-collector-config.yml:ro
+    ports:
+      - "127.0.0.1:4317:4317"   # OTLP gRPC
+      - "127.0.0.1:4318:4318"   # OTLP HTTP
+      - "13133:13133"            # health_check (dev only)
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:13133/"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    depends_on:
+      - tempo
+    restart: unless-stopped
+    networks:
+      - dev-net
+
   ollama:
     image: ollama/ollama:0.18.0
     container_name: dev-ollama
@@ -164,6 +201,7 @@ volumes:
   n8n_dev_data:
   grafana_dev_data:
   ollama_dev_data:
+  tempo_dev_data:
 
 networks:
   dev-net:

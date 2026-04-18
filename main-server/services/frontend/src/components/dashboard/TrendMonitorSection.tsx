@@ -180,7 +180,7 @@ function ExpandedPanel({
             {title}
             {unit && ` (${unit})`}
           </h3>
-          <span className="text-text-disabled cursor-zoom-out select-none text-[10px]">
+          <span className="text-text-disabled cursor-zoom-out text-[10px] select-none">
             더블클릭 또는 ESC로 닫기
           </span>
         </div>
@@ -273,8 +273,8 @@ function TrendChart({
       <div
         ref={cardRef}
         className={cn(
-          'bg-bg-base shadow-neu-flat rounded-sm p-4 select-none transition-opacity duration-200',
-          isExpanded ? 'opacity-0 pointer-events-none' : 'cursor-zoom-in',
+          'bg-bg-base shadow-neu-flat rounded-sm p-4 transition-opacity duration-200 select-none',
+          isExpanded ? 'pointer-events-none opacity-0' : 'cursor-zoom-in',
         )}
         onDoubleClick={handleDoubleClick}
       >

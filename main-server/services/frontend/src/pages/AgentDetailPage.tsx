@@ -28,7 +28,7 @@ import type { AgentLiveStatus, AgentStatus } from '@/types/agent'
 import { useSSHSessionStore } from '@/store/sshSessionStore'
 import { qk } from '@/constants/queryKeys'
 import { ROUTES } from '@/constants/routes'
-import { formatKST, getAgentTypeLabel } from '@/lib/utils'
+import { cn, formatKST, getAgentTypeLabel } from '@/lib/utils'
 
 const LIVE_STATUS_CONFIG: Record<AgentLiveStatus, { label: string; color: string; dot: string }> = {
   collecting: { label: '수집 중', color: 'text-normal', dot: 'bg-normal' },
@@ -63,6 +63,7 @@ export function AgentDetailPage() {
   const [configContent, setConfigContent] = useState<string | null>(null)
   const [configLoading, setConfigLoading] = useState(false)
   const [configDirty, setConfigDirty] = useState(false)
+  const [configDisplayPath, setConfigDisplayPath] = useState<string | null>(null)
   const [actionLoading, setActionLoading] = useState<string | null>(null)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [installJobId, setInstallJobId] = useState<string | null>(null)
@@ -101,6 +102,34 @@ export function AgentDetailPage() {
   }
 
   const isDbAgent = agent?.agent_type === 'db'
+  const isOtelAgent = agent?.agent_type === 'otel_javaagent'
+
+  // OTel 전용: service_type별 inject 파일 경로 계산 (service_path + install_path 기반)
+  const otelInjectInfo = (() => {
+    if (!isOtelAgent || !agent) return null
+    try {
+      const info = JSON.parse(agent.label_info ?? '{}') as {
+        service_type?: string
+        service_path?: string
+        tempo_service_name?: string
+      }
+      const installDir = agent.install_path ?? '~/otel'
+      const svcType = info.service_type ?? 'standalone'
+      const svcPath = info.service_path ?? ''
+      let injectPath: string | null = null
+      if (svcType === 'tomcat' && svcPath) injectPath = `${svcPath}/bin/setenv.sh`
+      else if (svcType === 'jboss' && svcPath) injectPath = `${svcPath}/bin/standalone.conf.d/otel.conf`
+      else if (svcType === 'jeus' && svcPath) injectPath = `${svcPath}/otel.sh`
+      else if (svcType === 'systemd') injectPath = null // root 경로, 보통 ssh_username=root만 읽기 가능
+      else injectPath = `${installDir}/otel-launch.sh`
+      return { installDir, svcType, svcPath, injectPath, envPath: `${installDir}/otel-env.sh` }
+    } catch {
+      return null
+    }
+  })()
+
+  // OTel 파일 편집기: 어떤 파일을 보고 있는지
+  const [otelFileTab, setOtelFileTab] = useState<'env' | 'inject'>('env')
 
   const hostMismatch =
     sessionActive &&
@@ -132,20 +161,27 @@ export function AgentDetailPage() {
     }
   }
 
-  async function handleLoadConfig() {
+  async function handleLoadConfig(otelKind?: 'env' | 'inject') {
     if (!token) {
       setShowSSHModal(true)
       return
     }
     setConfigLoading(true)
     try {
-      const res = await agentsApi.getConfig(agentId, token)
+      const res = isOtelAgent && otelKind
+        ? await agentsApi.getOtelConfig(agentId, token, otelKind)
+        : await agentsApi.getConfig(agentId, token)
       refreshExpiry()
       setConfigContent(res.content)
+      setConfigDisplayPath(res.config_path)
       setConfigDirty(false)
+      if (isOtelAgent && otelKind) setOtelFileTab(otelKind)
     } catch (err) {
       if (err instanceof HTTPError && err.response.status === 401) {
         handleSSHExpired()
+      } else if (err instanceof HTTPError && err.response.status === 404) {
+        const body = await err.response.json().catch(() => ({ detail: '파일을 찾을 수 없습니다.' }))
+        showMsg('error', (body as { detail?: string }).detail ?? '파일을 찾을 수 없습니다.')
       } else {
         showMsg('error', '설정 파일 불러오기 실패')
       }
@@ -299,58 +335,78 @@ export function AgentDetailPage() {
             </p>
           )}
 
-          {/* 제어 버튼 */}
-          <div className="flex flex-wrap gap-2">
-            <NeuButton
-              size="sm"
-              onClick={() =>
-                runAction('실행', () => agentsApi.startAgent(agentId, token ?? undefined))
-              }
-              loading={actionLoading === '실행'}
-              disabled={(!isDbAgent && !sessionActive) || hostMismatch}
-            >
-              <Play className="h-3.5 w-3.5" />
-              실행
-            </NeuButton>
-            <NeuButton
-              size="sm"
-              variant="ghost"
-              onClick={() =>
-                runAction('중지', () => agentsApi.stopAgent(agentId, token ?? undefined))
-              }
-              loading={actionLoading === '중지'}
-              disabled={(!isDbAgent && !sessionActive) || hostMismatch}
-            >
-              <Square className="h-3.5 w-3.5" />
-              중지
-            </NeuButton>
-            <NeuButton
-              size="sm"
-              variant="ghost"
-              onClick={() =>
-                runAction('재시작', () => agentsApi.restartAgent(agentId, token ?? undefined))
-              }
-              loading={actionLoading === '재시작'}
-              disabled={(!isDbAgent && !sessionActive) || hostMismatch}
-            >
-              <RotateCw className="h-3.5 w-3.5" />
-              재시작
-            </NeuButton>
-            <NeuButton
-              size="sm"
-              variant="ghost"
-              onClick={() =>
-                isDbAgent
-                  ? refetch()
-                  : runAction('상태 확인', () => agentsApi.getStatus(agentId, token ?? undefined))
-              }
-              loading={actionLoading === '상태 확인'}
-              disabled={(!isDbAgent && !sessionActive) || hostMismatch}
-            >
-              <RefreshCw className="h-3.5 w-3.5" />
-              상태 갱신
-            </NeuButton>
-          </div>
+          {/* 제어 버튼 — OTel은 별도 프로세스가 아니므로 start/stop/restart 없음 */}
+          {isOtelAgent ? (
+            <div className="border-accent bg-accent-muted/40 rounded-sm border p-3 text-xs">
+              <p className="text-accent mb-1 font-semibold">OTel Java 수집기 활성화 제어 안내</p>
+              <p className="text-text-secondary leading-relaxed">
+                OTel Java Agent는 별도 프로세스가 아닌 WAS JVM 내부에 주입되는 라이브러리입니다. 따라서
+                시작/중지/재시작은 <b className="text-text-primary">WAS 자체를 재시작</b>하는 것으로
+                반영되며, 이 페이지의 프로세스 제어 버튼은 OTel 타입에선 제공되지 않습니다.
+              </p>
+              <ul className="text-text-secondary mt-2 list-inside list-disc space-y-0.5">
+                <li>
+                  활성화 → 설치 후 WAS 재시작 (서비스 유형별 자동 로드: setenv.sh / standalone.conf.d / systemd)
+                </li>
+                <li>
+                  비활성화 → inject 파일에서 synapse-otel 블록 제거 또는 파일 삭제 후 WAS 재시작
+                </li>
+                <li>설정 변경 → 아래 설정 파일 편집기에서 otel-env.sh 수정 → WAS 재시작</li>
+              </ul>
+            </div>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              <NeuButton
+                size="sm"
+                onClick={() =>
+                  runAction('실행', () => agentsApi.startAgent(agentId, token ?? undefined))
+                }
+                loading={actionLoading === '실행'}
+                disabled={(!isDbAgent && !sessionActive) || hostMismatch}
+              >
+                <Play className="h-3.5 w-3.5" />
+                실행
+              </NeuButton>
+              <NeuButton
+                size="sm"
+                variant="ghost"
+                onClick={() =>
+                  runAction('중지', () => agentsApi.stopAgent(agentId, token ?? undefined))
+                }
+                loading={actionLoading === '중지'}
+                disabled={(!isDbAgent && !sessionActive) || hostMismatch}
+              >
+                <Square className="h-3.5 w-3.5" />
+                중지
+              </NeuButton>
+              <NeuButton
+                size="sm"
+                variant="ghost"
+                onClick={() =>
+                  runAction('재시작', () => agentsApi.restartAgent(agentId, token ?? undefined))
+                }
+                loading={actionLoading === '재시작'}
+                disabled={(!isDbAgent && !sessionActive) || hostMismatch}
+              >
+                <RotateCw className="h-3.5 w-3.5" />
+                재시작
+              </NeuButton>
+              <NeuButton
+                size="sm"
+                variant="ghost"
+                onClick={() =>
+                  isDbAgent
+                    ? refetch()
+                    : runAction('상태 확인', () => agentsApi.getStatus(agentId, token ?? undefined))
+                }
+                loading={actionLoading === '상태 확인'}
+                disabled={(!isDbAgent && !sessionActive) || hostMismatch}
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+                상태 갱신
+              </NeuButton>
+            </div>
+          )}
 
           {/* 설치 */}
           <div className="border-border mt-4 border-t pt-4">
@@ -403,8 +459,59 @@ export function AgentDetailPage() {
           <NeuCard>
             <div className="mb-4 flex items-center justify-between">
               <h2 className="text-text-primary text-sm font-semibold">설정 파일</h2>
-              <span className="text-text-secondary text-xs">{agent.config_path}</span>
+              <span className="text-text-secondary font-mono text-xs">
+                {configDisplayPath ?? agent.config_path}
+              </span>
             </div>
+
+            {/* OTel 타입: env / inject 탭 선택 */}
+            {isOtelAgent && otelInjectInfo && (
+              <div className="mb-3 flex items-center gap-2">
+                <div
+                  className="bg-bg-base shadow-neu-pressed inline-flex gap-1 rounded-sm p-1"
+                  role="group"
+                  aria-label="OTel 설정 파일 선택"
+                >
+                  <button
+                    type="button"
+                    aria-pressed={otelFileTab === 'env'}
+                    onClick={() => handleLoadConfig('env')}
+                    disabled={!sessionActive || configLoading}
+                    className={cn(
+                      'rounded-sm px-3 py-1 text-xs font-medium transition-colors',
+                      otelFileTab === 'env'
+                        ? 'bg-accent text-accent-contrast shadow-neu-flat font-semibold'
+                        : 'text-text-secondary hover:bg-hover-subtle hover:text-text-primary',
+                    )}
+                  >
+                    otel-env.sh (공통 환경변수)
+                  </button>
+                  <button
+                    type="button"
+                    aria-pressed={otelFileTab === 'inject'}
+                    onClick={() => handleLoadConfig('inject')}
+                    disabled={
+                      !sessionActive || configLoading || otelInjectInfo.injectPath === null
+                    }
+                    title={
+                      otelInjectInfo.injectPath === null
+                        ? 'systemd는 root 권한이 필요해 읽기 불가'
+                        : `${otelInjectInfo.svcType} inject 파일`
+                    }
+                    className={cn(
+                      'rounded-sm px-3 py-1 text-xs font-medium transition-colors',
+                      otelFileTab === 'inject'
+                        ? 'bg-accent text-accent-contrast shadow-neu-flat font-semibold'
+                        : 'text-text-secondary hover:bg-hover-subtle hover:text-text-primary',
+                      otelInjectInfo.injectPath === null && 'opacity-50',
+                    )}
+                  >
+                    {otelInjectInfo.svcType} inject 파일
+                  </button>
+                </div>
+                <span className="text-text-disabled text-[10px]">읽기 전용 · 수정은 재설치로 적용</span>
+              </div>
+            )}
 
             {configContent === null ? (
               <div className="flex flex-col items-center justify-center gap-3 py-12">
@@ -414,7 +521,7 @@ export function AgentDetailPage() {
                 <NeuButton
                   size="sm"
                   variant="glass"
-                  onClick={handleLoadConfig}
+                  onClick={() => handleLoadConfig(isOtelAgent ? 'env' : undefined)}
                   loading={configLoading}
                   disabled={!sessionActive}
                 >
@@ -426,35 +533,47 @@ export function AgentDetailPage() {
                 <NeuTextarea
                   value={configContent}
                   onChange={(e) => {
+                    if (isOtelAgent) return // OTel은 읽기 전용
                     setConfigContent(e.target.value)
                     setConfigDirty(true)
                   }}
+                  readOnly={isOtelAgent}
                   rows={20}
-                  className="font-mono text-xs"
+                  className={cn('font-mono text-xs', isOtelAgent && 'bg-bg-deep/50 cursor-default')}
                 />
                 <div className="flex items-center justify-between">
                   <NeuButton
                     size="sm"
                     variant="ghost"
-                    onClick={handleLoadConfig}
+                    onClick={() =>
+                      handleLoadConfig(isOtelAgent ? otelFileTab : undefined)
+                    }
                     loading={configLoading}
                     disabled={!sessionActive}
                   >
                     <RefreshCw className="h-3.5 w-3.5" />
                     다시 불러오기
                   </NeuButton>
-                  <NeuButton
-                    size="sm"
-                    onClick={handleUploadConfig}
-                    loading={actionLoading === '설정 업로드'}
-                    disabled={!sessionActive || !configDirty}
-                  >
-                    <Upload className="h-3.5 w-3.5" />
-                    업로드 및 Reload
-                  </NeuButton>
+                  {!isOtelAgent && (
+                    <NeuButton
+                      size="sm"
+                      onClick={handleUploadConfig}
+                      loading={actionLoading === '설정 업로드'}
+                      disabled={!sessionActive || !configDirty}
+                    >
+                      <Upload className="h-3.5 w-3.5" />
+                      업로드 및 Reload
+                    </NeuButton>
+                  )}
                 </div>
-                {configDirty && (
+                {configDirty && !isOtelAgent && (
                   <p className="text-warning text-xs">저장되지 않은 변경사항이 있습니다.</p>
+                )}
+                {isOtelAgent && (
+                  <p className="text-text-disabled text-xs">
+                    ※ OTel 설정은 재설치로만 갱신됩니다. 변경이 필요하면 에이전트 등록 정보를
+                    수정한 뒤 &lsquo;설치 실행&rsquo;을 다시 누르세요.
+                  </p>
                 )}
               </div>
             )}

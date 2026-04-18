@@ -15,3 +15,9 @@ agent/target/debug/*
 docs/security/*
 .env.local
 node_modules/
+# OTel Java Agent JAR — 폐쇄망 환경에서 수동 배치 (README 참조)
+main-server/artifacts/otel/*.jar
+# 임시 스크린샷 / playwright 산출물
+*.png
+!main-server/services/frontend/public/**/*.png
+ems-mcp/

@@ -73,6 +73,15 @@ export const agentsApi = {
   getConfig: (id: number, token: string) =>
     adminApi.get(`api/v1/agents/${id}/config`, withSession(token)).json<AgentConfigResponse>(),
 
+  // OTel 전용: kind=env(otel-env.sh) | inject(setenv.sh/otel.conf/otel.sh/otel-launch.sh)
+  getOtelConfig: (id: number, token: string, kind: 'env' | 'inject') =>
+    adminApi
+      .get(`api/v1/agents/${id}/otel-config`, {
+        searchParams: { kind },
+        ...withSession(token),
+      })
+      .json<AgentConfigResponse & { kind: 'env' | 'inject' }>(),
+
   uploadConfig: (id: number, token: string, content: string) =>
     adminApi
       .post(`api/v1/agents/${id}/config`, {

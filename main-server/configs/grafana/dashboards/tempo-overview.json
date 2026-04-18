@@ -1,0 +1,64 @@
+{
+  "uid": "synapse-tempo-overview",
+  "title": "Tempo — Trace Overview",
+  "tags": ["tempo", "traces", "synapse"],
+  "timezone": "Asia/Seoul",
+  "schemaVersion": 38,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-1h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Rate (traces/min)",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 0, "w": 8, "h": 8 },
+      "targets": [
+        {
+          "datasource": { "type": "tempo", "uid": "synapse-tempo" },
+          "queryType": "traceqlMetrics",
+          "query": "{ } | rate()"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Error Rate (%)",
+      "type": "timeseries",
+      "gridPos": { "x": 8, "y": 0, "w": 8, "h": 8 },
+      "targets": [
+        {
+          "datasource": { "type": "tempo", "uid": "synapse-tempo" },
+          "queryType": "traceqlMetrics",
+          "query": "{ status = error } | rate()"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "p95 Latency (ms)",
+      "type": "timeseries",
+      "gridPos": { "x": 16, "y": 0, "w": 8, "h": 8 },
+      "targets": [
+        {
+          "datasource": { "type": "tempo", "uid": "synapse-tempo" },
+          "queryType": "traceqlMetrics",
+          "query": "{ } | quantile_over_time(duration, 0.95)"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Trace Search",
+      "type": "table",
+      "gridPos": { "x": 0, "y": 8, "w": 24, "h": 10 },
+      "targets": [
+        {
+          "datasource": { "type": "tempo", "uid": "synapse-tempo" },
+          "queryType": "nativeSearch",
+          "limit": 20
+        }
+      ]
+    }
+  ]
+}

@@ -317,6 +317,23 @@ export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
             </div>
           )}
 
+          {/* 연관 Trace ID */}
+          {displayAlert.related_trace_ids && displayAlert.related_trace_ids.length > 0 && (
+            <div>
+              <p className="type-label mb-1.5">연관 Trace ID</p>
+              <div className="flex flex-wrap gap-1.5">
+                {displayAlert.related_trace_ids.map((tid) => (
+                  <span
+                    key={tid}
+                    className="border-border bg-bg-base rounded-sm border px-2 py-0.5 font-mono text-xs"
+                  >
+                    {tid}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* 해결방안 — 화면의 시각 앵커. 원인은 상단 타이틀이 이미 보여주므로 중복 제거 */}
           {parsedDesc?.recommendation ? (
             <div className="border-accent rounded-sm border p-4">

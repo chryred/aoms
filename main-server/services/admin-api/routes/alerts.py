@@ -5,7 +5,7 @@ from datetime import datetime, timezone, timedelta
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth import get_current_user
@@ -19,6 +19,7 @@ from .websocket import notify_alert_fired, notify_alert_resolved
 
 logger = logging.getLogger(__name__)
 LOG_ANALYZER_URL = os.getenv("LOG_ANALYZER_URL", "http://log-analyzer:8000")
+TEMPO_URL = os.getenv("TEMPO_URL", "http://tempo:3200")
 
 router = APIRouter(prefix="/api/v1/alerts", tags=["alerts"])
 
@@ -179,6 +180,42 @@ async def receive_alertmanager(
         )
         db.add(history)
         await db.flush()  # history.id 발급
+
+        # OTel gating: running otel_javaagent가 있으면 ±60s 에러 trace 조회
+        if system_id:
+            try:
+                otel_check = await db.execute(
+                    text(
+                        "SELECT EXISTS(SELECT 1 FROM agent_instances"
+                        " WHERE system_id=:sid AND agent_type='otel_javaagent' AND status='running')"
+                    ),
+                    {"sid": system_id},
+                )
+                if otel_check.scalar():
+                    alert_ts = datetime.now(timezone.utc)
+                    start_ns = int((alert_ts.timestamp() - 60) * 1e9)
+                    end_ns = int((alert_ts.timestamp() + 60) * 1e9)
+                    system_name_for_trace = system_name
+                    traceql = (
+                        f'{{ resource.service.name="{system_name_for_trace}"'
+                        f' && status=error }}'
+                    )
+                    async with httpx.AsyncClient(timeout=5.0) as tc:
+                        tresp = await tc.get(
+                            f"{TEMPO_URL}/api/search",
+                            params={"q": traceql, "start": start_ns, "end": end_ns, "limit": 3},
+                        )
+                        tresp.raise_for_status()
+                        trace_data = tresp.json()
+                    trace_ids = [
+                        t["traceID"]
+                        for t in trace_data.get("traces", [])[:3]
+                        if t.get("traceID")
+                    ]
+                    if trace_ids:
+                        history.related_trace_ids = trace_ids
+            except Exception as exc:
+                logger.debug("Tempo error trace query failed (non-critical): %s", exc)
 
         sent = False
         if webhook_url:

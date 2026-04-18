@@ -23,5 +23,7 @@ export interface AlertHistory {
   notified_contacts: string | null
   /** LLM/분석 실패 사유 — NULL이면 정상, 값 있으면 UI "분석 실패" 뱃지 표시 */
   error_message: string | null
+  /** OTel: 알림 발생 시각 ±60s 내 연관 trace_id 목록 */
+  related_trace_ids: string[] | null
   created_at: string
 }
