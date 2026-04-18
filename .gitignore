@@ -13,7 +13,7 @@ venv/
 .playwright-mcp/
 agent/target/debug/*
 docs/security/*
-.env.local
+main-server/.env.local
 node_modules/
 # OTel Java Agent JAR — 폐쇄망 환경에서 수동 배치 (README 참조)
 main-server/artifacts/otel/*.jar
