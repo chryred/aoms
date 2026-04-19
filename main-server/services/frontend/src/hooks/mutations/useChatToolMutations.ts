@@ -26,21 +26,16 @@ export function useToggleChatTool() {
 export function useSaveChatExecutorConfig() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: ({
-      executor,
-      config,
-    }: {
-      executor: string
-      config: Record<string, unknown>
-    }) => chatExecutorConfigsApi.save(executor, config),
+    mutationFn: ({ executor, config }: { executor: string; config: Record<string, unknown> }) =>
+      chatExecutorConfigsApi.save(executor, config),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: qk.chat.executorConfigs() })
       toast.success('저장되었습니다')
     },
     onError: (err: unknown) => {
       const detail =
-        (err as { response?: { data?: { detail?: string } } })?.response?.data
-          ?.detail ?? '저장 실패'
+        (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail ??
+        '저장 실패'
       toast.error(detail)
     },
   })

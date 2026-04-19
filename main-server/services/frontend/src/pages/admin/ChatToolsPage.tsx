@@ -4,20 +4,13 @@ import { PageHeader } from '@/components/common/PageHeader'
 import { LoadingSkeleton } from '@/components/common/LoadingSkeleton'
 import { NeuButton } from '@/components/neumorphic/NeuButton'
 import { NeuInput } from '@/components/neumorphic/NeuInput'
-import {
-  useChatExecutorConfigs,
-  useChatTools,
-} from '@/hooks/queries/useChatTools'
+import { useChatExecutorConfigs, useChatTools } from '@/hooks/queries/useChatTools'
 import {
   useSaveChatExecutorConfig,
   useTestChatExecutor,
   useToggleChatTool,
 } from '@/hooks/mutations/useChatToolMutations'
-import type {
-  ChatExecutorConfig,
-  ChatExecutorFieldSchema,
-  ChatTool,
-} from '@/types/chat'
+import type { ChatExecutorConfig, ChatExecutorFieldSchema, ChatTool } from '@/types/chat'
 import { cn, formatKST } from '@/lib/utils'
 
 const EXECUTOR_LABELS: Record<string, string> = {
@@ -58,7 +51,10 @@ export default function ChatToolsPage() {
   if (toolsQ.isLoading || configsQ.isLoading) {
     return (
       <>
-        <PageHeader title="챗봇 도구 관리" description="Executor 자격증명과 도구 활성화를 관리합니다." />
+        <PageHeader
+          title="챗봇 도구 관리"
+          description="Executor 자격증명과 도구 활성화를 관리합니다."
+        />
         <LoadingSkeleton lines={8} />
       </>
     )
@@ -133,11 +129,11 @@ export default function ChatToolsPage() {
                 )}
               >
                 <div className="overflow-hidden">
-                  <div className="border-border border-t px-5 pb-5 pt-4 space-y-4">
+                  <div className="border-border space-y-4 border-t px-5 pt-4 pb-5">
                     {/* 자격증명 섹션 */}
                     {hasConfig && (
                       <div className="space-y-2">
-                        <div className="text-text-secondary text-xs font-medium uppercase tracking-wider">
+                        <div className="text-text-secondary text-xs font-medium tracking-wider uppercase">
                           자격증명
                         </div>
                         <ExecutorConfigCard config={cfg} />
@@ -147,7 +143,7 @@ export default function ChatToolsPage() {
                     {/* 도구 섹션 */}
                     <div className="space-y-2">
                       {hasConfig && (
-                        <div className="text-text-secondary text-xs font-medium uppercase tracking-wider">
+                        <div className="text-text-secondary text-xs font-medium tracking-wider uppercase">
                           도구
                         </div>
                       )}
@@ -156,10 +152,7 @@ export default function ChatToolsPage() {
                           key={tool.name}
                           tool={tool}
                           onSelect={() => setSelectedToolName(tool.name)}
-                          isLocked={
-                            cfg.config_schema.some((f) => f.required) &&
-                            !cfg.updated_at
-                          }
+                          isLocked={cfg.config_schema.some((f) => f.required) && !cfg.updated_at}
                         />
                       ))}
                       {tools.length === 0 && (
@@ -174,10 +167,7 @@ export default function ChatToolsPage() {
         })}
       </div>
 
-      <ToolDetailPanel
-        tool={selectedTool}
-        onClose={() => setSelectedToolName(null)}
-      />
+      <ToolDetailPanel tool={selectedTool} onClose={() => setSelectedToolName(null)} />
     </>
   )
 }
@@ -205,7 +195,7 @@ function ToolRow({
           onSelect()
         }
       }}
-      className="bg-bg-base shadow-neu-flat flex cursor-pointer items-center justify-between rounded-sm px-4 py-3 hover:brightness-105 transition-colors"
+      className="bg-bg-base shadow-neu-flat flex cursor-pointer items-center justify-between rounded-sm px-4 py-3 transition-colors hover:brightness-105"
     >
       <div className="min-w-0 flex-1 pr-3">
         <div className="flex items-center gap-2">
@@ -257,16 +247,22 @@ function ToolRow({
           <div
             className={cn(
               'absolute top-0.5 h-4 w-4 rounded-full shadow-sm transition-transform duration-300 ease-in-out',
-              effectiveEnabled
-                ? 'bg-surface translate-x-4'
-                : 'bg-text-disabled translate-x-0.5',
+              effectiveEnabled ? 'bg-surface translate-x-4' : 'bg-text-disabled translate-x-0.5',
             )}
           />
         </div>
         {isLocked ? (
-          <span className="flex items-center gap-1 text-xs font-medium text-text-disabled">
+          <span className="text-text-disabled flex items-center gap-1 text-xs font-medium">
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-              <rect x="3" y="11" width="18" height="11" rx="2" stroke="currentColor" strokeWidth="2" />
+              <rect
+                x="3"
+                y="11"
+                width="18"
+                height="11"
+                rx="2"
+                stroke="currentColor"
+                strokeWidth="2"
+              />
               <path
                 d="M7 11V7a5 5 0 0 1 10 0v4"
                 stroke="currentColor"
@@ -307,14 +303,23 @@ function ToolDetailPanel({ tool, onClose }: { tool: ChatTool | null; onClose: ()
     focusable[0]?.focus()
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { onClose(); return }
+      if (e.key === 'Escape') {
+        onClose()
+        return
+      }
       if (e.key !== 'Tab') return
       const first = focusable[0]
       const last = focusable[focusable.length - 1]
       if (e.shiftKey) {
-        if (document.activeElement === first) { e.preventDefault(); last?.focus() }
+        if (document.activeElement === first) {
+          e.preventDefault()
+          last?.focus()
+        }
       } else {
-        if (document.activeElement === last) { e.preventDefault(); first?.focus() }
+        if (document.activeElement === last) {
+          e.preventDefault()
+          first?.focus()
+        }
       }
     }
     window.addEventListener('keydown', handleKeyDown)
@@ -326,8 +331,8 @@ function ToolDetailPanel({ tool, onClose }: { tool: ChatTool | null; onClose: ()
       <div
         aria-hidden="true"
         className={cn(
-          'fixed inset-0 z-40 bg-overlay transition-opacity duration-300',
-          isOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none',
+          'bg-overlay fixed inset-0 z-40 transition-opacity duration-300',
+          isOpen ? 'pointer-events-auto opacity-100' : 'pointer-events-none opacity-0',
         )}
         onClick={onClose}
       />
@@ -337,7 +342,7 @@ function ToolDetailPanel({ tool, onClose }: { tool: ChatTool | null; onClose: ()
         aria-modal="true"
         aria-label={tool ? `${tool.display_name} 도구 상세` : '도구 상세'}
         className={cn(
-          'border-border bg-bg-base fixed right-0 top-0 bottom-0 z-50 flex w-full max-w-md flex-col border-l shadow-[-8px_0_32px_rgba(0,0,0,0.4)]',
+          'border-border bg-bg-base fixed top-0 right-0 bottom-0 z-50 flex w-full max-w-md flex-col border-l shadow-[-8px_0_32px_rgba(0,0,0,0.4)]',
           'transition-transform duration-300 ease-in-out',
           isOpen ? 'translate-x-0' : 'translate-x-full',
         )}
@@ -356,32 +361,59 @@ function ToolDetailPanel({ tool, onClose }: { tool: ChatTool | null; onClose: ()
                 className="text-text-secondary hover:text-text-primary transition-colors"
               >
                 <svg width="18" height="18" viewBox="0 0 18 18" fill="none" aria-hidden="true">
-                  <path d="M3 3l12 12M15 3L3 15" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                  <path
+                    d="M3 3l12 12M15 3L3 15"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                    strokeLinecap="round"
+                  />
                 </svg>
               </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
+            <div className="flex-1 space-y-5 overflow-y-auto px-6 py-5">
               {/* 활성화 토글 */}
-              <div className="bg-bg-base shadow-neu-flat rounded-sm px-4 py-3 flex items-center justify-between">
+              <div className="bg-bg-base shadow-neu-flat flex items-center justify-between rounded-sm px-4 py-3">
                 <div>
                   <div className="text-text-primary text-sm font-medium">도구 활성화</div>
                   <div className="text-text-secondary mt-0.5 text-xs">
                     비활성화 시 챗봇이 이 도구를 사용하지 않습니다.
                   </div>
                 </div>
-                <label className={cn('flex cursor-pointer items-center gap-2', toggle.isPending && 'cursor-not-allowed opacity-50')}>
+                <label
+                  className={cn(
+                    'flex cursor-pointer items-center gap-2',
+                    toggle.isPending && 'cursor-not-allowed opacity-50',
+                  )}
+                >
                   <input
                     type="checkbox"
                     checked={tool.is_enabled}
-                    onChange={(e) => toggle.mutate({ name: tool.name, is_enabled: e.target.checked })}
+                    onChange={(e) =>
+                      toggle.mutate({ name: tool.name, is_enabled: e.target.checked })
+                    }
                     className="sr-only"
                     disabled={toggle.isPending}
                   />
-                  <div className={cn('relative h-5 w-9 rounded-full transition-colors duration-300', tool.is_enabled ? 'bg-accent' : 'bg-border shadow-neu-inset')}>
-                    <div className={cn('absolute top-0.5 h-4 w-4 rounded-full bg-surface shadow-sm transition-transform duration-300', tool.is_enabled ? 'translate-x-4' : 'translate-x-0.5')} />
+                  <div
+                    className={cn(
+                      'relative h-5 w-9 rounded-full transition-colors duration-300',
+                      tool.is_enabled ? 'bg-accent' : 'bg-border shadow-neu-inset',
+                    )}
+                  >
+                    <div
+                      className={cn(
+                        'bg-surface absolute top-0.5 h-4 w-4 rounded-full shadow-sm transition-transform duration-300',
+                        tool.is_enabled ? 'translate-x-4' : 'translate-x-0.5',
+                      )}
+                    />
                   </div>
-                  <span className={cn('text-xs font-medium', tool.is_enabled ? 'text-accent' : 'text-text-secondary')}>
+                  <span
+                    className={cn(
+                      'text-xs font-medium',
+                      tool.is_enabled ? 'text-accent' : 'text-text-secondary',
+                    )}
+                  >
                     {tool.is_enabled ? '활성' : '비활성'}
                   </span>
                 </label>
@@ -390,8 +422,10 @@ function ToolDetailPanel({ tool, onClose }: { tool: ChatTool | null; onClose: ()
               {/* Input Schema */}
               {tool.input_schema && Object.keys(tool.input_schema).length > 0 && (
                 <div className="space-y-1.5">
-                  <div className="text-text-secondary text-xs font-medium uppercase tracking-wider">입력 스키마</div>
-                  <pre className="bg-bg-base shadow-neu-inset rounded-sm px-4 py-3 text-xs text-text-secondary overflow-x-auto whitespace-pre-wrap break-all">
+                  <div className="text-text-secondary text-xs font-medium tracking-wider uppercase">
+                    입력 스키마
+                  </div>
+                  <pre className="bg-bg-base shadow-neu-inset text-text-secondary overflow-x-auto rounded-sm px-4 py-3 text-xs break-all whitespace-pre-wrap">
                     {JSON.stringify(tool.input_schema, null, 2)}
                   </pre>
                 </div>
@@ -399,8 +433,10 @@ function ToolDetailPanel({ tool, onClose }: { tool: ChatTool | null; onClose: ()
 
               {/* Executor */}
               <div className="space-y-1.5">
-                <div className="text-text-secondary text-xs font-medium uppercase tracking-wider">Executor</div>
-                <div className="bg-bg-base shadow-neu-flat rounded-sm px-4 py-3 text-sm text-text-primary">
+                <div className="text-text-secondary text-xs font-medium tracking-wider uppercase">
+                  Executor
+                </div>
+                <div className="bg-bg-base shadow-neu-flat text-text-primary rounded-sm px-4 py-3 text-sm">
                   {EXECUTOR_LABELS[tool.executor] ?? tool.executor}
                 </div>
               </div>
@@ -461,9 +497,7 @@ function ExecutorConfigCard({ config }: { config: ChatExecutorConfig }) {
               onChange={(e) => setForm((prev) => ({ ...prev, [field.key]: e.target.value }))}
               placeholder={field.secret ? '(변경 시에만 입력, 그대로 두면 유지)' : field.label}
             />
-            {field.help && (
-              <div className="text-text-secondary text-xs mt-0.5">{field.help}</div>
-            )}
+            {field.help && <div className="text-text-secondary mt-0.5 text-xs">{field.help}</div>}
           </div>
         ))}
       </div>

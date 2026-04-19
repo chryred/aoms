@@ -12,7 +12,7 @@ export function ChatLauncher() {
       {!isOpen && (
         <span
           aria-hidden
-          className="fixed right-12 bottom-15 z-49 h-12 w-12 rounded-full animate-chat-pulse"
+          className="animate-chat-pulse fixed right-12 bottom-15 z-49 h-12 w-12 rounded-full"
         />
       )}
       <button
@@ -26,8 +26,8 @@ export function ChatLauncher() {
           'flex h-12 w-12 items-center justify-center rounded-full',
           'transition-[transform,box-shadow,background-color] duration-400 ease-in-out',
           'hover:scale-110',
-          'active:scale-95 active:shadow-neu-inset',
-          'focus:outline-none focus:ring-2 focus:ring-[#FB923C] focus:ring-offset-2 focus:ring-offset-bg-base',
+          'active:shadow-neu-inset active:scale-95',
+          'focus:ring-offset-bg-base focus:ring-2 focus:ring-[#FB923C] focus:ring-offset-2 focus:outline-none',
           'motion-reduce:transition-none',
           isOpen
             ? 'bg-surface shadow-neu-flat hover:shadow-neu-flat-hover'
@@ -35,7 +35,7 @@ export function ChatLauncher() {
         )}
       >
         {isOpen ? (
-          <X className="h-5 w-5 text-text-primary" />
+          <X className="text-text-primary h-5 w-5" />
         ) : (
           <Bot className="h-6 w-6 text-[#1E2127]" />
         )}

@@ -75,7 +75,10 @@ function SpanAttributes({ attributes }: { attributes: Record<string, string> }) 
     const v = attributes[k]
     const isSql = k === 'db.statement'
     return (
-      <div key={k} className="border-border/40 flex items-start gap-3 border-b py-1 last:border-b-0">
+      <div
+        key={k}
+        className="border-border/40 flex items-start gap-3 border-b py-1 last:border-b-0"
+      >
         <span className="text-text-disabled w-40 shrink-0 font-mono text-[11px]">{k}</span>
         <span
           className={cn(
@@ -89,7 +92,7 @@ function SpanAttributes({ attributes }: { attributes: Record<string, string> }) 
     )
   }
   return (
-    <div className="bg-surface/50 mx-4 my-2 rounded-sm border border-dashed border-border p-2">
+    <div className="bg-surface/50 border-border mx-4 my-2 rounded-sm border border-dashed p-2">
       {primary.length > 0 && (
         <>
           <p className="text-text-secondary mb-1 text-[10px] font-semibold tracking-wide uppercase">
@@ -185,18 +188,19 @@ function parseSpans(detail: { batches: unknown[] } | undefined): SpanNode[] {
       const rawSpans = (ss.spans ?? []) as Record<string, unknown>[]
       for (const s of rawSpans) {
         const attrs: Record<string, string> = {}
-        const rawAttrs = (s.attributes as
-          | {
-              key: string
-              value: {
-                stringValue?: string
-                intValue?: string | number
-                doubleValue?: number
-                boolValue?: boolean
-                arrayValue?: { values?: Array<{ stringValue?: string }> }
-              }
-            }[]
-          | undefined) ?? []
+        const rawAttrs =
+          (s.attributes as
+            | {
+                key: string
+                value: {
+                  stringValue?: string
+                  intValue?: string | number
+                  doubleValue?: number
+                  boolValue?: boolean
+                  arrayValue?: { values?: Array<{ stringValue?: string }> }
+                }
+              }[]
+            | undefined) ?? []
         for (const kv of rawAttrs) {
           const v = kv.value
           if (!v) {
@@ -208,9 +212,7 @@ function parseSpans(detail: { batches: unknown[] } | undefined): SpanNode[] {
           else if (v.doubleValue != null) attrs[kv.key] = String(v.doubleValue)
           else if (v.boolValue != null) attrs[kv.key] = String(v.boolValue)
           else if (v.arrayValue?.values) {
-            attrs[kv.key] = v.arrayValue.values
-              .map((x) => x.stringValue ?? '')
-              .join(', ')
+            attrs[kv.key] = v.arrayValue.values.map((x) => x.stringValue ?? '').join(', ')
           } else attrs[kv.key] = JSON.stringify(v)
         }
         spans.push({

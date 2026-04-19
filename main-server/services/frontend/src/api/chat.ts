@@ -1,26 +1,15 @@
 import { adminApi } from '@/lib/ky-client'
-import type {
-  ChatAttachment,
-  ChatMessage,
-  ChatSession,
-  ChatStreamEvent,
-} from '@/types/chat'
+import type { ChatAttachment, ChatMessage, ChatSession, ChatStreamEvent } from '@/types/chat'
 import { useAuthStore } from '@/store/authStore'
 
 export const chatApi = {
   listSessions: () => adminApi.get('api/v1/chat/sessions').json<ChatSession[]>(),
-  createSession: () =>
-    adminApi.post('api/v1/chat/sessions').json<ChatSession>(),
+  createSession: () => adminApi.post('api/v1/chat/sessions').json<ChatSession>(),
   getMessages: (sessionId: string) =>
-    adminApi
-      .get(`api/v1/chat/sessions/${sessionId}/messages`)
-      .json<ChatMessage[]>(),
+    adminApi.get(`api/v1/chat/sessions/${sessionId}/messages`).json<ChatMessage[]>(),
   deleteSession: (sessionId: string) =>
     adminApi.delete(`api/v1/chat/sessions/${sessionId}`).then(() => undefined),
-  uploadAttachment: async (
-    sessionId: string,
-    file: File,
-  ): Promise<ChatAttachment> => {
+  uploadAttachment: async (sessionId: string, file: File): Promise<ChatAttachment> => {
     const form = new FormData()
     form.append('file', file)
     return adminApi
@@ -49,20 +38,17 @@ export async function streamChatMessage(
 ): Promise<void> {
   const base = (import.meta.env.VITE_ADMIN_API_URL as string | undefined) ?? ''
   const token = useAuthStore.getState().token
-  const resp = await fetch(
-    `${base}/api/v1/chat/sessions/${sessionId}/messages`,
-    {
-      method: 'POST',
-      credentials: 'include',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        Accept: 'text/event-stream',
-      },
-      body: JSON.stringify({ content, attachment_keys: attachmentKeys }),
-      signal,
+  const resp = await fetch(`${base}/api/v1/chat/sessions/${sessionId}/messages`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      Accept: 'text/event-stream',
     },
-  )
+    body: JSON.stringify({ content, attachment_keys: attachmentKeys }),
+    signal,
+  })
   if (!resp.ok || !resp.body) {
     const text = await resp.text().catch(() => '')
     throw new Error(`SSE 요청 실패 (${resp.status}): ${text.slice(0, 200)}`)

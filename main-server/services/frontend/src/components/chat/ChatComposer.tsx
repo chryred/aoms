@@ -1,10 +1,4 @@
-import {
-  useCallback,
-  useRef,
-  useState,
-  type ClipboardEvent,
-  type KeyboardEvent,
-} from 'react'
+import { useCallback, useRef, useState, type ClipboardEvent, type KeyboardEvent } from 'react'
 import { Loader2, Paperclip, Send, Sparkles, X } from 'lucide-react'
 import type { ComposerAttachment } from '@/hooks/useChatAttachments'
 import { cn } from '@/lib/utils'
@@ -63,8 +57,7 @@ export function ChatComposer({
     }
   }
 
-  const sendDisabled =
-    !value.trim() || disabled || streaming || uploadingCount > 0
+  const sendDisabled = !value.trim() || disabled || streaming || uploadingCount > 0
 
   return (
     <div className="border-border bg-surface border-t">
@@ -80,11 +73,7 @@ export function ChatComposer({
               )}
               title={`${a.name} · ${Math.round(a.size / 1024)}KB`}
             >
-              <img
-                src={a.previewUrl}
-                alt={a.name}
-                className="h-full w-full object-cover"
-              />
+              <img src={a.previewUrl} alt={a.name} className="h-full w-full object-cover" />
               {a.status === 'uploading' && (
                 <div className="bg-bg-deep/60 absolute inset-0 flex items-center justify-center">
                   <Loader2 className="text-accent h-4 w-4 animate-spin" />

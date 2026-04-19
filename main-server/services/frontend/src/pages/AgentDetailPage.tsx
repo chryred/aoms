@@ -118,9 +118,11 @@ export function AgentDetailPage() {
       const svcPath = info.service_path ?? ''
       let injectPath: string | null = null
       if (svcType === 'tomcat' && svcPath) injectPath = `${svcPath}/bin/setenv.sh`
-      else if (svcType === 'jboss' && svcPath) injectPath = `${svcPath}/bin/standalone.conf.d/otel.conf`
+      else if (svcType === 'jboss' && svcPath)
+        injectPath = `${svcPath}/bin/standalone.conf.d/otel.conf`
       else if (svcType === 'jeus' && svcPath) injectPath = `${svcPath}/otel.sh`
-      else if (svcType === 'systemd') injectPath = null // root 경로, 보통 ssh_username=root만 읽기 가능
+      else if (svcType === 'systemd')
+        injectPath = null // root 경로, 보통 ssh_username=root만 읽기 가능
       else injectPath = `${installDir}/otel-launch.sh`
       return { installDir, svcType, svcPath, injectPath, envPath: `${installDir}/otel-env.sh` }
     } catch {
@@ -168,9 +170,10 @@ export function AgentDetailPage() {
     }
     setConfigLoading(true)
     try {
-      const res = isOtelAgent && otelKind
-        ? await agentsApi.getOtelConfig(agentId, token, otelKind)
-        : await agentsApi.getConfig(agentId, token)
+      const res =
+        isOtelAgent && otelKind
+          ? await agentsApi.getOtelConfig(agentId, token, otelKind)
+          : await agentsApi.getConfig(agentId, token)
       refreshExpiry()
       setConfigContent(res.content)
       setConfigDisplayPath(res.config_path)
@@ -340,13 +343,14 @@ export function AgentDetailPage() {
             <div className="border-accent bg-accent-muted/40 rounded-sm border p-3 text-xs">
               <p className="text-accent mb-1 font-semibold">OTel Java 수집기 활성화 제어 안내</p>
               <p className="text-text-secondary leading-relaxed">
-                OTel Java Agent는 별도 프로세스가 아닌 WAS JVM 내부에 주입되는 라이브러리입니다. 따라서
-                시작/중지/재시작은 <b className="text-text-primary">WAS 자체를 재시작</b>하는 것으로
-                반영되며, 이 페이지의 프로세스 제어 버튼은 OTel 타입에선 제공되지 않습니다.
+                OTel Java Agent는 별도 프로세스가 아닌 WAS JVM 내부에 주입되는 라이브러리입니다.
+                따라서 시작/중지/재시작은 <b className="text-text-primary">WAS 자체를 재시작</b>하는
+                것으로 반영되며, 이 페이지의 프로세스 제어 버튼은 OTel 타입에선 제공되지 않습니다.
               </p>
               <ul className="text-text-secondary mt-2 list-inside list-disc space-y-0.5">
                 <li>
-                  활성화 → 설치 후 WAS 재시작 (서비스 유형별 자동 로드: setenv.sh / standalone.conf.d / systemd)
+                  활성화 → 설치 후 WAS 재시작 (서비스 유형별 자동 로드: setenv.sh /
+                  standalone.conf.d / systemd)
                 </li>
                 <li>
                   비활성화 → inject 파일에서 synapse-otel 블록 제거 또는 파일 삭제 후 WAS 재시작
@@ -490,9 +494,7 @@ export function AgentDetailPage() {
                     type="button"
                     aria-pressed={otelFileTab === 'inject'}
                     onClick={() => handleLoadConfig('inject')}
-                    disabled={
-                      !sessionActive || configLoading || otelInjectInfo.injectPath === null
-                    }
+                    disabled={!sessionActive || configLoading || otelInjectInfo.injectPath === null}
                     title={
                       otelInjectInfo.injectPath === null
                         ? 'systemd는 root 권한이 필요해 읽기 불가'
@@ -509,7 +511,9 @@ export function AgentDetailPage() {
                     {otelInjectInfo.svcType} inject 파일
                   </button>
                 </div>
-                <span className="text-text-disabled text-[10px]">읽기 전용 · 수정은 재설치로 적용</span>
+                <span className="text-text-disabled text-[10px]">
+                  읽기 전용 · 수정은 재설치로 적용
+                </span>
               </div>
             )}
 
@@ -545,9 +549,7 @@ export function AgentDetailPage() {
                   <NeuButton
                     size="sm"
                     variant="ghost"
-                    onClick={() =>
-                      handleLoadConfig(isOtelAgent ? otelFileTab : undefined)
-                    }
+                    onClick={() => handleLoadConfig(isOtelAgent ? otelFileTab : undefined)}
                     loading={configLoading}
                     disabled={!sessionActive}
                   >
@@ -571,8 +573,8 @@ export function AgentDetailPage() {
                 )}
                 {isOtelAgent && (
                   <p className="text-text-disabled text-xs">
-                    ※ OTel 설정은 재설치로만 갱신됩니다. 변경이 필요하면 에이전트 등록 정보를
-                    수정한 뒤 &lsquo;설치 실행&rsquo;을 다시 누르세요.
+                    ※ OTel 설정은 재설치로만 갱신됩니다. 변경이 필요하면 에이전트 등록 정보를 수정한
+                    뒤 &lsquo;설치 실행&rsquo;을 다시 누르세요.
                   </p>
                 )}
               </div>

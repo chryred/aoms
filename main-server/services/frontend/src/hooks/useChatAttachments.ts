@@ -35,55 +35,49 @@ export function useChatAttachments(sessionId: string | null) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const upload = useCallback(
-    async (file: File) => {
-      if (!sessionRef.current) {
-        toast.error('세션이 아직 준비되지 않았습니다.')
-        return
-      }
-      if (!file.type.startsWith('image/')) {
-        toast.error('이미지 파일만 지원됩니다.')
-        return
-      }
-      if (file.size > 10 * 1024 * 1024) {
-        toast.error('최대 10MB까지 업로드 가능합니다.')
-        return
-      }
-      const localId = newLocalId()
-      const previewUrl = URL.createObjectURL(file)
-      setAttachments((prev) => [
-        ...prev,
-        {
-          localId,
-          previewUrl,
-          name: file.name,
-          size: file.size,
-          mime: file.type,
-          status: 'uploading',
-        },
-      ])
-      try {
-        const resp = await chatApi.uploadAttachment(sessionRef.current, file)
-        setAttachments((prev) =>
-          prev.map((a) =>
-            a.localId === localId
-              ? { ...a, status: 'ready', key: resp.key, mime: resp.mime, size: resp.size }
-              : a,
-          ),
-        )
-      } catch (err: unknown) {
-        const msg =
-          (err as { message?: string })?.message ?? '업로드 실패'
-        setAttachments((prev) =>
-          prev.map((a) =>
-            a.localId === localId ? { ...a, status: 'failed', error: msg } : a,
-          ),
-        )
-        toast.error(`업로드 실패: ${msg.slice(0, 80)}`)
-      }
-    },
-    [],
-  )
+  const upload = useCallback(async (file: File) => {
+    if (!sessionRef.current) {
+      toast.error('세션이 아직 준비되지 않았습니다.')
+      return
+    }
+    if (!file.type.startsWith('image/')) {
+      toast.error('이미지 파일만 지원됩니다.')
+      return
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error('최대 10MB까지 업로드 가능합니다.')
+      return
+    }
+    const localId = newLocalId()
+    const previewUrl = URL.createObjectURL(file)
+    setAttachments((prev) => [
+      ...prev,
+      {
+        localId,
+        previewUrl,
+        name: file.name,
+        size: file.size,
+        mime: file.type,
+        status: 'uploading',
+      },
+    ])
+    try {
+      const resp = await chatApi.uploadAttachment(sessionRef.current, file)
+      setAttachments((prev) =>
+        prev.map((a) =>
+          a.localId === localId
+            ? { ...a, status: 'ready', key: resp.key, mime: resp.mime, size: resp.size }
+            : a,
+        ),
+      )
+    } catch (err: unknown) {
+      const msg = (err as { message?: string })?.message ?? '업로드 실패'
+      setAttachments((prev) =>
+        prev.map((a) => (a.localId === localId ? { ...a, status: 'failed', error: msg } : a)),
+      )
+      toast.error(`업로드 실패: ${msg.slice(0, 80)}`)
+    }
+  }, [])
 
   const addFiles = useCallback(
     (files: FileList | File[]) => {

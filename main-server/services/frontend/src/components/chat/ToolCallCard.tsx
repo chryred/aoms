@@ -49,9 +49,7 @@ export function ToolCallCard({ toolName, args, result, running, thought }: ToolC
       </button>
       {open && (
         <div className="border-border border-t px-3 py-2">
-          {thought && (
-            <div className="text-text-secondary mb-2 text-xs italic">💭 {thought}</div>
-          )}
+          {thought && <div className="text-text-secondary mb-2 text-xs italic">💭 {thought}</div>}
           {args && Object.keys(args).length > 0 && (
             <>
               <div className="text-text-secondary mb-1 text-xs">인자</div>

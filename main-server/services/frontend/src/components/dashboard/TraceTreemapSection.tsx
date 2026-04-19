@@ -108,12 +108,8 @@ export function TraceTreemapSection({ systems }: TraceTreemapSectionProps) {
               </span>
             </div>
             <div className="mt-1 flex w-full items-center justify-between gap-2 text-[11px]">
-              <span className="text-text-secondary tabular-nums">
-                {t.total.toLocaleString()}건
-              </span>
-              <span className="text-text-secondary tabular-nums">
-                p95 {t.p95Ms.toFixed(0)}ms
-              </span>
+              <span className="text-text-secondary tabular-nums">{t.total.toLocaleString()}건</span>
+              <span className="text-text-secondary tabular-nums">p95 {t.p95Ms.toFixed(0)}ms</span>
             </div>
           </button>
         ))}

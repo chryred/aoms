@@ -1,18 +1,10 @@
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import toast from 'react-hot-toast'
 import { useQueryClient } from '@tanstack/react-query'
 import { streamChatMessage } from '@/api/chat'
 import { useChatMessages } from '@/hooks/queries/useChatMessages'
 import { useChatSessions } from '@/hooks/queries/useChatSessions'
-import {
-  useCreateChatSession,
-} from '@/hooks/mutations/useCreateChatSession'
+import { useCreateChatSession } from '@/hooks/mutations/useCreateChatSession'
 import { useChatAttachments } from '@/hooks/useChatAttachments'
 import { useChatStore } from '@/store/chatStore'
 import { useUiStore } from '@/store/uiStore'
@@ -161,9 +153,7 @@ export function ChatPanel() {
         setStreamingTools((prev) => {
           if (prev.length === 0) return prev
           const updated = [...prev]
-          const idx = updated.findIndex(
-            (t) => t.running && t.name === data.tool,
-          )
+          const idx = updated.findIndex((t) => t.running && t.name === data.tool)
           if (idx >= 0) {
             updated[idx] = {
               ...updated[idx],
@@ -184,9 +174,7 @@ export function ChatPanel() {
         // finishStream이 finally에서 실행됨. 여기선 빈 처리.
         break
       case 'error': {
-        const msg = String(
-          (event.data as { message?: string }).message ?? '알 수 없는 오류',
-        )
+        const msg = String((event.data as { message?: string }).message ?? '알 수 없는 오류')
         toast.error(msg)
         break
       }
@@ -243,16 +231,11 @@ export function ChatPanel() {
         disabled={isStreaming}
       />
 
-      <div
-        ref={scrollRef}
-        className="bg-bg-base flex-1 space-y-3 overflow-y-auto px-3 py-3"
-      >
+      <div ref={scrollRef} className="bg-bg-base flex-1 space-y-3 overflow-y-auto px-3 py-3">
         {messages?.length === 0 && !isStreaming && (
           <div className="text-text-secondary mt-6 text-center text-sm">
             <div className="mb-1">무엇이든 물어보세요.</div>
-            <div className="text-[11px]">
-              예) &ldquo;CRM 서버 오늘 CPU 사용률 알려줘&rdquo;
-            </div>
+            <div className="text-[11px]">예) &ldquo;CRM 서버 오늘 CPU 사용률 알려줘&rdquo;</div>
           </div>
         )}
         {messages?.map((m: ChatMessage) => (
@@ -269,11 +252,7 @@ export function ChatPanel() {
           />
         ))}
         {isStreaming && (streamText || streamThought) && (
-          <StreamingAssistantMessage
-            content={streamText}
-            running={true}
-            thought={streamThought}
-          />
+          <StreamingAssistantMessage content={streamText} running={true} thought={streamThought} />
         )}
       </div>
 

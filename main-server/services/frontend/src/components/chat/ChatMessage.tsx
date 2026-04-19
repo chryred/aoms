@@ -14,7 +14,7 @@ export function ChatMessageView({ message, sessionId }: ChatMessageProps) {
 
   if (role === 'tool') {
     return (
-      <div className="flex animate-fade-in-up-subtle">
+      <div className="animate-fade-in-up-subtle flex">
         <div className="flex-1">
           <ToolCallCard
             toolName={message.tool_name ?? '(unknown)'}
@@ -29,7 +29,7 @@ export function ChatMessageView({ message, sessionId }: ChatMessageProps) {
 
   if (role === 'user') {
     return (
-      <div className="flex animate-fade-in-up-subtle justify-end">
+      <div className="animate-fade-in-up-subtle flex justify-end">
         <div className="flex max-w-[85%] flex-col items-end gap-1">
           {attachments?.length > 0 && (
             <AttachmentThumbs attachments={attachments} sessionId={sessionId} />
@@ -48,16 +48,14 @@ export function ChatMessageView({ message, sessionId }: ChatMessageProps) {
 
   // assistant
   return (
-    <div className="flex animate-fade-in-up-subtle">
+    <div className="animate-fade-in-up-subtle flex">
       <div className="bg-surface shadow-neu-flat flex max-w-[95%] flex-col gap-2 rounded-sm px-3 py-2 text-sm">
         <div className="text-text-secondary flex items-center gap-1 text-[11px]">
-          <Bot className="h-3 w-3 text-accent" />
+          <Bot className="text-accent h-3 w-3" />
           <span>어시스턴트</span>
         </div>
         {thought && <ThoughtToggle thought={thought} />}
-        <div className="text-text-primary whitespace-pre-wrap break-words">
-          {content || '…'}
-        </div>
+        <div className="text-text-primary break-words whitespace-pre-wrap">{content || '…'}</div>
       </div>
     </div>
   )
@@ -74,9 +72,7 @@ function ThoughtToggle({ thought }: { thought: string }) {
       >
         {open ? '▼' : '▶'} 사고 과정
       </button>
-      {open && (
-        <div className="text-text-secondary mt-1 whitespace-pre-wrap italic">{thought}</div>
-      )}
+      {open && <div className="text-text-secondary mt-1 whitespace-pre-wrap italic">{thought}</div>}
     </div>
   )
 }
@@ -120,17 +116,15 @@ export function StreamingAssistantMessage({
   thought?: string
 }) {
   return (
-    <div className="flex animate-fade-in-up-subtle">
+    <div className="animate-fade-in-up-subtle flex">
       <div className="bg-surface shadow-neu-flat flex max-w-[95%] flex-col gap-2 rounded-sm px-3 py-2 text-sm">
         <div className="text-text-secondary flex items-center gap-1 text-[11px]">
-          <Bot className="h-3 w-3 text-accent" />
+          <Bot className="text-accent h-3 w-3" />
           <span>어시스턴트</span>
           {running && <Loader2 className="h-3 w-3 animate-spin" />}
         </div>
-        {thought && (
-          <div className="text-text-secondary text-xs italic">💭 {thought}</div>
-        )}
-        <div className="text-text-primary whitespace-pre-wrap break-words">
+        {thought && <div className="text-text-secondary text-xs italic">💭 {thought}</div>}
+        <div className="text-text-primary break-words whitespace-pre-wrap">
           {content}
           {running && <span className="animate-pulse">▋</span>}
         </div>

@@ -233,7 +233,9 @@ function ChartCore({ dots, xDomain, yMax, theme, onTraceSelect }: ChartCoreProps
       style={{ cursor: 'crosshair' }}
     >
       <ResponsiveContainer width="100%" height="100%">
-        <ScatterChart margin={{ top: PLOT_TOP_PAD, right: PLOT_RIGHT_PAD, bottom: PLOT_BOTTOM_PAD, left: 10 }}>
+        <ScatterChart
+          margin={{ top: PLOT_TOP_PAD, right: PLOT_RIGHT_PAD, bottom: PLOT_BOTTOM_PAD, left: 10 }}
+        >
           <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
           <XAxis
             dataKey="ts"
