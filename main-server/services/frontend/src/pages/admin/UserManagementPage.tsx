@@ -1,11 +1,14 @@
 import { useState } from 'react'
+import { Pencil, Link, Trash2 } from 'lucide-react'
 import { useAuthStore } from '@/store/authStore'
 import { useUsers } from '@/hooks/queries/useUsers'
 import { useUpdateUserStatus } from '@/hooks/mutations/useUpdateUserStatus'
 import { useUpdateUserRole } from '@/hooks/mutations/useUpdateUserRole'
+import { useDeleteUser } from '@/hooks/mutations/useDeleteUser'
 import { PageHeader } from '@/components/common/PageHeader'
 import { UserStatusBadge, UserRoleBadge } from '@/components/user/UserStatusBadge'
 import { ConfirmDialog } from '@/components/user/ConfirmDialog'
+import { UserFormDrawer } from '@/components/user/UserFormDrawer'
 import { LoadingSkeleton } from '@/components/common/LoadingSkeleton'
 import { cn } from '@/lib/utils'
 import { toUserStatus } from '@/types/auth'
@@ -24,7 +27,7 @@ function formatDate(iso: string) {
   return kst.toISOString().slice(0, 10).replace(/-/g, '. ') + '.'
 }
 
-type ActionType = 'approve' | 'reject' | 'disable' | 'reactivate'
+type ActionType = 'approve' | 'reject' | 'disable' | 'reactivate' | 'delete'
 
 const confirmMessages: Record<
   ActionType,
@@ -54,6 +57,12 @@ const confirmMessages: Record<
     label: '재활성화',
     variant: 'default',
   },
+  delete: {
+    title: '사용자 삭제',
+    description: '이 사용자 계정을 완전히 삭제합니다. 이 작업은 되돌릴 수 없습니다.',
+    label: '삭제',
+    variant: 'destructive',
+  },
 }
 
 export function UserManagementPage() {
@@ -64,10 +73,12 @@ export function UserManagementPage() {
     userId: number
     action: ActionType
   } | null>(null)
+  const [editTarget, setEditTarget] = useState<UserAdminOut | null>(null)
 
   const { data: users = [], isLoading } = useUsers()
   const { mutate: updateStatus, isPending: isStatusPending } = useUpdateUserStatus()
   const { mutate: updateRole } = useUpdateUserRole()
+  const { mutate: deleteUser, isPending: isDeletePending } = useDeleteUser()
 
   const pendingCount = users.filter((u) => toUserStatus(u) === 'pending').length
   const filtered = filterUsers(users, activeTab)
@@ -85,7 +96,11 @@ export function UserManagementPage() {
   const handleConfirm = () => {
     if (!confirmState) return
     const { userId, action } = confirmState
-    const bodyMap: Record<ActionType, { is_approved?: boolean; is_active?: boolean }> = {
+    if (action === 'delete') {
+      deleteUser(userId, { onSettled: () => setConfirmState(null) })
+      return
+    }
+    const bodyMap: Record<Exclude<ActionType, 'delete'>, { is_approved?: boolean; is_active?: boolean }> = {
       approve: { is_approved: true },
       reject: { is_active: false },
       disable: { is_active: false },
@@ -134,21 +149,22 @@ export function UserManagementPage() {
       {/* 테이블 */}
       <div className="bg-bg-base shadow-neu-flat overflow-hidden rounded-sm">
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full min-w-[480px] text-sm">
             <thead>
               <tr className="border-border border-b">
-                <th className="type-label px-4 py-3 text-left">이름</th>
-                <th className="type-label px-4 py-3 text-left">이메일</th>
-                <th className="type-label px-4 py-3 text-left">권한</th>
-                <th className="type-label px-4 py-3 text-left">상태</th>
-                <th className="type-label px-4 py-3 text-left">신청일</th>
-                <th className="type-label px-4 py-3 text-left">액션</th>
+                <th className="type-label whitespace-nowrap px-4 py-3 text-left">이름</th>
+                <th className="type-label whitespace-nowrap px-4 py-3 text-left">이메일</th>
+                <th className="type-label hidden whitespace-nowrap px-4 py-3 text-left md:table-cell">권한</th>
+                <th className="type-label whitespace-nowrap px-4 py-3 text-left">상태</th>
+                <th className="type-label hidden whitespace-nowrap px-4 py-3 text-left md:table-cell">담당자</th>
+                <th className="type-label hidden whitespace-nowrap px-4 py-3 text-left md:table-cell">신청일</th>
+                <th className="type-label whitespace-nowrap px-4 py-3 text-left">액션</th>
               </tr>
             </thead>
             <tbody>
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="text-text-secondary px-4 py-8 text-center">
+                  <td colSpan={7} className="text-text-secondary px-4 py-8 text-center">
                     해당 사용자가 없습니다
                   </td>
                 </tr>
@@ -159,11 +175,11 @@ export function UserManagementPage() {
                   return (
                     <tr
                       key={user.id}
-                      className="border-border border-b last:border-0 hover:bg-[rgba(0,212,255,0.04)]"
+                      className="border-border border-b last:border-0 hover:bg-hover-subtle"
                     >
-                      <td className="text-text-primary px-4 py-3 font-medium">{user.name}</td>
-                      <td className="text-text-secondary px-4 py-3">{user.email}</td>
-                      <td className="px-4 py-3">
+                      <td className="text-text-primary whitespace-nowrap px-4 py-3 font-medium">{user.name}</td>
+                      <td className="text-text-secondary max-w-[180px] truncate whitespace-nowrap px-4 py-3" title={user.email}>{user.email}</td>
+                      <td className="hidden px-4 py-3 md:table-cell">
                         {isSelf ? (
                           <UserRoleBadge role={user.role} />
                         ) : (
@@ -183,23 +199,46 @@ export function UserManagementPage() {
                           </select>
                         )}
                       </td>
-                      <td className="px-4 py-3">
+                      <td className="whitespace-nowrap px-4 py-3">
                         <UserStatusBadge status={userStatus} />
                       </td>
-                      <td className="text-text-secondary px-4 py-3">
-                        {formatDate(user.created_at)}
-                      </td>
-                      <td className="px-4 py-3">
-                        {isSelf ? (
+                      <td className="hidden whitespace-nowrap px-4 py-3 md:table-cell">
+                        {user.is_linked ? (
                           <span
-                            className="text-text-disabled cursor-not-allowed text-xs"
-                            title="본인 계정은 변경할 수 없습니다"
+                            className="text-accent inline-flex items-center gap-1 text-xs"
+                            title="담당자로 연결됨"
                           >
-                            —
+                            <Link className="h-3 w-3" />
+                            연결됨
                           </span>
                         ) : (
-                          <div className="flex flex-wrap gap-2">
-                            {userStatus === 'pending' && (
+                          <span className="text-text-disabled text-xs">—</span>
+                        )}
+                      </td>
+                      <td className="text-text-secondary hidden whitespace-nowrap px-4 py-3 md:table-cell">
+                        {formatDate(user.created_at)}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-3">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <button
+                            onClick={() => setEditTarget(user)}
+                            title="정보 수정"
+                            className="text-text-secondary hover:text-accent focus:ring-accent rounded-sm p-1 focus:ring-1 focus:outline-none"
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </button>
+                          {!isSelf && (
+                            <button
+                              onClick={() =>
+                                setConfirmState({ open: true, userId: user.id, action: 'delete' })
+                              }
+                              title="사용자 삭제"
+                              className="text-text-secondary hover:text-critical focus:ring-critical rounded-sm p-1 focus:ring-1 focus:outline-none"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          )}
+                          {!isSelf && userStatus === 'pending' && (
                               <>
                                 <button
                                   className="text-normal text-xs font-medium hover:underline"
@@ -227,36 +266,35 @@ export function UserManagementPage() {
                                 </button>
                               </>
                             )}
-                            {userStatus === 'active' && (
-                              <button
-                                className="text-warning text-xs font-medium hover:underline"
-                                onClick={() =>
-                                  setConfirmState({
-                                    open: true,
-                                    userId: user.id,
-                                    action: 'disable',
-                                  })
-                                }
-                              >
-                                비활성화
-                              </button>
-                            )}
-                            {userStatus === 'disabled' && (
-                              <button
-                                className="text-normal text-xs font-medium hover:underline"
-                                onClick={() =>
-                                  setConfirmState({
-                                    open: true,
-                                    userId: user.id,
-                                    action: 'reactivate',
-                                  })
-                                }
-                              >
-                                재활성화
-                              </button>
-                            )}
-                          </div>
-                        )}
+                          {!isSelf && userStatus === 'active' && (
+                            <button
+                              className="text-warning text-xs font-medium hover:underline"
+                              onClick={() =>
+                                setConfirmState({
+                                  open: true,
+                                  userId: user.id,
+                                  action: 'disable',
+                                })
+                              }
+                            >
+                              비활성화
+                            </button>
+                          )}
+                          {!isSelf && userStatus === 'disabled' && (
+                            <button
+                              className="text-normal text-xs font-medium hover:underline"
+                              onClick={() =>
+                                setConfirmState({
+                                  open: true,
+                                  userId: user.id,
+                                  action: 'reactivate',
+                                })
+                              }
+                            >
+                              재활성화
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   )
@@ -277,9 +315,16 @@ export function UserManagementPage() {
           confirmLabel={confirmMsg.label}
           confirmVariant={confirmMsg.variant}
           onConfirm={handleConfirm}
-          isPending={isStatusPending}
+          isPending={isStatusPending || isDeletePending}
         />
       )}
+
+      {/* 사용자 정보 수정 Drawer */}
+      <UserFormDrawer
+        open={editTarget !== null}
+        onClose={() => setEditTarget(null)}
+        editTarget={editTarget}
+      />
     </div>
   )
 }

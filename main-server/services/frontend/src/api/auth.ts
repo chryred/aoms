@@ -8,6 +8,7 @@ import type {
   UserStatusUpdateRequest,
   UserRoleUpdateRequest,
   UserUpdateRequest,
+  UserAdminUpdateRequest,
 } from '@/types/auth'
 
 export const authApi = {
@@ -23,6 +24,8 @@ export const authApi = {
   register: (body: RegisterRequest) =>
     adminApi.post('api/v1/auth/register', { json: body }).json<{ message: string }>(),
 
+  getApprovedUsers: () => adminApi.get('api/v1/auth/users/approved').json<User[]>(),
+
   getUsers: () => adminApi.get('api/v1/auth/users').json<UserAdminOut[]>(),
 
   updateUserStatus: (id: number, body: UserStatusUpdateRequest) =>
@@ -31,6 +34,11 @@ export const authApi = {
   updateUserRole: (id: number, body: UserRoleUpdateRequest) =>
     adminApi.patch(`api/v1/auth/users/${id}/role`, { json: body }).json<UserAdminOut>(),
 
+  updateUser: (id: number, body: UserAdminUpdateRequest) =>
+    adminApi.patch(`api/v1/auth/users/${id}`, { json: body }).json<UserAdminOut>(),
+
   updateMe: (body: UserUpdateRequest) =>
     adminApi.patch('api/v1/auth/me', { json: body }).json<User>(),
+
+  deleteUser: (id: number) => adminApi.delete(`api/v1/auth/users/${id}`),
 }

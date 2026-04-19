@@ -15,7 +15,7 @@ from auth import (
     require_admin,
 )
 from database import get_db
-from models import User
+from models import User, Contact
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
@@ -81,6 +81,7 @@ class UserAdminOut(BaseModel):
     role: str
     is_active: bool
     is_approved: bool
+    is_linked: bool = False
     created_at: str
 
     model_config = {"from_attributes": True}
@@ -99,6 +100,11 @@ class UserUpdateMe(BaseModel):
     name: Optional[str] = None
     current_password: Optional[str] = None
     new_password: Optional[str] = None
+
+
+class UserAdminUpdate(BaseModel):
+    name: Optional[str] = None
+    email: Optional[str] = None
 
 
 # ── 엔드포인트 ───────────────────────────────────────────────────────────────
@@ -197,6 +203,20 @@ async def register(body: RegisterRequest, db: AsyncSession = Depends(get_db)):
     return {"message": "등록 신청이 완료되었습니다. 관리자 승인 후 로그인 가능합니다."}
 
 
+@router.get("/users/approved", response_model=List[UserOut])
+async def get_approved_users(
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
+):
+    """담당자 등록 UI용: 승인된 사용자 목록 (operator 이상 접근 가능)"""
+    result = await db.execute(
+        select(User)
+        .where(User.is_approved == True, User.is_active == True)  # noqa: E712
+        .order_by(User.name)
+    )
+    return result.scalars().all()
+
+
 @router.get("/users", response_model=List[UserAdminOut])
 async def get_users(
     db: AsyncSession = Depends(get_db),
@@ -204,6 +224,13 @@ async def get_users(
 ):
     result = await db.execute(select(User).order_by(User.created_at.desc()))
     users = result.scalars().all()
+
+    # 담당자 연결된 user_id 집합 조회
+    linked_result = await db.execute(
+        select(Contact.user_id).where(Contact.user_id.is_not(None))
+    )
+    linked_user_ids = {row[0] for row in linked_result.all()}
+
     return [
         UserAdminOut(
             id=u.id,
@@ -212,6 +239,7 @@ async def get_users(
             role=u.role,
             is_active=u.is_active,
             is_approved=u.is_approved,
+            is_linked=u.id in linked_user_ids,
             created_at=u.created_at.isoformat(),
         )
         for u in users
@@ -236,6 +264,7 @@ async def update_user_status(
 
     await db.commit()
     await db.refresh(user)
+    linked_check = await db.execute(select(Contact.id).where(Contact.user_id == user.id))
     return UserAdminOut(
         id=user.id,
         email=user.email,
@@ -243,6 +272,7 @@ async def update_user_status(
         role=user.role,
         is_active=user.is_active,
         is_approved=user.is_approved,
+        is_linked=linked_check.scalar_one_or_none() is not None,
         created_at=user.created_at.isoformat(),
     )
 
@@ -264,6 +294,7 @@ async def update_user_role(
     user.role = body.role
     await db.commit()
     await db.refresh(user)
+    linked_check = await db.execute(select(Contact.id).where(Contact.user_id == user.id))
     return UserAdminOut(
         id=user.id,
         email=user.email,
@@ -271,8 +302,68 @@ async def update_user_role(
         role=user.role,
         is_active=user.is_active,
         is_approved=user.is_approved,
+        is_linked=linked_check.scalar_one_or_none() is not None,
         created_at=user.created_at.isoformat(),
     )
+
+
+@router.patch("/users/{user_id}", response_model=UserAdminOut)
+async def update_user(
+    user_id: int,
+    body: UserAdminUpdate,
+    db: AsyncSession = Depends(get_db),
+    _admin: User = Depends(require_admin),
+):
+    user = await db.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="사용자를 찾을 수 없습니다")
+
+    if body.email is not None:
+        dup = await db.execute(select(User).where(User.email == body.email, User.id != user_id))
+        if dup.scalar_one_or_none():
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="이미 사용 중인 이메일입니다")
+        user.email = body.email
+
+    if body.name is not None:
+        user.name = body.name
+
+    await db.commit()
+    await db.refresh(user)
+    linked_check = await db.execute(select(Contact.id).where(Contact.user_id == user.id))
+    return UserAdminOut(
+        id=user.id,
+        email=user.email,
+        name=user.name,
+        role=user.role,
+        is_active=user.is_active,
+        is_approved=user.is_approved,
+        is_linked=linked_check.scalar_one_or_none() is not None,
+        created_at=user.created_at.isoformat(),
+    )
+
+
+@router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_user(
+    user_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_admin: User = Depends(require_admin),
+):
+    if current_admin.id == user_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="자기 자신은 삭제할 수 없습니다")
+
+    user = await db.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="사용자를 찾을 수 없습니다")
+
+    linked = await db.execute(select(Contact.id).where(Contact.user_id == user_id))
+    if linked.scalar_one_or_none():
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="담당자로 연결된 사용자입니다. 먼저 담당자 연결을 해제해 주세요",
+        )
+
+    await db.delete(user)
+    await db.commit()
 
 
 @router.patch("/me", response_model=UserOut)

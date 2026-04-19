@@ -31,6 +31,7 @@ export interface UserAdminOut {
   role: UserRole
   is_active: boolean
   is_approved: boolean
+  is_linked: boolean
   created_at: string
 }
 
@@ -59,4 +60,9 @@ export interface UserUpdateRequest {
   name?: string
   current_password?: string
   new_password?: string
+}
+
+export interface UserAdminUpdateRequest {
+  name?: string
+  email?: string
 }
