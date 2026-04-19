@@ -80,6 +80,10 @@ admin-api/
 | `users` | 프론트엔드 인증 사용자. `role`: admin / operator. `is_approved`: admin 승인 여부 (Phase 0) |
 | `agent_instances` | 수집기 인스턴스 메타정보. `ssh_username` 저장, password 저장 금지 (Phase 6). `agent_type='db'`는 `label_info` JSON에 `db_type`(oracle/postgresql/mssql/mysql) + 연결 정보 저장 (Phase 9) |
 | `agent_install_jobs` | 비동기 설치 Job 이력. `status`: pending/running/done/failed (Phase 6) |
+| `chat_tools` | ReAct 챗봇이 호출할 수 있는 도구 레지스트리. `executor` (ems/admin/log_analyzer), `is_enabled`, `input_schema` JSON Schema (Phase Chat) |
+| `chat_executor_configs` | Executor별 자격증명/설정. `config` JSONB (secret 필드는 Fernet 암호문), `config_schema` 폼 렌더 메타 (Phase Chat) |
+| `chat_sessions` | 사용자 챗봇 세션. UUID PK, `user_id` FK (Phase Chat) |
+| `chat_messages` | 세션 내 메시지. role: user/assistant/tool, `attachments` JSONB (Phase Chat) |
 
 ## API 엔드포인트
 
@@ -185,7 +189,7 @@ docker exec -it aoms-admin-api \
 - **Strategy + Registry 패턴**: `services/db_backends/` — `BACKENDS[db_type].test_connection()` / `.collect_sync()` 디스패치
 - `install` = DB 연결 테스트 성공 → status `running` (수집 즉시 시작) + db_exporter collector_config 4개 자동 생성
 - `start`/`stop`/`restart` 지원 — SSH 없이 status 전환으로 수집 제어 (`running` ↔ `stopped`)
-- 수집 루프(`db_collection_loop`)는 `status == "running"`인 에이전트만 수집 (기본 60초 주기, `DB_ENCRYPTION_KEY` 설정 시 활성화)
+- 수집 루프(`db_collection_loop`)는 `status == "running"`인 에이전트만 수집 (기본 60초 주기, `ENCRYPTION_KEY` 설정 시 활성화)
 - 수집 중 DB 접속 실패 시 자동으로 `status="stopped"` 전환 (에러 로그 무한 반복 방지)
 
 ### Prometheus 메트릭 엔드포인트 `/metrics` (Phase 9)
@@ -231,6 +235,33 @@ docker exec -it aoms-admin-api \
 ### WebSocket 브로드캐스트 트리거
 - **alerts.py** — `POST /receive`에서 alert 저장 후 `notify_alert_fired()` / `notify_alert_resolved()` 호출
 - **analysis.py** — `POST /` 분석 결과 저장 후 severity가 warning/critical일 때 `notify_log_analysis()` 호출
+
+### ReAct 챗봇 `/api/v1/chat*` (Phase Chat)
+- **세션**
+  - `POST /api/v1/chat/sessions` — 세션 생성
+  - `GET /api/v1/chat/sessions` — 본인 세션 목록
+  - `DELETE /api/v1/chat/sessions/{id}` — 세션 삭제 (첨부 파일도 정리)
+  - `GET /api/v1/chat/sessions/{id}/messages` — 메시지 이력
+  - `POST /api/v1/chat/sessions/{id}/messages` → **SSE** (text/event-stream). body: `{content, attachment_keys}`
+    - 이벤트 타입: `user_saved` / `iter_start` / `thought` / `tool_call` / `tool_result` / `token` / `final` / `error`
+    - DevX 폴백: 완성 텍스트를 청크 분할하여 토큰 스트리밍
+- **첨부**
+  - `POST /api/v1/chat/sessions/{id}/attachments` — multipart, image/png|jpeg|webp|gif, ≤10MB → `{key, mime, size}`
+  - `GET /api/v1/chat/sessions/{id}/attachments/{key}` — 인증 후 스트리밍 서빙
+- **도구 관리** (admin 전용 Modify)
+  - `GET /api/v1/chat-tools` — 전체 도구 (인증)
+  - `PATCH /api/v1/chat-tools/{name}` — is_enabled 토글 (admin)
+  - `GET /api/v1/chat-executor-configs` — 전체 executor 설정 (secret 마스킹)
+  - `PUT /api/v1/chat-executor-configs/{executor}` — 자격증명 저장 (secret는 Fernet 암호화). `"***"`는 기존 값 유지
+  - `POST /api/v1/chat-executor-configs/{executor}/test` — 연결 테스트 (ems=login, log_analyzer=health)
+
+### 챗봇 ReAct 루프 요약
+- LLM(`llm_client.py`의 `chat_assistant` area)이 JSON 응답으로 action/final_answer 결정 → `run_tool()`로 도구 실행
+- 대화·도구 이력은 `chat_messages`(user/assistant/tool) 테이블에 저장하고, 매 턴마다 최근 20턴을 프롬프트에 재주입
+- 도구 그룹:
+  - `ems`: ems-mcp 9개 (Polestar 서버 모니터링). 자격증명은 `chat_executor_configs.ems` 에서 로드 (60s TTL 캐시)
+  - `admin`: `admin_list_systems` / `admin_search_alert_history` / `admin_list_contacts` (DB 직접 조회)
+  - `log_analyzer`: 최근 LLM 로그 분석 조회 + log-analyzer HTTP 프록시
 
 ### 예방적 패턴 감지
 - `MetricHourlyAggregation.llm_prediction` 필드가 있는 최근 8시간 집계 항목을 조회
@@ -284,8 +315,12 @@ log-analyzer → POST /api/v1/analysis
 | `PROM_ALERT_HTTP_SLOW_MS` | `3000.0` | HTTP 응답 지연 임계치(ms) |
 | `PROM_ALERT_MEM_THRESHOLD` | `85.0` | 메모리 이상 감지 임계치(%) |
 | `PROM_ALERT_LOG_ERROR_RATE` | `5.0` | 로그 에러 급증 임계치(건/분) |
-| `DB_ENCRYPTION_KEY` | 없음 (필수) | DB 비밀번호 Fernet 암호화 키. 미설정 시 db_collection_loop 비활성화. 생성: `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` |
+| `ENCRYPTION_KEY` | 없음 (필수) | 공통 Fernet 대칭키 — DB 비밀번호 및 챗봇 executor 자격증명 암호화에 사용. 미설정 시 `db_collection_loop` 비활성화. 생성: `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` |
 | `DB_COLLECT_INTERVAL_SECS` | `60` | DB 메트릭 수집 주기(초). 하위 호환: `ORACLE_COLLECT_INTERVAL_SECS`도 인식 |
+| `CHAT_ATTACHMENT_DIR` | `/var/lib/synapse-v/chat-attachments` | 챗봇 메시지 첨부 이미지 저장 루트 |
+| `CHAT_ATTACHMENT_MAX_MB` | `10` | 첨부 이미지 단일 최대 크기(MB) |
+| `CHAT_MAX_ITERS` | `5` | ReAct 오케스트레이터 도구 호출 반복 한도 |
+| `CHAT_HISTORY_WINDOW` | `20` | LLM 프롬프트에 주입할 최근 메시지 N턴 |
 
 ## DB 초기화
 

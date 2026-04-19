@@ -14,16 +14,18 @@ import logging
 import os
 import time
 
-from cryptography.fernet import Fernet
 from prometheus_client import Gauge
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from services.crypto import encrypt_password, decrypt_password  # re-export 대상
 from services.db_backends import (
     DB_AGENT_TYPE,
     BACKENDS,
     get_db_identifier_key,
 )
+
+__all__ = ["encrypt_password", "decrypt_password", "db_collection_loop"]
 
 logger = logging.getLogger(__name__)
 
@@ -74,18 +76,6 @@ _GAUGES: dict[str, Gauge] = {
         ["system_name", "instance_role"],
     ),
 }
-
-
-def encrypt_password(plain: str) -> str:
-    """Fernet AES 암호화. DB_ENCRYPTION_KEY 환경변수 필수."""
-    key = os.environ["DB_ENCRYPTION_KEY"]
-    return Fernet(key.encode()).encrypt(plain.encode()).decode()
-
-
-def decrypt_password(encrypted: str) -> str:
-    """Fernet 복호화."""
-    key = os.environ["DB_ENCRYPTION_KEY"]
-    return Fernet(key.encode()).decrypt(encrypted.encode()).decode()
 
 
 def _compute_tps(agent_id: int, raw_counter: float) -> float:

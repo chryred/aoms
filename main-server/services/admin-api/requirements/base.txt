@@ -15,3 +15,7 @@ oracledb>=2.0.0
 pymssql>=2.2.0
 mysql-connector-python>=8.0.0
 prometheus-client==0.21.0
+jsonschema==4.23.0
+cryptography>=41.0.0
+python-multipart==0.0.9
+

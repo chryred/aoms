@@ -41,4 +41,11 @@ export const qk = {
   agentLiveStatus: (id: number) => ['agents', id, 'live-status'] as const,
   agentSystemLive: (systemId: number) => ['agents', 'system-live', systemId] as const,
   agentHealthSummary: ['agents', 'health-summary'] as const,
+
+  chat: {
+    sessions: () => ['chat', 'sessions'] as const,
+    messages: (sessionId: string) => ['chat', 'messages', sessionId] as const,
+    tools: () => ['chat', 'tools'] as const,
+    executorConfigs: () => ['chat', 'executor-configs'] as const,
+  },
 }

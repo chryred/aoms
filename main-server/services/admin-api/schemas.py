@@ -542,3 +542,78 @@ class AgentStatusOut(BaseModel):
 
 class IncidentReportOut(BaseModel):
     report: str
+
+
+# ── Chatbot ─────────────────────────────────────────────────────────────────
+
+class ChatToolOut(BaseModel):
+    name: str
+    display_name: str
+    description: str
+    executor: str
+    input_schema: dict
+    is_enabled: bool
+
+    model_config = {"from_attributes": True}
+
+
+class ChatToolUpdate(BaseModel):
+    is_enabled: bool
+
+
+class ChatExecutorConfigOut(BaseModel):
+    executor: str
+    config: dict                 # secret 필드는 "***"로 마스킹됨
+    config_schema: list[dict]
+    updated_at: Optional[datetime] = None
+
+
+class ChatExecutorConfigUpdate(BaseModel):
+    config: dict
+
+
+class ChatExecutorTestRequest(BaseModel):
+    config: Optional[dict] = None
+
+
+class ChatExecutorTestResult(BaseModel):
+    ok: bool
+    message: Optional[str] = None
+
+
+class ChatSessionOut(BaseModel):
+    id: str
+    title: str
+    area_code: str
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class ChatAttachmentOut(BaseModel):
+    key: str
+    mime: str
+    size: int
+    width: Optional[int] = None
+    height: Optional[int] = None
+
+
+class ChatMessageOut(BaseModel):
+    id: str
+    session_id: str
+    role: str
+    content: str
+    thought: Optional[str] = None
+    tool_name: Optional[str] = None
+    tool_args: Optional[dict] = None
+    tool_result: Optional[dict] = None
+    attachments: list[dict] = []
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class ChatSendIn(BaseModel):
+    content: str
+    attachment_keys: list[str] = []

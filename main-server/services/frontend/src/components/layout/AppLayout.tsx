@@ -3,6 +3,8 @@ import { useEffect } from 'react'
 import { Sidebar } from './Sidebar'
 import { TopBar } from './TopBar'
 import { CriticalBanner } from '@/components/common/CriticalBanner'
+import { ChatLauncher } from '@/components/chat/ChatLauncher'
+import { ChatPanel } from '@/components/chat/ChatPanel'
 import { useUiStore } from '@/store/uiStore'
 import { useAlertsCount } from '@/hooks/queries/useAlertsCount'
 import { cn } from '@/lib/utils'
@@ -57,6 +59,10 @@ export function AppLayout() {
           <Outlet />
         </main>
       </div>
+
+      {/* Chatbot floating launcher + sliding panel (all pages) */}
+      <ChatLauncher />
+      <ChatPanel />
     </div>
   )
 }

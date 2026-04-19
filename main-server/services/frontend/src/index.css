@@ -705,6 +705,28 @@ pre {
   animation: chart-backdrop-out 0.18s ease-in both;
 }
 
+/* ── 챗봇 런처 맥동 링 ───────────────────────────── */
+@keyframes chat-pulse {
+  0%,
+  60% {
+    transform: scale(1);
+    opacity: 0.7;
+  }
+  80% {
+    transform: scale(1.55);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1.55);
+    opacity: 0;
+  }
+}
+
+.animate-chat-pulse {
+  background-color: #fb923c;
+  animation: chat-pulse 4s ease-out infinite;
+}
+
 /* ── 타이포그래피 유틸리티 ───────────────────────── */
 
 /* 대문자 섹션 레이블 (반복 패턴 토큰화) */

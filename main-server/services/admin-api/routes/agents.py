@@ -178,12 +178,12 @@ async def create_agent(
     # db 에이전트: label_info의 평문 password를 Fernet으로 암호화 후 저장
     if body.agent_type == "db" and body.label_info:
         import os as _os
-        if not _os.getenv("DB_ENCRYPTION_KEY"):
+        if not _os.getenv("ENCRYPTION_KEY"):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="DB_ENCRYPTION_KEY 환경변수가 설정되지 않았습니다. DB 수집기를 등록하려면 서버에 DB_ENCRYPTION_KEY를 설정하세요.",
+                detail="ENCRYPTION_KEY 환경변수가 설정되지 않았습니다. DB 수집기를 등록하려면 서버에 ENCRYPTION_KEY를 설정하세요.",
             )
-        from services.db_collector import encrypt_password, decrypt_password
+        from services.crypto import encrypt_password, decrypt_password
         from services.db_backends import BACKENDS, DB_TYPE_PORTS, get_db_identifier_key
         try:
             info = json.loads(body.label_info)
@@ -793,7 +793,7 @@ async def _run_db_connect(job_id: str, agent: AgentInstance) -> None:
     db 에이전트 '설치' = DB 연결 테스트 후 status 업데이트.
     성공 시 db_exporter system_collector_config 4개 자동 등록.
     """
-    from services.db_collector import decrypt_password
+    from services.crypto import decrypt_password
     from services.db_backends import BACKENDS, DB_TYPE_PORTS, get_db_identifier_key
     from database import AsyncSessionLocal
 

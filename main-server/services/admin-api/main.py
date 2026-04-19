@@ -11,9 +11,11 @@ from database import engine, Base, AsyncSessionLocal
 from routes import alerts, analysis, contacts, feedback, systems
 from routes import collector_config, aggregations, reports, auth as auth_router
 from routes import agents as agents_router, dashboard, websocket, llm_config, traces as traces_router
+from routes import chat, chat_attachments, chat_tools as chat_tools_router, chat_executor_configs
 from services.ssh_session import run_cleanup_loop
 from services.prometheus_analyzer import run_prometheus_analyzer_loop
 from services.db_collector import db_collection_loop
+from services.chat_tools.executors.ems import aclose_client as ems_aclose
 
 
 @asynccontextmanager
@@ -25,15 +27,20 @@ async def lifespan(app: FastAPI):
     cleanup_task = asyncio.create_task(run_cleanup_loop())
     # Prometheus 메트릭 자동 분석 루프 (PROMETHEUS_URL 설정 시 활성화)
     analyzer_task = asyncio.create_task(run_prometheus_analyzer_loop())
-    # DB 메트릭 수집 루프 (DB_ENCRYPTION_KEY 설정 시 활성화)
+    # DB 메트릭 수집 루프 (ENCRYPTION_KEY 설정 시 활성화)
     db_task = None
-    if os.getenv("DB_ENCRYPTION_KEY"):
+    if os.getenv("ENCRYPTION_KEY"):
         db_task = asyncio.create_task(db_collection_loop(AsyncSessionLocal))
     yield
     cleanup_task.cancel()
     analyzer_task.cancel()
     if db_task:
         db_task.cancel()
+    # EMS 싱글톤 httpx 클라이언트 정리
+    try:
+        await ems_aclose()
+    except Exception:
+        pass
 
 
 app = FastAPI(
@@ -71,6 +78,10 @@ app.include_router(dashboard.router)
 app.include_router(websocket.router)
 app.include_router(llm_config.router)
 app.include_router(traces_router.router)
+app.include_router(chat.router)
+app.include_router(chat_attachments.router)
+app.include_router(chat_tools_router.router)
+app.include_router(chat_executor_configs.router)
 
 
 @app.get("/health")

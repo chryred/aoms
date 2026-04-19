@@ -25,7 +25,7 @@ async def _create_system(client: AsyncClient) -> int:
 
 
 @pytest.mark.asyncio
-@patch.dict("os.environ", {"DB_ENCRYPTION_KEY": "UTdPqU2vURPOkzmJaP_JX3BZt-N6Jiesb6k5TChqvbs="})
+@patch.dict("os.environ", {"ENCRYPTION_KEY": "UTdPqU2vURPOkzmJaP_JX3BZt-N6Jiesb6k5TChqvbs="})
 async def test_create_oracle_db_agent(authed_client: AsyncClient):
     """oracle db_type 에이전트 등록 — password 암호화 + status=running."""
     system_id = await _create_system(authed_client)
@@ -61,7 +61,7 @@ async def test_create_oracle_db_agent(authed_client: AsyncClient):
 
 
 @pytest.mark.asyncio
-@patch.dict("os.environ", {"DB_ENCRYPTION_KEY": "UTdPqU2vURPOkzmJaP_JX3BZt-N6Jiesb6k5TChqvbs="})
+@patch.dict("os.environ", {"ENCRYPTION_KEY": "UTdPqU2vURPOkzmJaP_JX3BZt-N6Jiesb6k5TChqvbs="})
 async def test_create_postgresql_db_agent(authed_client: AsyncClient):
     """postgresql db_type 에이전트 등록."""
     system_id = await _create_system(authed_client)
@@ -94,7 +94,7 @@ async def test_create_postgresql_db_agent(authed_client: AsyncClient):
 
 
 @pytest.mark.asyncio
-@patch.dict("os.environ", {"DB_ENCRYPTION_KEY": "UTdPqU2vURPOkzmJaP_JX3BZt-N6Jiesb6k5TChqvbs="})
+@patch.dict("os.environ", {"ENCRYPTION_KEY": "UTdPqU2vURPOkzmJaP_JX3BZt-N6Jiesb6k5TChqvbs="})
 async def test_create_mssql_db_agent(authed_client: AsyncClient):
     """mssql db_type 에이전트 등록."""
     system_id = await _create_system(authed_client)
@@ -125,7 +125,7 @@ async def test_create_mssql_db_agent(authed_client: AsyncClient):
 
 
 @pytest.mark.asyncio
-@patch.dict("os.environ", {"DB_ENCRYPTION_KEY": "UTdPqU2vURPOkzmJaP_JX3BZt-N6Jiesb6k5TChqvbs="})
+@patch.dict("os.environ", {"ENCRYPTION_KEY": "UTdPqU2vURPOkzmJaP_JX3BZt-N6Jiesb6k5TChqvbs="})
 async def test_create_mysql_db_agent(authed_client: AsyncClient):
     """mysql db_type 에이전트 등록."""
     system_id = await _create_system(authed_client)
@@ -160,13 +160,13 @@ async def test_create_mysql_db_agent(authed_client: AsyncClient):
 
 @pytest.mark.asyncio
 async def test_db_agent_missing_encryption_key(authed_client: AsyncClient):
-    """DB_ENCRYPTION_KEY 미설정 시 400."""
+    """ENCRYPTION_KEY 미설정 시 400."""
     system_id = await _create_system(authed_client)
 
     with patch.dict("os.environ", {}, clear=False):
-        # DB_ENCRYPTION_KEY가 없는 상태 보장
+        # ENCRYPTION_KEY가 없는 상태 보장
         import os
-        os.environ.pop("DB_ENCRYPTION_KEY", None)
+        os.environ.pop("ENCRYPTION_KEY", None)
 
         resp = await authed_client.post("/api/v1/agents", json={
             "system_id": system_id,
@@ -181,11 +181,11 @@ async def test_db_agent_missing_encryption_key(authed_client: AsyncClient):
         })
 
     assert resp.status_code == 400
-    assert "DB_ENCRYPTION_KEY" in resp.json()["detail"]
+    assert "ENCRYPTION_KEY" in resp.json()["detail"]
 
 
 @pytest.mark.asyncio
-@patch.dict("os.environ", {"DB_ENCRYPTION_KEY": "UTdPqU2vURPOkzmJaP_JX3BZt-N6Jiesb6k5TChqvbs="})
+@patch.dict("os.environ", {"ENCRYPTION_KEY": "UTdPqU2vURPOkzmJaP_JX3BZt-N6Jiesb6k5TChqvbs="})
 async def test_db_agent_connection_failure(authed_client: AsyncClient):
     """연결 실패 시 400."""
     system_id = await _create_system(authed_client)
@@ -210,7 +210,7 @@ async def test_db_agent_connection_failure(authed_client: AsyncClient):
 
 
 @pytest.mark.asyncio
-@patch.dict("os.environ", {"DB_ENCRYPTION_KEY": "UTdPqU2vURPOkzmJaP_JX3BZt-N6Jiesb6k5TChqvbs="})
+@patch.dict("os.environ", {"ENCRYPTION_KEY": "UTdPqU2vURPOkzmJaP_JX3BZt-N6Jiesb6k5TChqvbs="})
 async def test_db_agent_unsupported_db_type(authed_client: AsyncClient):
     """지원하지 않는 db_type 시 400."""
     system_id = await _create_system(authed_client)
@@ -235,7 +235,7 @@ async def test_db_agent_unsupported_db_type(authed_client: AsyncClient):
 
 
 @pytest.mark.asyncio
-@patch.dict("os.environ", {"DB_ENCRYPTION_KEY": "UTdPqU2vURPOkzmJaP_JX3BZt-N6Jiesb6k5TChqvbs="})
+@patch.dict("os.environ", {"ENCRYPTION_KEY": "UTdPqU2vURPOkzmJaP_JX3BZt-N6Jiesb6k5TChqvbs="})
 async def test_delete_db_agent(authed_client: AsyncClient):
     """DB 에이전트 삭제."""
     system_id = await _create_system(authed_client)
@@ -266,7 +266,7 @@ async def test_delete_db_agent(authed_client: AsyncClient):
 
 
 @pytest.mark.asyncio
-@patch.dict("os.environ", {"DB_ENCRYPTION_KEY": "UTdPqU2vURPOkzmJaP_JX3BZt-N6Jiesb6k5TChqvbs="})
+@patch.dict("os.environ", {"ENCRYPTION_KEY": "UTdPqU2vURPOkzmJaP_JX3BZt-N6Jiesb6k5TChqvbs="})
 async def test_db_agent_start_stop(authed_client: AsyncClient):
     """DB 에이전트 start/stop — SSH 없이 상태 전환."""
     system_id = await _create_system(authed_client)

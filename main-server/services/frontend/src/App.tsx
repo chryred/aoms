@@ -42,6 +42,7 @@ const UserManagementPage = lazy(() =>
 const LlmAgentConfigPage = lazy(() =>
   import('@/pages/admin/LlmAgentConfigPage').then((m) => ({ default: m.LlmAgentConfigPage })),
 )
+const ChatToolsPage = lazy(() => import('@/pages/admin/ChatToolsPage'))
 const ProfilePage = lazy(() =>
   import('@/pages/ProfilePage').then((m) => ({ default: m.ProfilePage })),
 )
@@ -253,6 +254,14 @@ export function App() {
               element={
                 <Suspense fallback={<LoadingSkeleton shape="table" />}>
                   <LlmAgentConfigPage />
+                </Suspense>
+              }
+            />
+            <Route
+              path="/admin/chat-tools"
+              element={
+                <Suspense fallback={<LoadingSkeleton shape="table" />}>
+                  <ChatToolsPage />
                 </Suspense>
               }
             />

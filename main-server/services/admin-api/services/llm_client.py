@@ -50,6 +50,24 @@ class LLMStrategy(ABC):
     ) -> str:
         """프롬프트를 보내고 텍스트 응답을 반환"""
 
+    async def stream(
+        self, prompt: str, *,
+        api_key: str = "", agent_code: str = "", max_tokens: int = 1024,
+        chunk_size: int = 24, chunk_delay: float = 0.02,
+    ):
+        """토큰 단위 스트리밍 (기본 폴백: 완성 텍스트를 청크로 분할).
+
+        프로바이더가 진짜 SSE 스트리밍을 지원하면 override한다.
+        """
+        text = await self.call(
+            prompt, api_key=api_key, agent_code=agent_code, max_tokens=max_tokens,
+        )
+        if not text:
+            return
+        for i in range(0, len(text), chunk_size):
+            yield text[i:i + chunk_size]
+            await asyncio.sleep(chunk_delay)
+
 
 # ── 구현체 ──────────────────────────────────────────────────────────────────
 
@@ -285,6 +303,22 @@ async def call_llm_structured(
         raise ValueError(
             f"LLM 응답 JSON 파싱 실패 (응답: {snippet!r})"
         ) from e
+
+
+async def call_llm_stream(
+    prompt: str, *,
+    max_tokens: int = 1024,
+    api_key: str = "", agent_code: str = "",
+):
+    """토큰 단위 스트리밍 (chat_agent 전용).
+
+    전략 기본 구현은 `call()` 결과를 청크 분할해 부드러운 UX를 제공.
+    실제 SSE 스트리밍은 프로바이더가 override.
+    """
+    async for chunk in _strategy.stream(
+        prompt, api_key=api_key, agent_code=agent_code, max_tokens=max_tokens,
+    ):
+        yield chunk
 
 
 async def call_llm_text(

@@ -56,11 +56,11 @@ vi .env
 | `EMBED_MODEL` | 임베딩 모델명 | `bge-m3` |
 | `QDRANT_URL` | Server B Qdrant URL | `http://192.168.10.6:6333` |
 | `FRONTEND_EXTERNAL_URL` | Teams 카드 "해결책 등록" 버튼이 여는 React 페이지 URL (브라우저 접근 가능) | `http://192.168.10.5:3001` |
-| `DB_ENCRYPTION_KEY` | DB 모니터링 자격증명 암호화 키 (Fernet) | `<fernet_key>` |
+| `ENCRYPTION_KEY` | 공통 Fernet 대칭키 (DB 모니터링 자격증명 · 챗봇 executor 자격증명 공용) | `<fernet_key>` |
 
 > **주의**: `DB_USER`는 반드시 `synapse`이어야 합니다. `docker-compose.yml`의 PostgreSQL 헬스체크와 `DATABASE_URL`이 `synapse`로 하드코딩되어 있어 다른 값 사용 시 admin-api 기동 실패합니다.
 
-> **`DB_ENCRYPTION_KEY` 생성 방법:**
+> **`ENCRYPTION_KEY` 생성 방법:**
 > ```bash
 > python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 > ```
@@ -278,7 +278,7 @@ vi /app/synapse/.env
 # MONITORING_SERVER_IP=192.168.10.5          ← Server A 실제 IP
 # OLLAMA_URL=http://192.168.10.6:11434       ← Server B 실제 IP
 # QDRANT_URL=http://192.168.10.6:6333        ← Server B 실제 IP
-# DB_ENCRYPTION_KEY=<fernet_key>             ← DB 모니터링 암호화 키
+# ENCRYPTION_KEY=<fernet_key>                ← 공통 암호화 키 (DB 모니터링 · 챗봇 executor)
 ```
 
 #### 인프라 서비스 시작 (순서 중요)
@@ -603,7 +603,7 @@ cd /app/synapse && docker compose logs --tail 30
 | Prometheus Basic Auth 401 | 인증 정보 오류 | `PROM_USER` / `PROM_PASS` 확인, bcrypt 해시 재생성 |
 | Grafana HTTPS 접속 불가 | SSL 인증서 경로 오류 | `/app/synapse/ssl/` 경로와 `docker-compose.yml` volume 확인 |
 | Qdrant 컬렉션 없음 | WF12 미실행 | `curl -X POST http://localhost:8000/aggregation/collections/setup` |
-| DB 모니터링 암호화 오류 | `DB_ENCRYPTION_KEY` 미설정 | Fernet 키 생성 후 `.env`에 추가, 컨테이너 재시작 |
+| 암호화 키 오류 (DB 모니터링 / 챗봇 executor) | `ENCRYPTION_KEY` 미설정 | Fernet 키 생성 후 `.env`에 추가, 컨테이너 재시작 |
 
 ### 환경변수 적용 후 재시작
 

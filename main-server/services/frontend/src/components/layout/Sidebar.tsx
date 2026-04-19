@@ -20,6 +20,7 @@ import {
   ChevronUp,
   Terminal,
   Bot,
+  Wrench,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useUiStore } from '@/store/uiStore'
@@ -274,6 +275,13 @@ export function Sidebar() {
                   to={ROUTES.ADMIN_LLM_CONFIG}
                   icon={<Bot className="h-4 w-4" />}
                   label="DevX AgentCode 관리"
+                  collapsed={collapsed}
+                  onNavigate={closeMobileSidebar}
+                />
+                <NavItem
+                  to={ROUTES.ADMIN_CHAT_TOOLS}
+                  icon={<Wrench className="h-4 w-4" />}
+                  label="챗봇 도구 관리"
                   collapsed={collapsed}
                   onNavigate={closeMobileSidebar}
                 />

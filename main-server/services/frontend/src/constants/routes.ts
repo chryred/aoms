@@ -15,6 +15,7 @@ export const ROUTES = {
   PROFILE: '/profile',
   ADMIN_USERS: '/admin/users',
   ADMIN_LLM_CONFIG: '/admin/llm-config',
+  ADMIN_CHAT_TOOLS: '/admin/chat-tools',
   VECTOR_HEALTH: '/vector-health',
   GRAFANA: '/grafana-dashboard',
   AGENTS: '/agents',

@@ -1,3 +1,4 @@
+import uuid
 from datetime import datetime
 from sqlalchemy import (
     Boolean, Column, DateTime, Float, ForeignKey, Index, Integer,
@@ -5,6 +6,10 @@ from sqlalchemy import (
 )
 from sqlalchemy import JSON as JSONB
 from database import Base
+
+
+def _uuid_str() -> str:
+    return str(uuid.uuid4())
 
 
 class System(Base):
@@ -349,3 +354,66 @@ class User(Base):
     is_active     = Column(Boolean, nullable=False, default=True)
     is_approved   = Column(Boolean, nullable=False, default=False)
     created_at    = Column(DateTime, nullable=False, default=func.now())
+
+
+# ── Chatbot (ReAct) ────────────────────────────────────────────────────
+
+class ChatTool(Base):
+    """챗봇이 ReAct 루프에서 호출할 수 있는 도구 레지스트리."""
+    __tablename__ = "chat_tools"
+
+    name         = Column(String(100), primary_key=True)
+    display_name = Column(String(200), nullable=False)
+    description  = Column(Text, nullable=False)
+    input_schema = Column(JSONB, nullable=False, default=dict, server_default="{}")
+    executor     = Column(String(20), nullable=False)   # 'ems' | 'admin' | 'log_analyzer'
+    is_enabled   = Column(Boolean, nullable=False, default=True, server_default="true")
+    created_at   = Column(DateTime, default=func.now(), server_default=func.now())
+    updated_at   = Column(DateTime, default=func.now(), onupdate=func.now(), server_default=func.now())
+
+
+class ChatExecutorConfig(Base):
+    """Executor별 자격증명/설정 — secret 필드는 Fernet 암호문 문자열로 저장."""
+    __tablename__ = "chat_executor_configs"
+
+    executor      = Column(String(20), primary_key=True)
+    config        = Column(JSONB, nullable=False, default=dict)
+    config_schema = Column(JSONB, nullable=False, default=list)
+    updated_by    = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"))
+    updated_at    = Column(DateTime, default=func.now(), onupdate=func.now())
+
+
+class ChatSession(Base):
+    """사용자 챗봇 세션. 닫아도 대화 유지."""
+    __tablename__ = "chat_sessions"
+
+    id         = Column(String(36), primary_key=True, default=_uuid_str)
+    user_id    = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    title      = Column(String(200), nullable=False, default="새 대화")
+    area_code  = Column(String(50), nullable=False, default="chat_assistant")
+    created_at = Column(DateTime, default=func.now())
+    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        Index("idx_chat_sessions_user", "user_id", "updated_at"),
+    )
+
+
+class ChatMessage(Base):
+    """세션 내 메시지. role ∈ user|assistant|tool."""
+    __tablename__ = "chat_messages"
+
+    id          = Column(String(36), primary_key=True, default=_uuid_str)
+    session_id  = Column(String(36), ForeignKey("chat_sessions.id", ondelete="CASCADE"), nullable=False)
+    role        = Column(String(20), nullable=False)
+    content     = Column(Text, nullable=False, default="")
+    thought     = Column(Text)
+    tool_name   = Column(String(100))
+    tool_args   = Column(JSONB)
+    tool_result = Column(JSONB)
+    attachments = Column(JSONB, nullable=False, default=list)   # [{type,key,mime,size,w,h}]
+    created_at  = Column(DateTime, default=func.now())
+
+    __table_args__ = (
+        Index("idx_chat_messages_session", "session_id", "created_at"),
+    )

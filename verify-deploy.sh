@@ -97,7 +97,7 @@ check_file "ssl/grafana.key"              "$BASE_DIR/ssl/grafana.key"
 
 # .env 필수 키 존재 여부
 if [[ -f "$BASE_DIR/.env" ]]; then
-  for key in TEAMS_WEBHOOK_URL LLM_API_URL OLLAMA_URL QDRANT_URL DB_ENCRYPTION_KEY; do
+  for key in TEAMS_WEBHOOK_URL LLM_API_URL OLLAMA_URL QDRANT_URL ENCRYPTION_KEY; do
     if grep -q "^${key}=" "$BASE_DIR/.env" 2>/dev/null; then
       VALUE=$(grep "^${key}=" "$BASE_DIR/.env" | cut -d= -f2-)
       if [[ -n "$VALUE" ]]; then
