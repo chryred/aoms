@@ -21,3 +21,4 @@ main-server/artifacts/otel/*.jar
 *.png
 !main-server/services/frontend/public/**/*.png
 ems-mcp/
+.gstack/

@@ -29,6 +29,8 @@ CONTAINERS=(
   "synapse-log-analyzer"
   "synapse-frontend"
   "synapse-n8n"
+  "synapse-tempo"
+  "synapse-otel-collector"
 )
 
 for c in "${CONTAINERS[@]}"; do
@@ -56,7 +58,7 @@ check_http() {
 
 check_http "Prometheus"       "http://localhost:9090/-/healthy"
 check_http "Alertmanager"     "http://localhost:9093/-/healthy"
-check_http "Grafana"          "http://localhost:3000/api/health"
+check_http "Grafana"          "https://localhost:3000/api/health"
 check_http "admin-api"        "http://localhost:8080/health"
 check_http "admin-api Docs"   "http://localhost:8080/docs"
 check_http "log-analyzer"     "http://localhost:8000/health"
@@ -94,10 +96,12 @@ check_dir  "grafana/provisioning"         "$BASE_DIR/configs/grafana/provisionin
 check_file "postgres/init.sql"            "$BASE_DIR/configs/postgres/init.sql"
 check_file "ssl/grafana.crt"              "$BASE_DIR/ssl/grafana.crt"
 check_file "ssl/grafana.key"              "$BASE_DIR/ssl/grafana.key"
+check_file "tempo/tempo.yml"              "$BASE_DIR/configs/tempo/tempo.yml"
+check_file "otel-collector-config.yml"    "$BASE_DIR/configs/otel-collector/otel-collector-config.yml"
 
 # .env 필수 키 존재 여부
 if [[ -f "$BASE_DIR/.env" ]]; then
-  for key in TEAMS_WEBHOOK_URL LLM_API_URL OLLAMA_URL QDRANT_URL ENCRYPTION_KEY; do
+  for key in TEAMS_WEBHOOK_URL LLM_API_URL OLLAMA_URL QDRANT_URL ENCRYPTION_KEY SECRET_KEY DEVX_CLIENT_ID DEVX_CLIENT_SECRET; do
     if grep -q "^${key}=" "$BASE_DIR/.env" 2>/dev/null; then
       VALUE=$(grep "^${key}=" "$BASE_DIR/.env" | cut -d= -f2-)
       if [[ -n "$VALUE" ]]; then
@@ -170,7 +174,17 @@ ANALYZER_STATUS=$(curl -s --max-time 5 http://localhost:8000/health 2>/dev/null 
 # ──────────────────────────────────────────────────────────────
 section "8. Prometheus 스크레이프 상태"
 
-PROM_TARGETS=$(curl -s --max-time 5 "http://localhost:9090/api/v1/targets" 2>/dev/null | \
+# Basic Auth 자격증명 로드
+if [[ -f "$BASE_DIR/.env" ]]; then
+  PROM_USER_VAL=$(grep "^PROM_USER=" "$BASE_DIR/.env" | cut -d= -f2- || echo "")
+  PROM_PASS_VAL=$(grep "^PROM_PASS=" "$BASE_DIR/.env" | cut -d= -f2- || echo "")
+else
+  PROM_USER_VAL=""
+  PROM_PASS_VAL=""
+fi
+
+PROM_TARGETS=$(curl -s --max-time 5 -u "${PROM_USER_VAL}:${PROM_PASS_VAL}" \
+  "http://localhost:9090/api/v1/targets" 2>/dev/null | \
   python3 -c "
 import sys, json
 d = json.load(sys.stdin)
@@ -182,7 +196,8 @@ print(f'{up_count}/{total}')
 ok "Prometheus 타겟: $PROM_TARGETS UP"
 
 # Remote Write Receiver 활성화 확인
-RW_ENABLED=$(curl -s --max-time 5 "http://localhost:9090/api/v1/status/flags" 2>/dev/null | \
+RW_ENABLED=$(curl -s --max-time 5 -u "${PROM_USER_VAL}:${PROM_PASS_VAL}" \
+  "http://localhost:9090/api/v1/status/flags" 2>/dev/null | \
   python3 -c "
 import sys, json
 d = json.load(sys.stdin)
@@ -196,7 +211,27 @@ else
 fi
 
 # ──────────────────────────────────────────────────────────────
-section "9. n8n 워크플로우 확인"
+section "9. Tempo / OTel Collector 상태"
+
+# Tempo health (포트 미노출 — docker exec 경유)
+TEMPO_HEALTH=$(docker exec synapse-tempo wget -qO- http://localhost:3200/ready 2>/dev/null || echo "error")
+if [[ "$TEMPO_HEALTH" == "ready" ]]; then
+  ok "Tempo /ready → ready"
+else
+  fail "Tempo /ready → $TEMPO_HEALTH"
+fi
+
+# OTel Collector health (포트 미노출 — docker exec 경유)
+OTEL_CODE=$(docker exec synapse-otel-collector wget -qS -O /dev/null http://localhost:13133/ 2>&1 | \
+  grep "HTTP/" | awk '{print $2}' | tail -1 || echo "000")
+if [[ "$OTEL_CODE" == "200" ]]; then
+  ok "OTel Collector :13133 → HTTP 200"
+else
+  fail "OTel Collector :13133 → HTTP $OTEL_CODE"
+fi
+
+# ──────────────────────────────────────────────────────────────
+section "10. n8n 상태 확인"
 
 N8N_HEALTH=$(curl -s --max-time 5 http://localhost:5678/healthz 2>/dev/null | \
   python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('status','unknown'))" 2>/dev/null || echo "error")
@@ -205,24 +240,24 @@ N8N_HEALTH=$(curl -s --max-time 5 http://localhost:5678/healthz 2>/dev/null | \
 # ──────────────────────────────────────────────────────────────
 # Server B 확인 (IP 인수 전달 시)
 if [[ -n "$SERVER_B_IP" ]]; then
-  section "10. Server B (AI/Vector) 확인 — ${SERVER_B_IP}"
+  section "11. Server B (AI/Vector) 확인 — ${SERVER_B_IP}"
 
   OLLAMA_MODELS=$(curl -s --max-time 10 "http://${SERVER_B_IP}:11434/api/tags" 2>/dev/null | \
     python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d.get('models',[])))" 2>/dev/null || echo "-1")
   if [[ "$OLLAMA_MODELS" =~ ^[0-9]+$ ]]; then
     ok "Ollama 응답 OK (모델 ${OLLAMA_MODELS}개)"
     if [[ "$OLLAMA_MODELS" -eq 0 ]]; then
-      warn "  → bge-m3 모델이 없습니다"
-      warn "     docker exec synapse-ollama ollama pull bge-m3"
+      warn "  → paraphrase-multilingual 모델이 없습니다"
+      warn "     docker exec synapse-ollama ollama pull paraphrase-multilingual"
     else
-      BGE_OK=$(curl -s --max-time 5 "http://${SERVER_B_IP}:11434/api/tags" 2>/dev/null | \
+      PARA_OK=$(curl -s --max-time 5 "http://${SERVER_B_IP}:11434/api/tags" 2>/dev/null | \
         python3 -c "
 import sys, json
 d = json.load(sys.stdin)
 names = [m.get('name','') for m in d.get('models',[])]
-print('yes' if any('bge-m3' in n for n in names) else 'no')
+print('yes' if any('paraphrase-multilingual' in n for n in names) else 'no')
 " 2>/dev/null || echo "no")
-      [[ "$BGE_OK" == "yes" ]] && ok "  bge-m3 모델 확인 OK" || warn "  bge-m3 모델 없음 (pull 필요)"
+      [[ "$PARA_OK" == "yes" ]] && ok "  paraphrase-multilingual 모델 확인 OK" || warn "  paraphrase-multilingual 모델 없음 (pull 필요)"
     fi
   else
     fail "Ollama 응답 없음 (${SERVER_B_IP}:11434)"
@@ -245,7 +280,7 @@ print(', '.join(cols) if cols else 'none')
   ok "Qdrant 컬렉션: $COLLECTIONS"
   for col in "${EXPECTED_COLLECTIONS[@]}"; do
     echo "$COLLECTIONS" | grep -q "$col" && \
-      ok "  컬렉션 $col 존재" || warn "  컬렉션 $col 없음 (WF12 실행 필요)"
+      ok "  컬렉션 $col 존재" || warn "  컬렉션 $col 없음 (POST /aggregation/collections/setup 실행 필요)"
   done
 fi
 

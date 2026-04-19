@@ -14,7 +14,7 @@
 1. [사전 준비 (Mac)](#1-사전-준비-mac)
 2. [Server B 배포 (AI/Vector 서버)](#2-server-b-배포-aivector-서버)
 3. [Server A 배포 (Main 서버)](#3-server-a-배포-main-서버)
-   - [3-1. 인프라 서비스 (Prometheus, Alertmanager, Grafana, PostgreSQL)](#3-1-인프라-서비스)
+   - [3-1. 인프라 서비스 (Prometheus, Alertmanager, Grafana, PostgreSQL, Tempo, OTel)](#3-1-인프라-서비스)
    - [3-2. 애플리케이션 서비스 (admin-api, log-analyzer, frontend)](#3-2-애플리케이션-서비스)
    - [3-3. n8n 워크플로우 자동화](#3-3-n8n-워크플로우-자동화)
 4. [모니터링 에이전트 배포 (대상 서버)](#4-모니터링-에이전트-배포-대상-서버)
@@ -38,25 +38,30 @@ vi .env
 
 **필수 입력 항목:**
 
-| 변수 | 설명 | 예시 |
+| 변수 | 설명 | 예시 / 생성 방법 |
 |---|---|---|
 | `GRAFANA_ADMIN_PASSWORD` | Grafana 관리자 비밀번호 | `MySecurePass123!` |
 | `DB_USER` | PostgreSQL 사용자명 **(반드시 `synapse`)** | `synapse` |
 | `DB_PASSWORD` | PostgreSQL 비밀번호 | `MyDBPass456!` |
 | `PROM_USER` | Prometheus Basic Auth 사용자명 | `admin` |
 | `PROM_PASS` | Prometheus Basic Auth 비밀번호 | `PromPass789!` |
+| `SECRET_KEY` | JWT 서명 키 **(운영 배포 필수 변경)** | `python3 -c "import secrets; print(secrets.token_urlsafe(32))"` |
+| `CORS_ORIGINS` | 허용 프론트엔드 도메인 (콤마 구분) | `http://192.168.10.5:3001` |
+| `LLM_TYPE` | LLM 프로바이더 선택 | `devx` / `ollama` / `claude` / `openai` |
 | `LLM_API_URL` | 내부 LLM API 엔드포인트 | `http://llm-server:8080/v1` |
-| `LLM_API_KEY` | LLM API 기본 키 | `sk-...` |
-| `LLM_AGENT_CODE` | LLM 에이전트 코드 | `synapse-analyzer` |
+| `LLM_MODEL` | 사용할 LLM 모델명 | `your-model-name` |
+| `DEVX_CLIENT_ID` | DevX OAuth Client ID | `synapse-client` |
+| `DEVX_CLIENT_SECRET` | DevX OAuth Client Secret | `your-secret` |
 | `TEAMS_WEBHOOK_URL` | Microsoft Teams Webhook URL | `https://...webhook.office.com/...` |
 | `N8N_USER` | n8n 관리자 사용자명 | `admin` |
 | `N8N_PASSWORD` | n8n 관리자 비밀번호 | `N8nPass!234` |
 | `MONITORING_SERVER_IP` | Server A IP 주소 | `192.168.10.5` |
 | `OLLAMA_URL` | Server B Ollama URL | `http://192.168.10.6:11434` |
-| `EMBED_MODEL` | 임베딩 모델명 | `bge-m3` |
+| `EMBED_MODEL` | 임베딩 모델명 | `paraphrase-multilingual` |
 | `QDRANT_URL` | Server B Qdrant URL | `http://192.168.10.6:6333` |
 | `FRONTEND_EXTERNAL_URL` | Teams 카드 "해결책 등록" 버튼이 여는 React 페이지 URL (브라우저 접근 가능) | `http://192.168.10.5:3001` |
-| `ENCRYPTION_KEY` | 공통 Fernet 대칭키 (DB 모니터링 자격증명 · 챗봇 executor 자격증명 공용) | `<fernet_key>` |
+| `ENCRYPTION_KEY` | 공통 Fernet 대칭키 (DB 모니터링 자격증명 · 챗봇 executor 자격증명 공용) | 아래 생성 방법 참고 |
+| `AGENT_PROMETHEUS_URL` | synapse_agent live-status 쿼리용 Prometheus URL | `http://192.168.10.5:9090` |
 
 > **주의**: `DB_USER`는 반드시 `synapse`이어야 합니다. `docker-compose.yml`의 PostgreSQL 헬스체크와 `DATABASE_URL`이 `synapse`로 하드코딩되어 있어 다른 값 사용 시 admin-api 기동 실패합니다.
 
@@ -64,6 +69,13 @@ vi .env
 > ```bash
 > python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 > ```
+
+> **`SECRET_KEY` 생성 방법:**
+> ```bash
+> python3 -c "import secrets; print(secrets.token_urlsafe(32))"
+> ```
+
+---
 
 ### 1-2. synapse_agent 바이너리 빌드
 
@@ -112,11 +124,13 @@ scp main-server/synapse-frontend-1.0.tar.gz      $SERVER_A:$REMOTE_DIR/images/
 
 # ── Server A — 인프라 이미지 (offline 패키지) ───────────────
 # aoms-offline/ 디렉터리에 사전 준비된 이미지 파일 전송
-scp aoms-offline/docker-images/prometheus-v3.10.0.tar    $SERVER_A:$REMOTE_DIR/images/
-scp aoms-offline/docker-images/alertmanager-main.tar     $SERVER_A:$REMOTE_DIR/images/
-scp aoms-offline/docker-images/grafana-12.4.0.tar        $SERVER_A:$REMOTE_DIR/images/
-scp aoms-offline/docker-images/postgres-16-alpine.tar    $SERVER_A:$REMOTE_DIR/images/
-scp aoms-offline/docker-images/n8n-1.44.0.tar            $SERVER_A:$REMOTE_DIR/images/
+scp aoms-offline/docker-images/prometheus-v3.10.0.tar           $SERVER_A:$REMOTE_DIR/images/
+scp aoms-offline/docker-images/alertmanager-main.tar            $SERVER_A:$REMOTE_DIR/images/
+scp aoms-offline/docker-images/grafana-12.4.0.tar               $SERVER_A:$REMOTE_DIR/images/
+scp aoms-offline/docker-images/postgres-16-alpine.tar           $SERVER_A:$REMOTE_DIR/images/
+scp aoms-offline/docker-images/n8n-1.44.0.tar                   $SERVER_A:$REMOTE_DIR/images/
+scp aoms-offline/docker-images/tempo-2.9.1.tar                  $SERVER_A:$REMOTE_DIR/images/
+scp aoms-offline/docker-images/otel-collector-contrib-0.123.0.tar  $SERVER_A:$REMOTE_DIR/images/
 
 # ── Server A — 설정 파일 및 docker-compose ──────────────────
 scp main-server/docker-compose.yml  $SERVER_A:$REMOTE_DIR/
@@ -170,8 +184,8 @@ cd /app/synapse
 # 사전 다운로드한 모델 압축 해제
 tar xzf ollama-models.tar.gz -C services/ollama-models/
 
-# bge-m3 모델 확인
-ls services/ollama-models/models/manifests/registry.ollama.ai/library/ | grep bge
+# paraphrase-multilingual 모델 확인
+ls services/ollama-models/models/manifests/registry.ollama.ai/library/ | grep paraphrase
 ```
 
 ### 2-4. 서비스 시작
@@ -184,7 +198,7 @@ docker compose up -d
 docker compose ps
 ```
 
-### 2-5. Ollama bge-m3 모델 확인
+### 2-5. Ollama paraphrase-multilingual 모델 확인
 
 ```bash
 # Ollama API 응답 확인
@@ -195,13 +209,13 @@ for m in d.get('models', []):
     print(m['name'])
 "
 
-# bge-m3가 목록에 없으면 수동 등록 (폐쇄망 불가 시 ollama-models.tar.gz 재배포)
+# paraphrase-multilingual이 목록에 없으면 수동 확인
 docker exec synapse-ollama ollama list
 ```
 
 ### 2-6. Qdrant 컬렉션 초기화
 
-Server A 배포 완료 후 WF12를 통해 수행됩니다. (섹션 3-3 참조)
+Server A 배포 완료 후 log-analyzer API를 통해 수행됩니다. (섹션 3-3 참조)
 
 ---
 
@@ -213,7 +227,7 @@ Server A 배포 완료 후 WF12를 통해 수행됩니다. (섹션 3-3 참조)
 
 ```bash
 ssh user@SERVER_A
-sudo mkdir -p /app/synapse/{images,configs/{prometheus,alertmanager,grafana,postgres},ssl}
+sudo mkdir -p /app/synapse/{images,configs/{prometheus,alertmanager,grafana,postgres,tempo,otel-collector},ssl}
 sudo chown -R $USER:$USER /app/synapse
 ```
 
@@ -263,9 +277,11 @@ docker load < alertmanager-main.tar
 docker load < grafana-12.4.0.tar
 docker load < postgres-16-alpine.tar
 docker load < n8n-1.44.0.tar
+docker load < tempo-2.9.1.tar
+docker load < otel-collector-contrib-0.123.0.tar
 
 # 로드 확인
-docker images | grep -E "prometheus|alertmanager|grafana|postgres|n8n"
+docker images | grep -E "prometheus|alertmanager|grafana|postgres|n8n|tempo|otel"
 ```
 
 #### .env 파일 확인
@@ -275,10 +291,13 @@ vi /app/synapse/.env
 
 # 반드시 확인할 항목:
 # DB_USER=synapse                            ← synapse 고정
+# SECRET_KEY=<랜덤 32자 이상>                ← JWT 서명 키
 # MONITORING_SERVER_IP=192.168.10.5          ← Server A 실제 IP
 # OLLAMA_URL=http://192.168.10.6:11434       ← Server B 실제 IP
 # QDRANT_URL=http://192.168.10.6:6333        ← Server B 실제 IP
-# ENCRYPTION_KEY=<fernet_key>                ← 공통 암호화 키 (DB 모니터링 · 챗봇 executor)
+# EMBED_MODEL=paraphrase-multilingual        ← 임베딩 모델 (768차원)
+# ENCRYPTION_KEY=<fernet_key>                ← 공통 암호화 키
+# CORS_ORIGINS=http://192.168.10.5:3001      ← 프론트엔드 접근 URL
 ```
 
 #### 인프라 서비스 시작 (순서 중요)
@@ -302,8 +321,12 @@ sleep 5
 # 3. Grafana 시작
 docker compose up -d grafana
 
-# 4. 상태 확인
-docker compose ps | grep -E "prometheus|alertmanager|grafana|postgres"
+# 4. Tempo + OTel Collector 시작 (분산추적 인프라)
+docker compose up -d tempo otel-collector
+sleep 5
+
+# 5. 상태 확인
+docker compose ps | grep -E "prometheus|alertmanager|grafana|postgres|tempo|otel"
 ```
 
 ---
@@ -353,6 +376,17 @@ curl -sf http://localhost:8080/health && echo "admin-api OK"
 curl -sf http://localhost:8080/docs > /dev/null && echo "admin-api Swagger OK"
 ```
 
+#### 초기 admin 계정 생성 (최초 배포 1회만)
+
+```bash
+# admin 계정 생성 (이메일·비밀번호는 실제 값으로 변경)
+docker exec -it synapse-admin-api \
+  sh -c "ADMIN_EMAIL=admin@company.com ADMIN_PASSWORD=changeme python scripts/create_admin.py"
+
+# 생성 확인
+docker logs synapse-admin-api 2>&1 | grep -E "admin|user|created" | tail -5
+```
+
 ---
 
 ### 3-3. n8n (현재 미사용, 컨테이너만 예비 유지)
@@ -398,8 +432,7 @@ curl -s -X POST http://localhost:8080/api/v1/contacts \
   -H "Content-Type: application/json" \
   -d '{
     "name": "홍길동",
-    "teams_upn": "gildong@company.com",
-    "llm_api_key": "sk-..."
+    "teams_upn": "gildong@company.com"
   }'
 ```
 
@@ -503,7 +536,7 @@ chmod +x /app/synapse/verify-deploy.sh
 
 | 섹션 | 내용 |
 |---|---|
-| 1. Docker 컨테이너 상태 | synapse-prometheus, alertmanager, grafana, postgres, admin-api, log-analyzer, frontend, n8n |
+| 1. Docker 컨테이너 상태 | synapse-prometheus, alertmanager, grafana, postgres, admin-api, log-analyzer, frontend, n8n, tempo, otel-collector |
 | 2. 포트 응답 확인 | 각 서비스 HTTP 응답 코드 |
 | 3. 설정 파일 존재 확인 | .env, prometheus.yml, alertmanager.yml, web.yml, ssl 인증서 등 |
 | 4. PostgreSQL 테이블 확인 | public 스키마 테이블 수, n8n 스키마 존재 여부 |
@@ -511,8 +544,9 @@ chmod +x /app/synapse/verify-deploy.sh
 | 6. admin-api 기능 확인 | /api/v1/systems, /api/v1/agents 응답 |
 | 7. log-analyzer 기능 확인 | /health → ok |
 | 8. Prometheus 스크레이프 상태 | 타겟 UP 비율, Remote Write Receiver 활성화 |
-| 9. n8n 워크플로우 확인 | healthz → ok |
-| 10. Server B 확인 (선택) | Ollama bge-m3 모델, Qdrant 컬렉션 4종 |
+| 9. Tempo / OTel Collector 상태 | 내부 health endpoint 확인 |
+| 10. n8n 상태 확인 | healthz → ok |
+| 11. Server B 확인 (선택) | Ollama paraphrase-multilingual 모델, Qdrant 컬렉션 4종 |
 
 **모든 검증 통과 후 최종 확인:**
 
@@ -523,14 +557,9 @@ curl -sf http://localhost:8080/docs > /dev/null && echo "OK"
 # log-analyzer 내부 스케줄러 확인 (5분마다 분석, 1시간마다 집계)
 docker logs synapse-log-analyzer 2>&1 | grep -E "scheduler|analysis|aggregation" | tail -10
 
-# n8n 활성 워크플로우 확인 (WF2/3/4/5/12 = 5개 활성화)
-curl -s -H "X-N8N-API-KEY: $N8N_API_KEY" http://localhost:5678/api/v1/workflows | \
-  python3 -c "
-import sys, json
-wfs = json.load(sys.stdin)['data']
-active = [w['name'] for w in wfs if w.get('active')]
-print(f'활성 워크플로우 {len(active)}개:', active)
-"
+# Qdrant 집계 컬렉션 초기화 (최초 1회 — metric_hourly_patterns, aggregation_summaries 생성)
+curl -s -X POST http://localhost:8000/aggregation/collections/setup \
+  -H "Content-Type: application/json" | python3 -m json.tool
 ```
 
 ---
@@ -583,6 +612,8 @@ docker logs synapse-log-analyzer --tail 50 -f
 docker logs synapse-postgres     --tail 50 -f
 docker logs synapse-n8n          --tail 50 -f
 docker logs synapse-prometheus   --tail 50 -f
+docker logs synapse-tempo        --tail 50 -f
+docker logs synapse-otel-collector --tail 50 -f
 
 # 전체 로그
 cd /app/synapse && docker compose logs --tail 30
@@ -594,16 +625,18 @@ cd /app/synapse && docker compose logs --tail 30
 |---|---|---|
 | admin-api 기동 실패 | PostgreSQL 미준비 또는 `DB_USER` 오류 | `docker logs synapse-postgres` 확인. `.env`에서 `DB_USER=synapse` 확인 |
 | admin-api DB 연결 실패 | `DB_USER` 값이 `synapse`가 아님 | `.env`에서 `DB_USER=synapse`로 수정 후 `docker compose up -d admin-api` |
+| 로그인 불가 (JWT 오류) | `SECRET_KEY` 미설정 또는 기본값 사용 | `python3 -c "import secrets; print(secrets.token_urlsafe(32))"` 로 키 생성 후 `.env` 반영, `docker compose up -d admin-api` |
 | Teams 알림 미발송 | `TEAMS_WEBHOOK_URL` 오류 | `.env` 확인 후 `docker compose up -d admin-api` |
-| log-analyzer LLM 호출 실패 | `LLM_API_URL` / `LLM_API_KEY` 오류 | `.env` 확인 후 `docker compose up -d log-analyzer` |
-| log-analyzer 임베딩 오류 | Server B 미기동 또는 bge-m3 모델 없음 | Server B에서 `docker exec synapse-ollama ollama list` 확인 |
+| log-analyzer LLM 호출 실패 | `LLM_API_URL` / `DEVX_CLIENT_ID/SECRET` 오류 | `.env` 확인 후 `docker compose up -d log-analyzer` |
+| log-analyzer 임베딩 오류 | Server B 미기동 또는 paraphrase-multilingual 모델 없음 | Server B에서 `docker exec synapse-ollama ollama list` 확인 |
 | synapse_agent 메트릭 미수신 | Prometheus Remote Write Receiver 비활성화 | `docker-compose.yml`에 `--web.enable-remote-write-receiver` 플래그 확인 |
 | synapse_agent 설치 실패 | SSH 키 또는 대상 서버 접근 오류 | `docker logs synapse-admin-api`에서 SFTP 에러 확인 |
-| n8n 워크플로우 임포트 오류 | `typeVersion` 또는 크리덴셜 ID 불일치 | 크리덴셜 등록 후 워크플로우 임포트 순서 확인 |
 | Prometheus Basic Auth 401 | 인증 정보 오류 | `PROM_USER` / `PROM_PASS` 확인, bcrypt 해시 재생성 |
 | Grafana HTTPS 접속 불가 | SSL 인증서 경로 오류 | `/app/synapse/ssl/` 경로와 `docker-compose.yml` volume 확인 |
-| Qdrant 컬렉션 없음 | WF12 미실행 | `curl -X POST http://localhost:8000/aggregation/collections/setup` |
+| Qdrant 컬렉션 없음 | 초기화 미실행 | `curl -X POST http://localhost:8000/aggregation/collections/setup` |
 | 암호화 키 오류 (DB 모니터링 / 챗봇 executor) | `ENCRYPTION_KEY` 미설정 | Fernet 키 생성 후 `.env`에 추가, 컨테이너 재시작 |
+| Tempo 컨테이너 기동 실패 | tempo.yml 설정 파일 없음 | `/app/synapse/configs/tempo/tempo.yml` 파일 존재 확인 |
+| OTel Collector 기동 실패 | otel-collector-config.yml 없음 | `/app/synapse/configs/otel-collector/otel-collector-config.yml` 파일 존재 확인 |
 
 ### 환경변수 적용 후 재시작
 
@@ -651,4 +684,4 @@ curl -su "${PROM_USER}:${PROM_PASS}" -X POST http://localhost:9090/-/reload
 
 ---
 
-*최종 업데이트: 2026-04-13*
+*최종 업데이트: 2026-04-19*
