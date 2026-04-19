@@ -174,35 +174,31 @@ export function ContactListPage() {
           cta={{ label: '담당자 등록', onClick: openCreate }}
         />
       ) : (
-        /* overflow-x-auto: 모바일에서 6컬럼 테이블 가로 스크롤 처리 */
-        <div className="bg-bg-base shadow-neu-flat overflow-x-auto rounded-sm">
-          <table className="w-full min-w-[600px] text-sm">
-            <thead>
-              <tr className="border-border border-b">
-                {(['이름', '이메일', 'Teams UPN', '연결된 시스템', '등록일', ''] as const).map(
-                  (h, i) => (
-                    <th
-                      key={i}
-                      scope="col"
-                      className="text-text-secondary px-4 py-3 text-left text-xs font-semibold"
-                    >
-                      {h}
-                    </th>
-                  ),
-                )}
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((c) => (
-                <ContactRow
-                  key={c.id}
-                  contact={c}
-                  onEdit={() => openEdit(c)}
-                  onDelete={() => openConfirm(c.id)}
-                />
-              ))}
-            </tbody>
-          </table>
+        <div className="bg-bg-base shadow-neu-flat overflow-hidden rounded-sm">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[360px] text-sm">
+              <thead>
+                <tr className="border-border border-b">
+                  <th scope="col" className="text-text-secondary whitespace-nowrap px-4 py-3 text-left text-xs font-semibold">이름</th>
+                  <th scope="col" className="text-text-secondary hidden whitespace-nowrap px-4 py-3 text-left text-xs font-semibold md:table-cell">이메일</th>
+                  <th scope="col" className="text-text-secondary hidden whitespace-nowrap px-4 py-3 text-left text-xs font-semibold md:table-cell">Teams UPN</th>
+                  <th scope="col" className="text-text-secondary whitespace-nowrap px-4 py-3 text-left text-xs font-semibold">연결된 시스템</th>
+                  <th scope="col" className="text-text-secondary hidden whitespace-nowrap px-4 py-3 text-left text-xs font-semibold md:table-cell">등록일</th>
+                  <th scope="col" className="text-text-secondary px-4 py-3 text-left text-xs font-semibold"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((c) => (
+                  <ContactRow
+                    key={c.id}
+                    contact={c}
+                    onEdit={() => openEdit(c)}
+                    onDelete={() => openConfirm(c.id)}
+                  />
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 
@@ -269,14 +265,14 @@ function ContactRow({
 }) {
   return (
     <tr className="border-border hover:bg-hover-subtle border-b transition-colors last:border-0">
-      <td className="text-text-primary px-4 py-3 font-medium">{contact.name}</td>
-      <td className="text-text-secondary px-4 py-3">{contact.email ?? '-'}</td>
-      <td className="text-text-secondary px-4 py-3">{contact.teams_upn ?? '-'}</td>
-      <td className="px-4 py-3">
+      <td className="text-text-primary whitespace-nowrap px-4 py-3 font-medium">{contact.name}</td>
+      <td className="text-text-secondary hidden max-w-[180px] truncate whitespace-nowrap px-4 py-3 md:table-cell">{contact.email ?? '-'}</td>
+      <td className="text-text-secondary hidden max-w-[180px] truncate whitespace-nowrap px-4 py-3 md:table-cell">{contact.teams_upn ?? '-'}</td>
+      <td className="whitespace-nowrap px-4 py-3">
         <SystemsCell systems={contact.systems} contactName={contact.name} />
       </td>
-      <td className="text-text-secondary px-4 py-3">{formatKST(contact.created_at, 'date')}</td>
-      <td className="px-4 py-3">
+      <td className="text-text-secondary hidden whitespace-nowrap px-4 py-3 md:table-cell">{formatKST(contact.created_at, 'date')}</td>
+      <td className="whitespace-nowrap px-4 py-3">
         <div className="flex gap-3">
           <button
             onClick={onEdit}
