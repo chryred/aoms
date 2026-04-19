@@ -19,8 +19,7 @@ CREATE TABLE IF NOT EXISTS systems (
 -- ── 담당자 정보 ────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS contacts (
     id          SERIAL PRIMARY KEY,
-    name        VARCHAR(100) NOT NULL,
-    email       VARCHAR(200),
+    user_id     INTEGER NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
     teams_upn   VARCHAR(200),          -- Teams mention용 UPN
     webhook_url TEXT,
     created_at  TIMESTAMP DEFAULT NOW(),

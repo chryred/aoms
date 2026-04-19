@@ -2,12 +2,12 @@ import { useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { CheckCircle2, AlertTriangle } from 'lucide-react'
 import { NeuCard } from '@/components/neumorphic/NeuCard'
-import { NeuInput } from '@/components/neumorphic/NeuInput'
 import { NeuSelect } from '@/components/neumorphic/NeuSelect'
 import { NeuTextarea } from '@/components/neumorphic/NeuTextarea'
 import { NeuButton } from '@/components/neumorphic/NeuButton'
 import { NeuBadge } from '@/components/neumorphic/NeuBadge'
 import { useCreateFeedback } from '@/hooks/mutations/useCreateFeedback'
+import { useApprovedUsers } from '@/hooks/queries/useApprovedUsers'
 import { useAuthStore } from '@/store/authStore'
 import { ROUTES } from '@/constants/routes'
 
@@ -38,6 +38,7 @@ export function FeedbackSubmitPage() {
   const [done, setDone] = useState(false)
 
   const { mutate, isPending, isError, error, reset } = useCreateFeedback()
+  const { data: approvedUsers = [] } = useApprovedUsers()
 
   const handleClose = () => {
     window.close()
@@ -142,14 +143,23 @@ export function FeedbackSubmitPage() {
             required
           />
 
-          <NeuInput
+          <NeuSelect
             id="resolver"
             label="처리자"
-            placeholder="이름 또는 사번"
             value={resolver}
             onChange={(e) => setResolver(e.target.value)}
             required
-          />
+          >
+            {approvedUsers.length > 0 ? (
+              approvedUsers.map((u) => (
+                <option key={u.id} value={u.name}>
+                  {u.name} ({u.email})
+                </option>
+              ))
+            ) : (
+              <option value={resolver}>{resolver || '처리자 선택'}</option>
+            )}
+          </NeuSelect>
 
           {pointId && (
             <p className="text-text-disabled text-xs">

@@ -42,40 +42,38 @@ class SystemBrief(BaseModel):
 
 # ── Contact ──────────────────────────────────────────────────────────────
 class ContactCreate(BaseModel):
-    name: str
-    email: Optional[str] = None
+    user_id: int
     teams_upn: Optional[str] = None
     webhook_url: Optional[str] = None
 
 
 class ContactUpdate(BaseModel):
-    name: Optional[str] = None
-    email: Optional[str] = None
     teams_upn: Optional[str] = None
     webhook_url: Optional[str] = None
 
 
 class ContactOut(BaseModel):
     id: int
-    name: str
-    email: Optional[str]
+    user_id: int
+    name: str              # user.name에서 파생
+    email: Optional[str]   # user.email에서 파생
     teams_upn: Optional[str]
     webhook_url: Optional[str]
     created_at: datetime
     systems: list["SystemBrief"] = []
 
-    model_config = {"from_attributes": True}
+    model_config = {"from_attributes": False}
 
 
 class ContactWithRoleOut(BaseModel):
     """log-analyzer용: 시스템명으로 담당자 조회 (role 포함)"""
     id: int
-    name: str
+    name: str              # user.name에서 파생
     role: str
     teams_upn: Optional[str]
     webhook_url: Optional[str]
 
-    model_config = {"from_attributes": True}
+    model_config = {"from_attributes": False}
 
 
 # ── LLM Agent Config ──────────────────────────────────────────────────
@@ -133,10 +131,10 @@ class SystemContactOut(BaseModel):
 
 class ContactSummaryOut(BaseModel):
     id: int
-    name: str
-    email: Optional[str]
+    name: str              # user.name에서 파생
+    email: Optional[str]   # user.email에서 파생
 
-    model_config = {"from_attributes": True}
+    model_config = {"from_attributes": False}
 
 
 class SystemContactFullOut(BaseModel):

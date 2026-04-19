@@ -24,6 +24,7 @@ from models import (
     System,
     SystemCollectorConfig,
     SystemContact,
+    User,
 )
 
 logger = logging.getLogger(__name__)
@@ -401,13 +402,19 @@ async def get_system_detail_health(
 
     contacts = []
     for sc in system_contacts:
-        contact = await db.get(Contact, sc.contact_id)
-        if contact:
+        result = await db.execute(
+            select(Contact, User.name.label("user_name"), User.email.label("user_email"))
+            .join(User, Contact.user_id == User.id)
+            .where(Contact.id == sc.contact_id)
+        )
+        row = result.one_or_none()
+        if row:
+            contact, user_name, user_email = row
             contacts.append({
                 "id":         contact.id,
-                "name":       contact.name,
+                "name":       user_name,
                 "teams_upn":  contact.teams_upn,
-                "email":      contact.email,
+                "email":      user_email,
                 "role":       sc.role,
             })
 

@@ -40,7 +40,6 @@ async def authed_client(db_session: AsyncSession):
     from models import User
 
     fake_admin = User(
-        id=1,
         email="admin@test.com",
         password_hash="hashed",
         name="테스트관리자",
@@ -48,6 +47,8 @@ async def authed_client(db_session: AsyncSession):
         is_active=True,
         is_approved=True,
     )
+    db_session.add(fake_admin)
+    await db_session.flush()  # DB에 저장 (user_id 필수인 Contact FK 지원용)
 
     async def override_get_db():
         yield db_session

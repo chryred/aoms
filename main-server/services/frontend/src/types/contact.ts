@@ -9,18 +9,17 @@ export interface ContactSystem {
 
 export interface Contact {
   id: number
-  name: string
-  email: string | null
+  user_id: number
+  name: string // user.name (백엔드 JOIN)
+  email: string | null // user.email (백엔드 JOIN)
   teams_upn: string | null
   webhook_url: string | null
   created_at: string
-  updated_at: string
   systems: ContactSystem[]
 }
 
 export interface ContactCreate {
-  name: string
-  email?: string
+  user_id: number
   teams_upn?: string
   webhook_url?: string
 }

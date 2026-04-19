@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth import get_current_user
 from database import get_db
-from models import AlertHistory, LlmAgentConfig, System, Contact, SystemContact
+from models import AlertHistory, LlmAgentConfig, System, Contact, SystemContact, User
 from schemas import AlertHistoryOut, AlertmanagerPayload, AcknowledgeRequest, IncidentReportOut
 from services.cooldown import is_in_cooldown, make_alert_key, record_sent
 from services.llm_client import call_llm_text
@@ -28,7 +28,7 @@ notifier = TeamsNotifier(default_webhook_url=DEFAULT_WEBHOOK_URL)
 
 
 async def _get_system_and_contacts(db: AsyncSession, system_name: str):
-    """system_name으로 시스템 + 담당자 목록 조회"""
+    """system_name으로 시스템 + 담당자 목록 조회 (name은 User 테이블에서)"""
     result = await db.execute(
         select(System).where(System.system_name == system_name)
     )
@@ -37,11 +37,17 @@ async def _get_system_and_contacts(db: AsyncSession, system_name: str):
         return None, []
 
     contacts_result = await db.execute(
-        select(Contact)
+        select(Contact, User.name.label("user_name"), User.email.label("user_email"))
         .join(SystemContact, SystemContact.contact_id == Contact.id)
+        .join(User, Contact.user_id == User.id)
         .where(SystemContact.system_id == system.id)
     )
-    contacts = contacts_result.scalars().all()
+    # dict 형태로 변환해 notification.py의 c['name'] 패턴과 호환
+    contacts = [
+        {"id": c.id, "name": user_name, "email": user_email,
+         "teams_upn": c.teams_upn, "webhook_url": c.webhook_url}
+        for c, user_name, user_email in contacts_result.all()
+    ]
     return system, contacts
 
 
@@ -72,7 +78,7 @@ async def receive_alertmanager(
                 if system and system.teams_webhook_url
                 else DEFAULT_WEBHOOK_URL
             )
-            contacts_data = [{"name": c.name, "teams_upn": c.teams_upn} for c in contacts] if contacts else []
+            contacts_data = [{"name": c["name"], "teams_upn": c["teams_upn"]} for c in contacts] if contacts else []
 
             if webhook_url:
                 try:
@@ -220,7 +226,7 @@ async def receive_alertmanager(
         sent = False
         if webhook_url:
             contacts_data = [
-                {"name": c.name, "teams_upn": c.teams_upn}
+                {"name": c["name"], "teams_upn": c["teams_upn"]}
                 for c in contacts
             ]
             try:
@@ -254,7 +260,7 @@ async def receive_alertmanager(
 
         if sent:
             history.notified_contacts = json.dumps(
-                [c.name for c in contacts], ensure_ascii=False
+                [c["name"] for c in contacts], ensure_ascii=False
             )
         await db.commit()
 

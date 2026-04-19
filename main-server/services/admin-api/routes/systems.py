@@ -4,8 +4,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth import get_current_user
 from database import get_db
-from models import System, SystemContact, Contact
-from schemas import SystemCreate, SystemUpdate, SystemOut, SystemContactCreate, SystemContactOut, ContactOut, ContactWithRoleOut, SystemContactFullOut
+from models import System, SystemContact, Contact, User
+from schemas import SystemCreate, SystemUpdate, SystemOut, SystemContactCreate, SystemContactOut, ContactOut, ContactWithRoleOut, SystemContactFullOut, ContactSummaryOut
 
 router = APIRouter(prefix="/api/v1/systems", tags=["systems"])
 
@@ -60,34 +60,42 @@ async def delete_system(system_id: int, db: AsyncSession = Depends(get_db), _use
 async def list_system_contacts_by_name(system_name: str, db: AsyncSession = Depends(get_db)):
     """log-analyzer용: 시스템명으로 담당자 조회 (role 포함)"""
     result = await db.execute(
-        select(Contact, SystemContact.role)
+        select(Contact, SystemContact.role, User.name, User.email)
         .join(SystemContact, SystemContact.contact_id == Contact.id)
         .join(System, System.id == SystemContact.system_id)
+        .join(User, Contact.user_id == User.id)
         .where(System.system_name == system_name)
-        .order_by(SystemContact.role)  # primary 먼저
+        .order_by(SystemContact.role)
     )
     rows = result.all()
     return [
         ContactWithRoleOut(
             id=contact.id,
-            name=contact.name,
+            name=user_name,
             role=role,
             teams_upn=contact.teams_upn,
             webhook_url=contact.webhook_url,
         )
-        for contact, role in rows
+        for contact, role, user_name, user_email in rows
     ]
 
 
 @router.get("/{system_id}/contacts", response_model=list[SystemContactFullOut])
 async def list_system_contacts(system_id: int, db: AsyncSession = Depends(get_db)):
     result = await db.execute(
-        select(SystemContact, Contact)
+        select(SystemContact, Contact, User.name, User.email)
         .join(Contact, SystemContact.contact_id == Contact.id)
+        .join(User, Contact.user_id == User.id)
         .where(SystemContact.system_id == system_id)
     )
     rows = result.all()
-    return [SystemContactFullOut.from_orm_row(sc, contact) for sc, contact in rows]
+    return [
+        SystemContactFullOut.from_orm_row(
+            sc,
+            ContactSummaryOut(id=contact.id, name=user_name, email=user_email),
+        )
+        for sc, contact, user_name, user_email in rows
+    ]
 
 
 @router.post("/{system_id}/contacts", response_model=SystemContactOut, status_code=status.HTTP_201_CREATED)

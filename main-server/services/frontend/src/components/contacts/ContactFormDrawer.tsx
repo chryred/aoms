@@ -114,6 +114,7 @@ export function ContactFormDrawer({ open, onClose, editTarget }: ContactFormDraw
               isPending={isPending}
               onSubmit={handleSubmit}
               onCancel={onClose}
+              isEdit
             />
           ) : (
             <ContactForm

@@ -207,7 +207,7 @@ async def run_react_stream(
         prompt = _decision_prompt(tools, history, user_message)
 
         try:
-            raw = await call_llm_text(prompt, max_tokens=800, agent_code=agent_code)
+            raw = await call_llm_text(prompt, max_tokens=10000, agent_code=agent_code)
         except Exception as e:  # noqa: BLE001
             yield {"type": "error", "data": {"message": f"LLM 호출 실패: {e}"}}
             await _append_message(

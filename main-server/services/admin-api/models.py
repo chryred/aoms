@@ -5,6 +5,7 @@ from sqlalchemy import (
     String, Text, UniqueConstraint, func
 )
 from sqlalchemy import JSON as JSONB
+from sqlalchemy.orm import relationship
 from database import Base
 
 
@@ -29,12 +30,13 @@ class Contact(Base):
     __tablename__ = "contacts"
 
     id = Column(Integer, primary_key=True)
-    name = Column(String(100), nullable=False)
-    email = Column(String(200))
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, unique=True)
     teams_upn = Column(String(200))                    # Teams mention용 UPN (예: user@company.com)
     webhook_url = Column(Text)
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+
+    user = relationship("User", back_populates="contact")
 
 
 class LlmAgentConfig(Base):
@@ -354,6 +356,8 @@ class User(Base):
     is_active     = Column(Boolean, nullable=False, default=True)
     is_approved   = Column(Boolean, nullable=False, default=False)
     created_at    = Column(DateTime, nullable=False, default=func.now())
+
+    contact = relationship("Contact", back_populates="user", uselist=False)
 
 
 # ── Chatbot (ReAct) ────────────────────────────────────────────────────

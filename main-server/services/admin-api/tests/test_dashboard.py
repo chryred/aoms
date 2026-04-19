@@ -9,7 +9,7 @@ import pytest
 from datetime import datetime, timedelta
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from models import System, Contact, AlertHistory, LogAnalysisHistory, SystemContact
+from models import System, Contact, AlertHistory, LogAnalysisHistory, SystemContact, User
 from routes.dashboard import _get_system_health
 
 
@@ -30,10 +30,20 @@ async def sample_system(db_session: AsyncSession):
 @pytest.fixture
 async def sample_contact(db_session: AsyncSession, sample_system: System):
     """테스트용 담당자 생성"""
-    contact = Contact(
-        name="Test Engineer",
-        teams_upn="test@company.com",
+    user = User(
         email="test@company.com",
+        password_hash="hashed",
+        name="Test Engineer",
+        role="operator",
+        is_active=True,
+        is_approved=True,
+    )
+    db_session.add(user)
+    await db_session.flush()
+
+    contact = Contact(
+        user_id=user.id,
+        teams_upn="test@company.com",
     )
     db_session.add(contact)
     await db_session.commit()
