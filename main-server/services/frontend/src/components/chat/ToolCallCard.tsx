@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { ChevronDown, ChevronRight, Wrench } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useChatTools } from '@/hooks/queries/useChatTools'
 
 interface ToolCallCardProps {
   toolName: string
@@ -10,19 +11,11 @@ interface ToolCallCardProps {
   thought?: string | null
 }
 
-function summarize(obj: unknown, limit = 160): string {
-  if (obj == null) return ''
-  try {
-    const text = typeof obj === 'string' ? obj : JSON.stringify(obj)
-    return text.length > limit ? text.slice(0, limit) + '…' : text
-  } catch {
-    return String(obj).slice(0, limit)
-  }
-}
-
 export function ToolCallCard({ toolName, args, result, running, thought }: ToolCallCardProps) {
   const [open, setOpen] = useState(false)
   const hasError = result && typeof result === 'object' && 'error' in result
+  const { data: tools } = useChatTools()
+  const displayName = tools?.find((t) => t.name === toolName)?.display_name
 
   return (
     <div
@@ -37,15 +30,16 @@ export function ToolCallCard({ toolName, args, result, running, thought }: ToolC
         className="hover:bg-hover-subtle flex w-full items-center gap-2 px-3 py-2 text-left"
       >
         {open ? (
-          <ChevronDown className="text-text-secondary h-4 w-4" />
+          <ChevronDown className="text-text-secondary h-4 w-4 shrink-0" />
         ) : (
-          <ChevronRight className="text-text-secondary h-4 w-4" />
+          <ChevronRight className="text-text-secondary h-4 w-4 shrink-0" />
         )}
-        <Wrench className={cn('h-4 w-4', hasError ? 'text-critical' : 'text-accent')} />
-        <span className="font-medium">{toolName}</span>
-        <span className="text-text-secondary flex-1 truncate text-xs">
-          {running ? '실행 중…' : hasError ? '오류' : summarize(result)}
+        <Wrench className={cn('h-4 w-4 shrink-0', hasError ? 'text-critical' : 'text-accent')} />
+        <span className="min-w-0 flex-1 truncate font-medium">
+          {displayName ? `${displayName}(${toolName})` : toolName}
         </span>
+        {running && <span className="text-text-secondary shrink-0 text-xs">실행 중…</span>}
+        {!running && hasError && <span className="text-critical shrink-0 text-xs">오류</span>}
       </button>
       {open && (
         <div className="border-border border-t px-3 py-2">

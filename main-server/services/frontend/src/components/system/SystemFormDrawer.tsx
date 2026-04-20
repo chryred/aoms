@@ -9,6 +9,7 @@ import { NeuSelect } from '@/components/neumorphic/NeuSelect'
 import { NeuTextarea } from '@/components/neumorphic/NeuTextarea'
 import { NeuButton } from '@/components/neumorphic/NeuButton'
 import { SystemContactPanel } from '@/components/contacts/SystemContactPanel'
+import { SystemHostPanel } from '@/components/system/SystemHostPanel'
 import { useCreateSystem } from '@/hooks/mutations/useCreateSystem'
 import { useUpdateSystem } from '@/hooks/mutations/useUpdateSystem'
 import type { System } from '@/types/system'
@@ -195,6 +196,14 @@ export function SystemFormDrawer({ open, onClose, onCreated, editTarget }: Syste
               {...register('description')}
             />
           </form>
+
+          {/* 서버 IP 관리 — 수정 모드에서만 표시 */}
+          {isEdit && displayEdit && (
+            <div className="border-border mt-6 border-t pt-5">
+              <p className="type-label mb-3">서버 IP</p>
+              <SystemHostPanel systemId={displayEdit.id} />
+            </div>
+          )}
 
           {/* 담당자 연결 — 수정 모드에서만 표시 */}
           {isEdit && displayEdit && (

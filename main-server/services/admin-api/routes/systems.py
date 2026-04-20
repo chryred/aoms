@@ -4,8 +4,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth import get_current_user
 from database import get_db
-from models import System, SystemContact, Contact, User
-from schemas import SystemCreate, SystemUpdate, SystemOut, SystemContactCreate, SystemContactOut, ContactOut, ContactWithRoleOut, SystemContactFullOut, ContactSummaryOut
+from models import System, SystemContact, SystemHost, Contact, User
+from schemas import SystemCreate, SystemUpdate, SystemOut, SystemContactCreate, SystemContactOut, ContactOut, ContactWithRoleOut, SystemContactFullOut, ContactSummaryOut, SystemHostCreate, SystemHostOut
 
 router = APIRouter(prefix="/api/v1/systems", tags=["systems"])
 
@@ -128,4 +128,48 @@ async def remove_system_contact(system_id: int, contact_id: int, db: AsyncSessio
     if not sc:
         raise HTTPException(status_code=404, detail="Mapping not found")
     await db.delete(sc)
+    await db.commit()
+
+
+# ── 시스템별 IP 호스트 ────────────────────────────────────────────────────
+
+@router.get("/{system_id}/hosts", response_model=list[SystemHostOut])
+async def list_system_hosts(system_id: int, db: AsyncSession = Depends(get_db)):
+    if not await db.get(System, system_id):
+        raise HTTPException(status_code=404, detail="System not found")
+    result = await db.execute(
+        select(SystemHost).where(SystemHost.system_id == system_id).order_by(SystemHost.id)
+    )
+    return result.scalars().all()
+
+
+@router.post("/{system_id}/hosts", response_model=SystemHostOut, status_code=status.HTTP_201_CREATED)
+async def add_system_host(
+    system_id: int,
+    payload: SystemHostCreate,
+    db: AsyncSession = Depends(get_db),
+    _user=Depends(get_current_user),
+):
+    if not await db.get(System, system_id):
+        raise HTTPException(status_code=404, detail="System not found")
+    host = SystemHost(system_id=system_id, **payload.model_dump())
+    db.add(host)
+    try:
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail="이미 등록된 IP입니다.")
+    await db.refresh(host)
+    return host
+
+
+@router.delete("/{system_id}/hosts/{host_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def remove_system_host(system_id: int, host_id: int, db: AsyncSession = Depends(get_db), _user=Depends(get_current_user)):
+    result = await db.execute(
+        select(SystemHost).where(SystemHost.system_id == system_id, SystemHost.id == host_id)
+    )
+    host = result.scalar_one_or_none()
+    if not host:
+        raise HTTPException(status_code=404, detail="Host not found")
+    await db.delete(host)
     await db.commit()

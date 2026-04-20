@@ -13,8 +13,10 @@ from typing import Any
 from urllib.parse import quote, urlencode
 
 import httpx
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from models import System, SystemHost
 from services.chat_tools.executor_config import load_executor_config
 
 _CLIENT: httpx.AsyncClient | None = None
@@ -252,7 +254,10 @@ class _EMSSession:
 
     async def find_server_by_ip(self, ip: str) -> list[dict[str, Any]]:
         r = await self.request(f"/rest/resource/list/search?ip={quote(ip)}")
-        rows = r.get("data", {}).get("list") or r.get("data") or []
+        data = r.get("data") or {}
+        rows = data.get("list") if isinstance(data, dict) else []
+        if not rows:
+            return []
         if not isinstance(rows, list):
             rows = [rows]
         return [
@@ -420,22 +425,62 @@ class _CredentialError(RuntimeError):
     pass
 
 
-async def _resolve_id(session: _EMSSession, args: dict[str, Any]) -> int:
-    rid = args.get("resourceId")
-    if rid:
-        return int(rid)
-    ip = args.get("ip")
-    if ip:
-        found = await session.find_server_by_ip(str(ip).strip())
-        if not found:
-            raise RuntimeError(f"IP '{ip}'에 해당하는 서버가 없습니다.")
-        return int(found[0]["id"])
-    raise RuntimeError("resourceId 또는 ip를 입력하세요.")
+async def _resolve_servers(
+    db: AsyncSession, system_display_name: str, role_label: str | None = None
+) -> tuple[System, list[dict[str, Any]]]:
+    """system_display_name + optional role_label → (System, resolved server 리스트).
+
+    각 host마다 독립 EMS 세션으로 find_server_by_ip 호출 (cookie 오염 방지).
+    반환되는 각 서버 dict는 {role_label, host_ip, resource_id, server_name, [error]} 구조.
+    EMS에서 찾지 못한 항목은 resource_id=None + error 필드 포함.
+    """
+    keyword = (system_display_name or "").strip()
+    if not keyword:
+        raise RuntimeError("system_display_name을 입력하세요.")
+
+    result = await db.execute(
+        select(System).where(System.display_name.ilike(f"%{keyword}%")).limit(1)
+    )
+    system = result.scalar_one_or_none()
+    if not system:
+        raise RuntimeError(f"'{keyword}'에 해당하는 시스템을 찾을 수 없습니다.")
+
+    query = select(SystemHost).where(SystemHost.system_id == system.id)
+    if role_label:
+        query = query.where(SystemHost.role_label == role_label.strip())
+    host_result = await db.execute(query.order_by(SystemHost.id))
+    hosts = host_result.scalars().all()
+    if not hosts:
+        filter_msg = f"role_label='{role_label}'" if role_label else "해당 시스템"
+        raise RuntimeError(f"{filter_msg}에 설정된 IP가 없습니다.")
+
+    resolved: list[dict[str, Any]] = []
+    for h in hosts:
+        clean_ip = h.host_ip.strip()
+        entry: dict[str, Any] = {
+            "role_label": h.role_label or "",
+            "host_ip": clean_ip,
+            "resource_id": None,
+            "server_name": None,
+        }
+        try:
+            host_session = await _session(db)
+            found = await host_session.find_server_by_ip(clean_ip)
+            if found and found[0].get("id") is not None:
+                entry["resource_id"] = int(found[0]["id"])
+                entry["server_name"] = found[0].get("name")
+            else:
+                entry["error"] = f"EMS에서 IP '{clean_ip}'의 서버를 찾을 수 없습니다."
+        except Exception as e:  # noqa: BLE001
+            entry["error"] = str(e)[:120]
+        resolved.append(entry)
+    return system, resolved
 
 
 # ── Tool handlers ──────────────────────────────────────────────────────
 async def execute(db: AsyncSession, name: str, args: dict[str, Any]) -> dict[str, Any]:
     try:
+        # 팀/그룹/시스템 기반 도구는 session 1회로 충분
         session = await _session(db)
     except _CredentialError as e:
         return {"error": str(e)}
@@ -457,55 +502,18 @@ async def execute(db: AsyncSession, name: str, args: dict[str, Any]) -> dict[str
             for gid in group_ids:
                 result.extend(await session.list_servers_by_group_id(str(gid)))
             return {"servers": result}
-        if name == "ems_find_server_by_ip":
-            return {"servers": await session.find_server_by_ip(str(args["ip"]))}
-        if name == "ems_get_server_detail":
-            rid = await _resolve_id(session, args)
-            return await session.get_server_detail(str(rid))
-        if name == "ems_get_summary_usage":
-            rid = await _resolve_id(session, args)
-            return await session.get_summary_usage(str(rid), args.get("timeSelector"))
-        if name == "ems_get_period_usage":
-            rid = await _resolve_id(session, args)
-            from_ms = to_millis(args.get("fromTime"), False)
-            to_ms = to_millis(args.get("toTime"), True)
-            if not (from_ms and to_ms):
-                return {"error": "fromTime/toTime 파싱 실패"}
-            return await session.get_summary_usage(
-                str(rid), time_selector="CUSTOM", from_time=from_ms, to_time=to_ms
-            )
-        if name == "ems_get_alarm_report":
-            # resourceId 단건/다건 지원
-            rids: list[str]
-            if args.get("resourceIds"):
-                rids = [str(x) for x in args["resourceIds"]]
-            elif args.get("resourceId") or args.get("ip"):
-                rid = await _resolve_id(session, args)
-                rids = [str(rid)]
-            else:
-                return {"error": "resourceId/resourceIds/ip 중 하나 필요"}
-            levels = args.get("alarmLevels") or ([args["alarmLevel"]] if args.get("alarmLevel") else [])
-            if not levels:
-                return {"error": "alarmLevel 필요"}
-            search_type = args.get("searchType") or "RECENT"
-            return {
-                "alarms": await session.get_alarm_report(
-                    rids,
-                    search_type,
-                    levels,
-                    to_millis(args.get("fromTime"), False),
-                    to_millis(args.get("toTime"), True),
-                )
-            }
-        if name == "ems_get_top_processes":
-            rid = await _resolve_id(session, args)
-            sort_by = args.get("sortBy", "cpu")
-            sort_key = "pcpu" if sort_by == "cpu" else "pmem"
-            return {
-                "processes": await session.get_top_processes(
-                    str(rid), top_n=int(args.get("topN", 5)), sort_key=sort_key
-                )
-            }
+        if name == "ems_get_resources_by_system":
+            return await _get_resources_by_system(db, args)
+        if name == "ems_get_system_server_detail":
+            return await _get_system_server_detail(db, args)
+        if name == "ems_get_system_usage_summary":
+            return await _get_system_usage_summary(db, args)
+        if name == "ems_get_system_period_usage":
+            return await _get_system_period_usage(db, args)
+        if name == "ems_get_system_alarm_report":
+            return await _get_system_alarm_report(db, args)
+        if name == "ems_get_system_top_processes":
+            return await _get_system_top_processes(db, args)
         return {"error": f"unknown EMS tool: {name}"}
     except _CredentialError as e:
         return {"error": str(e)}
@@ -514,3 +522,182 @@ async def execute(db: AsyncSession, name: str, args: dict[str, Any]) -> dict[str
         if any(code in msg for code in ("401", "403", "로그인")):
             return {"error": f"EMS 인증 실패: 자격증명을 확인하세요. ({msg[:120]})"}
         return {"error": f"EMS 호출 실패: {msg[:200]}"}
+
+
+async def _get_resources_by_system(
+    db: AsyncSession, args: dict[str, Any]
+) -> dict[str, Any]:
+    try:
+        system, resolved = await _resolve_servers(
+            db, args.get("system_display_name") or "", args.get("role_label")
+        )
+    except RuntimeError as e:
+        return {"error": str(e)}
+    role_labels = [r["role_label"] for r in resolved if r.get("resource_id") is not None]
+    return {
+        "system_name": system.system_name,
+        "display_name": system.display_name,
+        "servers": [
+            {"role_label": r["role_label"], "server_name": r.get("server_name")}
+            | ({"error": r["error"]} if "error" in r else {})
+            for r in resolved
+        ],
+        "available_role_labels": role_labels,
+        "next_step": (
+            "다음 EMS 도구 호출 시 system_display_name 과 필요 시 role_label 을 전달하세요. "
+            f"사용 가능한 role_label: {', '.join(role_labels)}"
+        ) if role_labels else "EMS에서 확인된 서버가 없습니다.",
+    }
+
+
+# ── 내부 helper: 서버별 결과 생성 래퍼 ──────────────────────────────────
+def _wrap_server_result(
+    entry: dict[str, Any], payload: dict[str, Any] | None = None, error: str | None = None
+) -> dict[str, Any]:
+    base = {"role_label": entry["role_label"], "server_name": entry.get("server_name")}
+    if error:
+        base["error"] = error
+        return base
+    if payload:
+        base.update(payload)
+    return base
+
+
+async def _per_server(
+    db: AsyncSession,
+    system_display_name: str,
+    role_label: str | None,
+    op: Any,  # async callable: (session, resolved_entry) -> dict
+) -> dict[str, Any]:
+    """공통 패턴: 시스템/역할 해석 → 각 서버에 op 적용 → 집계 반환."""
+    try:
+        system, resolved = await _resolve_servers(db, system_display_name, role_label)
+    except RuntimeError as e:
+        return {"error": str(e)}
+
+    servers_out: list[dict[str, Any]] = []
+    for r in resolved:
+        if r.get("resource_id") is None:
+            servers_out.append(_wrap_server_result(r, error=r.get("error", "resource_id 확인 불가")))
+            continue
+        try:
+            host_session = await _session(db)
+            payload = await op(host_session, r)
+            servers_out.append(_wrap_server_result(r, payload=payload))
+        except Exception as e:  # noqa: BLE001
+            servers_out.append(_wrap_server_result(r, error=str(e)[:120]))
+
+    return {
+        "system_name": system.system_name,
+        "display_name": system.display_name,
+        "servers": servers_out,
+    }
+
+
+# ── 신규 composite 도구 핸들러 ─────────────────────────────────────────
+async def _get_system_server_detail(db: AsyncSession, args: dict[str, Any]) -> dict[str, Any]:
+    async def op(sess: _EMSSession, r: dict[str, Any]) -> dict[str, Any]:
+        return {"detail": await sess.get_server_detail(str(r["resource_id"]))}
+
+    return await _per_server(
+        db, args.get("system_display_name") or "", args.get("role_label"), op
+    )
+
+
+async def _get_system_usage_summary(db: AsyncSession, args: dict[str, Any]) -> dict[str, Any]:
+    time_selector = (args.get("timeSelector") or "day").strip()
+
+    async def op(sess: _EMSSession, r: dict[str, Any]) -> dict[str, Any]:
+        usage = await sess.get_summary_usage(str(r["resource_id"]), time_selector)
+        return dict(usage)
+
+    out = await _per_server(
+        db, args.get("system_display_name") or "", args.get("role_label"), op
+    )
+    if "servers" in out:
+        out["timeSelector"] = time_selector
+    return out
+
+
+async def _get_system_period_usage(db: AsyncSession, args: dict[str, Any]) -> dict[str, Any]:
+    from_ms = to_millis(args.get("fromTime"), False)
+    to_ms = to_millis(args.get("toTime"), True)
+    if not (from_ms and to_ms):
+        return {"error": "fromTime/toTime 파싱 실패"}
+
+    async def op(sess: _EMSSession, r: dict[str, Any]) -> dict[str, Any]:
+        usage = await sess.get_summary_usage(
+            str(r["resource_id"]), time_selector="CUSTOM", from_time=from_ms, to_time=to_ms
+        )
+        return dict(usage)
+
+    out = await _per_server(
+        db, args.get("system_display_name") or "", args.get("role_label"), op
+    )
+    if "servers" in out:
+        out["period"] = {"fromTime": from_ms, "toTime": to_ms}
+    return out
+
+
+async def _get_system_top_processes(db: AsyncSession, args: dict[str, Any]) -> dict[str, Any]:
+    sort_by = args.get("sortBy", "cpu")
+    sort_key = "pcpu" if sort_by == "cpu" else "pmem"
+    top_n = int(args.get("topN", 5))
+
+    async def op(sess: _EMSSession, r: dict[str, Any]) -> dict[str, Any]:
+        procs = await sess.get_top_processes(str(r["resource_id"]), top_n=top_n, sort_key=sort_key)
+        return {"processes": procs}
+
+    out = await _per_server(
+        db, args.get("system_display_name") or "", args.get("role_label"), op
+    )
+    if "servers" in out:
+        out["sortBy"] = sort_by
+        out["topN"] = top_n
+    return out
+
+
+async def _get_system_alarm_report(db: AsyncSession, args: dict[str, Any]) -> dict[str, Any]:
+    """알람 리포트는 EMS API가 resource_id 다건을 한 번에 받으므로
+    서버별 반복 대신 시스템의 resource_id를 모아 한 번 호출한다."""
+    try:
+        system, resolved = await _resolve_servers(
+            db, args.get("system_display_name") or "", args.get("role_label")
+        )
+    except RuntimeError as e:
+        return {"error": str(e)}
+
+    rids = [str(r["resource_id"]) for r in resolved if r.get("resource_id") is not None]
+    if not rids:
+        return {
+            "error": "EMS에서 확인된 서버가 없어 알람 리포트를 조회할 수 없습니다.",
+            "servers": [_wrap_server_result(r, error=r.get("error", "확인 불가")) for r in resolved],
+        }
+
+    levels = args.get("alarmLevels") or (
+        [args["alarmLevel"]] if args.get("alarmLevel") else []
+    )
+    if not levels:
+        return {"error": "alarmLevel(또는 alarmLevels) 필요"}
+    search_type = args.get("searchType") or "RECENT"
+
+    try:
+        host_session = await _session(db)
+        alarms = await host_session.get_alarm_report(
+            rids,
+            search_type,
+            levels,
+            to_millis(args.get("fromTime"), False),
+            to_millis(args.get("toTime"), True),
+        )
+    except Exception as e:  # noqa: BLE001
+        return {"error": f"알람 조회 실패: {str(e)[:200]}"}
+
+    return {
+        "system_name": system.system_name,
+        "display_name": system.display_name,
+        "role_labels": [r["role_label"] for r in resolved if r.get("resource_id") is not None],
+        "searchType": search_type,
+        "alarmLevels": levels,
+        "alarms": alarms,
+    }

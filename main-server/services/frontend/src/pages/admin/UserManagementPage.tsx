@@ -100,7 +100,10 @@ export function UserManagementPage() {
       deleteUser(userId, { onSettled: () => setConfirmState(null) })
       return
     }
-    const bodyMap: Record<Exclude<ActionType, 'delete'>, { is_approved?: boolean; is_active?: boolean }> = {
+    const bodyMap: Record<
+      Exclude<ActionType, 'delete'>,
+      { is_approved?: boolean; is_active?: boolean }
+    > = {
       approve: { is_approved: true },
       reject: { is_active: false },
       disable: { is_active: false },
@@ -152,13 +155,19 @@ export function UserManagementPage() {
           <table className="w-full min-w-[480px] text-sm">
             <thead>
               <tr className="border-border border-b">
-                <th className="type-label whitespace-nowrap px-4 py-3 text-left">이름</th>
-                <th className="type-label whitespace-nowrap px-4 py-3 text-left">이메일</th>
-                <th className="type-label hidden whitespace-nowrap px-4 py-3 text-left md:table-cell">권한</th>
-                <th className="type-label whitespace-nowrap px-4 py-3 text-left">상태</th>
-                <th className="type-label hidden whitespace-nowrap px-4 py-3 text-left md:table-cell">담당자</th>
-                <th className="type-label hidden whitespace-nowrap px-4 py-3 text-left md:table-cell">신청일</th>
-                <th className="type-label whitespace-nowrap px-4 py-3 text-left">액션</th>
+                <th className="type-label px-4 py-3 text-left whitespace-nowrap">이름</th>
+                <th className="type-label px-4 py-3 text-left whitespace-nowrap">이메일</th>
+                <th className="type-label hidden px-4 py-3 text-left whitespace-nowrap md:table-cell">
+                  권한
+                </th>
+                <th className="type-label px-4 py-3 text-left whitespace-nowrap">상태</th>
+                <th className="type-label hidden px-4 py-3 text-left whitespace-nowrap md:table-cell">
+                  담당자
+                </th>
+                <th className="type-label hidden px-4 py-3 text-left whitespace-nowrap md:table-cell">
+                  신청일
+                </th>
+                <th className="type-label px-4 py-3 text-left whitespace-nowrap">액션</th>
               </tr>
             </thead>
             <tbody>
@@ -175,10 +184,17 @@ export function UserManagementPage() {
                   return (
                     <tr
                       key={user.id}
-                      className="border-border border-b last:border-0 hover:bg-hover-subtle"
+                      className="border-border hover:bg-hover-subtle border-b last:border-0"
                     >
-                      <td className="text-text-primary whitespace-nowrap px-4 py-3 font-medium">{user.name}</td>
-                      <td className="text-text-secondary max-w-[180px] truncate whitespace-nowrap px-4 py-3" title={user.email}>{user.email}</td>
+                      <td className="text-text-primary px-4 py-3 font-medium whitespace-nowrap">
+                        {user.name}
+                      </td>
+                      <td
+                        className="text-text-secondary max-w-[180px] truncate px-4 py-3 whitespace-nowrap"
+                        title={user.email}
+                      >
+                        {user.email}
+                      </td>
                       <td className="hidden px-4 py-3 md:table-cell">
                         {isSelf ? (
                           <UserRoleBadge role={user.role} />
@@ -199,10 +215,10 @@ export function UserManagementPage() {
                           </select>
                         )}
                       </td>
-                      <td className="whitespace-nowrap px-4 py-3">
+                      <td className="px-4 py-3 whitespace-nowrap">
                         <UserStatusBadge status={userStatus} />
                       </td>
-                      <td className="hidden whitespace-nowrap px-4 py-3 md:table-cell">
+                      <td className="hidden px-4 py-3 whitespace-nowrap md:table-cell">
                         {user.is_linked ? (
                           <span
                             className="text-accent inline-flex items-center gap-1 text-xs"
@@ -215,10 +231,10 @@ export function UserManagementPage() {
                           <span className="text-text-disabled text-xs">—</span>
                         )}
                       </td>
-                      <td className="text-text-secondary hidden whitespace-nowrap px-4 py-3 md:table-cell">
+                      <td className="text-text-secondary hidden px-4 py-3 whitespace-nowrap md:table-cell">
                         {formatDate(user.created_at)}
                       </td>
-                      <td className="whitespace-nowrap px-4 py-3">
+                      <td className="px-4 py-3 whitespace-nowrap">
                         <div className="flex flex-wrap items-center gap-2">
                           <button
                             onClick={() => setEditTarget(user)}
@@ -239,33 +255,33 @@ export function UserManagementPage() {
                             </button>
                           )}
                           {!isSelf && userStatus === 'pending' && (
-                              <>
-                                <button
-                                  className="text-normal text-xs font-medium hover:underline"
-                                  onClick={() =>
-                                    setConfirmState({
-                                      open: true,
-                                      userId: user.id,
-                                      action: 'approve',
-                                    })
-                                  }
-                                >
-                                  승인
-                                </button>
-                                <button
-                                  className="text-critical text-xs font-medium hover:underline"
-                                  onClick={() =>
-                                    setConfirmState({
-                                      open: true,
-                                      userId: user.id,
-                                      action: 'reject',
-                                    })
-                                  }
-                                >
-                                  거부
-                                </button>
-                              </>
-                            )}
+                            <>
+                              <button
+                                className="text-normal text-xs font-medium hover:underline"
+                                onClick={() =>
+                                  setConfirmState({
+                                    open: true,
+                                    userId: user.id,
+                                    action: 'approve',
+                                  })
+                                }
+                              >
+                                승인
+                              </button>
+                              <button
+                                className="text-critical text-xs font-medium hover:underline"
+                                onClick={() =>
+                                  setConfirmState({
+                                    open: true,
+                                    userId: user.id,
+                                    action: 'reject',
+                                  })
+                                }
+                              >
+                                거부
+                              </button>
+                            </>
+                          )}
                           {!isSelf && userStatus === 'active' && (
                             <button
                               className="text-warning text-xs font-medium hover:underline"

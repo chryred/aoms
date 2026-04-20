@@ -26,3 +26,16 @@ export interface SystemCreate {
 }
 
 export type SystemUpdate = Partial<Omit<SystemCreate, 'system_name'>>
+
+export interface SystemHost {
+  id: number
+  system_id: number
+  host_ip: string
+  role_label: string | null
+  created_at: string
+}
+
+export interface SystemHostCreate {
+  host_ip: string
+  role_label?: string
+}

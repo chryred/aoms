@@ -179,12 +179,40 @@ export function ContactListPage() {
             <table className="w-full min-w-[360px] text-sm">
               <thead>
                 <tr className="border-border border-b">
-                  <th scope="col" className="text-text-secondary whitespace-nowrap px-4 py-3 text-left text-xs font-semibold">이름</th>
-                  <th scope="col" className="text-text-secondary hidden whitespace-nowrap px-4 py-3 text-left text-xs font-semibold md:table-cell">이메일</th>
-                  <th scope="col" className="text-text-secondary hidden whitespace-nowrap px-4 py-3 text-left text-xs font-semibold md:table-cell">Teams UPN</th>
-                  <th scope="col" className="text-text-secondary whitespace-nowrap px-4 py-3 text-left text-xs font-semibold">연결된 시스템</th>
-                  <th scope="col" className="text-text-secondary hidden whitespace-nowrap px-4 py-3 text-left text-xs font-semibold md:table-cell">등록일</th>
-                  <th scope="col" className="text-text-secondary px-4 py-3 text-left text-xs font-semibold"></th>
+                  <th
+                    scope="col"
+                    className="text-text-secondary px-4 py-3 text-left text-xs font-semibold whitespace-nowrap"
+                  >
+                    이름
+                  </th>
+                  <th
+                    scope="col"
+                    className="text-text-secondary hidden px-4 py-3 text-left text-xs font-semibold whitespace-nowrap md:table-cell"
+                  >
+                    이메일
+                  </th>
+                  <th
+                    scope="col"
+                    className="text-text-secondary hidden px-4 py-3 text-left text-xs font-semibold whitespace-nowrap md:table-cell"
+                  >
+                    Teams UPN
+                  </th>
+                  <th
+                    scope="col"
+                    className="text-text-secondary px-4 py-3 text-left text-xs font-semibold whitespace-nowrap"
+                  >
+                    연결된 시스템
+                  </th>
+                  <th
+                    scope="col"
+                    className="text-text-secondary hidden px-4 py-3 text-left text-xs font-semibold whitespace-nowrap md:table-cell"
+                  >
+                    등록일
+                  </th>
+                  <th
+                    scope="col"
+                    className="text-text-secondary px-4 py-3 text-left text-xs font-semibold"
+                  ></th>
                 </tr>
               </thead>
               <tbody>
@@ -265,14 +293,20 @@ function ContactRow({
 }) {
   return (
     <tr className="border-border hover:bg-hover-subtle border-b transition-colors last:border-0">
-      <td className="text-text-primary whitespace-nowrap px-4 py-3 font-medium">{contact.name}</td>
-      <td className="text-text-secondary hidden max-w-[180px] truncate whitespace-nowrap px-4 py-3 md:table-cell">{contact.email ?? '-'}</td>
-      <td className="text-text-secondary hidden max-w-[180px] truncate whitespace-nowrap px-4 py-3 md:table-cell">{contact.teams_upn ?? '-'}</td>
-      <td className="whitespace-nowrap px-4 py-3">
+      <td className="text-text-primary px-4 py-3 font-medium whitespace-nowrap">{contact.name}</td>
+      <td className="text-text-secondary hidden max-w-[180px] truncate px-4 py-3 whitespace-nowrap md:table-cell">
+        {contact.email ?? '-'}
+      </td>
+      <td className="text-text-secondary hidden max-w-[180px] truncate px-4 py-3 whitespace-nowrap md:table-cell">
+        {contact.teams_upn ?? '-'}
+      </td>
+      <td className="px-4 py-3 whitespace-nowrap">
         <SystemsCell systems={contact.systems} contactName={contact.name} />
       </td>
-      <td className="text-text-secondary hidden whitespace-nowrap px-4 py-3 md:table-cell">{formatKST(contact.created_at, 'date')}</td>
-      <td className="whitespace-nowrap px-4 py-3">
+      <td className="text-text-secondary hidden px-4 py-3 whitespace-nowrap md:table-cell">
+        {formatKST(contact.created_at, 'date')}
+      </td>
+      <td className="px-4 py-3 whitespace-nowrap">
         <div className="flex gap-3">
           <button
             onClick={onEdit}

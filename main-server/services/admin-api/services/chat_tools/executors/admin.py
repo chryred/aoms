@@ -8,25 +8,42 @@ from typing import Any
 from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from models import AlertHistory, Contact, System, SystemContact
+from models import AlertHistory, Contact, System, SystemContact, SystemHost
 
 
 async def _list_systems(db: AsyncSession, args: dict[str, Any]) -> dict[str, Any]:
     stmt = select(System)
-    if args.get("system_type"):
-        stmt = stmt.where(System.system_type == args["system_type"])
     if args.get("status"):
         stmt = stmt.where(System.status == args["status"])
+    if args.get("display_name"):
+        stmt = stmt.where(System.display_name.ilike(f"%{args['display_name']}%"))
     rows = (await db.execute(stmt.order_by(System.id))).scalars().all()
+
+    system_ids = [s.id for s in rows]
+    if system_ids:
+        host_rows = (
+            await db.execute(
+                select(SystemHost)
+                .where(SystemHost.system_id.in_(system_ids))
+                .order_by(SystemHost.system_id, SystemHost.id)
+            )
+        ).scalars().all()
+    else:
+        host_rows = []
+    hosts_by_system: dict[int, list[dict]] = {}
+    for h in host_rows:
+        hosts_by_system.setdefault(h.system_id, []).append(
+            {"id": h.id, "host_ip": h.host_ip, "role_label": h.role_label}
+        )
+
     return {
         "systems": [
             {
                 "id": s.id,
                 "system_name": s.system_name,
                 "display_name": s.display_name,
-                "system_type": s.system_type,
                 "status": s.status,
-                "host": s.host,
+                "hosts": hosts_by_system.get(s.id, []),
             }
             for s in rows
         ],

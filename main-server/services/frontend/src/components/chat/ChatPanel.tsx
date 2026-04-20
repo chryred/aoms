@@ -68,6 +68,7 @@ export function ChatPanel() {
   const [isStreaming, setIsStreaming] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
+  const userScrolledUpRef = useRef(false)
 
   // 스트리밍이 끝나면 message list 재조회로 화면 교체
   const finishStream = useCallback(() => {
@@ -201,11 +202,19 @@ export function ChatPanel() {
     [sessions, currentSessionId],
   )
 
+  const handleScroll = useCallback(() => {
+    const el = scrollRef.current
+    if (!el) return
+    userScrolledUpRef.current = el.scrollHeight - el.scrollTop - el.clientHeight > 100
+  }, [])
+
   // 새 메시지/스트림 업데이트 시 하단으로 스크롤
   useEffect(() => {
     const el = scrollRef.current
     if (!el) return
-    el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+    // 스트리밍 중 사용자가 위로 스크롤했으면 강제 이동 안 함
+    if (isStreaming && userScrolledUpRef.current) return
+    el.scrollTo({ top: el.scrollHeight, behavior: isStreaming ? 'instant' : 'smooth' })
   }, [messages?.length, streamText, streamingTools.length, isStreaming])
 
   // 언마운트/패널 닫힘 시 스트림 취소
@@ -216,10 +225,11 @@ export function ChatPanel() {
   return (
     <div
       className={cn(
-        'fixed right-0 z-40 w-full sm:w-[440px]',
+        'fixed right-0 z-40 w-full sm:w-[660px]',
         'bg-surface border-border flex flex-col border-l shadow-[-8px_0_24px_rgba(0,0,0,0.3)]',
         'transition-transform duration-200 ease-out',
-        hasBanner ? 'top-9 h-[calc(100%-2.25rem)]' : 'top-0 h-full',
+        'top-0 h-screen',
+        hasBanner ? 'sm:top-9 sm:h-[calc(100%-2.25rem)]' : 'sm:top-0 sm:h-full',
         isOpen ? 'translate-x-0' : 'translate-x-full',
       )}
       aria-hidden={!isOpen}
@@ -231,7 +241,7 @@ export function ChatPanel() {
         disabled={isStreaming}
       />
 
-      <div ref={scrollRef} className="bg-bg-base flex-1 space-y-3 overflow-y-auto px-3 py-3">
+      <div ref={scrollRef} onScroll={handleScroll} className="bg-bg-base flex-1 space-y-3 overflow-y-auto px-3 py-3">
         {messages?.length === 0 && !isStreaming && (
           <div className="text-text-secondary mt-6 text-center text-sm">
             <div className="mb-1">무엇이든 물어보세요.</div>

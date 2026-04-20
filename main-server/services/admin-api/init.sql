@@ -62,6 +62,16 @@ CREATE TABLE IF NOT EXISTS system_contacts (
     UNIQUE(system_id, contact_id)
 );
 
+-- ── 시스템 호스트 IP ─────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS system_hosts (
+    id          SERIAL PRIMARY KEY,
+    system_id   INTEGER REFERENCES systems(id) ON DELETE CASCADE,
+    host_ip     VARCHAR(100) NOT NULL,
+    role_label  VARCHAR(50),
+    created_at  TIMESTAMP DEFAULT NOW(),
+    UNIQUE(system_id, host_ip)
+);
+
 -- ── 알림 이력 ────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS alert_history (
     id                  SERIAL PRIMARY KEY,
@@ -371,21 +381,21 @@ INSERT INTO chat_tools (name, display_name, description, input_schema, executor)
      '{"type":"object","properties":{"teamname":{"type":"string","description":"팀명"}},"required":["teamname"]}'::jsonb, 'ems'),
     ('ems_list_servers_by_team', 'EMS 팀별 서버 목록', '팀명 또는 그룹 ID로 서버 목록을 조회.',
      '{"type":"object","properties":{"teamnames":{"type":"array","items":{"type":"string"}},"groupIds":{"type":"array","items":{"type":"string"}}}}'::jsonb, 'ems'),
-    ('ems_find_server_by_ip', 'EMS IP로 서버 찾기', 'IP를 입력해 EMS 서버 정보를 반환.',
-     '{"type":"object","properties":{"ip":{"type":"string"}},"required":["ip"]}'::jsonb, 'ems'),
-    ('ems_get_server_detail', 'EMS 서버 상세', '서버 resourceId 또는 IP로 상세 정보 조회.',
-     '{"type":"object","properties":{"resourceId":{"type":"string"},"ip":{"type":"string"}}}'::jsonb, 'ems'),
-    ('ems_get_summary_usage', 'EMS 사용률 요약', 'CPU/메모리/디스크 사용률 요약(day/week/month).',
-     '{"type":"object","properties":{"resourceId":{"type":"string"},"ip":{"type":"string"},"timeSelector":{"type":"string","enum":["day","week","month"]}}}'::jsonb, 'ems'),
-    ('ems_get_period_usage', 'EMS 기간별 사용률', '임의 시작/종료 시각 범위의 사용률.',
-     '{"type":"object","properties":{"resourceId":{"type":"string"},"ip":{"type":"string"},"fromTime":{"type":"string"},"toTime":{"type":"string"}},"required":["fromTime","toTime"]}'::jsonb, 'ems'),
-    ('ems_get_alarm_report', 'EMS 알람 조회', 'EMS 알람 리포트 조회.',
-     '{"type":"object","properties":{"searchType":{"type":"string"},"alarmLevel":{"type":"string","enum":["ATTENTION","TROUBLE","CRITICAL"]}}}'::jsonb, 'ems'),
-    ('ems_get_top_processes', 'EMS Top 프로세스', '서버의 CPU/메모리 상위 프로세스 조회.',
-     '{"type":"object","properties":{"resourceId":{"type":"string"},"ip":{"type":"string"},"topN":{"type":"integer","default":5},"sortBy":{"type":"string","enum":["cpu","memory"],"default":"cpu"}}}'::jsonb, 'ems'),
+    ('ems_get_resources_by_system', 'EMS 시스템별 서버 조회', 'AOMS에 등록된 시스템 표시명(display_name)으로 연결된 서버 목록(role_label)을 조회합니다. role_label 지정 시 특정 서버만 조회. 이후 다른 EMS 도구들은 system_display_name + role_label 조합으로 사용합니다.',
+     '{"type":"object","properties":{"system_display_name":{"type":"string","description":"조회할 시스템 표시명 (부분 일치). 예: 고객경험시스템"},"role_label":{"type":"string","description":"특정 서버만 조회할 때 사용 (예: was1, db1). 생략 시 전체."}},"required":["system_display_name"]}'::jsonb, 'ems'),
+    ('ems_get_system_server_detail', 'EMS 시스템 서버 상세', '시스템 표시명으로 해당 시스템의 모든(또는 지정 role) 서버 상세 정보(OS, 가동시간 등) 조회.',
+     '{"type":"object","properties":{"system_display_name":{"type":"string"},"role_label":{"type":"string"}},"required":["system_display_name"]}'::jsonb, 'ems'),
+    ('ems_get_system_usage_summary', 'EMS 시스템 사용률 요약', '시스템 표시명으로 해당 시스템 서버들의 CPU/메모리/디스크 사용률 요약(day/week/month)을 한 번에 조회. role_label 지정 시 해당 서버만.',
+     '{"type":"object","properties":{"system_display_name":{"type":"string"},"role_label":{"type":"string"},"timeSelector":{"type":"string","enum":["day","week","month"],"default":"day"}},"required":["system_display_name"]}'::jsonb, 'ems'),
+    ('ems_get_system_period_usage', 'EMS 시스템 기간별 사용률', '시스템 표시명으로 임의 기간(fromTime~toTime)의 서버 사용률을 조회. fromTime/toTime은 반드시 YYYYMMDD 형식(예: 20260418)으로 전달.',
+     '{"type":"object","properties":{"system_display_name":{"type":"string"},"role_label":{"type":"string"},"fromTime":{"type":"string","description":"시작 일자 (YYYYMMDD 형식, 예: 20260418)"},"toTime":{"type":"string","description":"종료 일자 (YYYYMMDD 형식, 예: 20260420)"}},"required":["system_display_name","fromTime","toTime"]}'::jsonb, 'ems'),
+    ('ems_get_system_alarm_report', 'EMS 시스템 알람 조회', '시스템 표시명으로 해당 시스템 서버들의 알람 리포트 조회.',
+     '{"type":"object","properties":{"system_display_name":{"type":"string"},"role_label":{"type":"string"},"searchType":{"type":"string"},"alarmLevel":{"type":"string","enum":["ATTENTION","TROUBLE","CRITICAL"]},"alarmLevels":{"type":"array","items":{"type":"string"}},"fromTime":{"type":"string"},"toTime":{"type":"string"}},"required":["system_display_name"]}'::jsonb, 'ems'),
+    ('ems_get_system_top_processes', 'EMS 시스템 Top 프로세스', '시스템 표시명으로 각 서버의 CPU/메모리 상위 프로세스 조회.',
+     '{"type":"object","properties":{"system_display_name":{"type":"string"},"role_label":{"type":"string"},"topN":{"type":"integer","default":5},"sortBy":{"type":"string","enum":["cpu","memory"],"default":"cpu"}},"required":["system_display_name"]}'::jsonb, 'ems'),
     -- admin executor
-    ('admin_list_systems', '시스템 목록 조회', 'Synapse-V에 등록된 모니터링 시스템 목록 조회.',
-     '{"type":"object","properties":{"system_type":{"type":"string"},"status":{"type":"string"}}}'::jsonb, 'admin'),
+    ('admin_list_systems', '시스템 목록 조회', 'Synapse-V에 등록된 모니터링 시스템 목록 조회. 시스템명을 알고 있으면 display_name을 지정해 해당 시스템만 조회한다.',
+     '{"type":"object","properties":{"display_name":{"type":"string","description":"시스템 표시명 부분 일치 필터. 예: 고객경험시스템"},"status":{"type":"string"}}}'::jsonb, 'admin'),
     ('admin_search_alert_history', '알림 이력 검색', '최근 알림 이력 조회 (시스템/심각도/기간).',
      '{"type":"object","properties":{"system_id":{"type":"integer"},"severity":{"type":"string","enum":["info","warning","critical"]},"since_hours":{"type":"integer","default":24},"limit":{"type":"integer","default":20}}}'::jsonb, 'admin'),
     ('admin_list_contacts', '담당자 조회', '시스템 담당자 목록 조회.',

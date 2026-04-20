@@ -40,6 +40,30 @@ class SystemBrief(BaseModel):
     model_config = {"from_attributes": True}
 
 
+# ── SystemHost ───────────────────────────────────────────────────────────
+class SystemHostCreate(BaseModel):
+    host_ip: str
+    role_label: Optional[str] = None
+
+    @field_validator("host_ip")
+    @classmethod
+    def strip_host_ip(cls, v: str) -> str:
+        stripped = v.strip()
+        if not stripped:
+            raise ValueError("host_ip는 비워둘 수 없습니다.")
+        return stripped
+
+
+class SystemHostOut(BaseModel):
+    id: int
+    system_id: int
+    host_ip: str
+    role_label: Optional[str]
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
 # ── Contact ──────────────────────────────────────────────────────────────
 class ContactCreate(BaseModel):
     user_id: int

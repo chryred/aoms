@@ -6,6 +6,7 @@ import { CriticalBanner } from '@/components/common/CriticalBanner'
 import { ChatLauncher } from '@/components/chat/ChatLauncher'
 import { ChatPanel } from '@/components/chat/ChatPanel'
 import { useUiStore } from '@/store/uiStore'
+import { useChatStore } from '@/store/chatStore'
 import { useAlertsCount } from '@/hooks/queries/useAlertsCount'
 import { cn } from '@/lib/utils'
 
@@ -14,6 +15,7 @@ export function AppLayout() {
   const criticalCount = useUiStore((s) => s.criticalCount)
   const sidebarOpen = useUiStore((s) => s.sidebarOpen)
   const closeMobileSidebar = useUiStore((s) => s.closeMobileSidebar)
+  const chatOpen = useChatStore((s) => s.isOpen)
 
   const { data: criticalCountData } = useAlertsCount({
     severity: 'critical',
@@ -55,7 +57,12 @@ export function AppLayout() {
         className={cn('flex min-w-0 flex-1 flex-col overflow-hidden', criticalCount > 0 && 'mt-9')}
       >
         <TopBar />
-        <main className="flex-1 overflow-y-scroll overscroll-y-contain scroll-smooth p-4 md:p-6">
+        <main
+          className={cn(
+            'flex-1 overscroll-y-contain scroll-smooth p-4 md:p-6',
+            chatOpen ? 'overflow-hidden' : 'overflow-y-scroll',
+          )}
+        >
           <Outlet />
         </main>
       </div>

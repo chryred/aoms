@@ -26,6 +26,18 @@ class System(Base):
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
 
 
+class SystemHost(Base):
+    __tablename__ = "system_hosts"
+
+    id         = Column(Integer, primary_key=True)
+    system_id  = Column(Integer, ForeignKey("systems.id", ondelete="CASCADE"), nullable=False)
+    host_ip    = Column(String(100), nullable=False)
+    role_label = Column(String(50))                  # WAS1, WAS2, DB1 등 표시용
+    created_at = Column(DateTime, default=func.now())
+
+    __table_args__ = (UniqueConstraint("system_id", "host_ip"),)
+
+
 class Contact(Base):
     __tablename__ = "contacts"
 

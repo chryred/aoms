@@ -1,8 +1,80 @@
 import { useState } from 'react'
 import { User, Bot, Loader2 } from 'lucide-react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+import type { Components } from 'react-markdown'
 import type { ChatMessage as ChatMessageType } from '@/types/chat'
 import { chatApi } from '@/api/chat'
 import { ToolCallCard } from './ToolCallCard'
+
+const markdownComponents: Components = {
+  h1: ({ children }) => (
+    <h1 className="text-text-primary mt-2 mb-1 text-base font-semibold">{children}</h1>
+  ),
+  h2: ({ children }) => (
+    <h2 className="text-text-primary mt-2 mb-1 text-sm font-semibold">{children}</h2>
+  ),
+  h3: ({ children }) => (
+    <h3 className="text-text-primary mt-2 mb-1 text-sm font-semibold">{children}</h3>
+  ),
+  p: ({ children }) => <p className="text-text-primary mb-1 leading-relaxed">{children}</p>,
+  strong: ({ children }) => <strong className="text-text-primary font-semibold">{children}</strong>,
+  em: ({ children }) => <em className="italic">{children}</em>,
+  code: ({ children, className }) => {
+    const isBlock = className?.startsWith('language-')
+    if (isBlock) {
+      return (
+        <code className="bg-bg-deep text-text-primary block overflow-x-auto rounded-sm p-2 font-mono text-xs">
+          {children}
+        </code>
+      )
+    }
+    return (
+      <code className="bg-bg-deep text-accent rounded-sm px-1 font-mono text-xs">{children}</code>
+    )
+  },
+  pre: ({ children }) => <pre className="mb-1">{children}</pre>,
+  ul: ({ children }) => <ul className="mb-1 list-disc space-y-0.5 pl-4">{children}</ul>,
+  ol: ({ children }) => <ol className="mb-1 list-decimal space-y-0.5 pl-4">{children}</ol>,
+  li: ({ children }) => <li className="text-text-primary">{children}</li>,
+  blockquote: ({ children }) => (
+    <blockquote className="border-border my-1 border-l-2 pl-2 italic">
+      <span className="text-text-secondary">{children}</span>
+    </blockquote>
+  ),
+  a: ({ children, href }) => (
+    <a href={href} className="text-accent underline" target="_blank" rel="noreferrer">
+      {children}
+    </a>
+  ),
+  hr: () => <hr className="border-border my-2" />,
+  table: ({ children }) => (
+    <div className="my-2 overflow-x-auto">
+      <table className="border-border w-full border-collapse border text-xs">{children}</table>
+    </div>
+  ),
+  thead: ({ children }) => <thead className="bg-bg-deep">{children}</thead>,
+  tbody: ({ children }) => <tbody>{children}</tbody>,
+  tr: ({ children }) => <tr className="border-border border-b">{children}</tr>,
+  th: ({ children }) => (
+    <th className="border-border text-text-primary border px-2 py-1 text-left font-semibold">
+      {children}
+    </th>
+  ),
+  td: ({ children }) => (
+    <td className="border-border text-text-primary border px-2 py-1">{children}</td>
+  ),
+}
+
+function MarkdownContent({ content }: { content: string }) {
+  return (
+    <div className="text-text-primary text-sm break-words">
+      <ReactMarkdown components={markdownComponents} remarkPlugins={[remarkGfm]}>
+        {content}
+      </ReactMarkdown>
+    </div>
+  )
+}
 
 interface ChatMessageProps {
   message: ChatMessageType
@@ -55,7 +127,11 @@ export function ChatMessageView({ message, sessionId }: ChatMessageProps) {
           <span>어시스턴트</span>
         </div>
         {thought && <ThoughtToggle thought={thought} />}
-        <div className="text-text-primary break-words whitespace-pre-wrap">{content || '…'}</div>
+        {content ? (
+          <MarkdownContent content={content} />
+        ) : (
+          <span className="text-text-primary text-sm">…</span>
+        )}
       </div>
     </div>
   )
@@ -124,9 +200,9 @@ export function StreamingAssistantMessage({
           {running && <Loader2 className="h-3 w-3 animate-spin" />}
         </div>
         {thought && <div className="text-text-secondary text-xs italic">💭 {thought}</div>}
-        <div className="text-text-primary break-words whitespace-pre-wrap">
-          {content}
-          {running && <span className="animate-pulse">▋</span>}
+        <div className="break-words">
+          {content && <MarkdownContent content={content} />}
+          {running && <span className="text-text-primary animate-pulse text-sm">▋</span>}
         </div>
       </div>
     </div>

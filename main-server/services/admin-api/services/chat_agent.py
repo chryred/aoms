@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 MAX_ITERS = int(os.getenv("CHAT_MAX_ITERS", "5"))
 HISTORY_WINDOW = int(os.getenv("CHAT_HISTORY_WINDOW", "20"))
-TOOL_RESULT_MAX = 2048  # observation bytes
+TOOL_RESULT_MAX = int(os.getenv("CHAT_TOOL_RESULT_MAX", "8192"))  # observation bytes
 
 
 def _truncate(text: str, limit: int) -> str:
@@ -72,7 +72,14 @@ def _decision_prompt(tools: list[dict[str, Any]], history: str, user_message: st
 
 - 도구가 필요 없으면 바로 final_answer_ready=true 반환.
 - args는 해당 도구의 input_schema를 준수.
-- EMS 서버 조회는 일반적으로 ems_get_team_group_id → ems_list_servers_by_team 순서를 권장.
+- 사용자가 시스템 이름(예: "고객경험시스템", "주문시스템")을 언급하면 먼저 ems_get_resources_by_system으로 서버 목록(role_label)을 확인한다. 이후 EMS 도구는 모두 system_display_name + (선택) role_label 조합으로 호출한다. resource_id나 IP는 사용자/LLM이 직접 다루지 않는다.
+- 시스템 전체를 조회할 때는 role_label 생략, 특정 서버(was1, db1 등)만 조회할 때는 role_label 지정.
+  예: CPU 사용률 → ems_get_system_usage_summary(system_display_name="고객경험시스템", timeSelector="day")
+  예: db1만 상세 → ems_get_system_server_detail(system_display_name="고객경험시스템", role_label="db1")
+- ems_get_resources_by_system은 같은 시스템에 대해 대화 이력에 이미 결과가 있으면 재호출하지 않는다. 결과의 available_role_labels 필드로 사용 가능한 서버를 확인한다.
+- 같은 도구의 결과가 대화 이력에 여러 번 있는 경우 가장 최근 observation을 사용하고, 이전 실패(null·에러)는 무시한다.
+- admin_list_systems 호출 시 시스템명을 알고 있으면 반드시 display_name 파라미터를 지정해 해당 시스템만 조회한다 (전체 조회 금지).
+- ems_get_team_group_id는 사용자가 EMS Polestar 자체의 팀/그룹명을 직접 지정한 경우에만 사용한다.
 
 사용 가능한 도구:
 {tools_json}
@@ -203,7 +210,8 @@ async def run_react_stream(
         messages = list(reversed(messages))
 
         tools = await list_enabled_tools(db)
-        history = _history_lines(messages[:-1]) if messages else ""  # 최신 user 제외
+        history_msgs = [m for m in messages if m.id != user_msg.id]
+        history = _history_lines(history_msgs)
         prompt = _decision_prompt(tools, history, user_message)
 
         try:
