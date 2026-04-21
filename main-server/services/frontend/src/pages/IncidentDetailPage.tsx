@@ -262,8 +262,8 @@ export function IncidentDetailPage() {
                 </div>
               )}
               <div className="flex flex-col gap-1">
-                <MttrLabel label="MTTA" title="평균 인지 시간" minutes={incident.mtta_minutes} />
-                <MttrLabel label="MTTR" title="오류 해결 시간" minutes={incident.mttr_minutes} />
+                <MttrLabel label="MTTA" title="감지 → 확인 처리까지 소요 시간" minutes={incident.mtta_minutes} />
+                <MttrLabel label="MTTR" title="감지 → 해결 완료까지 소요 시간" minutes={incident.mttr_minutes} />
               </div>
             </div>
           </NeuCard>
@@ -352,7 +352,7 @@ export function IncidentDetailPage() {
                           기존 내용을 덮어씁니다
                         </span>
                         <NeuButton size="sm" variant="ghost" onClick={runDevxAnalyze}>
-                          확인
+                          덮어쓰기
                         </NeuButton>
                         <NeuButton
                           size="sm"
@@ -385,7 +385,7 @@ export function IncidentDetailPage() {
                         disabled={aiAnalyzeMut.isPending}
                       >
                         <FileText className="h-3.5 w-3.5" />
-                        오류 요약
+                        요약 보고서
                       </NeuButton>
                     )}
                     <span className="text-text-disabled ml-auto text-[11px]">
@@ -394,33 +394,33 @@ export function IncidentDetailPage() {
                   </div>
 
                   <div>
-                    <label className="text-text-secondary mb-1 block text-xs">근본 원인</label>
+                    <label className="text-text-primary mb-1.5 block text-xs font-medium">근본 원인</label>
                     <textarea
-                      className="border-border bg-bg-base text-text-primary placeholder:text-text-disabled focus:border-accent focus:ring-accent w-full resize-none rounded-sm border p-2 text-sm focus:ring-1 focus:outline-none"
+                      className="bg-bg-base text-text-primary placeholder:text-text-secondary focus:border-accent focus:ring-accent w-full resize-none rounded-sm border border-transparent p-2.5 text-sm shadow-neu-inset focus:border focus:ring-1 focus:outline-none"
                       rows={8}
                       value={rootCause}
                       onChange={(e) => setRootCause(e.target.value)}
-                      placeholder="장애의 근본 원인을 입력하세요"
+                      placeholder="어떤 원인으로 장애가 발생했는지 기록하세요 (예: 트래픽 급증, 잘못된 배포, 외부 의존성 장애)"
                     />
                   </div>
                   <div>
-                    <label className="text-text-secondary mb-1 block text-xs">조치 내용</label>
+                    <label className="text-text-primary mb-1.5 block text-xs font-medium">조치 내용</label>
                     <textarea
-                      className="border-border bg-bg-base text-text-primary placeholder:text-text-disabled focus:border-accent focus:ring-accent w-full resize-none rounded-sm border p-2 text-sm focus:ring-1 focus:outline-none"
+                      className="bg-bg-base text-text-primary placeholder:text-text-secondary focus:border-accent focus:ring-accent w-full resize-none rounded-sm border border-transparent p-2.5 text-sm shadow-neu-inset focus:border focus:ring-1 focus:outline-none"
                       rows={8}
                       value={resolution}
                       onChange={(e) => setResolution(e.target.value)}
-                      placeholder="조치 내용을 입력하세요"
+                      placeholder="서비스 복구를 위해 취한 조치와 변경 사항을 기록하세요"
                     />
                   </div>
                   <div>
-                    <label className="text-text-secondary mb-1 block text-xs">사후 분석</label>
+                    <label className="text-text-primary mb-1.5 block text-xs font-medium">사후 분석</label>
                     <textarea
-                      className="border-border bg-bg-base text-text-primary placeholder:text-text-disabled focus:border-accent focus:ring-accent w-full resize-none rounded-sm border p-2 text-sm focus:ring-1 focus:outline-none"
+                      className="bg-bg-base text-text-primary placeholder:text-text-secondary focus:border-accent focus:ring-accent w-full resize-none rounded-sm border border-transparent p-2.5 text-sm shadow-neu-inset focus:border focus:ring-1 focus:outline-none"
                       rows={8}
                       value={postmortem}
                       onChange={(e) => setPostmortem(e.target.value)}
-                      placeholder="재발 방지를 위한 사후 분석을 입력하세요"
+                      placeholder="이 장애에서 얻은 교훈과 재발 방지를 위한 개선 액션을 기록하세요"
                     />
                   </div>
                   <NeuButton
@@ -519,7 +519,7 @@ export function IncidentDetailPage() {
             {/* 댓글 입력 */}
             <div className="border-border mt-4 space-y-2 border-t pt-3">
               <label htmlFor="incident-comment" className="sr-only">
-                댓글
+                활동 메모
               </label>
               <textarea
                 id="incident-comment"
@@ -527,7 +527,7 @@ export function IncidentDetailPage() {
                 rows={2}
                 value={comment}
                 onChange={(e) => setComment(e.target.value)}
-                placeholder="댓글 입력..."
+                placeholder="경과 메모, 확인 사항, 참고 링크 등을 기록하세요"
               />
               <NeuButton
                 size="sm"
@@ -539,7 +539,7 @@ export function IncidentDetailPage() {
                 {commentMut.isPending ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
                 ) : (
-                  '댓글 추가'
+                  '메모 추가'
                 )}
               </NeuButton>
             </div>

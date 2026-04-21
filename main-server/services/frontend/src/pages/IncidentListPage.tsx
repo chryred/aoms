@@ -172,15 +172,34 @@ export function IncidentListPage() {
                   <th className="hidden px-4 py-2.5 text-left font-medium sm:table-cell">#</th>
                   <th className="px-4 py-2.5 text-left font-medium">제목</th>
                   <th className="px-4 py-2.5 text-left font-medium whitespace-nowrap">시스템</th>
-                  <th className="px-4 py-2.5 text-left font-medium whitespace-nowrap">심각도</th>
-                  <th className="px-4 py-2.5 text-left font-medium">상태</th>
-                  <th className="hidden px-4 py-2.5 text-left font-medium md:table-cell whitespace-nowrap">알림 수</th>
-                  <th className="hidden px-4 py-2.5 text-left font-medium md:table-cell">MTTR</th>
-                  <th className="px-4 py-2.5 text-left font-medium whitespace-nowrap">감지</th>
+                  <th
+                    className="cursor-pointer select-none whitespace-nowrap px-4 py-2.5 text-left font-medium hover:text-text-primary"
+                    onClick={() => handleSort('severity')}
+                  >
+                    심각도
+                    <SortIcon col="severity" />
+                  </th>
+                  <th
+                    className="cursor-pointer select-none px-4 py-2.5 text-left font-medium hover:text-text-primary"
+                    onClick={() => handleSort('status')}
+                  >
+                    상태
+                    <SortIcon col="status" />
+                  </th>
+                  <th className="hidden whitespace-nowrap px-4 py-2.5 text-left font-medium md:table-cell">알림 수</th>
+                  <th className="hidden px-4 py-2.5 text-left font-medium md:table-cell" title="Mean Time To Resolve — 감지부터 해결 완료까지 소요 시간">MTTR</th>
+                  <th
+                    className="cursor-pointer select-none whitespace-nowrap px-4 py-2.5 text-left font-medium hover:text-text-primary"
+                    onClick={() => handleSort('detected_at')}
+                  >
+                    감지
+                    <SortIcon col="detected_at" />
+                  </th>
+                  <th className="px-2 py-2.5" aria-hidden />
                 </tr>
               </thead>
               <tbody>
-                {incidents.map((incident: IncidentOut) => (
+                {sortedIncidents.map((incident: IncidentOut) => (
                   <tr
                     key={incident.id}
                     className="border-border/50 hover:bg-surface cursor-pointer border-b transition-colors"
@@ -230,6 +249,9 @@ export function IncidentListPage() {
                     </td>
                     <td className="text-text-secondary whitespace-nowrap px-4 py-2.5">
                       {formatRelative(incident.detected_at)}
+                    </td>
+                    <td className="pr-3">
+                      <ChevronRight className="text-text-disabled h-3.5 w-3.5" aria-hidden />
                     </td>
                   </tr>
                 ))}
