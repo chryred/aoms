@@ -11,7 +11,7 @@ venv/
 *.pyo
 .playwright/
 .playwright-mcp/
-agent/target/debug/*
+agent/target/
 docs/security/*
 main-server/.env.local
 node_modules/
