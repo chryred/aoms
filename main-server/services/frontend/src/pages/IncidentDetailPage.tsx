@@ -311,7 +311,7 @@ export function IncidentDetailPage() {
             {/* Read mode — editMode=true 시 grid-rows-[0fr]로 축소 애니메이션 */}
             <div
               className={cn(
-                'grid transition-[grid-template-rows,opacity] duration-300 ease-out',
+                'grid transition-[grid-template-rows,opacity] duration-700 ease-[cubic-bezier(0.25,1,0.5,1)]',
                 editMode ? 'grid-rows-[0fr] opacity-0' : 'grid-rows-[1fr] opacity-100',
               )}
             >
@@ -354,7 +354,7 @@ export function IncidentDetailPage() {
             {/* Edit mode — editMode=false 시 grid-rows-[0fr]로 축소 애니메이션 */}
             <div
               className={cn(
-                'grid transition-[grid-template-rows,opacity] duration-300 ease-out',
+                'grid transition-[grid-template-rows,opacity] duration-700 ease-[cubic-bezier(0.25,1,0.5,1)]',
                 editMode ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0',
               )}
               aria-hidden={!editMode}
