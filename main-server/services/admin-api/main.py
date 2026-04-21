@@ -11,6 +11,7 @@ from database import engine, Base, AsyncSessionLocal
 from routes import alerts, analysis, contacts, feedback, systems
 from routes import collector_config, aggregations, reports, auth as auth_router
 from routes import agents as agents_router, dashboard, websocket, llm_config, traces as traces_router
+from routes import incidents as incidents_router
 from routes import chat, chat_attachments, chat_tools as chat_tools_router, chat_executor_configs
 from services.ssh_session import run_cleanup_loop
 from services.prometheus_analyzer import run_prometheus_analyzer_loop
@@ -68,6 +69,7 @@ app.include_router(systems.router)
 app.include_router(contacts.router)
 app.include_router(alerts.router)
 app.include_router(analysis.router)
+app.include_router(incidents_router.router)
 app.include_router(feedback.router)
 app.include_router(collector_config.router)
 app.include_router(aggregations.router)

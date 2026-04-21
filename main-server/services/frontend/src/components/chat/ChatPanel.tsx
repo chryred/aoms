@@ -241,7 +241,11 @@ export function ChatPanel() {
         disabled={isStreaming}
       />
 
-      <div ref={scrollRef} onScroll={handleScroll} className="bg-bg-base flex-1 space-y-3 overflow-y-auto px-3 py-3">
+      <div
+        ref={scrollRef}
+        onScroll={handleScroll}
+        className="bg-bg-base flex-1 space-y-3 overflow-y-auto px-3 py-3"
+      >
         {messages?.length === 0 && !isStreaming && (
           <div className="text-text-secondary mt-6 text-center text-sm">
             <div className="mb-1">무엇이든 물어보세요.</div>

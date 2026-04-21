@@ -49,7 +49,8 @@ INSERT INTO llm_agent_configs (area_code, area_name, agent_code, description) VA
     ('metric_longperiod_aggregation', '장기 메트릭 집계',   'custom_8f9ee032e5594452bff5602c03e966eb', '매월 1일 09:00 분기/반기/연간 리포트'),
     ('trend_alert',                   '추세 이상 알림',     'custom_8f9ee032e5594452bff5602c03e966eb', '4시간 주기 지속 이상 감지'),
     ('infra_analysis',                '인프라 메트릭 분석', 'custom_8f9ee032e5594452bff5602c03e966eb', 'Prometheus 호스트별 교차 분석'),
-    ('incident_report',               '장애보고서 생성',    'custom_8f9ee032e5594452bff5602c03e966eb', '장애 알림 기반 한국어 보고서')
+    ('incident_report',               '장애보고서 생성',    'custom_8f9ee032e5594452bff5602c03e966eb', '장애 알림 기반 한국어 보고서'),
+    ('incident_ai_analysis',          '인시던트 심층 분석', 'custom_8f9ee032e5594452bff5602c03e966eb', '연결 알림 + 해결책 기반 근본원인/조치/사후분석 자동 작성')
 ON CONFLICT (area_code) DO NOTHING;
 
 -- ── 시스템-담당자 매핑 (N:M) ──────────────────────────────────────────
@@ -71,6 +72,42 @@ CREATE TABLE IF NOT EXISTS system_hosts (
     created_at  TIMESTAMP DEFAULT NOW(),
     UNIQUE(system_id, host_ip)
 );
+
+-- ── 인시던트 라이프사이클 ────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS incidents (
+    id              SERIAL PRIMARY KEY,
+    system_id       INTEGER REFERENCES systems(id) ON DELETE SET NULL,
+    title           VARCHAR(500) NOT NULL,
+    severity        VARCHAR(20)  NOT NULL,                       -- critical | warning
+    status          VARCHAR(20)  NOT NULL DEFAULT 'open',        -- open | acknowledged | investigating | resolved | closed
+    detected_at     TIMESTAMP    NOT NULL,
+    acknowledged_at TIMESTAMP,
+    resolved_at     TIMESTAMP,
+    closed_at       TIMESTAMP,
+    acknowledged_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    resolved_by     INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    root_cause      TEXT,
+    resolution      TEXT,
+    postmortem      TEXT,
+    alert_count     INTEGER DEFAULT 1,
+    recurrence_of   INTEGER REFERENCES incidents(id) ON DELETE SET NULL,
+    created_at      TIMESTAMP DEFAULT NOW(),
+    updated_at      TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_incidents_system_status ON incidents(system_id, status);
+CREATE INDEX IF NOT EXISTS idx_incidents_detected      ON incidents(detected_at);
+
+CREATE TABLE IF NOT EXISTS incident_timeline (
+    id          SERIAL PRIMARY KEY,
+    incident_id INTEGER NOT NULL REFERENCES incidents(id) ON DELETE CASCADE,
+    event_type  VARCHAR(50) NOT NULL,                            -- alert_added | analysis_added | status_changed | comment
+    description TEXT,
+    actor_name  VARCHAR(200),
+    created_at  TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_incident_timeline_incident ON incident_timeline(incident_id, created_at);
 
 -- ── 알림 이력 ────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS alert_history (
@@ -98,11 +135,14 @@ CREATE TABLE IF NOT EXISTS alert_history (
     error_message       TEXT,                                   -- LLM/분석 실패 이력: NULL=성공, 값=실패 사유
     -- Phase OTel: 메트릭 알림 ↔ trace 링크
     related_trace_ids   JSONB,                                  -- Alertmanager 수신 시점 ±60s 에러 trace top 3 (NULL = OTel 미적용)
+    -- 인시던트 연결
+    incident_id         INTEGER REFERENCES incidents(id) ON DELETE SET NULL,
     created_at          TIMESTAMP DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_alert_history_system  ON alert_history(system_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_alert_history_created ON alert_history(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_alert_history_system   ON alert_history(system_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_alert_history_created  ON alert_history(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_alert_history_incident ON alert_history(incident_id);
 
 -- ── LLM 분석 결과 이력 ───────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS log_analysis_history (
@@ -126,6 +166,8 @@ CREATE TABLE IF NOT EXISTS log_analysis_history (
     -- Phase OTel: 분산 추적 상관 컬럼
     referenced_trace_ids  JSONB,                              -- ["a1b2c3d4…", ...] 최대 5개 (NULL = OTel 미적용)
     trace_summary_text    TEXT,                               -- 프롬프트 주입 원문 (감사·디버그용, NULL = OTel 미적용)
+    -- 인시던트 연결
+    incident_id      INTEGER REFERENCES incidents(id) ON DELETE SET NULL,
     created_at       TIMESTAMP DEFAULT NOW()
 );
 

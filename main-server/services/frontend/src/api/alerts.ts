@@ -87,9 +87,4 @@ export const alertsApi = {
     adminApi
       .get('api/v1/feedback/search', { searchParams: filterParams(params) })
       .json<FeedbackSearchResponse>(),
-
-  generateIncidentReport: (id: number) =>
-    adminApi
-      .post(`api/v1/alerts/${id}/incident-report`, { timeout: 120_000 })
-      .json<{ report: string }>(),
 }

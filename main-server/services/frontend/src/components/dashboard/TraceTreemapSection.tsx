@@ -127,18 +127,15 @@ export function TraceTreemapSection({ systems }: TraceTreemapSectionProps) {
                   {t.name}
                 </span>
                 {badge && (
-                  <span className={cn('text-[10px] font-semibold tabular-nums', severityTextClass(sev))}>
+                  <span
+                    className={cn('text-[10px] font-semibold tabular-nums', severityTextClass(sev))}
+                  >
                     {badge}
                   </span>
                 )}
               </div>
               <div className="mt-2 flex w-full items-baseline justify-between gap-2">
-                <span
-                  className={cn(
-                    'text-2xl font-bold tabular-nums',
-                    severityTextClass(sev),
-                  )}
-                >
+                <span className={cn('text-2xl font-bold tabular-nums', severityTextClass(sev))}>
                   {t.hasData ? `${t.anomalyCount.toLocaleString()}건` : '—'}
                 </span>
                 <span className="text-text-secondary text-[10px] tabular-nums">

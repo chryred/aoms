@@ -177,9 +177,7 @@ export function DashboardPage() {
           {/* 시스템 카드 그리드 + 필터 */}
           <section className="space-y-3">
             <div>
-              <h2 className="type-heading text-text-primary text-lg font-semibold">
-                시스템 상세
-              </h2>
+              <h2 className="type-heading text-text-primary text-lg font-semibold">시스템 상세</h2>
               <p className="text-text-disabled mt-1 max-w-[60ch] text-xs leading-relaxed">
                 시스템별 실시간 상태 · 메트릭 · 이상 감지 내역
               </p>

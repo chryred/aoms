@@ -100,8 +100,8 @@ services:
       - LOG_ANALYZER_URL=http://host.docker.internal:8000
       - ADMIN_API_URL=http://host.docker.internal:8080
       - TEAMS_WEBHOOK_URL=${TEAMS_WEBHOOK_URL:-}
-      - OLLAMA_URL=http://host.docker.internal:11434
-      - QDRANT_URL=http://host.docker.internal:6333
+      - OLLAMA_URL=${OLLAMA_URL}
+      - QDRANT_URL=${QDRANT_URL}
       - EMBED_MODEL=bge-m3
       - LLM_API_URL=${LLM_API_URL:-}
     volumes:

@@ -79,6 +79,53 @@ class SystemContact(Base):
     )
 
 
+class Incident(Base):
+    """인시던트 라이프사이클 — 관련 알림·분석을 하나의 사건으로 묶어 MTTR 추적"""
+    __tablename__ = "incidents"
+
+    id              = Column(Integer, primary_key=True)
+    system_id       = Column(Integer, ForeignKey("systems.id"), nullable=True)
+    title           = Column(String(500), nullable=False)
+    severity        = Column(String(20), nullable=False)        # critical | warning
+    status          = Column(String(20), nullable=False, default="open")
+    # open | acknowledged | investigating | resolved | closed
+    detected_at     = Column(DateTime, nullable=False)
+    acknowledged_at = Column(DateTime)
+    resolved_at     = Column(DateTime)
+    closed_at       = Column(DateTime)
+    acknowledged_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    resolved_by     = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    root_cause      = Column(Text)
+    resolution      = Column(Text)
+    postmortem      = Column(Text)
+    alert_count     = Column(Integer, default=1)
+    recurrence_of   = Column(Integer, ForeignKey("incidents.id", ondelete="SET NULL"), nullable=True)
+    created_at      = Column(DateTime, default=func.now())
+    updated_at      = Column(DateTime, default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        Index("idx_incidents_system_status", "system_id", "status"),
+        Index("idx_incidents_detected", "detected_at"),
+    )
+
+
+class IncidentTimeline(Base):
+    """인시던트 이벤트 타임라인 — 상태 변경·알림 추가·댓글 이력"""
+    __tablename__ = "incident_timeline"
+
+    id          = Column(Integer, primary_key=True)
+    incident_id = Column(Integer, ForeignKey("incidents.id", ondelete="CASCADE"), nullable=False)
+    event_type  = Column(String(50), nullable=False)
+    # alert_added | analysis_added | status_changed | comment
+    description = Column(Text)
+    actor_name  = Column(String(200))   # 사용자명 또는 "system"
+    created_at  = Column(DateTime, default=func.now())
+
+    __table_args__ = (
+        Index("idx_incident_timeline_incident", "incident_id", "created_at"),
+    )
+
+
 class AlertHistory(Base):
     __tablename__ = "alert_history"
 
@@ -107,11 +154,14 @@ class AlertHistory(Base):
     error_message    = Column(Text)
     # Phase OTel: 메트릭 알림 ↔ trace 링크 (NULL = OTel 미적용)
     related_trace_ids = Column(JSONB)
+    # 인시던트 연결 (NULL = 인시던트 미생성)
+    incident_id = Column(Integer, ForeignKey("incidents.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime, default=func.now())
 
     __table_args__ = (
         Index("idx_alert_history_system", "system_id", "created_at"),
         Index("idx_alert_history_created", "created_at"),
+        Index("idx_alert_history_incident", "incident_id"),
     )
 
 
@@ -139,6 +189,8 @@ class LogAnalysisHistory(Base):
     # Phase OTel: 분산 추적 상관 컬럼 (NULL = OTel 미적용)
     referenced_trace_ids = Column(JSONB)
     trace_summary_text   = Column(Text)
+    # 인시던트 연결 (NULL = 인시던트 미생성)
+    incident_id = Column(Integer, ForeignKey("incidents.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime, default=func.now())
 
     __table_args__ = (

@@ -440,7 +440,7 @@ export function DashboardSystemDetailPage() {
                           isGroupConfigured,
                         )
                         const cfg = STATUS_CFG[status]
-                        const clickable = status !== 'inactive'
+                        const clickable = true
                         return (
                           <div
                             key={group}

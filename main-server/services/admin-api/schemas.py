@@ -204,6 +204,7 @@ class AlertHistoryOut(BaseModel):
     qdrant_point_id:  Optional[str]
     resolved_at: Optional[datetime]
     error_message:    Optional[str]   # NULL=성공, 값=LLM/분석 실패 사유
+    incident_id: Optional[int]
     created_at: datetime
 
     model_config = {"from_attributes": True}
@@ -558,6 +559,66 @@ class AgentStatusOut(BaseModel):
     status: str             # running | stopped | unknown
     pid: Optional[int]
     message: str
+
+
+# ── Incident Lifecycle ───────────────────────────────────────────────────────
+
+class IncidentUpdate(BaseModel):
+    status: Optional[str] = None        # acknowledged | investigating | resolved | closed
+    root_cause: Optional[str] = None
+    resolution: Optional[str] = None
+    postmortem: Optional[str] = None
+
+
+class IncidentOut(BaseModel):
+    id: int
+    system_id: Optional[int]
+    title: str
+    severity: str
+    status: str
+    detected_at: datetime
+    acknowledged_at: Optional[datetime]
+    resolved_at: Optional[datetime]
+    closed_at: Optional[datetime]
+    root_cause: Optional[str]
+    resolution: Optional[str]
+    postmortem: Optional[str]
+    alert_count: int
+    recurrence_of: Optional[int]
+    mtta_minutes: Optional[int] = None
+    mttr_minutes: Optional[int] = None
+    system_display_name: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class IncidentTimelineItemOut(BaseModel):
+    id: int
+    incident_id: int
+    event_type: str
+    description: Optional[str]
+    actor_name: Optional[str]
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class IncidentDetailOut(IncidentOut):
+    timeline: list[IncidentTimelineItemOut] = []
+    alert_history: list["AlertHistoryOut"] = []
+
+
+class IncidentCommentCreate(BaseModel):
+    comment: str
+
+
+class IncidentAiAnalyzeOut(BaseModel):
+    """/ai-analyze 응답 — LLM이 자동 작성한 근본원인/조치/사후분석"""
+    root_cause: str
+    resolution: str
+    postmortem: str
 
 
 # ── Incident Report ──────────────────────────────────────────────────────────

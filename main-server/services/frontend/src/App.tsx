@@ -67,6 +67,12 @@ const AgentDetailPage = lazy(() =>
 const GrafanaDashboardPage = lazy(() =>
   import('@/pages/GrafanaDashboardPage').then((m) => ({ default: m.GrafanaDashboardPage })),
 )
+const IncidentListPage = lazy(() =>
+  import('@/pages/IncidentListPage').then((m) => ({ default: m.IncidentListPage })),
+)
+const IncidentDetailPage = lazy(() =>
+  import('@/pages/IncidentDetailPage').then((m) => ({ default: m.IncidentDetailPage })),
+)
 
 export function App() {
   return (
@@ -195,6 +201,22 @@ export function App() {
             element={
               <Suspense fallback={<LoadingSkeleton shape="table" />}>
                 <FeedbackSearchPage />
+              </Suspense>
+            }
+          />
+          <Route
+            path={ROUTES.INCIDENTS}
+            element={
+              <Suspense fallback={<LoadingSkeleton shape="table" />}>
+                <IncidentListPage />
+              </Suspense>
+            }
+          />
+          <Route
+            path="/incidents/:id"
+            element={
+              <Suspense fallback={<LoadingSkeleton shape="card" count={3} />}>
+                <IncidentDetailPage />
               </Suspense>
             }
           />

@@ -21,6 +21,7 @@ import {
   Terminal,
   Bot,
   Wrench,
+  Siren,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useUiStore } from '@/store/uiStore'
@@ -182,6 +183,13 @@ export function Sidebar() {
             icon={<Bell className="h-4 w-4" />}
             label="알림 이력"
             badge={unackCount}
+            collapsed={collapsed}
+            onNavigate={closeMobileSidebar}
+          />
+          <NavItem
+            to={ROUTES.INCIDENTS}
+            icon={<Siren className="h-4 w-4" />}
+            label="인시던트"
             collapsed={collapsed}
             onNavigate={closeMobileSidebar}
           />

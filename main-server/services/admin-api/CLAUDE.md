@@ -80,6 +80,8 @@ admin-api/
 | `users` | 프론트엔드 인증 사용자. `role`: admin / operator. `is_approved`: admin 승인 여부 (Phase 0) |
 | `agent_instances` | 수집기 인스턴스 메타정보. `ssh_username` 저장, password 저장 금지 (Phase 6). `agent_type='db'`는 `label_info` JSON에 `db_type`(oracle/postgresql/mssql/mysql) + 연결 정보 저장 (Phase 9) |
 | `agent_install_jobs` | 비동기 설치 Job 이력. `status`: pending/running/done/failed (Phase 6) |
+| `incidents` | 인시던트 라이프사이클 — 관련 알림을 하나의 사건으로 묶어 MTTA/MTTR 추적. `status`: open/acknowledged/investigating/resolved/closed |
+| `incident_timeline` | 인시던트 이벤트 타임라인 — `event_type`: alert_added / analysis_added / status_changed / comment |
 | `chat_tools` | ReAct 챗봇이 호출할 수 있는 도구 레지스트리. `executor` (ems/admin/log_analyzer), `is_enabled`, `input_schema` JSON Schema (Phase Chat) |
 | `chat_executor_configs` | Executor별 자격증명/설정. `config` JSONB (secret 필드는 Fernet 암호문), `config_schema` 폼 렌더 메타 (Phase Chat) |
 | `chat_sessions` | 사용자 챗봇 세션. UUID PK, `user_id` FK (Phase Chat) |
@@ -235,6 +237,23 @@ docker exec -it aoms-admin-api \
 ### WebSocket 브로드캐스트 트리거
 - **alerts.py** — `POST /receive`에서 alert 저장 후 `notify_alert_fired()` / `notify_alert_resolved()` 호출
 - **analysis.py** — `POST /` 분석 결과 저장 후 severity가 warning/critical일 때 `notify_log_analysis()` 호출
+
+### 인시던트 `/api/v1/incidents` (Incident Lifecycle)
+- `GET /` — 목록 조회 (필터: `system_id`, `status`, `severity`, `limit`, `offset`)
+- `GET /{id}` — 상세 조회 (타임라인 + 연결된 알림 최대 20건 포함, `mtta_minutes`/`mttr_minutes` 계산됨)
+- `PATCH /{id}` — 상태/근본원인/조치/사후분석 업데이트 (status 전이 시 타임라인 자동 기록)
+- `POST /{id}/comments` — 댓글 추가 (타임라인에 `event_type=comment`로 저장)
+
+**자동 그루핑 규칙** (`routes/alerts._get_or_create_incident`):
+- 알림 수신 시 같은 `system_id`의 **30분 이내 open/acknowledged/investigating** 인시던트가 있으면 연결 (`alert_count` 증가)
+- 심각도 상향: warning → critical은 인시던트 severity를 critical로 변경
+- 매칭 인시던트 없으면 신규 생성 (`status="open"`, `detected_at=now`)
+- `alert_history.incident_id` / `log_analysis_history.incident_id`에 FK 저장
+- 각 연결 시 `incident_timeline` 에 `event_type="alert_added"` 또는 `"analysis_added"` 기록
+
+**MTTA/MTTR 계산**: 응답 시 `acknowledged_at - detected_at` / `resolved_at - detected_at`을 분 단위로 변환
+
+**Teams 카드 연동**: `notification.py`의 `send_metric_alert`/`send_log_analysis_alert`에 `incident_id` 전달 → 카드에 **"인시던트 보기"** 버튼 추가 (URL: `{FRONTEND_EXTERNAL_URL}/incidents/{id}`)
 
 ### ReAct 챗봇 `/api/v1/chat*` (Phase Chat)
 - **세션**

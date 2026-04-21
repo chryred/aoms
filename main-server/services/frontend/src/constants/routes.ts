@@ -19,6 +19,8 @@ export const ROUTES = {
   VECTOR_HEALTH: '/vector-health',
   GRAFANA: '/grafana-dashboard',
   AGENTS: '/agents',
+  INCIDENTS: '/incidents',
   systemDetail: (id: number | string) => `/dashboard/${id}`,
   agentDetail: (id: number | string) => `/agents/${id}`,
+  incidentDetail: (id: number | string) => `/incidents/${id}`,
 }

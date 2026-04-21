@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { X, CheckCircle, ChevronDown, Pencil, Lightbulb, FileText } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { X, CheckCircle, ChevronDown, Pencil, Lightbulb, Siren } from 'lucide-react'
+import { ROUTES } from '@/constants/routes'
 import { NeuButton } from '@/components/neumorphic/NeuButton'
 import { NeuBadge } from '@/components/neumorphic/NeuBadge'
 import { NeuSelect } from '@/components/neumorphic/NeuSelect'
@@ -11,10 +13,8 @@ import { useAcknowledgeAlert } from '@/hooks/mutations/useAcknowledgeAlert'
 import { useCreateFeedback } from '@/hooks/mutations/useCreateFeedback'
 import { useUpdateFeedback } from '@/hooks/mutations/useUpdateFeedback'
 import { useFeedbacks } from '@/hooks/queries/useFeedbacks'
-import { useSystems } from '@/hooks/queries/useSystems'
 import { useAuthStore } from '@/store/authStore'
 import { cn, formatKST } from '@/lib/utils'
-import { IncidentReportModal } from './IncidentReportModal'
 import type { AlertHistory } from '@/types/alert'
 
 const ALERT_TYPE_LABELS: Record<string, string> = {
@@ -81,17 +81,16 @@ function parseDescription(desc: string | null | undefined): ParsedDescription | 
 }
 
 export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
+  const navigate = useNavigate()
   const user = useAuthStore((s) => s.user)
   const { mutate: acknowledge, isPending } = useAcknowledgeAlert()
   const { mutate: createFeedback, isPending: isFeedbackPending } = useCreateFeedback()
   const { mutate: updateFeedback, isPending: isUpdatePending } = useUpdateFeedback()
-  const { data: systems = [] } = useSystems()
   const panelRef = useRef<HTMLDivElement>(null)
 
   const [showSolution, setShowSolution] = useState(false)
   const [errorType, setErrorType] = useState('기타')
   const [solution, setSolution] = useState('')
-  const [showIncidentModal, setShowIncidentModal] = useState(false)
 
   // 기등록 피드백 수정 상태
   const [isEditing, setIsEditing] = useState(false)
@@ -119,7 +118,6 @@ export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
     setErrorType('기타')
     setSolution('')
     setIsEditing(false)
-    setShowIncidentModal(false)
   }, [alert?.id])
 
   // 수정 모드 진입 시 기존 피드백 값으로 폼 초기화
@@ -171,10 +169,6 @@ export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [alert, onClose])
 
-  const systemName =
-    displayAlert?.system_id != null
-      ? (systems.find((s) => s.id === displayAlert.system_id)?.display_name ?? undefined)
-      : undefined
 
   if (!displayAlert) return null
 
@@ -251,6 +245,19 @@ export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
                 <CheckCircle className="mr-0.5 h-3 w-3" />
                 확인됨
               </NeuBadge>
+            )}
+            {displayAlert.incident_id && (
+              <button
+                type="button"
+                onClick={() => {
+                  onClose()
+                  navigate(ROUTES.incidentDetail(displayAlert.incident_id!))
+                }}
+                className="text-critical bg-critical/10 border-critical/30 hover:bg-critical/15 focus:ring-critical inline-flex items-center gap-1 rounded-sm border px-2 py-0.5 text-xs focus:ring-1 focus:outline-none"
+              >
+                <Siren className="h-3 w-3" />
+                인시던트 #{displayAlert.incident_id}
+              </button>
             )}
           </div>
           <button
@@ -524,19 +531,6 @@ export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
           )}
         </div>
 
-        {/* 장애요약 작성 버튼 — 확인 여부 무관하게 항상 표시 */}
-        <div className="border-border border-t px-6 py-3">
-          <NeuButton
-            variant="ghost"
-            size="sm"
-            className="w-full"
-            onClick={() => setShowIncidentModal(true)}
-          >
-            <FileText className="h-4 w-4" />
-            오류 요약
-          </NeuButton>
-        </div>
-
         {/* 푸터 */}
         {!displayAlert.acknowledged && (
           <div className="border-border space-y-3 border-t px-6 py-4">
@@ -587,12 +581,6 @@ export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
           </div>
         )}
       </div>
-
-      <IncidentReportModal
-        alert={showIncidentModal ? displayAlert : null}
-        systemName={systemName}
-        onClose={() => setShowIncidentModal(false)}
-      />
     </>
   )
 }

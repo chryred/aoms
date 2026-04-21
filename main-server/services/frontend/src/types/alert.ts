@@ -25,5 +25,7 @@ export interface AlertHistory {
   error_message: string | null
   /** OTel: 알림 발생 시각 ±60s 내 연관 trace_id 목록 */
   related_trace_ids: string[] | null
+  /** 인시던트 연결 (NULL = 인시던트 미생성, 주로 구버전 알림) */
+  incident_id: number | null
   created_at: string
 }

@@ -3,53 +3,41 @@ import { X, FileText, Copy, RefreshCw } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { NeuCard } from '@/components/neumorphic/NeuCard'
 import { NeuButton } from '@/components/neumorphic/NeuButton'
-import { NeuBadge } from '@/components/neumorphic/NeuBadge'
-import { useGenerateIncidentReport } from '@/hooks/mutations/useGenerateIncidentReport'
-import type { AlertHistory, Severity } from '@/types/alert'
-
-const SEVERITY_VARIANT: Record<Severity, 'critical' | 'warning' | 'info'> = {
-  critical: 'critical',
-  warning: 'warning',
-  info: 'info',
-}
-
-const SEVERITY_LABEL: Record<Severity, string> = {
-  critical: '위험',
-  warning: '경고',
-  info: '정보',
-}
+import { useGenerateIncidentIncidentReport } from '@/hooks/queries/useIncidents'
 
 interface IncidentReportModalProps {
-  alert: AlertHistory | null
-  systemName?: string
+  incidentId: number | null
+  title?: string
   onClose: () => void
 }
 
-export function IncidentReportModal({ alert, systemName, onClose }: IncidentReportModalProps) {
-  const { mutate, data, isPending, isError, reset } = useGenerateIncidentReport()
+/**
+ * 인시던트 기반 "오류 요약" 모달 — /api/v1/incidents/{id}/incident-report 호출.
+ * 연결 알림과 해결책을 모두 반영한 장애 보고서를 LLM이 한국어로 작성.
+ */
+export function IncidentReportModal({ incidentId, title, onClose }: IncidentReportModalProps) {
+  const { mutate, data, isPending, isError, reset } = useGenerateIncidentIncidentReport()
   const closeRef = useRef<HTMLButtonElement>(null)
 
-  // alert가 세팅될 때마다 자동 생성
   useEffect(() => {
-    if (!alert) {
+    if (!incidentId) {
       reset()
       return
     }
-    mutate(alert.id)
-  }, [alert?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+    mutate(incidentId)
+  }, [incidentId]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ESC 닫기
   useEffect(() => {
-    if (!alert) return
+    if (!incidentId) return
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose()
     }
     document.addEventListener('keydown', handleKeyDown)
     closeRef.current?.focus()
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [alert, onClose])
+  }, [incidentId, onClose])
 
-  if (!alert) return null
+  if (!incidentId) return null
 
   const report = data?.report ?? ''
 
@@ -62,10 +50,7 @@ export function IncidentReportModal({ alert, systemName, onClose }: IncidentRepo
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center">
-      {/* 오버레이 */}
       <div className="bg-overlay absolute inset-0" onClick={onClose} aria-hidden="true" />
-
-      {/* 모달 본체 */}
       <NeuCard className="relative mx-4 flex max-h-[80vh] w-full max-w-2xl flex-col overflow-hidden p-0">
         {/* 헤더 */}
         <div className="border-border flex items-center justify-between border-b px-5 py-4">
@@ -83,13 +68,10 @@ export function IncidentReportModal({ alert, systemName, onClose }: IncidentRepo
           </button>
         </div>
 
-        {/* 서브헤더: 알림 정보 */}
+        {/* 서브헤더 */}
         <div className="border-border flex items-center gap-2 border-b px-5 py-2.5">
-          <span className="text-text-secondary font-mono text-xs">#{alert.id}</span>
-          <NeuBadge variant={SEVERITY_VARIANT[alert.severity]}>
-            {SEVERITY_LABEL[alert.severity]}
-          </NeuBadge>
-          {systemName && <span className="text-text-secondary text-xs">{systemName}</span>}
+          <span className="text-text-secondary font-mono text-xs">인시던트 #{incidentId}</span>
+          {title && <span className="text-text-secondary line-clamp-1 text-xs">{title}</span>}
         </div>
 
         {/* 액션 바 */}
@@ -117,7 +99,7 @@ export function IncidentReportModal({ alert, systemName, onClose }: IncidentRepo
           {isError && !isPending && (
             <div className="flex flex-col items-center gap-3 py-8 text-center">
               <p className="text-critical text-sm">장애요약 생성에 실패했습니다.</p>
-              <NeuButton size="sm" variant="ghost" onClick={() => mutate(alert.id)}>
+              <NeuButton size="sm" variant="ghost" onClick={() => mutate(incidentId)}>
                 <RefreshCw className="h-3.5 w-3.5" />
                 재시도
               </NeuButton>

@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
-import { Bell, CheckCircle } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { Bell, CheckCircle, Siren } from 'lucide-react'
 import { NeuBadge } from '@/components/neumorphic/NeuBadge'
 import { SeverityBadge } from '@/components/charts/SeverityBadge'
 import { AnomalyTypeBadge } from './AnomalyTypeBadge'
@@ -8,6 +9,7 @@ import { EmptyState } from '@/components/common/EmptyState'
 import { useSystems } from '@/hooks/queries/useSystems'
 import { formatRelative } from '@/lib/utils'
 import { cn } from '@/lib/utils'
+import { ROUTES } from '@/constants/routes'
 import type { AlertHistory } from '@/types/alert'
 
 const ALERT_TYPE_LABELS: Record<string, string> = {
@@ -27,6 +29,7 @@ interface AlertTableProps {
 }
 
 export function AlertTable({ alerts, onSelect }: AlertTableProps) {
+  const navigate = useNavigate()
   const { data: systems = [] } = useSystems()
   const systemMap = useMemo(
     () =>
@@ -52,7 +55,7 @@ export function AlertTable({ alerts, onSelect }: AlertTableProps) {
       <table className="w-full">
         <thead>
           <tr className="border-border border-b">
-            {['ID', '심각도', '유형', '시스템', '제목', '이상 유형', '발생 시각', '확인'].map(
+            {['ID', '심각도', '유형', '시스템', '제목', '이상 유형', '인시던트', '발생 시각', '확인'].map(
               (h) => (
                 <th
                   key={h}
@@ -117,6 +120,23 @@ export function AlertTable({ alerts, onSelect }: AlertTableProps) {
                   </NeuBadge>
                 ) : (
                   <AnomalyTypeBadge type={alert.anomaly_type} />
+                )}
+              </td>
+              <td className="px-4 py-3 whitespace-nowrap">
+                {alert.incident_id ? (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      navigate(ROUTES.incidentDetail(alert.incident_id!))
+                    }}
+                    className="text-critical bg-critical/10 border-critical/30 hover:bg-critical/15 focus:ring-critical inline-flex items-center gap-1 rounded-sm border px-2 py-0.5 text-xs focus:ring-1 focus:outline-none"
+                    aria-label={`인시던트 ${alert.incident_id}로 이동`}
+                  >
+                    <Siren className="h-3 w-3" />#{alert.incident_id}
+                  </button>
+                ) : (
+                  <span className="text-text-disabled text-xs">—</span>
                 )}
               </td>
               <td className="text-text-secondary px-4 py-3 text-sm whitespace-nowrap">

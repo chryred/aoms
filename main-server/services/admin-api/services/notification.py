@@ -107,6 +107,7 @@ class TeamsNotifier:
         similar_incidents: Optional[list[dict]] = None,
         point_id: Optional[str] = None,
         alert_history_id: Optional[int] = None,
+        incident_id: Optional[int] = None,
     ) -> bool:
         """Adaptive Card 형식으로 메트릭 알림 발송"""
 
@@ -173,6 +174,11 @@ class TeamsNotifier:
                         }
                     ],
                     "actions": [
+                        *([{
+                            "type": "Action.OpenUrl",
+                            "title": "인시던트 보기",
+                            "url": f"{_FRONTEND_EXTERNAL_URL}/incidents/{incident_id}",
+                        }] if incident_id else []),
                         {
                             "type": "Action.OpenUrl",
                             "title": "해결책 등록",
@@ -181,7 +187,7 @@ class TeamsNotifier:
                                 f"?alert_history_id={alert_history_id or ''}"
                                 f"&system={system_name}&point_id={point_id or ''}"
                             ),
-                        }
+                        },
                     ],
                     "msteams": {"entities": _build_entities(contacts)},
                 }
@@ -205,6 +211,7 @@ class TeamsNotifier:
         similar_incidents: Optional[list[dict]] = None,
         point_id: Optional[str] = None,
         alert_history_id: Optional[int] = None,
+        incident_id: Optional[int] = None,
     ) -> bool:
         """LLM 분석 결과 알림 발송 (Phase 4b: 이상 분류 배지 + 유사 이력 포함)"""
 
@@ -268,6 +275,11 @@ class TeamsNotifier:
                     "version": "1.4",
                     "body": card_body,
                     "actions": [
+                        *([{
+                            "type": "Action.OpenUrl",
+                            "title": "인시던트 보기",
+                            "url": f"{_FRONTEND_EXTERNAL_URL}/incidents/{incident_id}",
+                        }] if incident_id else []),
                         {
                             "type": "Action.OpenUrl",
                             "title": "해결책 등록",
@@ -276,7 +288,7 @@ class TeamsNotifier:
                                 f"?alert_history_id={alert_history_id or ''}"
                                 f"&system={system_name}&point_id={point_id or ''}"
                             ),
-                        }
+                        },
                     ],
                     "msteams": {"entities": _build_entities(contacts)},
                 },

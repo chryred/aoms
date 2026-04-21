@@ -6,8 +6,8 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
-from models import AlertHistory, LogAnalysisHistory, System
-from routes.alerts import _get_system_and_contacts
+from models import AlertHistory, Incident, IncidentTimeline, LogAnalysisHistory, System
+from routes.alerts import _get_or_create_incident, _get_system_and_contacts
 from routes.websocket import notify_log_analysis
 from schemas import LogAnalysisCreate, LogAnalysisOut
 from services.notification import TeamsNotifier
@@ -66,6 +66,18 @@ async def create_analysis(payload: LogAnalysisCreate, db: AsyncSession = Depends
         db.add(alert_record)
         await db.flush()  # alert_record.id 발급 (Teams 카드 URL에 포함)
 
+        # 인시던트 자동 그루핑
+        incident = await _get_or_create_incident(
+            db, system.id, title=alert_record.title, severity=payload.severity
+        )
+        alert_record.incident_id = incident.id
+        db.add(IncidentTimeline(
+            incident_id=incident.id,
+            event_type="analysis_added",
+            description=f"[{payload.severity.upper()}] {alert_record.title[:200]}",
+            actor_name="system",
+        ))
+
     if will_send_teams:
         _, contacts = await _get_system_and_contacts(db, system.system_name)
         contacts_data = [{"name": c["name"], "teams_upn": c["teams_upn"]} for c in contacts]
@@ -92,6 +104,7 @@ async def create_analysis(payload: LogAnalysisCreate, db: AsyncSession = Depends
                     similar_incidents=payload.similar_incidents,
                     point_id=payload.qdrant_point_id,
                     alert_history_id=alert_record.id if alert_record else None,
+                    incident_id=alert_record.incident_id if alert_record else None,
                 )
                 record.alert_sent = sent
             except Exception as exc:
