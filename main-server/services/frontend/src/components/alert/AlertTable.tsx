@@ -55,16 +55,24 @@ export function AlertTable({ alerts, onSelect }: AlertTableProps) {
       <table className="w-full">
         <thead>
           <tr className="border-border border-b">
-            {['ID', '심각도', '유형', '시스템', '제목', '이상 유형', '인시던트', '발생 시각', '확인'].map(
-              (h) => (
-                <th
-                  key={h}
-                  className="text-text-primary px-4 py-3 text-left text-xs font-semibold tracking-wider whitespace-nowrap uppercase"
-                >
-                  {h}
-                </th>
-              ),
-            )}
+            {[
+              'ID',
+              '심각도',
+              '유형',
+              '시스템',
+              '제목',
+              '이상 유형',
+              '인시던트',
+              '발생 시각',
+              '확인',
+            ].map((h) => (
+              <th
+                key={h}
+                className="text-text-primary px-4 py-3 text-left text-xs font-semibold tracking-wider whitespace-nowrap uppercase"
+              >
+                {h}
+              </th>
+            ))}
           </tr>
         </thead>
         <tbody className="divide-border divide-y">

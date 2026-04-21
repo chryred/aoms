@@ -67,7 +67,15 @@ const EVENT_ICONS: Record<string, React.ReactNode> = {
   comment: <MessageSquare className="text-text-secondary h-3.5 w-3.5" />,
 }
 
-function MttrLabel({ label, title, minutes }: { label: string; title: string; minutes: number | null }) {
+function MttrLabel({
+  label,
+  title,
+  minutes,
+}: {
+  label: string
+  title: string
+  minutes: number | null
+}) {
   const formatted = (() => {
     if (minutes === null) return '—'
     const h = Math.floor(minutes / 60)
@@ -76,7 +84,9 @@ function MttrLabel({ label, title, minutes }: { label: string; title: string; mi
   })()
   return (
     <div className="flex items-center gap-1.5">
-      <span className="text-text-secondary text-xs" title={title}>{label}</span>
+      <span className="text-text-secondary text-xs" title={title}>
+        {label}
+      </span>
       <span
         className={cn(
           'text-sm font-medium tabular-nums',
@@ -181,26 +191,26 @@ export function IncidentDetailPage() {
           <div className="flex items-center gap-3">
             <span
               className={cn(
-                'whitespace-nowrap text-sm font-semibold uppercase',
+                'text-sm font-semibold whitespace-nowrap uppercase',
                 SEVERITY_STYLES[incident.severity] ?? 'text-text-secondary',
               )}
             >
               {incident.severity}
             </span>
             <span className="text-text-disabled">·</span>
-            <span className="text-text-primary whitespace-nowrap text-sm font-medium">
+            <span className="text-text-primary text-sm font-medium whitespace-nowrap">
               {STATUS_LABELS[incident.status] ?? incident.status}
             </span>
             {incident.system_display_name && (
               <>
                 <span className="text-text-disabled">·</span>
-                <span className="text-text-secondary whitespace-nowrap text-sm">
+                <span className="text-text-secondary text-sm whitespace-nowrap">
                   {incident.system_display_name}
                 </span>
               </>
             )}
             {incident.recurrence_of && (
-              <span className="bg-warning/15 border-warning/30 text-warning whitespace-nowrap rounded-full border px-2 py-0.5 text-xs">
+              <span className="bg-warning/15 border-warning/30 text-warning rounded-full border px-2 py-0.5 text-xs whitespace-nowrap">
                 재발 (#{incident.recurrence_of})
               </span>
             )}
@@ -262,8 +272,16 @@ export function IncidentDetailPage() {
                 </div>
               )}
               <div className="flex flex-col gap-1">
-                <MttrLabel label="MTTA" title="감지 → 확인 처리까지 소요 시간" minutes={incident.mtta_minutes} />
-                <MttrLabel label="MTTR" title="감지 → 해결 완료까지 소요 시간" minutes={incident.mttr_minutes} />
+                <MttrLabel
+                  label="MTTA"
+                  title="감지 → 확인 처리까지 소요 시간"
+                  minutes={incident.mtta_minutes}
+                />
+                <MttrLabel
+                  label="MTTR"
+                  title="감지 → 해결 완료까지 소요 시간"
+                  minutes={incident.mttr_minutes}
+                />
               </div>
             </div>
           </NeuCard>
@@ -325,7 +343,7 @@ export function IncidentDetailPage() {
                       .map(({ label, value }) => (
                         <div key={label}>
                           <p className="text-text-secondary mb-0.5 text-xs">{label}</p>
-                          <p className="text-text-primary whitespace-pre-wrap text-sm">{value}</p>
+                          <p className="text-text-primary text-sm whitespace-pre-wrap">{value}</p>
                         </div>
                       ))}
                   </div>
@@ -348,7 +366,7 @@ export function IncidentDetailPage() {
                     <span className="text-text-secondary mr-1 text-xs">AI 도우미:</span>
                     {confirmAnalyze ? (
                       <>
-                        <span className="text-warning whitespace-nowrap text-xs">
+                        <span className="text-warning text-xs whitespace-nowrap">
                           기존 내용을 덮어씁니다
                         </span>
                         <NeuButton size="sm" variant="ghost" onClick={runDevxAnalyze}>
@@ -394,9 +412,11 @@ export function IncidentDetailPage() {
                   </div>
 
                   <div>
-                    <label className="text-text-primary mb-1.5 block text-xs font-medium">근본 원인</label>
+                    <label className="text-text-primary mb-1.5 block text-xs font-medium">
+                      근본 원인
+                    </label>
                     <textarea
-                      className="bg-bg-base text-text-primary placeholder:text-text-secondary focus:border-accent focus:ring-accent w-full resize-none rounded-sm border border-transparent p-2.5 text-sm shadow-neu-inset focus:border focus:ring-1 focus:outline-none"
+                      className="bg-bg-base text-text-primary placeholder:text-text-secondary focus:border-accent focus:ring-accent shadow-neu-inset w-full resize-none rounded-sm border border-transparent p-2.5 text-sm focus:border focus:ring-1 focus:outline-none"
                       rows={8}
                       value={rootCause}
                       onChange={(e) => setRootCause(e.target.value)}
@@ -404,9 +424,11 @@ export function IncidentDetailPage() {
                     />
                   </div>
                   <div>
-                    <label className="text-text-primary mb-1.5 block text-xs font-medium">조치 내용</label>
+                    <label className="text-text-primary mb-1.5 block text-xs font-medium">
+                      조치 내용
+                    </label>
                     <textarea
-                      className="bg-bg-base text-text-primary placeholder:text-text-secondary focus:border-accent focus:ring-accent w-full resize-none rounded-sm border border-transparent p-2.5 text-sm shadow-neu-inset focus:border focus:ring-1 focus:outline-none"
+                      className="bg-bg-base text-text-primary placeholder:text-text-secondary focus:border-accent focus:ring-accent shadow-neu-inset w-full resize-none rounded-sm border border-transparent p-2.5 text-sm focus:border focus:ring-1 focus:outline-none"
                       rows={8}
                       value={resolution}
                       onChange={(e) => setResolution(e.target.value)}
@@ -414,9 +436,11 @@ export function IncidentDetailPage() {
                     />
                   </div>
                   <div>
-                    <label className="text-text-primary mb-1.5 block text-xs font-medium">사후 분석</label>
+                    <label className="text-text-primary mb-1.5 block text-xs font-medium">
+                      사후 분석
+                    </label>
                     <textarea
-                      className="bg-bg-base text-text-primary placeholder:text-text-secondary focus:border-accent focus:ring-accent w-full resize-none rounded-sm border border-transparent p-2.5 text-sm shadow-neu-inset focus:border focus:ring-1 focus:outline-none"
+                      className="bg-bg-base text-text-primary placeholder:text-text-secondary focus:border-accent focus:ring-accent shadow-neu-inset w-full resize-none rounded-sm border border-transparent p-2.5 text-sm focus:border focus:ring-1 focus:outline-none"
                       rows={8}
                       value={postmortem}
                       onChange={(e) => setPostmortem(e.target.value)}

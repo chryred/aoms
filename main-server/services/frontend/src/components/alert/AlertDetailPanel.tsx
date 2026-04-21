@@ -169,7 +169,6 @@ export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [alert, onClose])
 
-
   if (!displayAlert) return null
 
   const handleAck = () => {

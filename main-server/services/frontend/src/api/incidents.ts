@@ -78,9 +78,7 @@ export interface IncidentReportResponse {
 }
 
 export async function generateIncidentReport(id: number): Promise<IncidentReportResponse> {
-  return adminApi
-    .post(`api/v1/incidents/${id}/incident-report`, { timeout: 120_000 })
-    .json()
+  return adminApi.post(`api/v1/incidents/${id}/incident-report`, { timeout: 120_000 }).json()
 }
 
 export interface IncidentAiAnalyzeResponse {
@@ -90,7 +88,5 @@ export interface IncidentAiAnalyzeResponse {
 }
 
 export async function aiAnalyzeIncident(id: number): Promise<IncidentAiAnalyzeResponse> {
-  return adminApi
-    .post(`api/v1/incidents/${id}/ai-analyze`, { timeout: 120_000 })
-    .json()
+  return adminApi.post(`api/v1/incidents/${id}/ai-analyze`, { timeout: 120_000 }).json()
 }
