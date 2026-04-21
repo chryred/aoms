@@ -1,6 +1,6 @@
-import { useState, useMemo } from 'react'
+import { useCallback, useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { AlertTriangle, ChevronUp, ChevronDown, ChevronRight } from 'lucide-react'
+import { AlertTriangle, ChevronUp, ChevronDown, ChevronRight, RefreshCw } from 'lucide-react'
 import { useIncidents } from '@/hooks/queries/useIncidents'
 import { PageHeader } from '@/components/common/PageHeader'
 import { NeuCard } from '@/components/neumorphic/NeuCard'
@@ -58,7 +58,7 @@ function StatusBadge({ status }: { status: string }) {
   return (
     <span
       className={cn(
-        'inline-flex items-center whitespace-nowrap rounded-full border px-2 py-0.5 text-xs font-medium',
+        'inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium whitespace-nowrap',
         STATUS_STYLES[status] ?? 'bg-surface text-text-secondary border-border',
       )}
     >
@@ -72,7 +72,7 @@ function MttrBadge({ minutes }: { minutes: number | null }) {
   const h = Math.floor(minutes / 60)
   const m = minutes % 60
   const label = h > 0 ? `${h}h ${m}m` : `${m}m`
-  return <span className="whitespace-nowrap tabular-nums text-text-secondary">{label}</span>
+  return <span className="text-text-secondary whitespace-nowrap tabular-nums">{label}</span>
 }
 
 export function IncidentListPage() {
@@ -85,7 +85,18 @@ export function IncidentListPage() {
     data: incidents = [],
     isLoading,
     isError,
+    refetch,
   } = useIncidents(statusFilter !== 'all' ? { status: statusFilter, limit: 100 } : { limit: 100 })
+
+  const [isRefreshing, setIsRefreshing] = useState(false)
+  const handleRefresh = useCallback(async () => {
+    setIsRefreshing(true)
+    try {
+      await refetch()
+    } finally {
+      setIsRefreshing(false)
+    }
+  }, [refetch])
 
   const openCount = incidents.filter((i) => i.status === 'open').length
 
@@ -113,10 +124,13 @@ export function IncidentListPage() {
   }
 
   function SortIcon({ col }: { col: SortKey }) {
-    if (sortKey !== col) return <ChevronUp className="text-text-disabled ml-1 inline h-3 w-3 opacity-30" />
-    return sortDir === 'asc'
-      ? <ChevronUp className="text-accent ml-1 inline h-3 w-3" />
-      : <ChevronDown className="text-accent ml-1 inline h-3 w-3" />
+    if (sortKey !== col)
+      return <ChevronUp className="text-text-disabled ml-1 inline h-3 w-3 opacity-30" />
+    return sortDir === 'asc' ? (
+      <ChevronUp className="text-accent ml-1 inline h-3 w-3" />
+    ) : (
+      <ChevronDown className="text-accent ml-1 inline h-3 w-3" />
+    )
   }
 
   return (
@@ -125,12 +139,18 @@ export function IncidentListPage() {
         title="인시던트 관리"
         description="알림·로그 분석을 사건 단위로 추적하고 MTTR을 측정합니다"
         action={
-          openCount > 0 ? (
-            <span className="bg-critical/15 text-critical border-critical/30 inline-flex items-center gap-1 whitespace-nowrap rounded-full border px-3 py-1 text-sm font-medium">
-              <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden />
-              미해결 {openCount}건
-            </span>
-          ) : undefined
+          <div className="flex items-center gap-2">
+            {openCount > 0 && (
+              <span className="bg-critical/15 text-critical border-critical/30 inline-flex items-center gap-1 rounded-full border px-3 py-1 text-sm font-medium whitespace-nowrap">
+                <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                미해결 {openCount}건
+              </span>
+            )}
+            <NeuButton size="sm" onClick={handleRefresh} disabled={isRefreshing}>
+              <RefreshCw className={cn('h-4 w-4', isRefreshing && 'animate-spin')} />
+              새로고침
+            </NeuButton>
+          </div>
         }
       />
 
@@ -173,23 +193,30 @@ export function IncidentListPage() {
                   <th className="px-4 py-2.5 text-left font-medium">제목</th>
                   <th className="px-4 py-2.5 text-left font-medium whitespace-nowrap">시스템</th>
                   <th
-                    className="cursor-pointer select-none whitespace-nowrap px-4 py-2.5 text-left font-medium hover:text-text-primary"
+                    className="hover:text-text-primary cursor-pointer px-4 py-2.5 text-left font-medium whitespace-nowrap select-none"
                     onClick={() => handleSort('severity')}
                   >
                     심각도
                     <SortIcon col="severity" />
                   </th>
                   <th
-                    className="cursor-pointer select-none px-4 py-2.5 text-left font-medium hover:text-text-primary"
+                    className="hover:text-text-primary cursor-pointer px-4 py-2.5 text-left font-medium select-none"
                     onClick={() => handleSort('status')}
                   >
                     상태
                     <SortIcon col="status" />
                   </th>
-                  <th className="hidden whitespace-nowrap px-4 py-2.5 text-left font-medium md:table-cell">알림 수</th>
-                  <th className="hidden px-4 py-2.5 text-left font-medium md:table-cell" title="Mean Time To Resolve — 감지부터 해결 완료까지 소요 시간">MTTR</th>
+                  <th className="hidden px-4 py-2.5 text-left font-medium whitespace-nowrap md:table-cell">
+                    알림 수
+                  </th>
                   <th
-                    className="cursor-pointer select-none whitespace-nowrap px-4 py-2.5 text-left font-medium hover:text-text-primary"
+                    className="hidden px-4 py-2.5 text-left font-medium md:table-cell"
+                    title="Mean Time To Resolve — 감지부터 해결 완료까지 소요 시간"
+                  >
+                    MTTR
+                  </th>
+                  <th
+                    className="hover:text-text-primary cursor-pointer px-4 py-2.5 text-left font-medium whitespace-nowrap select-none"
                     onClick={() => handleSort('detected_at')}
                   >
                     감지
@@ -217,15 +244,17 @@ export function IncidentListPage() {
                     </td>
                     <td className="px-4 py-2.5">
                       <div className="flex min-w-0 items-center gap-1.5">
-                        <span className="text-text-primary line-clamp-1 min-w-0">{incident.title}</span>
+                        <span className="text-text-primary line-clamp-1 min-w-0">
+                          {incident.title}
+                        </span>
                         {incident.recurrence_of && (
-                          <span className="bg-warning/15 text-warning shrink-0 whitespace-nowrap rounded-full px-1.5 py-0.5 text-xs">
+                          <span className="bg-warning/15 text-warning shrink-0 rounded-full px-1.5 py-0.5 text-xs whitespace-nowrap">
                             재발
                           </span>
                         )}
                       </div>
                     </td>
-                    <td className="text-text-secondary whitespace-nowrap px-4 py-2.5">
+                    <td className="text-text-secondary px-4 py-2.5 whitespace-nowrap">
                       {incident.system_display_name ?? '—'}
                     </td>
                     <td className="px-4 py-2.5 whitespace-nowrap">
@@ -247,7 +276,7 @@ export function IncidentListPage() {
                     <td className="hidden px-4 py-2.5 md:table-cell">
                       <MttrBadge minutes={incident.mttr_minutes} />
                     </td>
-                    <td className="text-text-secondary whitespace-nowrap px-4 py-2.5">
+                    <td className="text-text-secondary px-4 py-2.5 whitespace-nowrap">
                       {formatRelative(incident.detected_at)}
                     </td>
                     <td className="pr-3">

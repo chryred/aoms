@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { Bell, ChevronLeft, ChevronRight, X } from 'lucide-react'
+import { Bell, ChevronLeft, ChevronRight, RefreshCw, X } from 'lucide-react'
 import { useAlerts } from '@/hooks/queries/useAlerts'
 import { useAlertsCount } from '@/hooks/queries/useAlertsCount'
 import { useSystems } from '@/hooks/queries/useSystems'
@@ -107,6 +107,16 @@ export function AlertHistoryPage() {
     }
   }, [tab, indicator.ready])
 
+  const [isRefreshing, setIsRefreshing] = useState(false)
+  const handleRefresh = useCallback(async () => {
+    setIsRefreshing(true)
+    try {
+      await refetch()
+    } finally {
+      setIsRefreshing(false)
+    }
+  }, [refetch])
+
   const hasActiveFilters = !!(systemFilter || severity || ackFilter !== 'all' || dateFrom || dateTo)
 
   const activeFilterChips = useMemo(() => {
@@ -145,7 +155,15 @@ export function AlertHistoryPage() {
 
   return (
     <>
-      <PageHeader title="알림 이력" />
+      <PageHeader
+        title="알림 이력"
+        action={
+          <NeuButton size="sm" onClick={handleRefresh} disabled={isRefreshing}>
+            <RefreshCw className={cn('h-4 w-4', isRefreshing && 'animate-spin')} />
+            새로고침
+          </NeuButton>
+        }
+      />
 
       {/* 탭 */}
       <div

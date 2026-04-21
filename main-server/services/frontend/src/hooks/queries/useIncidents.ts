@@ -19,6 +19,8 @@ export function useIncidents(params: IncidentListParams = {}) {
   return useQuery({
     queryKey: qk.list(params),
     queryFn: () => listIncidents(params),
+    staleTime: 30_000,
+    refetchInterval: 60_000,
   })
 }
 
