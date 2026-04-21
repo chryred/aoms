@@ -68,7 +68,7 @@ admin-api/
 | `contacts` | 담당자. `teams_upn`은 Teams @mention용 이메일 (LLM 관련 필드 제거됨 — ADR-007) |
 | `llm_agent_configs` | 업무 영역별 DevX agent_code 관리 (9개 영역). `area_code` 유니크 (ADR-007) |
 | `system_contacts` | 시스템↔담당자 N:M 매핑. `notify_channels`에 콤마로 채널 지정 |
-| `alert_history` | 모든 알림 발송 이력. `alert_type`: `metric` / `metric_resolved` / `log_analysis`. `error_message` 컬럼(ADR-002) 포함 |
+| `alert_history` | 모든 알림 발송 이력. `alert_type`: `metric` / `log_analysis`. 메트릭 복구 시 원본 row 의 `resolved_at` 만 업데이트 (별도 row 생성 안 함). `error_message` 컬럼(ADR-002) 포함 |
 | `log_analysis_history` | LLM 분석 결과 저장. log-analyzer 서비스가 POST로 전달. `error_message`(실패 사유)·`model_used`(LLM_TYPE) 컬럼 포함(ADR-001/002) |
 | `alert_cooldown` | 중복 알림 방지용 쿨다운 추적. key: `{system}:{role}:{alertname}:{severity}` |
 | `system_collector_config` | 수집기 유연 레지스트리. 시스템별 collector_type + metric_group 등록 (Phase 5) |
@@ -382,20 +382,36 @@ async def send_log_analysis_alert(
 
 ### resolved 알림 처리
 
-`alerts.py`에서 `resolved` 상태도 처리합니다 (복구 알림 발송 + `alert_type: "metric_resolved"` 저장).
+`alerts.py`에서 `resolved` 상태도 처리합니다. **원본 firing row 의 `resolved_at` 컬럼만 업데이트** 하고 별도 row 는 생성하지 않습니다 (과거 `alert_type="metric_resolved"` 로 별도 row 저장 방식 아님).
+
+**매칭 키**: `(system_id, alertname, instance_role, severity)` 4-tuple (cooldown 키와 대칭, `host` 는 제외).
+- 같은 그룹 내 다중 host firing 행을 한 번에 복구 처리 → Teams 복구 카드 1장으로 수렴
+- 매칭되는 un-resolved 행이 **없으면** Teams/WebSocket 모두 스킵 (`status=resolved_duplicate_skipped`) — Alertmanager 가 group_interval 경계나 flapping 으로 같은 그룹 resolved 를 여러 번 보낼 때 중복 카드 방지
 
 ```python
-# ❌ 과거 인식 (틀림)
-if alert.status not in ("firing", "resolved"):
-    continue  # resolved를 건너뜀
-
-# ✅ 현재 코드 (맞음) — resolved도 처리
-if alert.status not in ("firing", "resolved"):
-    continue
-# → 아래에 resolved 분기 처리 로직 있음
+# 현재 코드 요약 (alerts.py)
+if alert.status == "resolved":
+    originals = await db.execute(
+        select(AlertHistory)
+        .where(AlertHistory.alertname == alertname)
+        .where(AlertHistory.system_id == system_id)
+        .where(AlertHistory.instance_role == instance_role)
+        .where(AlertHistory.severity == severity)
+        .where(AlertHistory.alert_type == "metric")
+        .where(AlertHistory.resolved_at.is_(None))
+    )
+    original_rows = originals.scalars().all()
+    if not original_rows:
+        # 중복 resolved → Teams 스킵
+        continue
+    for row in original_rows:
+        row.resolved_at = datetime.utcnow()
+    # 이후 Teams send_recovery_alert 1회 + WebSocket 브로드캐스트 1회
 ```
 
-테스트 작성 시: `status=resolved` 알림은 `processed[0]["status"] == "resolved"` 반환을 검증해야 합니다.
+**판정 쿼리 반영**: `dashboard.py` `_get_system_health` 와 `/systems/{id}/detailed` 는 반드시 `AlertHistory.resolved_at.is_(None)` 필터를 포함해야 복구된 알림이 10분 동안 "위험" 으로 표시되지 않습니다.
+
+테스트 작성 시: `status=resolved` 알림은 `processed[0]["status"] == "resolved"` 반환을 검증하고, 원본 row 의 `resolved_at` 이 세팅되는지 확인해야 합니다. 중복 resolved 시나리오는 `processed[0]["status"] == "resolved_duplicate_skipped"` 로 검증 (`test_receive_resolved_duplicate_skipped` 참고).
 
 ### 피드백 등록 흐름 (n8n 의존 제거 · ADR-006)
 

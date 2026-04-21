@@ -121,6 +121,73 @@ async def test_system_health_warning_metric(db_session: AsyncSession, sample_sys
 
 
 @pytest.mark.asyncio
+async def test_system_health_resolved_metric_excluded(
+    db_session: AsyncSession, sample_system: System
+):
+    """복구된(resolved_at 세팅) 메트릭 알림은 상태 격상 대상에서 제외됨.
+
+    alerts.py 는 Alertmanager resolved 수신 시 별도 row 를 만들지 않고
+    원본 firing row 의 resolved_at 만 업데이트. 대시보드 판정 쿼리도 이를 존중해야 함.
+    """
+    resolved_alert = AlertHistory(
+        system_id=sample_system.id,
+        alert_type="metric",
+        severity="critical",
+        alertname="HighCPU",
+        title="CPU usage > 90%",
+        description="",
+        instance_role="main",
+        host="10.0.1.5",
+        resolved_at=datetime.utcnow(),  # 복구 완료
+    )
+    db_session.add(resolved_alert)
+    await db_session.commit()
+
+    health = await _get_system_health(db_session, sample_system.id)
+
+    assert health.status == "normal"
+    assert health.metric_alerts_count == 0
+
+
+@pytest.mark.asyncio
+async def test_system_health_mixed_resolved_and_active(
+    db_session: AsyncSession, sample_system: System
+):
+    """한 시스템에 복구된 critical 과 미복구 warning 이 섞여 있으면
+    warning 으로 판정(복구분 무시)."""
+    db_session.add_all([
+        AlertHistory(
+            system_id=sample_system.id,
+            alert_type="metric",
+            severity="critical",
+            alertname="HighCPU",
+            title="CPU",
+            description="",
+            instance_role="main",
+            host="10.0.1.5",
+            resolved_at=datetime.utcnow(),  # 복구됨
+        ),
+        AlertHistory(
+            system_id=sample_system.id,
+            alert_type="metric",
+            severity="warning",
+            alertname="HighMemory",
+            title="Memory",
+            description="",
+            instance_role="main",
+            host="10.0.1.5",
+            # resolved_at = None → 미복구
+        ),
+    ])
+    await db_session.commit()
+
+    health = await _get_system_health(db_session, sample_system.id)
+
+    assert health.status == "warning"
+    assert health.metric_alerts_count == 1
+
+
+@pytest.mark.asyncio
 async def test_system_health_critical_log_analysis(db_session: AsyncSession, sample_system: System):
     """위험 상태: Critical 로그분석"""
     log_result = LogAnalysisHistory(

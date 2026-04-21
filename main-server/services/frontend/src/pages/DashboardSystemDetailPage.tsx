@@ -264,7 +264,7 @@ export function DashboardSystemDetailPage() {
     system_id: numericId || undefined,
     agent_type: 'otel_javaagent',
   })
-  const hasOtel = otelAgents.some((a) => a.status === 'running')
+  const hasOtel = otelAgents.some((a) => ['running', 'installed'].includes(a.status))
   const [selectedTraceId, setSelectedTraceId] = useState<string | null>(null)
 
   const { data: minuteData = [], isLoading: minuteLoading } = useMetricsRange(
@@ -494,7 +494,7 @@ export function DashboardSystemDetailPage() {
           <TraceDotChart
             systemId={numericId}
             systemName={detail.display_name}
-            windowMinutes={60}
+            windowMinutes={HOURS_MAP[timeRange] * 60}
             height={280}
             onTraceSelect={setSelectedTraceId}
           />
@@ -553,7 +553,15 @@ export function DashboardSystemDetailPage() {
                       </div>
                     </div>
                     <div className="flex items-center gap-2 sm:flex-col sm:items-end">
-                      <NeuBadge variant={alert.severity === 'critical' ? 'critical' : 'warning'}>
+                      <NeuBadge
+                        variant={
+                          alert.severity === 'critical'
+                            ? 'critical'
+                            : alert.severity === 'warning'
+                              ? 'warning'
+                              : 'info'
+                        }
+                      >
                         {alert.severity.toUpperCase()}
                       </NeuBadge>
                       {alert.value && (
@@ -638,7 +646,13 @@ export function DashboardSystemDetailPage() {
                               {incident.anomaly_type === 'new' && '⚡ 신규 이상'}
                             </p>
                             <NeuBadge
-                              variant={incident.severity === 'critical' ? 'critical' : 'warning'}
+                              variant={
+                                incident.severity === 'critical'
+                                  ? 'critical'
+                                  : incident.severity === 'warning'
+                                    ? 'warning'
+                                    : 'info'
+                              }
                             >
                               {incident.severity.toUpperCase()}
                             </NeuBadge>
@@ -721,7 +735,13 @@ export function DashboardSystemDetailPage() {
                       </div>
                       <div className="flex-shrink-0">
                         <NeuBadge
-                          variant={alert.llm_severity === 'critical' ? 'critical' : 'warning'}
+                          variant={
+                            alert.llm_severity === 'critical'
+                              ? 'critical'
+                              : alert.llm_severity === 'warning'
+                                ? 'warning'
+                                : 'info'
+                          }
                         >
                           {alert.llm_severity?.toUpperCase()}
                         </NeuBadge>

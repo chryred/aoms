@@ -23,10 +23,6 @@ runuser -u jeussic -- bash -c '
         . "$OTEL_HOME/otel-env.sh"
         echo "[entrypoint] OTel 환경변수 로드 완료 (service.name=${OTEL_SERVICE_NAME})"
     fi
-    if [ -f "$OTEL_HOME/opentelemetry-javaagent.jar" ]; then
-        export JAVA_OPTS="${JAVA_OPTS} -javaagent:$OTEL_HOME/opentelemetry-javaagent.jar"
-        echo "[entrypoint] OTel Java Agent 주입됨"
-    fi
     java ${JAVA_OPTS} -jar /home/jeussic/sample-app/SampleApp.jar
 ' &
 echo "[entrypoint] SampleApp 시작 완료 (jeussic 계정, 포트 8081)"

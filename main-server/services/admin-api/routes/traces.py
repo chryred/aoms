@@ -4,13 +4,14 @@ OTel / Tempo 분산 추적 API
 엔드포인트:
   GET /api/v1/systems/{system_id}/traces/search  — dot-chart용 trace 목록 (버킷 집계 포함)
   GET /api/v1/traces/{trace_id}                  — span tree 상세
-  GET /api/v1/systems/{system_id}/traces/metrics — p50/p95/p99 + error_rate (60s 메모리 캐시)
+  GET /api/v1/systems/{system_id}/traces/metrics — p50/p95/p99 + error/slow 절대 건수 (60s 메모리 캐시, ADR-008)
 
 gating: agent_instances에 otel_javaagent running 상태인 에이전트가 없으면
   - search/metrics → 404 (시스템에 OTel 미적용)
   - /traces/{id}    → gating 생략 (trace_id는 시스템 종속 아님)
 """
 
+import asyncio
 import logging
 import os
 import re
@@ -34,20 +35,24 @@ TEMPO_URL = os.getenv("TEMPO_URL", "http://tempo:3200")
 _metrics_cache: dict[tuple, tuple[float, dict]] = {}
 _CACHE_TTL = 60.0
 
+# tail_sampling 정책 `slow` 의 threshold_ms 와 동일해야 함
+# (main-server/configs/otel-collector/otel-collector-config.yml 의 policies.slow.threshold_ms)
+_SLOW_THRESHOLD_MS = 2000
+
 # ── Tempo 쿼리 파라미터 화이트리스트 ─────────────────────────────────────────────
 _ALLOWED_METRIC_TYPES = {"rate", "error_rate", "p50", "p95", "p99", "duration"}
 _SAFE_SERVICE_NAME_RE = re.compile(r"^[a-zA-Z0-9_\-\.]+$")
 
 
 async def _system_has_running_otel_agent(system_id: int, db: AsyncSession) -> bool:
-    """OTel Java Agent가 running 상태인지 EXISTS 쿼리로 확인."""
+    """OTel Java Agent가 installed 또는 running 상태인지 EXISTS 쿼리로 확인."""
     result = await db.execute(
         text(
             "SELECT EXISTS("
             "  SELECT 1 FROM agent_instances"
             "  WHERE system_id = :sid"
             "    AND agent_type = 'otel_javaagent'"
-            "    AND status = 'running'"
+            "    AND status IN ('running', 'installed')"
             ")"
         ),
         {"sid": system_id},
@@ -212,13 +217,15 @@ async def get_trace(
 @router.get("/systems/{system_id}/traces/metrics")
 async def get_trace_metrics(
     system_id: int,
-    window_minutes: int = Query(5, ge=1, le=60),
+    window_minutes: int = Query(5, ge=1, le=2880),
     db: AsyncSession = Depends(get_db),
     _current_user=Depends(get_current_user),
 ):
     """
-    최근 N분 trace 기반 p50/p95/p99 latency + error_rate.
-    metrics-generator가 OFF이므로 Tempo /api/search 직접 집계.
+    최근 N분 trace 기반 에러·슬로우 절대 건수 + p50/p95/p99 latency.
+
+    tail_sampling 이 errors/slow 를 100% 보존하므로 건수는 샘플링 무관하게 정확.
+    비율 기반 지표는 probabilistic 5% 편향으로 의미가 없어 제공하지 않음 (ADR-008).
     60초 서버사이드 캐시 적용.
     """
     if not await _system_has_running_otel_agent(system_id, db):
@@ -236,20 +243,35 @@ async def get_trace_metrics(
     end_s = int(now)
     start_s = int(now - window_minutes * 60)
 
-    traceql = f'{{ resource.service.name="{service_name}" }}'
+    traceql_all = f'{{ resource.service.name="{service_name}" }}'
+    traceql_err = f'{{ resource.service.name="{service_name}" && status=error }}'
+    traceql_slow = (
+        f'{{ resource.service.name="{service_name}" '
+        f'&& duration > {_SLOW_THRESHOLD_MS}ms && status != error }}'
+    )
+    common_params = {"start": start_s, "end": end_s, "limit": 2000}
     try:
-        data = await _query_tempo(
-            "/api/search",
-            {"q": traceql, "start": start_s, "end": end_s, "limit": 2000},
+        data, err_data, slow_data = await asyncio.gather(
+            _query_tempo("/api/search", {"q": traceql_all, **common_params}),
+            _query_tempo("/api/search", {"q": traceql_err, **common_params}),
+            _query_tempo("/api/search", {"q": traceql_slow, **common_params}),
         )
     except httpx.HTTPError as exc:
         logger.warning("Tempo metrics query failed: %s", exc)
         raise HTTPException(status_code=502, detail="Tempo query failed")
 
+    # TraceQL status=error 쿼리로 정확한 에러 traceID 집합 구성
+    error_trace_ids = {tr["traceID"] for tr in err_data.get("traces", [])}
+    # slow 는 error 와 상호 배타 — TraceQL 에서 이미 status != error 로 필터
+    slow_trace_ids = {tr["traceID"] for tr in slow_data.get("traces", [])} - error_trace_ids
+
     traces = data.get("traces", [])
     durations = sorted(_safe_float(tr.get("durationMs", 0)) for tr in traces)
     n = len(durations)
-    error_count = sum(1 for tr in traces if tr.get("errorCount", 0) > 0)
+
+    error_count = len(error_trace_ids)
+    slow_count = len(slow_trace_ids)
+    anomaly_count = error_count + slow_count
 
     def percentile(lst: list, pct: float) -> float:
         if not lst:
@@ -260,19 +282,25 @@ async def get_trace_metrics(
     dots = []
     for tr in traces:
         ts_ns = _safe_int(tr.get("rootSpanTime", tr.get("startTimeUnixNano", 0)))
+        tid = tr.get("traceID", "")
+        is_error = tid in error_trace_ids or tr.get("errorCount", 0) > 0
+        is_slow = (not is_error) and (tid in slow_trace_ids)
         dots.append({
             "ts": ts_ns // 1_000_000,  # ms — Frontend Date()에 바로 사용 가능
             "durationMs": _safe_float(tr.get("durationMs", 0)),
-            "traceID": tr.get("traceID", ""),
-            "error": tr.get("errorCount", 0) > 0,
+            "traceID": tid,
+            "error": is_error,
+            "slow": is_slow,
             "name": tr.get("rootTraceName"),
         })
 
     result = {
         "window_minutes": window_minutes,
-        "total": n,
+        "total": n,  # sampled trace 수 (tail_sampling 이후 기준) — 참고용
         "error_count": error_count,
-        "error_rate": round(error_count / n * 100, 2) if n else 0.0,
+        "slow_count": slow_count,
+        "anomaly_count": anomaly_count,
+        "slow_threshold_ms": _SLOW_THRESHOLD_MS,
         "p50_ms": percentile(durations, 50),
         "p95_ms": percentile(durations, 95),
         "p99_ms": percentile(durations, 99),

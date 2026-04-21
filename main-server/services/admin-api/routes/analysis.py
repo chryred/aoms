@@ -31,14 +31,15 @@ async def create_analysis(payload: LogAnalysisCreate, db: AsyncSession = Depends
     db.add(record)
 
     is_failure = bool(payload.error_message)
-    will_send_teams = not is_failure and (
+    # 분석 실패(severity="warning")도 포함 — LLM 연결 장애를 Teams로 알림
+    will_send_teams = (
         payload.anomaly_type == "duplicate" or payload.severity in ("warning", "critical")
     )
     # alert_history에도 기록 (피드백 관리 "로그분석" 탭 + Teams 피드백 버튼 연동)
     # - 성공 warning/critical: 알림 발송됨
     # - duplicate(info): 알림 발송됨 → 피드백 등록 가능하려면 alert_history 필요
-    # - 분석 실패: error_message 필드로 "분석 실패" 뱃지 노출
-    should_log_alert = is_failure or will_send_teams
+    # - 분석 실패(warning): 알림 발송됨, error_message로 "분석 실패" 뱃지 노출
+    should_log_alert = will_send_teams
 
     alert_record: AlertHistory | None = None
     if should_log_alert:
@@ -99,8 +100,8 @@ async def create_analysis(payload: LogAnalysisCreate, db: AsyncSession = Depends
     await db.commit()
     await db.refresh(record)
 
-    # WebSocket 브로드캐스트 — warning/critical 분석 결과만 실시간 전파 (분석 실패 제외)
-    if not is_failure and payload.severity in ("warning", "critical"):
+    # WebSocket 브로드캐스트 — warning/critical 실시간 전파 (분석 실패 포함)
+    if payload.severity in ("warning", "critical"):
         await notify_log_analysis({
             "system_id": str(system.id),
             "system_name": system.system_name,

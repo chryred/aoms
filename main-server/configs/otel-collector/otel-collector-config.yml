@@ -17,6 +17,7 @@ processors:
 
   tail_sampling:
     # 최대 5s 대기 후 span 미수신 trace는 sampling 결정 → freshness gap 최소화
+    # 정책 변경 시 admin-api 상수 _SLOW_THRESHOLD_MS / _SAMPLING_RATE 도 함께 동기화 (ADR-008)
     decision_wait: 5s
     num_traces: 100000
     expected_new_traces_per_sec: 100

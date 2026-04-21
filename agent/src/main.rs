@@ -229,17 +229,20 @@ async fn main() {
         }
 
         if !all_samples.is_empty() {
-            let encoded = encode_samples(&all_samples);
-            let compressed = compress(&encoded);
+            let batch_size = cfg.remote_write.batch_size;
+            for batch in all_samples.chunks(batch_size) {
+                let encoded = encode_samples(batch);
+                let compressed = compress(&encoded);
 
-            match sender.send(compressed.clone()).await {
-                Ok(()) => {
-                    info!("Sent {} samples ({} bytes)", all_samples.len(), compressed.len());
-                }
-                Err(e) => {
-                    warn!("Remote write failed, buffering to WAL: {}", e);
-                    if let Err(we) = wal.append(&compressed) {
-                        error!("WAL append failed: {}", we);
+                match sender.send(compressed.clone()).await {
+                    Ok(()) => {
+                        info!("Sent {} samples ({} bytes)", batch.len(), compressed.len());
+                    }
+                    Err(e) => {
+                        warn!("Remote write failed, buffering to WAL: {}", e);
+                        if let Err(we) = wal.append(&compressed) {
+                            error!("WAL append failed: {}", we);
+                        }
                     }
                 }
             }

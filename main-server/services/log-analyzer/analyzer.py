@@ -441,7 +441,7 @@ async def run_analysis() -> dict:
                             instance_role=instance_role,
                             log_content=masked_log,
                             analysis_result={"error": str(e)[:500]},
-                            severity="info",
+                            severity="warning",
                             root_cause="LLM 분석 실패 — 재시도 필요",
                             recommendation="",
                             error_message=f"{type(e).__name__}: {str(e)[:300]}",

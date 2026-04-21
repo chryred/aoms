@@ -46,6 +46,7 @@ export interface TraceDotPoint {
   durationMs: number
   traceID: string
   error: boolean
+  slow: boolean
   name: string | null
 }
 
@@ -53,7 +54,9 @@ export interface TraceMetrics {
   window_minutes: number
   total: number
   error_count: number
-  error_rate: number
+  slow_count: number
+  anomaly_count: number
+  slow_threshold_ms: number
   p50_ms: number
   p95_ms: number
   p99_ms: number

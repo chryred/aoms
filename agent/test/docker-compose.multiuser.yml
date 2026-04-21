@@ -44,6 +44,11 @@ services:
     ports:
       - "2222:22"    # SSH: ssh -p 2222 jeussic@localhost (test123)
       - "8081:8081"  # SampleApp HTTP: curl http://localhost:8081/ok|slow|error|dependency
+    volumes:
+      - target_otel:/home/jeussic/otel  # OTel 설치 파일 영속 (재시작 시 재설치 불필요)
     extra_hosts:
       - "host.docker.internal:host-gateway"  # host machine 접근 (dev-prometheus:9090)
     restart: unless-stopped
+
+volumes:
+  target_otel:

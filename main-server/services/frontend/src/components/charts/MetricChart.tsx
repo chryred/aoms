@@ -162,7 +162,16 @@ export function MetricChart({
               }}
             >
               <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
-              <XAxis dataKey="timestamp" tick={{ fontSize: 11, fill: tickColor }} />
+              <XAxis
+                dataKey="timestamp"
+                tick={{ fontSize: 11, fill: tickColor }}
+                interval="preserveStartEnd"
+                minTickGap={24}
+                angle={-35}
+                textAnchor="end"
+                height={44}
+                tickMargin={8}
+              />
               <YAxis tick={{ fontSize: 11, fill: tickColor }} unit={unit} />
               <Tooltip content={<CustomTooltip />} />
               {metricKeys.map((key, i) => (

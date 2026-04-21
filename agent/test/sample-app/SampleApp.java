@@ -78,8 +78,11 @@ public class SampleApp {
 
     static class ErrorHandler implements HttpHandler {
         public void handle(HttpExchange ex) throws IOException {
-            // OTel agent가 uncaught exception을 ERROR span으로 기록
-            throw new RuntimeException("simulated error for OTel sampling test");
+            RuntimeException cause = new RuntimeException("simulated error for OTel sampling test");
+            // 응답 먼저 전송 (5xx → OTel HTTP semantic convention: ERROR span)
+            send(ex, 500, "{\"error\":\"" + cause.getMessage() + "\"}");
+            // re-throw → OTel agent가 exception을 span에 기록 (exception throw도 에러)
+            throw new IOException(cause);
         }
     }
 

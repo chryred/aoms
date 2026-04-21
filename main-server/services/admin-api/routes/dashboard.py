@@ -145,13 +145,16 @@ async def _get_system_health(
     ten_minutes_ago = datetime.utcnow() - timedelta(minutes=10)
     eight_hours_ago = datetime.utcnow() - timedelta(hours=8)
 
-    # 1. 메트릭 알림 (최근 10분)
+    # 1. 메트릭 알림 (최근 10분, 미복구분만)
+    # resolved_at IS NOT NULL 인 row 는 Alertmanager resolved 가 도착해 원본이 복구된 상태
+    # (alerts.py 가 별도 row 를 만들지 않고 원본 row 의 resolved_at 을 업데이트) — 상태 격상 대상 아님
     result = await db.execute(
         select(AlertHistory).where(
             and_(
                 AlertHistory.system_id == system_id,
                 AlertHistory.alert_type == "metric",
                 AlertHistory.created_at >= ten_minutes_ago,
+                AlertHistory.resolved_at.is_(None),
             )
         )
     )
@@ -286,11 +289,11 @@ async def get_dashboard_health(
     summary["total_log_critical"] = sum(1 for r in _log_stat_rows if r.severity == "critical")
     summary["total_log_warning"]  = sum(1 for r in _log_stat_rows if r.severity == "warning")
 
-    # OTel gating: running otel_javaagent 보유 system_id 집합 (한 번에 조회)
+    # OTel gating: installed/running otel_javaagent 보유 system_id 집합 (한 번에 조회)
     otel_result = await db.execute(
         text(
             "SELECT DISTINCT system_id FROM agent_instances"
-            " WHERE agent_type='otel_javaagent' AND status='running'"
+            " WHERE agent_type='otel_javaagent' AND status IN ('running', 'installed')"
         )
     )
     otel_system_ids = {row[0] for row in otel_result.fetchall()}
@@ -345,13 +348,14 @@ async def get_system_detail_health(
     ten_minutes_ago = datetime.utcnow() - timedelta(minutes=10)
     eight_hours_ago = datetime.utcnow() - timedelta(hours=8)
 
-    # 1. 활성 알림 (최근 10분) — 메트릭 알림
+    # 1. 활성 알림 (최근 10분, 미복구분만) — 메트릭 알림
     result = await db.execute(
         select(AlertHistory).where(
             and_(
                 AlertHistory.system_id == system_id,
                 AlertHistory.alert_type == "metric",
                 AlertHistory.created_at >= ten_minutes_ago,
+                AlertHistory.resolved_at.is_(None),
             )
         ).order_by(desc(AlertHistory.created_at))
     )

@@ -533,7 +533,7 @@ export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
             onClick={() => setShowIncidentModal(true)}
           >
             <FileText className="h-4 w-4" />
-            장애요약 작성
+            오류 요약
           </NeuButton>
         </div>
 

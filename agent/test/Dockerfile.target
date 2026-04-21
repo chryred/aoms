@@ -39,7 +39,7 @@ RUN mkdir -p /var/run/sshd && \
 RUN useradd -m -s /bin/bash jeussic && echo "jeussic:test123" | chpasswd
 
 # synapse agent WAL 디렉터리 사전 생성 (OTel은 jeussic이 admin-api install 시 ~/otel에 스스로 mkdir)
-RUN mkdir -p /home/jeussic/synapse/wal && \
+RUN mkdir -p /home/jeussic/synapse/wal /home/jeussic/otel && \
     chown -R jeussic:jeussic /home/jeussic/
 
 # SampleApp JAR 배치 — 서비스 계정(jeussic) 홈에 배치 (운영 WAS 기동 계정 패턴과 동일)

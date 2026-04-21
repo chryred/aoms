@@ -101,7 +101,11 @@ pub fn collect(cfg: &AgentConfig, services: &[ServiceConfig]) -> Vec<MetricSampl
         }
         if !matched {
             let cmd_truncated = if cmdline.len() > 200 {
-                cmdline[..200].to_string()
+                let mut end = 200;
+                while !cmdline.is_char_boundary(end) {
+                    end -= 1;
+                }
+                cmdline[..end].to_string()
             } else {
                 cmdline
             };

@@ -42,6 +42,7 @@ function DotTooltip({ active, payload }: { active?: boolean; payload?: TooltipPa
         {d.durationMs.toFixed(0)}ms · {formatKST(new Date(d.ts).toISOString(), 'HH:mm:ss')}
       </p>
       {d.error && <p className="text-critical font-semibold">에러</p>}
+      {!d.error && d.slow && <p className="text-warning font-semibold">느린 요청</p>}
     </div>
   )
 }
@@ -55,14 +56,20 @@ interface DotShapeProps {
 function SmallDot(props: DotShapeProps) {
   const { cx, cy, payload } = props
   if (cx == null || cy == null || !payload) return null
-  const fill = payload.error ? COLOR_ERR : COLOR_OK
-  return <circle cx={cx} cy={cy} r={2} fill={fill} fillOpacity={0.9} />
+  return <circle cx={cx} cy={cy} r={2} fill={dotColor(payload)} fillOpacity={0.9} />
 }
 
 const COLOR_OK = '#00D4FF'
 const COLOR_ERR = '#EF4444'
+const COLOR_SLOW = '#F59E0B'
 const EXPAND_DURATION = 340
 const COLLAPSE_DURATION = 280
+
+function dotColor(d: TraceDotPoint): string {
+  if (d.error) return COLOR_ERR
+  if (d.slow) return COLOR_SLOW
+  return COLOR_OK
+}
 
 // Recharts ScatterChart margin + YAxis width 기준 plot area 추정
 const PLOT_LEFT_PAD = 66
@@ -275,7 +282,7 @@ function ChartCore({ dots, xDomain, yMax, theme, onTraceSelect }: ChartCoreProps
             }}
           >
             {dots.map((d, i) => (
-              <Cell key={i} fill={d.error ? COLOR_ERR : COLOR_OK} fillOpacity={0.9} />
+              <Cell key={i} fill={dotColor(d)} fillOpacity={0.9} />
             ))}
           </Scatter>
         </ScatterChart>
@@ -327,12 +334,13 @@ function ChartCore({ dots, xDomain, yMax, theme, onTraceSelect }: ChartCoreProps
                 className={cn(
                   'hover:bg-hover-subtle flex w-full items-center justify-between rounded-sm px-2 py-1 text-left text-xs transition-colors',
                   d.error && 'bg-[rgba(239,68,68,0.06)]',
+                  !d.error && d.slow && 'bg-[rgba(245,158,11,0.06)]',
                 )}
               >
                 <span className="min-w-0 flex-1 truncate">
                   <span
                     className="mr-1.5 inline-block h-1.5 w-1.5 rounded-full align-middle"
-                    style={{ backgroundColor: d.error ? COLOR_ERR : COLOR_OK }}
+                    style={{ backgroundColor: dotColor(d) }}
                   />
                   <span className="text-text-primary font-mono">{d.traceID.slice(0, 8)}…</span>
                   <span className="text-text-secondary ml-2">{d.name ?? '?'}</span>
@@ -516,9 +524,12 @@ export function TraceDotChart({
           </div>
           {metrics && (
             <div className="text-text-secondary flex gap-3 text-xs">
-              <span>총 {metrics.total}건</span>
-              <span className={metrics.error_rate > 0 ? 'text-critical' : ''}>
-                에러 {metrics.error_rate.toFixed(1)}%
+              <span>샘플 {metrics.total}건</span>
+              <span className={metrics.error_count > 0 ? 'text-critical' : ''}>
+                에러 {metrics.error_count}건
+              </span>
+              <span className={metrics.slow_count > 0 ? 'text-warning' : ''}>
+                느린 {metrics.slow_count}건
               </span>
               <span>p95 {metrics.p95_ms.toFixed(0)}ms</span>
             </div>
@@ -547,6 +558,13 @@ export function TraceDotChart({
               style={{ backgroundColor: COLOR_OK }}
             />
             정상
+          </span>
+          <span className="text-text-secondary flex items-center gap-1">
+            <span
+              className="inline-block h-1.5 w-1.5 rounded-full"
+              style={{ backgroundColor: COLOR_SLOW }}
+            />
+            느린
           </span>
           <span className="text-text-secondary flex items-center gap-1">
             <span

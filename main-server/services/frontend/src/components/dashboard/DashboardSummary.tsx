@@ -245,7 +245,7 @@ export const DashboardSummaryStats = memo(function DashboardSummaryStats({
     <div className="space-y-4">
       {/* 시스템 상태 — 수평 비율 바 (hero 숫자 강조) */}
       <div>
-        <h2 className="type-heading text-text-primary mb-3 text-lg font-semibold">시스템 상태</h2>
+        <h2 className="type-heading text-text-primary mb-3 text-lg font-semibold">시스템 요약</h2>
         <SystemStatusBar
           critical={summary.critical_systems}
           warning={summary.warning_systems}

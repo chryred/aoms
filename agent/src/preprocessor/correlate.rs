@@ -133,6 +133,7 @@ impl Correlator {
                 &agent.host,
             );
             labels.push(("metric_name".to_string(), event.metric_name.clone()));
+            labels.push(("anomaly_value".to_string(), format!("{:.1}", event.value)));
             labels.push(("log_errors_in_window".to_string(), format!("{:.0}", total_log_errors)));
             labels.push(("corr_type".to_string(), "metric_log".to_string()));
 

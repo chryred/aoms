@@ -59,7 +59,7 @@ const LINE_COLORS_DARK = ['#00D4FF', '#22C55E', '#F59E0B', '#EC4899', '#14B8A6']
 const LINE_COLORS_LIGHT = ['#0891B2', '#059669', '#D97706', '#DB2777', '#0D9488']
 
 const HOURS = 6
-const STEP = 300
+const STEP = 60
 const EXPAND_DURATION = 340
 const COLLAPSE_DURATION = 280
 
@@ -200,7 +200,16 @@ function ExpandedPanel({
               <ResponsiveContainer width="100%" height="100%">
                 <ComposedChart data={data}>
                   <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
-                  <XAxis dataKey="timestamp" tick={{ fontSize: 12, fill: tickColor }} />
+                  <XAxis
+                    dataKey="timestamp"
+                    tick={{ fontSize: 12, fill: tickColor }}
+                    interval="preserveStartEnd"
+                    minTickGap={24}
+                    angle={-35}
+                    textAnchor="end"
+                    height={48}
+                    tickMargin={8}
+                  />
                   <YAxis tick={{ fontSize: 12, fill: tickColor }} unit={unit} />
                   <Tooltip content={<TrendTooltip unit={unit} />} />
                   {systemNames.map((name, i) => (
@@ -300,7 +309,16 @@ function TrendChart({
             <ResponsiveContainer width="100%" height={180}>
               <ComposedChart data={data}>
                 <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
-                <XAxis dataKey="timestamp" tick={{ fontSize: 11, fill: tickColor }} />
+                <XAxis
+                  dataKey="timestamp"
+                  tick={{ fontSize: 11, fill: tickColor }}
+                  interval="preserveStartEnd"
+                  minTickGap={24}
+                  angle={-35}
+                  textAnchor="end"
+                  height={44}
+                  tickMargin={8}
+                />
                 <YAxis tick={{ fontSize: 11, fill: tickColor }} unit={unit} />
                 <Tooltip content={<TrendTooltip unit={unit} />} />
                 {systemNames.map((name, i) => (
@@ -500,7 +518,7 @@ export function TrendMonitorSection({ systems }: TrendMonitorSectionProps) {
   return (
     <section className="space-y-3">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <h2 className="type-heading text-text-primary text-lg font-semibold">추이 모니터</h2>
+        <h2 className="type-heading text-text-primary text-lg font-semibold">시스템 메트릭</h2>
         <NeuMultiSelect
           options={selectOptions}
           selected={selectedSystems}

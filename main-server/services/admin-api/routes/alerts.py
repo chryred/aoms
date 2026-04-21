@@ -73,6 +73,41 @@ async def receive_alertmanager(
         # ── 정상 복구 처리 ────────────────────────────────────────────────
         if alert.status == "resolved":
             system, contacts = await _get_system_and_contacts(db, system_name)
+
+            # 매칭 키는 쿨다운 키와 동일 정밀도 — (system_id, alertname, instance_role, severity)
+            # host 차원은 제외해 같은 group 내 다중 host firing 행을 한 번에 복구 처리
+            # → 그룹당 Teams 복구 카드 1장으로 수렴 (중복 resolve webhook 에도 중복 발송 방지)
+            originals = await db.execute(
+                select(AlertHistory)
+                .where(AlertHistory.alertname == alertname)
+                .where(AlertHistory.system_id == (system.id if system else None))
+                .where(AlertHistory.instance_role == instance_role)
+                .where(AlertHistory.severity == severity)
+                .where(AlertHistory.alert_type == "metric")
+                .where(AlertHistory.resolved_at.is_(None))
+            )
+            original_rows = originals.scalars().all()
+
+            if not original_rows:
+                # 이미 앞선 resolved 에서 처리된 그룹 — Teams/WebSocket 모두 스킵
+                processed.append({"alertname": alertname, "status": "resolved_duplicate_skipped"})
+                continue
+
+            resolved_at = datetime.utcnow()
+            for row in original_rows:
+                row.resolved_at = resolved_at
+                if row.qdrant_point_id:
+                    try:
+                        async with httpx.AsyncClient(timeout=10.0) as client:
+                            await client.post(
+                                f"{LOG_ANALYZER_URL}/metric/resolve",
+                                json={"point_id": row.qdrant_point_id},
+                            )
+                    except Exception as exc:
+                        logger.warning("Qdrant 복구 상태 업데이트 실패: %s", exc)
+
+            await db.commit()
+
             webhook_url = (
                 system.teams_webhook_url
                 if system and system.teams_webhook_url
@@ -93,32 +128,6 @@ async def receive_alertmanager(
                     )
                 except Exception as exc:
                     logger.warning("Teams 복구 알림 발송 실패: %s", exc)
-
-            # 원본 firing alert 조회 → resolved_at 업데이트 (별도 row 생성 안 함)
-            original = await db.execute(
-                select(AlertHistory)
-                .where(AlertHistory.alertname == alertname)
-                .where(AlertHistory.system_id == (system.id if system else None))
-                .where(AlertHistory.alert_type == "metric")
-                .where(AlertHistory.resolved_at.is_(None))
-                .order_by(AlertHistory.created_at.desc())
-                .limit(1)
-            )
-            original_alert = original.scalar_one_or_none()
-            if original_alert:
-                original_alert.resolved_at = datetime.utcnow()
-                # Qdrant resolved 업데이트
-                if original_alert.qdrant_point_id:
-                    try:
-                        async with httpx.AsyncClient(timeout=10.0) as client:
-                            await client.post(
-                                f"{LOG_ANALYZER_URL}/metric/resolve",
-                                json={"point_id": original_alert.qdrant_point_id},
-                            )
-                    except Exception as exc:
-                        logger.warning("Qdrant 복구 상태 업데이트 실패: %s", exc)
-
-            await db.commit()
 
             # WebSocket 브로드캐스트 (클라이언트 실시간 업데이트)
             await notify_alert_resolved({

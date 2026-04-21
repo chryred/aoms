@@ -131,13 +131,13 @@ async def test_get_analysis_not_found(authed_client: AsyncClient):
 
 # ── LLM/분석 실패 레코드 ─────────────────────────────────────────────────────
 
-async def test_create_analysis_with_error_message_no_teams(authed_client: AsyncClient):
-    """error_message가 있으면 warning/critical severity여도 Teams 미발송 + alert_sent=False"""
+async def test_create_analysis_with_error_message_sends_teams(authed_client: AsyncClient):
+    """error_message가 있어도 warning/critical severity면 Teams 발송 + alert_sent=True"""
     system = await create_system(authed_client)
     payload = {
         **ANALYSIS_PAYLOAD,
         "system_id": system["id"],
-        "severity": "critical",            # 평소라면 Teams 발송 트리거
+        "severity": "warning",
         "error_message": "TimeoutError: LLM did not respond",
     }
 
@@ -151,9 +151,9 @@ async def test_create_analysis_with_error_message_no_teams(authed_client: AsyncC
 
     assert resp.status_code == 201
     data = resp.json()
-    assert data["alert_sent"] is False
+    assert data["alert_sent"] is True
     assert data["error_message"] == "TimeoutError: LLM did not respond"
-    mock_send.assert_not_called()
+    mock_send.assert_called_once()
 
 
 async def test_list_analysis_includes_failed_records(authed_client: AsyncClient):
@@ -180,23 +180,24 @@ async def test_list_analysis_includes_failed_records(authed_client: AsyncClient)
 
 
 async def test_create_analysis_failure_inserts_alert_history(authed_client: AsyncClient):
-    """분석 실패 레코드도 alert_history에 삽입되어 피드백 관리 목록에 노출되는지 확인"""
+    """분석 실패(warning severity) 레코드는 alert_history에 삽입되고 Teams도 발송"""
     system = await create_system(authed_client)
     fail_payload = {
         **ANALYSIS_PAYLOAD,
         "system_id": system["id"],
-        "severity": "info",
+        "severity": "warning",
         "error_message": "RuntimeError: LLM endpoint unreachable",
     }
 
-    with patch(
-        "routes.analysis.notifier.send_log_analysis_alert",
-        new_callable=AsyncMock,
-        return_value=True,
-    ) as mock_send:
+    with patch("routes.analysis.DEFAULT_WEBHOOK_URL", "https://teams.example.com/webhook"), \
+         patch(
+             "routes.analysis.notifier.send_log_analysis_alert",
+             new_callable=AsyncMock,
+             return_value=True,
+         ) as mock_send:
         resp = await authed_client.post("/api/v1/analysis", json=fail_payload)
     assert resp.status_code == 201
-    mock_send.assert_not_called()
+    mock_send.assert_called_once()
 
     # alert_history 에 동반 레코드가 생겼는지 확인 (log_analysis 타입)
     alerts = (await authed_client.get("/api/v1/alerts?alert_type=log_analysis")).json()

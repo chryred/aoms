@@ -1,5 +1,4 @@
 use serde::Deserialize;
-use std::path::Path;
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct Config {
@@ -158,8 +157,6 @@ pub struct ServiceConfig {
 pub struct WebServerConfig {
     pub name: String,
     pub display_name: String,
-    #[serde(rename = "type")]
-    pub server_type: String,
     pub log_path: String,
     pub log_format: String,
     #[serde(default)]
@@ -435,14 +432,4 @@ impl Config {
         Ok(config)
     }
 
-    pub fn load_or_default(path: &str) -> anyhow::Result<Self> {
-        if Path::new(path).exists() {
-            Self::load(path)
-        } else {
-            Err(anyhow::anyhow!(
-                "Config file not found: {}. Create one from config.example.toml",
-                path
-            ))
-        }
-    }
 }
