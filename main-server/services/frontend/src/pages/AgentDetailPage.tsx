@@ -272,17 +272,39 @@ export function AgentDetailPage() {
       {message && (
         <div
           className={`mb-4 rounded-sm px-4 py-3 text-sm ${
-            message.type === 'success'
-              ? 'text-normal bg-[rgba(34,197,94,0.08)]'
-              : 'text-critical bg-[rgba(239,68,68,0.08)]'
+            message.type === 'success' ? 'text-normal bg-normal-bg' : 'text-critical bg-critical-bg'
           }`}
         >
           {message.text}
         </div>
       )}
 
+      {/* [1] 설치 카드 — 전체 너비, 최상단 */}
+      <NeuCard className="mb-6">
+        <h2 className="text-text-primary mb-4 text-sm font-semibold">설치</h2>
+        <p className="text-text-secondary mb-3 text-xs">
+          바이너리 다운로드 + 디렉터리 구성. SSH 세션이 등록되어 있어야 합니다.
+        </p>
+        <NeuButton
+          size="sm"
+          variant="glass"
+          onClick={handleInstall}
+          disabled={!sessionActive || hostMismatch}
+        >
+          <Download className="h-3.5 w-3.5" />
+          설치 실행
+        </NeuButton>
+        {installJobId && (
+          <div className="border-border mt-4 border-t pt-4">
+            <p className="text-text-primary mb-2 text-xs font-medium">설치 진행 상황</p>
+            <InstallJobMonitor jobId={installJobId} onDone={handleInstallDone} />
+          </div>
+        )}
+      </NeuCard>
+
+      {/* [2]+[3] 2열 그리드 */}
       <div className="grid gap-6 lg:grid-cols-2">
-        {/* 상태 + 제어 */}
+        {/* [2] 상태 및 제어 */}
         <NeuCard>
           <div className="mb-4 flex items-center justify-between">
             <h2 className="text-text-primary text-sm font-semibold">상태 및 제어</h2>
@@ -412,29 +434,6 @@ export function AgentDetailPage() {
             </div>
           )}
 
-          {/* 설치 */}
-          <div className="border-border mt-4 border-t pt-4">
-            <p className="text-text-secondary mb-2 text-xs">
-              설치 (바이너리 다운로드 + 디렉터리 구성)
-            </p>
-            <NeuButton
-              size="sm"
-              variant="glass"
-              onClick={handleInstall}
-              disabled={!sessionActive || hostMismatch}
-            >
-              <Download className="h-3.5 w-3.5" />
-              설치 실행
-            </NeuButton>
-          </div>
-
-          {installJobId && (
-            <div className="border-border mt-4 border-t pt-4">
-              <p className="text-text-primary mb-2 text-xs font-medium">설치 진행 상황</p>
-              <InstallJobMonitor jobId={installJobId} onDone={handleInstallDone} />
-            </div>
-          )}
-
           {/* 삭제 */}
           <div className="border-border mt-4 border-t pt-4">
             {!showDeleteConfirm ? (
@@ -458,8 +457,63 @@ export function AgentDetailPage() {
           </div>
         </NeuCard>
 
-        {/* 설정 파일 편집기 */}
-        {
+        {/* [3] synapse/db → 수집 상태 | otel → 설정 파일 */}
+        {supportsLive ? (
+          /* 수집 상태 (Prometheus 기반 — synapse_agent / db) */
+          <NeuCard>
+            <div className="mb-4 flex items-center gap-2">
+              <Activity className="text-accent h-4 w-4" />
+              <h2 className="text-text-primary text-sm font-semibold">
+                수집 상태 (Prometheus · 최근 10분)
+              </h2>
+              {liveStatus?.live_status && (
+                <span className="ml-auto flex items-center gap-1.5">
+                  <span
+                    className={`h-2 w-2 rounded-full ${LIVE_STATUS_CONFIG[liveStatus.live_status].dot}`}
+                  />
+                  <span
+                    className={`text-xs font-medium ${LIVE_STATUS_CONFIG[liveStatus.live_status].color}`}
+                  >
+                    {LIVE_STATUS_CONFIG[liveStatus.live_status].label}
+                  </span>
+                </span>
+              )}
+            </div>
+            {liveStatus ? (
+              <div className="space-y-3">
+                {liveStatus.last_seen && (
+                  <p className="text-text-secondary text-xs">
+                    마지막 수신:{' '}
+                    <span className="text-text-primary">
+                      {formatKST(liveStatus.last_seen, 'datetime')}
+                    </span>
+                  </p>
+                )}
+                {liveStatus.collectors_active && liveStatus.collectors_active.length > 0 && (
+                  <div>
+                    <p className="text-text-secondary mb-2 text-xs">활성 수집기</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {liveStatus.collectors_active.map((c) => (
+                        <span
+                          key={c}
+                          className="text-normal bg-normal-bg rounded-full px-2.5 py-0.5 text-xs font-medium"
+                        >
+                          {COLLECTOR_LABELS[c] ?? c}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {(!liveStatus.collectors_active || liveStatus.collectors_active.length === 0) && (
+                  <p className="text-text-secondary text-xs">활성 수집기 정보 없음</p>
+                )}
+              </div>
+            ) : (
+              <p className="text-text-secondary text-xs">Prometheus에서 상태를 조회 중입니다...</p>
+            )}
+          </NeuCard>
+        ) : (
+          /* OTel: 설정 파일을 우측 열에 배치 */
           <NeuCard>
             <div className="mb-4 flex items-center justify-between">
               <h2 className="text-text-primary text-sm font-semibold">설정 파일</h2>
@@ -467,8 +521,6 @@ export function AgentDetailPage() {
                 {configDisplayPath ?? agent.config_path}
               </span>
             </div>
-
-            {/* OTel 타입: env / inject 탭 선택 */}
             {isOtelAgent && otelInjectInfo && (
               <div className="mb-3 flex items-center gap-2">
                 <div
@@ -516,7 +568,6 @@ export function AgentDetailPage() {
                 </span>
               </div>
             )}
-
             {configContent === null ? (
               <div className="flex flex-col items-center justify-center gap-3 py-12">
                 <p className="text-text-secondary text-sm">
@@ -537,7 +588,7 @@ export function AgentDetailPage() {
                 <NeuTextarea
                   value={configContent}
                   onChange={(e) => {
-                    if (isOtelAgent) return // OTel은 읽기 전용
+                    if (isOtelAgent) return
                     setConfigContent(e.target.value)
                     setConfigDirty(true)
                   }}
@@ -580,62 +631,70 @@ export function AgentDetailPage() {
               </div>
             )}
           </NeuCard>
-        }
+        )}
       </div>
 
-      {/* 수집 상태 (Prometheus 기반 — synapse_agent / db) */}
+      {/* [4] synapse/db 전용 설정 파일 — 전체 너비 */}
       {supportsLive && (
         <NeuCard className="mt-6">
-          <div className="mb-4 flex items-center gap-2">
-            <Activity className="text-accent h-4 w-4" />
-            <h2 className="text-text-primary text-sm font-semibold">
-              수집 상태 (Prometheus · 최근 10분)
-            </h2>
-            {liveStatus?.live_status && (
-              <span className="ml-auto flex items-center gap-1.5">
-                <span
-                  className={`h-2 w-2 rounded-full ${LIVE_STATUS_CONFIG[liveStatus.live_status].dot}`}
-                />
-                <span
-                  className={`text-xs font-medium ${LIVE_STATUS_CONFIG[liveStatus.live_status].color}`}
-                >
-                  {LIVE_STATUS_CONFIG[liveStatus.live_status].label}
-                </span>
-              </span>
-            )}
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="text-text-primary text-sm font-semibold">설정 파일</h2>
+            <span className="text-text-secondary font-mono text-xs">
+              {configDisplayPath ?? agent.config_path}
+            </span>
           </div>
 
-          {liveStatus ? (
-            <div className="space-y-3">
-              {liveStatus.last_seen && (
-                <p className="text-text-secondary text-xs">
-                  마지막 수신:{' '}
-                  <span className="text-text-primary">
-                    {formatKST(liveStatus.last_seen, 'datetime')}
-                  </span>
-                </p>
-              )}
-              {liveStatus.collectors_active && liveStatus.collectors_active.length > 0 && (
-                <div>
-                  <p className="text-text-secondary mb-2 text-xs">활성 수집기</p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {liveStatus.collectors_active.map((c) => (
-                      <span
-                        key={c}
-                        className="text-normal rounded-full bg-[rgba(34,197,94,0.1)] px-2.5 py-0.5 text-xs font-medium"
-                      >
-                        {COLLECTOR_LABELS[c] ?? c}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
-              {(!liveStatus.collectors_active || liveStatus.collectors_active.length === 0) && (
-                <p className="text-text-secondary text-xs">활성 수집기 정보 없음</p>
-              )}
+          {configContent === null ? (
+            <div className="flex flex-col items-center justify-center gap-3 py-12">
+              <p className="text-text-secondary text-sm">
+                설정 파일을 불러오려면 아래 버튼을 누르세요.
+              </p>
+              <NeuButton
+                size="sm"
+                variant="glass"
+                onClick={() => handleLoadConfig(undefined)}
+                loading={configLoading}
+                disabled={!sessionActive}
+              >
+                설정 파일 불러오기
+              </NeuButton>
             </div>
           ) : (
-            <p className="text-text-secondary text-xs">Prometheus에서 상태를 조회 중입니다...</p>
+            <div className="space-y-3">
+              <NeuTextarea
+                value={configContent}
+                onChange={(e) => {
+                  setConfigContent(e.target.value)
+                  setConfigDirty(true)
+                }}
+                rows={20}
+                className="font-mono text-xs"
+              />
+              <div className="flex items-center justify-between">
+                <NeuButton
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => handleLoadConfig(undefined)}
+                  loading={configLoading}
+                  disabled={!sessionActive}
+                >
+                  <RefreshCw className="h-3.5 w-3.5" />
+                  다시 불러오기
+                </NeuButton>
+                <NeuButton
+                  size="sm"
+                  onClick={handleUploadConfig}
+                  loading={actionLoading === '설정 업로드'}
+                  disabled={!sessionActive || !configDirty}
+                >
+                  <Upload className="h-3.5 w-3.5" />
+                  업로드 및 Reload
+                </NeuButton>
+              </div>
+              {configDirty && (
+                <p className="text-warning text-xs">저장되지 않은 변경사항이 있습니다.</p>
+              )}
+            </div>
           )}
         </NeuCard>
       )}
