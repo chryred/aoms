@@ -13,7 +13,7 @@ import { TrendMonitorSection } from '@/components/dashboard/TrendMonitorSection'
 import { TraceTreemapSection } from '@/components/dashboard/TraceTreemapSection'
 import { SystemHealthGrid } from '@/components/dashboard/SystemHealthGrid'
 import { NeuButton } from '@/components/neumorphic/NeuButton'
-import { formatKST, formatRelative, cn } from '@/lib/utils'
+import { formatKST, formatRelative, normalizeUtc, cn } from '@/lib/utils'
 
 export function DashboardPage() {
   const navigate = useNavigate()
@@ -68,7 +68,9 @@ export function DashboardPage() {
 
   const summary = dashboardData?.summary
   const systems = dashboardData?.systems ?? []
-  const lastUpdated = summary?.last_updated ? new Date(summary.last_updated) : new Date()
+  const lastUpdated = summary?.last_updated
+    ? new Date(normalizeUtc(summary.last_updated))
+    : new Date()
 
   // now 상태가 1초마다 리렌더를 유발 → formatRelative 결과 자동 갱신
   void now

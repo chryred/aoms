@@ -9,16 +9,26 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
+// naive UTC 문자열(타임존 접미사 Z/+/- 없음)에 'Z'를 부착해 UTC로 강제 해석.
+// 이미 Z 또는 ±HH:MM suffix가 있으면 그대로 반환. new Date(...) 호출 전에 사용.
+export function normalizeUtc(utcDate: string): string {
+  return !utcDate.endsWith('Z') && !/[+-]\d{2}:?\d{2}$/.test(utcDate) ? utcDate + 'Z' : utcDate
+}
+
+// KST 날짜피커 입력(YYYY-MM-DD) → 백엔드 naive UTC ISO 문자열.
+// 사용자가 고른 KST 자정(00:00) / 하루 끝(23:59:59)을 UTC로 환산해 필터 쿼리에 사용.
+// 예: "2026-04-21" (KST) → start "2026-04-20T15:00:00", end "2026-04-21T14:59:59"
+export const kstDateToUtcStart = (d: string) =>
+  new Date(d + 'T00:00:00+09:00').toISOString().replace('.000Z', '')
+export const kstDateToUtcEnd = (d: string) =>
+  new Date(d + 'T23:59:59+09:00').toISOString().replace('.000Z', '')
+
 // UTC → KST (UTC+9) 변환
 export function formatKST(
   utcDate: string | Date,
   format: 'datetime' | 'date' | 'HH:mm' | 'HH:mm:ss' = 'datetime',
 ): string {
-  // 타임존 정보 없는 문자열(Z, +, - 없음)은 UTC로 해석 (naive UTC)
-  const normalized =
-    typeof utcDate === 'string' && !utcDate.endsWith('Z') && !/[+-]\d{2}:?\d{2}$/.test(utcDate)
-      ? utcDate + 'Z'
-      : utcDate
+  const normalized = typeof utcDate === 'string' ? normalizeUtc(utcDate) : utcDate
   const d = new Date(normalized)
   const kst = new Date(d.getTime() + 9 * 60 * 60 * 1000)
   if (format === 'HH:mm:ss') return kst.toISOString().slice(11, 19)
@@ -29,10 +39,7 @@ export function formatKST(
 
 // 상대 시간 (1시간 이내: "3분 전", 7일 이내: "N시간/일 전", 이상: KST 절대)
 export function formatRelative(utcDate: string): string {
-  // naive UTC 문자열(타임존 접미사 없음)을 UTC로 해석
-  const normalized =
-    !utcDate.endsWith('Z') && !/[+-]\d{2}:?\d{2}$/.test(utcDate) ? utcDate + 'Z' : utcDate
-  const diff = Date.now() - new Date(normalized).getTime()
+  const diff = Date.now() - new Date(normalizeUtc(utcDate)).getTime()
   const mins = Math.floor(diff / 60_000)
   if (mins < 1) return '방금 전'
   if (mins < 60) return `${mins}분 전`

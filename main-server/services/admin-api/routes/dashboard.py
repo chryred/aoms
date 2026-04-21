@@ -6,7 +6,7 @@
 
 import logging
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import httpx
@@ -142,8 +142,8 @@ async def _get_system_health(
       4. 예방 패턴 (MetricHourlyAggregation.llm_prediction)
     """
     health = _SystemHealth()
-    ten_minutes_ago = datetime.utcnow() - timedelta(minutes=10)
-    eight_hours_ago = datetime.utcnow() - timedelta(hours=8)
+    ten_minutes_ago = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=10)
+    eight_hours_ago = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=8)
 
     # 1. 메트릭 알림 (최근 10분, 미복구분만)
     # resolved_at IS NOT NULL 인 row 는 Alertmanager resolved 가 도착해 원본이 복구된 상태
@@ -275,11 +275,11 @@ async def get_dashboard_health(
         "total_metric_alerts": 0,
         "total_log_critical": 0,
         "total_log_warning":  0,
-        "last_updated":       datetime.utcnow().isoformat() + "Z",
+        "last_updated":       datetime.now(timezone.utc).replace(tzinfo=None).isoformat() + "Z",
     }
 
     # 로그분석 통계 (전체 시스템, 최근 10분)
-    _ten_min_ago = datetime.utcnow() - timedelta(minutes=10)
+    _ten_min_ago = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=10)
     _log_stat_result = await db.execute(
         select(LogAnalysisHistory).where(
             LogAnalysisHistory.created_at >= _ten_min_ago
@@ -345,8 +345,8 @@ async def get_system_detail_health(
     if not system:
         raise HTTPException(status_code=404, detail="System not found")
 
-    ten_minutes_ago = datetime.utcnow() - timedelta(minutes=10)
-    eight_hours_ago = datetime.utcnow() - timedelta(hours=8)
+    ten_minutes_ago = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=10)
+    eight_hours_ago = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=8)
 
     # 1. 활성 알림 (최근 10분, 미복구분만) — 메트릭 알림
     result = await db.execute(
@@ -488,5 +488,5 @@ async def get_system_detail_health(
         ],
 
         "contacts":     contacts,
-        "last_updated": datetime.utcnow().isoformat() + "Z",
+        "last_updated": datetime.now(timezone.utc).replace(tzinfo=None).isoformat() + "Z",
     }

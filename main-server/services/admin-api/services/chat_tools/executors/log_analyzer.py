@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import httpx
@@ -25,7 +25,7 @@ async def _base_url(db: AsyncSession) -> str | None:
 async def _recent_analyses(db: AsyncSession, args: dict[str, Any]) -> dict[str, Any]:
     since_hours = int(args.get("since_hours", 24))
     limit = min(int(args.get("limit", 10)), 50)
-    since = datetime.utcnow() - timedelta(hours=since_hours)
+    since = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=since_hours)
 
     conds = [LogAnalysisHistory.created_at >= since]
     if args.get("system_id"):

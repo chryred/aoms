@@ -14,7 +14,7 @@ import { LoadingSkeleton } from '@/components/common/LoadingSkeleton'
 import { ErrorCard } from '@/components/common/ErrorCard'
 import { AlertTable } from '@/components/alert/AlertTable'
 import { AlertDetailPanel } from '@/components/alert/AlertDetailPanel'
-import { cn } from '@/lib/utils'
+import { cn, kstDateToUtcStart, kstDateToUtcEnd } from '@/lib/utils'
 import type { AlertHistory, Severity } from '@/types/alert'
 
 const PAGE_SIZE = 20
@@ -30,12 +30,6 @@ const TABS: { key: TabType; label: string }[] = [
 
 const isSeverity = (v: string): v is Severity => v === 'critical' || v === 'warning' || v === 'info'
 const isAckFilter = (v: string): v is AckFilter => v === 'all' || v === 'unack' || v === 'ack'
-
-// KST 날짜 선택값을 UTC naive datetime 문자열로 변환 (백엔드 저장 형식과 일치)
-const kstDateToUtcStart = (d: string) =>
-  new Date(d + 'T00:00:00+09:00').toISOString().replace('.000Z', '')
-const kstDateToUtcEnd = (d: string) =>
-  new Date(d + 'T23:59:59+09:00').toISOString().replace('.000Z', '')
 
 export function AlertHistoryPage() {
   const [searchParams, setSearchParams] = useSearchParams()

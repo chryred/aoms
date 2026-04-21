@@ -7,7 +7,7 @@ WebSocket 실시간 알림 스트리밍
 import asyncio
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Set
 from fastapi import WebSocketException, APIRouter, WebSocketDisconnect, WebSocket, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -58,7 +58,7 @@ class ConnectionManager:
         """알림 발생 이벤트 브로드캐스트"""
         message = {
             "type": "alert_fired",
-            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "timestamp": datetime.now(timezone.utc).replace(tzinfo=None).isoformat() + "Z",
             "data": alert_data,
         }
         await self.broadcast(message)
@@ -67,7 +67,7 @@ class ConnectionManager:
         """알림 해제 이벤트 브로드캐스트"""
         message = {
             "type": "alert_resolved",
-            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "timestamp": datetime.now(timezone.utc).replace(tzinfo=None).isoformat() + "Z",
             "data": alert_data,
         }
         await self.broadcast(message)
@@ -76,7 +76,7 @@ class ConnectionManager:
         """로그분석 완료 이벤트 브로드캐스트"""
         message = {
             "type": "log_analysis_complete",
-            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "timestamp": datetime.now(timezone.utc).replace(tzinfo=None).isoformat() + "Z",
             "data": analysis_data,
         }
         await self.broadcast(message)

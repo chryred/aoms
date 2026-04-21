@@ -56,7 +56,7 @@ async def _run_analysis_task() -> None:
         logger.info("이전 분석이 진행 중 — 스킵")
         return
     _running = True
-    _last_run["started_at"] = datetime.now().isoformat()
+    _last_run["started_at"] = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
     _last_run["finished_at"] = None
     try:
         result = await analyzer.run_analysis()
@@ -66,7 +66,7 @@ async def _run_analysis_task() -> None:
         _last_run["result"] = {"error": str(e)}
     finally:
         _running = False
-        _last_run["finished_at"] = datetime.now().isoformat()
+        _last_run["finished_at"] = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
 
 
 async def _scheduler() -> None:
@@ -466,7 +466,7 @@ async def _run_agg_task(name: str, fn) -> None:
     if _agg_running[name]:
         return
     _agg_running[name] = True
-    _agg_last_run[name]["started_at"] = datetime.now().isoformat()
+    _agg_last_run[name]["started_at"] = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
     _agg_last_run[name]["finished_at"] = None
     try:
         result = await fn()
@@ -476,7 +476,7 @@ async def _run_agg_task(name: str, fn) -> None:
         _agg_last_run[name]["result"] = {"error": str(e)}
     finally:
         _agg_running[name] = False
-        _agg_last_run[name]["finished_at"] = datetime.now().isoformat()
+        _agg_last_run[name]["finished_at"] = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
 
 
 def _trigger_aggregation(task_key: str, coro_fn) -> dict:

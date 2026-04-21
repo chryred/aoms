@@ -9,7 +9,7 @@ UI/n8n이 GET으로 조회한다.
 import os
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Any
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -246,7 +246,7 @@ async def get_trend_alerts(
     WF11 및 UI 장애 예방 화면에서 사용.
     """
     from datetime import timedelta
-    cutoff = datetime.utcnow() - timedelta(hours=threshold_hours * 2)
+    cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=threshold_hours * 2)
     stmt = (
         select(
             MetricHourlyAggregation,

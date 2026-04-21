@@ -9,7 +9,7 @@ SSH 세션 매니저 — 계정 정보 인메모리 관리 (DB 저장 금지)
 
 import asyncio
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import paramiko
@@ -23,7 +23,7 @@ _CLEANUP_INTERVAL_SECONDS = 60
 def create_session(host: str, port: int, username: str, password: str) -> tuple[str, datetime]:
     """SSH 세션 등록. 토큰과 만료 시각을 반환한다."""
     token = str(uuid.uuid4())
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     _sessions[token] = {
         "host": host,
         "port": port,
@@ -40,12 +40,12 @@ def get_session(token: str) -> Optional[dict]:
     entry = _sessions.get(token)
     if entry is None:
         return None
-    if datetime.utcnow() > entry["expires_at"]:
+    if datetime.now(timezone.utc).replace(tzinfo=None) > entry["expires_at"]:
         _sessions.pop(token, None)
         return None
     # 슬라이딩 TTL 갱신
-    entry["last_used"] = datetime.utcnow()
-    entry["expires_at"] = datetime.utcnow() + timedelta(minutes=_SESSION_TTL_MINUTES)
+    entry["last_used"] = datetime.now(timezone.utc).replace(tzinfo=None)
+    entry["expires_at"] = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(minutes=_SESSION_TTL_MINUTES)
     return entry
 
 
@@ -54,7 +54,7 @@ def delete_session(token: str) -> bool:
 
 
 def _cleanup_expired():
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     expired = [t for t, e in _sessions.items() if now > e["expires_at"]]
     for t in expired:
         _sessions.pop(t, None)

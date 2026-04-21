@@ -10,7 +10,7 @@ import { UserStatusBadge, UserRoleBadge } from '@/components/user/UserStatusBadg
 import { ConfirmDialog } from '@/components/user/ConfirmDialog'
 import { UserFormDrawer } from '@/components/user/UserFormDrawer'
 import { LoadingSkeleton } from '@/components/common/LoadingSkeleton'
-import { cn } from '@/lib/utils'
+import { cn, formatKST } from '@/lib/utils'
 import { toUserStatus } from '@/types/auth'
 import type { UserAdminOut, TabFilter } from '@/types/auth'
 
@@ -20,11 +20,7 @@ function filterUsers(users: UserAdminOut[], tab: TabFilter): UserAdminOut[] {
 }
 
 function formatDate(iso: string) {
-  // naive UTC → KST 변환 후 포맷
-  const normalized = !iso.endsWith('Z') && !/[+-]\d{2}:?\d{2}$/.test(iso) ? iso + 'Z' : iso
-  const d = new Date(normalized)
-  const kst = new Date(d.getTime() + 9 * 60 * 60 * 1000)
-  return kst.toISOString().slice(0, 10).replace(/-/g, '. ') + '.'
+  return formatKST(iso, 'date').replace(/-/g, '. ') + '.'
 }
 
 type ActionType = 'approve' | 'reject' | 'disable' | 'reactivate' | 'delete'

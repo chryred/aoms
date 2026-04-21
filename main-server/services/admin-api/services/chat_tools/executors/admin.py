@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import select, and_
@@ -54,7 +54,7 @@ async def _list_systems(db: AsyncSession, args: dict[str, Any]) -> dict[str, Any
 async def _search_alert_history(db: AsyncSession, args: dict[str, Any]) -> dict[str, Any]:
     since_hours = int(args.get("since_hours", 24))
     limit = min(int(args.get("limit", 20)), 100)
-    since = datetime.utcnow() - timedelta(hours=since_hours)
+    since = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=since_hours)
 
     conds = [AlertHistory.created_at >= since]
     if args.get("system_id"):

@@ -6,7 +6,7 @@
 """
 
 import pytest
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models import System, Contact, AlertHistory, LogAnalysisHistory, SystemContact, User
@@ -138,7 +138,7 @@ async def test_system_health_resolved_metric_excluded(
         description="",
         instance_role="main",
         host="10.0.1.5",
-        resolved_at=datetime.utcnow(),  # 복구 완료
+        resolved_at=datetime.now(timezone.utc).replace(tzinfo=None),  # 복구 완료
     )
     db_session.add(resolved_alert)
     await db_session.commit()
@@ -165,7 +165,7 @@ async def test_system_health_mixed_resolved_and_active(
             description="",
             instance_role="main",
             host="10.0.1.5",
-            resolved_at=datetime.utcnow(),  # 복구됨
+            resolved_at=datetime.now(timezone.utc).replace(tzinfo=None),  # 복구됨
         ),
         AlertHistory(
             system_id=sample_system.id,
@@ -264,7 +264,7 @@ async def test_system_health_ignores_old_alerts(db_session: AsyncSession, sample
         description="",
         instance_role="main",
         host="10.0.1.5",
-        created_at=datetime.utcnow() - timedelta(hours=2),
+        created_at=datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=2),
     )
     db_session.add(old_alert)
     await db_session.commit()

@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,7 +13,7 @@ def make_alert_key(system_name: str, instance_role: str, alertname: str, severit
 
 async def is_in_cooldown(db: AsyncSession, system_id: int, alert_key: str) -> bool:
     """쿨다운 기간(5분) 내 동일 알림이 발송된 적 있으면 True"""
-    cutoff = datetime.utcnow() - timedelta(minutes=COOLDOWN_MINUTES)
+    cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=COOLDOWN_MINUTES)
     result = await db.execute(
         select(AlertCooldown).where(
             AlertCooldown.system_id == system_id,
@@ -26,7 +26,7 @@ async def is_in_cooldown(db: AsyncSession, system_id: int, alert_key: str) -> bo
 
 async def record_sent(db: AsyncSession, system_id: int, alert_key: str) -> None:
     """쿨다운 레코드를 upsert"""
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     result = await db.execute(
         select(AlertCooldown).where(
             AlertCooldown.system_id == system_id,
@@ -43,7 +43,7 @@ async def record_sent(db: AsyncSession, system_id: int, alert_key: str) -> None:
 
 async def cleanup_expired(db: AsyncSession) -> int:
     """만료된 쿨다운 레코드 삭제 (선택적 유지보수 호출)"""
-    cutoff = datetime.utcnow() - timedelta(minutes=COOLDOWN_MINUTES)
+    cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=COOLDOWN_MINUTES)
     result = await db.execute(
         delete(AlertCooldown).where(AlertCooldown.last_sent_at < cutoff)
     )

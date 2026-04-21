@@ -11,6 +11,7 @@ import {
 } from 'recharts'
 import type { HourlyAggregation } from '@/types/aggregation'
 import { transformToChartData } from '@/lib/metrics-transform'
+import { formatKST } from '@/lib/utils'
 import { useUiStore } from '@/store/uiStore'
 
 interface MetricChartProps {
@@ -128,16 +129,10 @@ export function MetricChart({
 
   const warningPoints = aggregations
     .filter((a) => a.llm_severity === 'warning')
-    .map((a) => {
-      const d = new Date(a.hour_bucket)
-      return new Date(d.getTime() + 9 * 60 * 60 * 1000).toISOString().slice(11, 16)
-    })
+    .map((a) => formatKST(a.hour_bucket, 'HH:mm'))
   const criticalPoints = aggregations
     .filter((a) => a.llm_severity === 'critical')
-    .map((a) => {
-      const d = new Date(a.hour_bucket)
-      return new Date(d.getTime() + 9 * 60 * 60 * 1000).toISOString().slice(11, 16)
-    })
+    .map((a) => formatKST(a.hour_bucket, 'HH:mm'))
 
   return (
     <div className="bg-bg-base shadow-neu-flat rounded-sm p-4">

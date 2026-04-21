@@ -32,7 +32,7 @@ import textwrap
 import uuid
 
 logger = logging.getLogger(__name__)
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
@@ -731,7 +731,7 @@ async def install_agent(
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, "SSH 세션이 만료되었습니다. 다시 로그인해 주세요.")
         session = entry
     job_id = str(uuid.uuid4())
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
 
     # DB에 Job 레코드 생성
     job = AgentInstallJob(
@@ -832,7 +832,7 @@ async def _run_db_connect(job_id: str, agent: AgentInstance) -> None:
                     .values(system_id=agent.system_id, collector_type="db_exporter", metric_group=group, enabled=True)
                     .on_conflict_do_update(
                         index_elements=["system_id", "collector_type", "metric_group"],
-                        set_={"enabled": True, "updated_at": datetime.utcnow()},
+                        set_={"enabled": True, "updated_at": datetime.now(timezone.utc).replace(tzinfo=None)},
                     )
                 )
             await db.execute(
@@ -841,7 +841,7 @@ async def _run_db_connect(job_id: str, agent: AgentInstance) -> None:
                 .values(
                     status="done",
                     logs=_live_jobs[job_id]["logs"],
-                    updated_at=datetime.utcnow(),
+                    updated_at=datetime.now(timezone.utc).replace(tzinfo=None),
                 )
             )
             await db.commit()
@@ -862,7 +862,7 @@ async def _run_db_connect(job_id: str, agent: AgentInstance) -> None:
                     status="failed",
                     logs=_live_jobs[job_id]["logs"],
                     error=err_msg,
-                    updated_at=datetime.utcnow(),
+                    updated_at=datetime.now(timezone.utc).replace(tzinfo=None),
                 )
             )
             await db.commit()
@@ -1080,7 +1080,7 @@ async def _run_install(
                         .values(system_id=agent.system_id, collector_type="synapse_agent", metric_group=group, enabled=True)
                         .on_conflict_do_update(
                             index_elements=["system_id", "collector_type", "metric_group"],
-                            set_={"enabled": True, "updated_at": datetime.utcnow()},
+                            set_={"enabled": True, "updated_at": datetime.now(timezone.utc).replace(tzinfo=None)},
                         )
                     )
 
@@ -1090,7 +1090,7 @@ async def _run_install(
                 .values(
                     status="done",
                     logs=_live_jobs[job_id]["logs"],
-                    updated_at=datetime.utcnow(),
+                    updated_at=datetime.now(timezone.utc).replace(tzinfo=None),
                 )
             )
             await db.commit()
@@ -1108,7 +1108,7 @@ async def _run_install(
                     status="failed",
                     logs=_live_jobs[job_id]["logs"],
                     error=err_msg,
-                    updated_at=datetime.utcnow(),
+                    updated_at=datetime.now(timezone.utc).replace(tzinfo=None),
                 )
             )
             await db.commit()
@@ -1595,7 +1595,7 @@ async def _run_otel_install(job_id: str, agent: AgentInstance, session: dict) ->
             await db.execute(
                 update(AgentInstallJob)
                 .where(AgentInstallJob.job_id == job_id)
-                .values(status="done", logs=_live_jobs[job_id]["logs"], updated_at=datetime.utcnow())
+                .values(status="done", logs=_live_jobs[job_id]["logs"], updated_at=datetime.now(timezone.utc).replace(tzinfo=None))
             )
             await db.commit()
             _live_jobs[job_id]["status"] = "done"
@@ -1609,7 +1609,7 @@ async def _run_otel_install(job_id: str, agent: AgentInstance, session: dict) ->
                 await db2.execute(
                     update(AgentInstallJob)
                     .where(AgentInstallJob.job_id == job_id)
-                    .values(status="failed", logs=_live_jobs[job_id]["logs"], error=err_msg, updated_at=datetime.utcnow())
+                    .values(status="failed", logs=_live_jobs[job_id]["logs"], error=err_msg, updated_at=datetime.now(timezone.utc).replace(tzinfo=None))
                 )
                 await db2.commit()
 

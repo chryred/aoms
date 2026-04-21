@@ -129,7 +129,7 @@ async def update_incident(
     if not incident:
         raise HTTPException(status_code=404, detail="Incident not found")
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     timeline_desc = None
 
     if payload.status and payload.status != incident.status:

@@ -424,7 +424,7 @@ if alert.status == "resolved":
         # 중복 resolved → Teams 스킵
         continue
     for row in original_rows:
-        row.resolved_at = datetime.utcnow()
+        row.resolved_at = datetime.now(timezone.utc).replace(tzinfo=None)
     # 이후 Teams send_recovery_alert 1회 + WebSocket 브로드캐스트 1회
 ```
 

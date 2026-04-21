@@ -33,7 +33,7 @@ async def _get_or_create_incident(
 ) -> Incident:
     """30분 이내 같은 시스템의 열린 인시던트에 연결하거나 신규 생성."""
     if system_id:
-        cutoff = datetime.utcnow() - timedelta(minutes=30)
+        cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=30)
         result = await db.execute(
             select(Incident)
             .where(Incident.system_id == system_id)
@@ -54,7 +54,7 @@ async def _get_or_create_incident(
         title=title,
         severity=severity,
         status="open",
-        detected_at=datetime.utcnow(),
+        detected_at=datetime.now(timezone.utc).replace(tzinfo=None),
         alert_count=1,
     )
     db.add(incident)
@@ -128,7 +128,7 @@ async def receive_alertmanager(
                 processed.append({"alertname": alertname, "status": "resolved_duplicate_skipped"})
                 continue
 
-            resolved_at = datetime.utcnow()
+            resolved_at = datetime.now(timezone.utc).replace(tzinfo=None)
             for row in original_rows:
                 row.resolved_at = resolved_at
                 if row.qdrant_point_id:
@@ -411,7 +411,7 @@ async def acknowledge_alert(
     if not alert:
         raise HTTPException(status_code=404, detail="Alert not found")
     alert.acknowledged = True
-    alert.acknowledged_at = datetime.utcnow()
+    alert.acknowledged_at = datetime.now(timezone.utc).replace(tzinfo=None)
     alert.acknowledged_by = payload.acknowledged_by
     await db.commit()
     await db.refresh(alert)

@@ -98,6 +98,21 @@ make test-api        # 단위 테스트 (SQLite in-memory)
 - `async def` 엔드포인트에서 동기 I/O 블로킹 함수를 직접 호출하지 않는다.
 - SQLAlchemy는 `asyncpg` 드라이버 + `AsyncSession` 패턴을 일관되게 사용한다.
 
+### [타임존] 저장=UTC / 스케줄=KST / 표출=KST
+
+전 계층에서 다음 규칙을 준수해야 UTC/KST 혼재 버그가 재발하지 않는다.
+
+- **수집·전송·저장은 UTC 고정**. Rust Agent / OTel Collector / Prometheus / Tempo는 OTLP·Remote Write 프로토콜 제약으로 Unix epoch(UTC)만 허용한다. PostgreSQL 컬럼도 `TIMESTAMP WITHOUT TIME ZONE`(naive = UTC) 유지.
+- **Python 코드 금지 패턴**:
+  - `datetime.utcnow()` (Python 3.12+ deprecated) → **`datetime.now(timezone.utc).replace(tzinfo=None)`** 사용 (naive UTC 유지 + deprecated 경고 제거)
+  - `datetime.now()` (로컬 타임존 naive) → 금지. UTC가 필요하면 위 표현, KST가 필요하면 `datetime.now(_KST)` (`_KST = timezone(timedelta(hours=9))`) 사용
+- **스케줄 계산은 KST**. log-analyzer `_KST` 상수로 "한국 자정 기준 일/주/월 집계" 유지. admin-api `routes/incidents.py`의 `_KST`는 화면 표시용.
+- **프론트엔드 표출은 KST**. `src/lib/utils.ts`의 `formatKST()` / `formatRelative()` / `formatPeriodLabel()` 공통 유틸만 사용한다.
+  - 수동 `+ 9 * 60 * 60 * 1000` 하드코딩 금지
+  - `new Date(naiveUtcString)` 직접 호출 금지 — `normalizeUtc()` 경유 또는 `formatKST()` 사용
+  - KST 날짜피커 입력을 백엔드에 보낼 때는 `kstDateToUtcStart()` / `kstDateToUtcEnd()` 사용
+- 자세한 내용은 `main-server/services/frontend/CLAUDE.md` "타임존 규칙" 섹션 참고.
+
 ### [DB / 마이그레이션] 테이블 자동 생성 의존 금지
 - `main.py` lifespan의 `create_all()`은 개발 편의용이다. 운영 스키마 변경은 직접 SQL 또는 Alembic을 사용한다.
 - 새 컬럼/테이블 추가 시 **3중 동기화** 필수: `models.py` + `init.sql` + `migrations/*.sql` (ADR-002 참고).
