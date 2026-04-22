@@ -311,7 +311,6 @@ CREATE TABLE IF NOT EXISTS agent_instances (
     id           SERIAL PRIMARY KEY,
     system_id    INTEGER REFERENCES systems(id) ON DELETE CASCADE,
     host         VARCHAR(200) NOT NULL,
-    ssh_username VARCHAR(100),               -- SSH 접속 계정 (password 저장 금지; db 에이전트는 NULL)
     agent_type   VARCHAR(50)  NOT NULL,      -- synapse_agent | db
     install_path VARCHAR(500),               -- 바이너리 경로 (db 에이전트는 NULL)
     config_path  VARCHAR(500),               -- 설정파일 경로 (db 에이전트는 NULL)

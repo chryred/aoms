@@ -478,7 +478,6 @@ def _validate_unix_path(v: Optional[str]) -> Optional[str]:
 class AgentInstanceCreate(BaseModel):
     system_id: int
     host: str
-    ssh_username: Optional[str] = None   # db 에이전트는 SSH 불필요
     agent_type: str = Field(
         pattern="^(alloy|node_exporter|jmx_exporter|synapse_agent|db|otel_javaagent)$"
     )
@@ -504,7 +503,6 @@ class AgentInstanceUpdate(BaseModel):
     pid_file: Optional[str] = None
     label_info: Optional[str] = None
     status: Optional[str] = None
-    ssh_username: Optional[str] = None
     os_type: Optional[str] = None
     server_type: Optional[str] = None
 
@@ -518,7 +516,6 @@ class AgentInstanceOut(BaseModel):
     id: int
     system_id: int
     host: str
-    ssh_username: Optional[str]   # db 에이전트는 null
     agent_type: str
     install_path: Optional[str]   # db 에이전트는 null
     config_path: Optional[str]    # db 에이전트는 null

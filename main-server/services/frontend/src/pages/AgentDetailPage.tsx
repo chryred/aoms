@@ -182,6 +182,11 @@ export function AgentDetailPage() {
     } catch (err) {
       if (err instanceof HTTPError && err.response.status === 401) {
         handleSSHExpired()
+      } else if (err instanceof HTTPError && err.response.status === 400) {
+        const body = await err.response
+          .json()
+          .catch(() => ({ detail: '요청 오류가 발생했습니다.' }))
+        showMsg('error', (body as { detail?: string }).detail ?? '요청 오류가 발생했습니다.')
       } else if (err instanceof HTTPError && err.response.status === 404) {
         const body = await err.response.json().catch(() => ({ detail: '파일을 찾을 수 없습니다.' }))
         showMsg('error', (body as { detail?: string }).detail ?? '파일을 찾을 수 없습니다.')
@@ -344,7 +349,6 @@ export function AgentDetailPage() {
             <InfoRow label="포트" value={agent.port ? String(agent.port) : '-'} />
             {agent.agent_type !== 'db' && (
               <>
-                <InfoRow label="SSH 계정" value={agent.ssh_username ?? '-'} />
                 <InfoRow label="설치 경로" value={agent.install_path ?? '-'} />
                 <InfoRow label="PID 파일" value={agent.pid_file ?? '-'} />
               </>
@@ -702,7 +706,7 @@ export function AgentDetailPage() {
       {showSSHModal && (
         <SSHSessionModal
           defaultHost={agent.host}
-          defaultUsername={agent.ssh_username ?? ''}
+          defaultUsername={''}
           onSuccess={() => setShowSSHModal(false)}
           onClose={() => setShowSSHModal(false)}
         />

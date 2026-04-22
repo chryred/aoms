@@ -92,7 +92,7 @@ export function SSHSessionModal({
             <NeuInput
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              placeholder="jeus_user"
+              placeholder="계정명"
               required
             />
           </div>

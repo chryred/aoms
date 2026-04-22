@@ -105,7 +105,7 @@ async def create_ssh_session(
         host=body.host,
         port=body.port,
         username=body.username,
-        expires_in=600,
+        expires_in=300,
     )
 
 
@@ -650,16 +650,23 @@ async def get_agent_config(
 ):
     agent = await _get_agent_or_404(agent_id, db)
     _check_host_match(agent, session)
+    config_path = agent.config_path or ""
     try:
+        if "~" in config_path:
+            code, home_stdout, _ = await asyncio.to_thread(
+                ssh_exec, session["host"], session["port"], session["username"], session["password"], "echo $HOME"
+            )
+            if code == 0 and home_stdout.strip():
+                config_path = config_path.replace("~", home_stdout.strip())
         content = await asyncio.to_thread(
-            ssh_get_file, session["host"], session["port"], session["username"], session["password"], agent.config_path
+            ssh_get_file, session["host"], session["port"], session["username"], session["password"], config_path
         )
     except SSHError as exc:
         logger.warning("SSH operation failed: %s", exc)
         raise HTTPException(502, "원격 서버 연결에 실패했습니다.")
     except Exception as exc:
         raise HTTPException(502, f"설정 파일 조회 실패: {exc}")
-    return {"agent_id": agent_id, "config_path": agent.config_path, "content": content}
+    return {"agent_id": agent_id, "config_path": config_path, "content": content}
 
 
 @router.post("/agents/{agent_id}/config", response_model=AgentStatusOut)
@@ -672,11 +679,18 @@ async def upload_agent_config(
 ):
     agent = await _get_agent_or_404(agent_id, db)
     _check_host_match(agent, session)
+    config_path = agent.config_path or ""
     try:
+        if "~" in config_path:
+            code, home_stdout, _ = await asyncio.to_thread(
+                ssh_exec, session["host"], session["port"], session["username"], session["password"], "echo $HOME"
+            )
+            if code == 0 and home_stdout.strip():
+                config_path = config_path.replace("~", home_stdout.strip())
         await asyncio.to_thread(
             ssh_put_file,
             session["host"], session["port"], session["username"], session["password"],
-            agent.config_path, body.config_content,
+            config_path, body.config_content,
         )
     except SSHError as exc:
         logger.warning("SSH operation failed: %s", exc)
@@ -1028,15 +1042,52 @@ async def _run_install(
                         "log_type": "app",
                     }]
 
+                def _toml_escape(s: str) -> str:
+                    return str(s).replace("\\", "\\\\").replace('"', '\\"')
+
                 log_monitor_toml = ""
                 for lm in log_monitors:
-                    paths_str = ", ".join(f'"{p}"' for p in lm.get("paths", []))
-                    kw_str = ", ".join(f'"{k}"' for k in lm.get("keywords", ["ERROR", "CRITICAL", "PANIC", "Fatal", "Exception"]))
+                    paths_str = ", ".join(f'"{_toml_escape(p)}"' for p in lm.get("paths", []))
+                    kw_str = ", ".join(f'"{_toml_escape(k)}"' for k in lm.get("keywords", ["ERROR", "CRITICAL", "PANIC", "Fatal", "Exception"]))
                     log_monitor_toml += (
                         f"\n[[log_monitor]]\n"
                         f"paths = [{paths_str}]\n"
                         f"keywords = [{kw_str}]\n"
-                        f'log_type = "{lm.get("log_type", "app")}"\n'
+                        f'log_type = "{_toml_escape(lm.get("log_type", "app"))}"\n'
+                    )
+
+                # web_servers 섹션 — label_info.web_servers 배열이 있을 때만 렌더링
+                web_servers_list = label_info.get("web_servers", []) or []
+                web_servers_toml = ""
+                for ws in web_servers_list:
+                    if not isinstance(ws, dict):
+                        continue
+                    ws_name = (ws.get("name") or "").strip()
+                    ws_log_path = (ws.get("log_path") or "").strip()
+                    if not ws_name or not ws_log_path:
+                        continue
+                    ws_display = (ws.get("display_name") or ws_name).strip()
+                    ws_format = (ws.get("log_format") or "combined").strip() or "combined"
+                    try:
+                        ws_slow = int(ws.get("slow_threshold_ms", 1000))
+                    except (TypeError, ValueError):
+                        ws_slow = 1000
+                    if ws_slow < 1:
+                        ws_slow = 1
+                    svc_raw = ws.get("was_services") or []
+                    if isinstance(svc_raw, list):
+                        svc_items = [str(s).strip() for s in svc_raw if str(s).strip()]
+                    else:
+                        svc_items = []
+                    svc_str = ", ".join(f'"{_toml_escape(s)}"' for s in svc_items)
+                    web_servers_toml += (
+                        f"\n[[web_servers]]\n"
+                        f'name = "{_toml_escape(ws_name)}"\n'
+                        f'display_name = "{_toml_escape(ws_display)}"\n'
+                        f'log_path = "{_toml_escape(ws_log_path)}"\n'
+                        f'log_format = "{_toml_escape(ws_format)}"\n'
+                        f'slow_threshold_ms = {ws_slow}\n'
+                        f'was_services = [{svc_str}]\n'
                     )
 
                 config_content = (
@@ -1059,7 +1110,7 @@ async def _run_install(
                     f'\n'
                     f'[collectors]\n'
                     f'{collectors_toml}\n'
-                ) + log_monitor_toml
+                ) + log_monitor_toml + web_servers_toml
                 await asyncio.to_thread(
                     ssh_put_file,
                     session["host"], session["port"], session["username"], session["password"],

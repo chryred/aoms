@@ -371,7 +371,6 @@ class AgentInstance(Base):
     id           = Column(Integer, primary_key=True)
     system_id    = Column(Integer, ForeignKey("systems.id", ondelete="CASCADE"), nullable=False)
     host         = Column(String(200), nullable=False)          # 서버 IP
-    ssh_username = Column(String(100), nullable=True)           # SSH 접속 계정 (db 에이전트는 NULL)
     agent_type   = Column(String(50), nullable=False)           # synapse_agent | db
     install_path = Column(String(500), nullable=True)           # 바이너리 경로 (db 에이전트는 NULL)
     config_path  = Column(String(500), nullable=True)           # 설정파일 경로 (db 에이전트는 NULL)

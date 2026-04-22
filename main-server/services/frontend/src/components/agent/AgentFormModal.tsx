@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { X, Plus, Trash2 } from 'lucide-react'
 import { NeuButton } from '@/components/neumorphic/NeuButton'
 import { NeuInput } from '@/components/neumorphic/NeuInput'
@@ -8,6 +8,7 @@ import { agentsApi } from '@/api/agents'
 import { useQueryClient } from '@tanstack/react-query'
 import { qk } from '@/constants/queryKeys'
 import { useSSHSessionStore } from '@/store/sshSessionStore'
+import { useMyPrimarySystems } from '@/hooks/queries/useMyPrimarySystems'
 import type {
   AgentType,
   AgentInstance,
@@ -15,6 +16,7 @@ import type {
   ServerType,
   DbType,
   OtelServiceType,
+  WebServerLogFormat,
 } from '@/types/agent'
 import type { System } from '@/types/system'
 
@@ -107,6 +109,32 @@ interface LogMonitorForm {
   keywords: string
 }
 
+const WEB_SERVER_LOG_FORMATS: { value: WebServerLogFormat; label: string }[] = [
+  { value: 'combined', label: 'combined' },
+  { value: 'nginx_json', label: 'nginx_json' },
+  { value: 'clf', label: 'clf' },
+]
+
+interface WebServerForm {
+  name: string
+  display_name: string
+  log_path: string
+  log_format: WebServerLogFormat
+  slow_threshold_ms: string
+  was_services: string
+}
+
+function makeDefaultWebServer(): WebServerForm {
+  return {
+    name: '',
+    display_name: '',
+    log_path: '',
+    log_format: 'combined',
+    slow_threshold_ms: '1000',
+    was_services: '',
+  }
+}
+
 interface AgentFormModalProps {
   systems: System[]
   onClose: () => void
@@ -117,10 +145,11 @@ export function AgentFormModal({ systems, onClose, onCreated }: AgentFormModalPr
   const qc = useQueryClient()
   const sshSession = useSSHSessionStore()
   const sessionActive = sshSession.isValid()
-  const [selectedSystemId, setSelectedSystemId] = useState<number>(systems[0]?.id ?? 0)
+  const { data: primarySystems } = useMyPrimarySystems()
+  // 0 = 미선택(placeholder). 로그인 사용자가 primary 담당인 시스템이 있으면 자동 선택
+  const [selectedSystemId, setSelectedSystemId] = useState<number>(0)
   const [agentType, setAgentType] = useState<AgentType>('synapse_agent')
   const [host, setHost] = useState(sessionActive && sshSession.host ? sshSession.host : '')
-  const [sshUsername, setSshUsername] = useState('')
   const [installPath, setInstallPath] = useState(DEFAULT_PATHS.synapse_agent.install)
   const [configPath, setConfigPath] = useState(DEFAULT_PATHS.synapse_agent.config)
   const [pidFile, setPidFile] = useState(DEFAULT_PATHS.synapse_agent.pid)
@@ -138,11 +167,30 @@ export function AgentFormModal({ systems, onClose, onCreated }: AgentFormModalPr
   const [dbInstanceRole, setDbInstanceRole] = useState('db-primary')
 
   // synapse_agent 전용 필드
-  const [instanceRole, setInstanceRole] = useState('default')
+  const [instanceRole, setInstanceRole] = useState('')
   const [collectors, setCollectors] = useState<Record<string, boolean>>({ ...DEFAULT_COLLECTORS })
   const [logMonitors, setLogMonitors] = useState<LogMonitorForm[]>([
     { paths: '', log_type: 'app', keywords: 'ERROR, CRITICAL, PANIC, Fatal, Exception' },
   ])
+  const [webServers, setWebServers] = useState<WebServerForm[]>([])
+
+  // 로그인 사용자가 primary 담당인 시스템이 있으면 자동 선택 (첫 번째)
+  useEffect(() => {
+    if (selectedSystemId !== 0) return
+    if (!primarySystems || primarySystems.length === 0) return
+    const first = primarySystems[0]
+    // systems 목록에 존재하는 경우에만 선택
+    if (systems.some((s) => s.id === first.system_id)) {
+      setSelectedSystemId(first.system_id)
+    }
+  }, [primarySystems, systems, selectedSystemId])
+
+  // web_servers 체크 시 엔트리 0개면 기본 1개 자동 추가
+  useEffect(() => {
+    if (collectors.web_servers && webServers.length === 0) {
+      setWebServers([makeDefaultWebServer()])
+    }
+  }, [collectors.web_servers, webServers.length])
 
   // otel_javaagent 전용 필드
   const [otelServiceName, setOtelServiceName] = useState('')
@@ -194,6 +242,22 @@ export function AgentFormModal({ systems, onClose, onCreated }: AgentFormModalPr
     setLogMonitors((prev) => prev.map((lm, i) => (i === idx ? { ...lm, [field]: value } : lm)))
   }
 
+  function addWebServer() {
+    setWebServers((prev) => [...prev, makeDefaultWebServer()])
+  }
+
+  function removeWebServer(idx: number) {
+    setWebServers((prev) => prev.filter((_, i) => i !== idx))
+  }
+
+  function updateWebServer<K extends keyof WebServerForm>(
+    idx: number,
+    field: K,
+    value: WebServerForm[K],
+  ) {
+    setWebServers((prev) => prev.map((ws, i) => (i === idx ? { ...ws, [field]: value } : ws)))
+  }
+
   function buildLabelInfo(): string {
     if (agentType === 'db') {
       const idKey = dbType === 'oracle' ? 'service_name' : 'database'
@@ -218,7 +282,7 @@ export function AgentFormModal({ systems, onClose, onCreated }: AgentFormModalPr
     }
     const system = systems.find((s) => s.id === selectedSystemId)
     if (agentType !== 'synapse_agent' || !system) return ''
-    const info = {
+    const info: Record<string, unknown> = {
       system_name: system.system_name,
       display_name: system.display_name,
       instance_role: instanceRole || 'default',
@@ -235,12 +299,31 @@ export function AgentFormModal({ systems, onClose, onCreated }: AgentFormModalPr
           .filter(Boolean),
       })),
     }
+    if (collectors.web_servers) {
+      info.web_servers = webServers
+        .map((ws) => ({
+          name: ws.name.trim(),
+          display_name: (ws.display_name || ws.name).trim(),
+          log_path: ws.log_path.trim(),
+          log_format: ws.log_format,
+          slow_threshold_ms: Math.max(1, Number(ws.slow_threshold_ms) || 1000),
+          was_services: ws.was_services
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean),
+        }))
+        .filter((ws) => ws.name && ws.log_path)
+    }
     return JSON.stringify(info)
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError(null)
+    if (!selectedSystemId || selectedSystemId === 0) {
+      setError('시스템을 선택하세요.')
+      return
+    }
     setLoading(true)
     const isDb = agentType === 'db'
     const isOtelSubmit = agentType === 'otel_javaagent'
@@ -248,7 +331,6 @@ export function AgentFormModal({ systems, onClose, onCreated }: AgentFormModalPr
       const agent = await agentsApi.createAgent({
         system_id: selectedSystemId,
         host,
-        ...(isDb ? {} : { ssh_username: sshUsername }),
         agent_type: agentType,
         ...(isDb
           ? {}
@@ -309,7 +391,11 @@ export function AgentFormModal({ systems, onClose, onCreated }: AgentFormModalPr
             <NeuSelect
               value={selectedSystemId}
               onChange={(e) => setSelectedSystemId(Number(e.target.value))}
+              required
             >
+              <option value={0} disabled>
+                선택
+              </option>
               {systems.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.display_name} ({s.system_name})
@@ -327,34 +413,21 @@ export function AgentFormModal({ systems, onClose, onCreated }: AgentFormModalPr
               ))}
             </NeuSelect>
           </div>
-          <div className="flex gap-3">
-            <div className="flex-1">
-              <label className="text-text-secondary mb-1 block text-xs">
-                {isDb ? 'SCAN 주소 / 호스트명' : '서버 IP'}
-              </label>
-              <NeuInput
-                value={host}
-                onChange={(e) => setHost(e.target.value)}
-                placeholder={isDb ? 'scan.example.com' : '10.0.0.1'}
-                required
-              />
-              {!isDb && sessionActive && sshSession.host && host && host !== sshSession.host && (
-                <p className="text-warning mt-1 text-xs">
-                  SSH 세션 호스트({sshSession.host})와 다릅니다. 에이전트 제어 시 오류가 발생할 수
-                  있습니다.
-                </p>
-              )}
-            </div>
-            {!isDb && (
-              <div className="flex-1">
-                <label className="text-text-secondary mb-1 block text-xs">SSH 계정</label>
-                <NeuInput
-                  value={sshUsername}
-                  onChange={(e) => setSshUsername(e.target.value)}
-                  placeholder="jeussic"
-                  required
-                />
-              </div>
+          <div>
+            <label className="text-text-secondary mb-1 block text-xs">
+              {isDb ? 'SCAN 주소 / 호스트명' : '서버 IP'}
+            </label>
+            <NeuInput
+              value={host}
+              onChange={(e) => setHost(e.target.value)}
+              placeholder={isDb ? 'scan.example.com' : '10.0.0.1'}
+              required
+            />
+            {!isDb && sessionActive && sshSession.host && host && host !== sshSession.host && (
+              <p className="text-warning mt-1 text-xs">
+                SSH 세션 호스트({sshSession.host})와 다릅니다. 에이전트 제어 시 오류가 발생할 수
+                있습니다.
+              </p>
             )}
           </div>
           <div className="flex gap-3">
@@ -472,7 +545,7 @@ export function AgentFormModal({ systems, onClose, onCreated }: AgentFormModalPr
               <NeuInput
                 value={instanceRole}
                 onChange={(e) => setInstanceRole(e.target.value)}
-                placeholder="default"
+                placeholder="was1"
               />
             </div>
           )}
@@ -589,7 +662,7 @@ export function AgentFormModal({ systems, onClose, onCreated }: AgentFormModalPr
           {/* synapse_agent 전용: 수집기 선택 */}
           {isSynapse && (
             <div>
-              <label className="text-text-secondary mb-2 block text-xs">수집기</label>
+              <label className="text-text-secondary mb-2 block text-xs">수집항목</label>
               <div className="grid grid-cols-2 gap-1">
                 {COLLECTOR_KEYS.map((key) => (
                   <label
@@ -609,21 +682,31 @@ export function AgentFormModal({ systems, onClose, onCreated }: AgentFormModalPr
             </div>
           )}
 
-          {/* synapse_agent 전용: log_monitor 목록 */}
+          {/* synapse_agent 전용: log_monitor 목록 (log_monitor 체크 시 활성) */}
           {isSynapse && (
-            <div>
+            <div aria-disabled={!collectors.log_monitor}>
               <div className="mb-2 flex items-center justify-between">
-                <label className="text-text-secondary text-xs">로그 수집 설정</label>
+                <div className="flex items-center gap-2">
+                  <label className="text-text-secondary text-xs">로그 수집 설정</label>
+                  {!collectors.log_monitor && (
+                    <span className="text-text-tertiary text-xs">log_monitor 체크 시 활성</span>
+                  )}
+                </div>
                 <button
                   type="button"
                   onClick={addLogMonitor}
-                  className="text-accent hover:text-accent/80 flex items-center gap-1 text-xs"
+                  disabled={!collectors.log_monitor}
+                  className="text-accent hover:text-accent/80 flex items-center gap-1 text-xs disabled:cursor-not-allowed"
                 >
                   <Plus className="h-3 w-3" />
                   추가
                 </button>
               </div>
-              <div className="space-y-2">
+              <div
+                className={`space-y-2 transition-opacity duration-[400ms] ease-in-out ${
+                  collectors.log_monitor ? 'opacity-100' : 'pointer-events-none opacity-40'
+                }`}
+              >
                 {logMonitors.map((lm, idx) => (
                   <div
                     key={idx}
@@ -635,7 +718,8 @@ export function AgentFormModal({ systems, onClose, onCreated }: AgentFormModalPr
                         <button
                           type="button"
                           onClick={() => removeLogMonitor(idx)}
-                          className="text-text-secondary hover:text-critical"
+                          disabled={!collectors.log_monitor}
+                          className="text-text-secondary hover:text-critical disabled:cursor-not-allowed"
                         >
                           <Trash2 className="h-3 w-3" />
                         </button>
@@ -650,7 +734,8 @@ export function AgentFormModal({ systems, onClose, onCreated }: AgentFormModalPr
                         onChange={(e) => updateLogMonitor(idx, 'paths', e.target.value)}
                         placeholder={'/server1/JeusServer.log\n/batch/JeusServer.log'}
                         rows={2}
-                        className="border-border bg-bg-base text-text-primary placeholder-text-secondary/50 focus:border-accent focus:ring-accent w-full resize-none rounded-sm border px-2 py-1 text-xs focus:ring-1 focus:outline-none"
+                        disabled={!collectors.log_monitor}
+                        className="border-border bg-bg-base text-text-primary placeholder-text-secondary/50 focus:border-accent focus:ring-accent w-full resize-none rounded-sm border px-2 py-1 text-xs focus:ring-1 focus:outline-none disabled:cursor-not-allowed"
                       />
                     </div>
                     <div className="flex gap-2">
@@ -662,6 +747,7 @@ export function AgentFormModal({ systems, onClose, onCreated }: AgentFormModalPr
                           value={lm.log_type}
                           onChange={(e) => updateLogMonitor(idx, 'log_type', e.target.value)}
                           placeholder="app"
+                          disabled={!collectors.log_monitor}
                         />
                       </div>
                       <div className="flex-1">
@@ -672,6 +758,122 @@ export function AgentFormModal({ systems, onClose, onCreated }: AgentFormModalPr
                           value={lm.keywords}
                           onChange={(e) => updateLogMonitor(idx, 'keywords', e.target.value)}
                           placeholder="ERROR, CRITICAL"
+                          disabled={!collectors.log_monitor}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* synapse_agent 전용: web_servers 아코디언 (web_servers 체크 시 펼침, 400ms) */}
+          {isSynapse && (
+            <div
+              className={`overflow-hidden transition-all duration-[400ms] ease-in-out ${
+                collectors.web_servers ? 'max-h-[2000px] opacity-100' : 'max-h-0 opacity-0'
+              }`}
+            >
+              <div className="mb-2 flex items-center justify-between">
+                <label className="text-text-secondary text-xs">웹 서버 설정</label>
+                <button
+                  type="button"
+                  onClick={addWebServer}
+                  className="text-accent hover:text-accent/80 flex items-center gap-1 text-xs"
+                >
+                  <Plus className="h-3 w-3" />
+                  추가
+                </button>
+              </div>
+              <div className="space-y-2">
+                {webServers.map((ws, idx) => (
+                  <div
+                    key={idx}
+                    className="border-border bg-bg-deep space-y-2 rounded-sm border p-2"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-text-secondary text-xs">웹 서버 #{idx + 1}</span>
+                      {webServers.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => removeWebServer(idx)}
+                          className="text-text-secondary hover:text-critical"
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </button>
+                      )}
+                    </div>
+                    <div className="flex gap-2">
+                      <div className="flex-1">
+                        <label className="text-text-secondary/70 mb-1 block text-xs">
+                          식별자 <span className="text-text-secondary/50">(영문, name)</span>
+                        </label>
+                        <NeuInput
+                          value={ws.name}
+                          onChange={(e) => updateWebServer(idx, 'name', e.target.value)}
+                          placeholder="webtob-main"
+                        />
+                      </div>
+                      <div className="flex-1">
+                        <label className="text-text-secondary/70 mb-1 block text-xs">
+                          표시명 <span className="text-text-secondary/50">(display_name)</span>
+                        </label>
+                        <NeuInput
+                          value={ws.display_name}
+                          onChange={(e) => updateWebServer(idx, 'display_name', e.target.value)}
+                          placeholder="메인 웹서버"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="text-text-secondary/70 mb-1 block text-xs">
+                        액세스 로그 경로 <span className="text-text-secondary/50">(log_path)</span>
+                      </label>
+                      <NeuInput
+                        value={ws.log_path}
+                        onChange={(e) => updateWebServer(idx, 'log_path', e.target.value)}
+                        placeholder="/var/log/apache/access.log"
+                      />
+                    </div>
+                    <div className="flex gap-2">
+                      <div className="w-32">
+                        <label className="text-text-secondary/70 mb-1 block text-xs">
+                          log_format
+                        </label>
+                        <NeuSelect
+                          value={ws.log_format}
+                          onChange={(e) =>
+                            updateWebServer(idx, 'log_format', e.target.value as WebServerLogFormat)
+                          }
+                        >
+                          {WEB_SERVER_LOG_FORMATS.map((f) => (
+                            <option key={f.value} value={f.value}>
+                              {f.label}
+                            </option>
+                          ))}
+                        </NeuSelect>
+                      </div>
+                      <div className="w-32">
+                        <label className="text-text-secondary/70 mb-1 block text-xs">slow_ms</label>
+                        <NeuInput
+                          type="number"
+                          min={1}
+                          value={ws.slow_threshold_ms}
+                          onChange={(e) =>
+                            updateWebServer(idx, 'slow_threshold_ms', e.target.value)
+                          }
+                          placeholder="3000"
+                        />
+                      </div>
+                      <div className="flex-1">
+                        <label className="text-text-secondary/70 mb-1 block text-xs">
+                          was_services (쉼표 구분)
+                        </label>
+                        <NeuInput
+                          value={ws.was_services}
+                          onChange={(e) => updateWebServer(idx, 'was_services', e.target.value)}
+                          placeholder="jeus1, jeus2"
                         />
                       </div>
                     </div>

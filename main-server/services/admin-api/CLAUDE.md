@@ -48,7 +48,7 @@ admin-api/
 └── services/
     ├── cooldown.py              # 알림 중복 발송 방지 (5분 쿨다운)
     ├── notification.py          # TeamsNotifier — Adaptive Card 생성·발송
-    ├── ssh_session.py           # SSH 세션 인메모리 관리 (10분 슬라이딩 TTL, DB 저장 금지)
+    ├── ssh_session.py           # SSH 세션 인메모리 관리 (5분 슬라이딩 TTL, DB 저장 금지)
     ├── llm_client.py            # LLM Strategy (ADR-001, log-analyzer와 SYNC) — devx/ollama/claude/openai
     ├── prometheus_analyzer.py   # Prometheus PromQL 이상 감지 → LLM 분석 → Teams 알림 (Phase F, ADR-001 반영)
     ├── db_collector.py          # DB 메트릭 수집 루프 (encrypt/decrypt, Gauge, Strategy 디스패치)
@@ -94,6 +94,7 @@ admin-api/
 - `POST /refresh` — refresh 쿠키 → 새 accessToken 반환
 - `POST /logout` — refresh 쿠키 삭제 (204)
 - `GET /me` — 현재 로그인 사용자 정보
+- `GET /me/primary-systems` — 로그인 사용자가 primary 담당자로 등록된 시스템 목록 (AgentFormModal 시스템 자동선택 용도). `User → Contact(user_id) → SystemContact(role='primary') → System` 조인. 응답: `[{ system_id, system_name, display_name }]`
 
 **초기 admin 계정 생성:**
 ```bash
@@ -155,7 +156,7 @@ docker exec -it aoms-admin-api \
 - `POST /` — 리포트 발송 기록 저장 (log-analyzer 일/주/월/장기 스케줄러 호출, 동일 type + period_start 중복 시 업데이트)
 
 ### SSH 세션 `/api/v1/ssh` (Phase 6)
-- `POST /session` — 계정 등록 → session_token 발급 (10분 슬라이딩 TTL, SSH 연결 사전 검증)
+- `POST /session` — 계정 등록 → session_token 발급 (5분 슬라이딩 TTL, SSH 연결 사전 검증)
 - `DELETE /session` — 세션 삭제 (로그아웃). `X-SSH-Session` 헤더 필요
 
 ### 에이전트 제어 `/api/v1/agents` (Phase 6)
@@ -176,6 +177,25 @@ docker exec -it aoms-admin-api \
 - systemd 미사용 — nohup + PID 파일 방식
 - `agent_type`: `synapse_agent` | `db`
 - `GET /{id}/live-status` — synapse_agent / db: Prometheus 쿼리 → last_seen, live_status, collectors_active 반환
+
+**Synapse agent `label_info` JSON 스키마 (synapse_agent 타입):**
+```json
+{
+  "system_name": "cxm",
+  "display_name": "고객경험시스템",
+  "instance_role": "was1",
+  "collectors": { "cpu": true, "memory": true, "log_monitor": true, "web_servers": true, ... },
+  "log_monitors": [
+    { "paths": ["/server1/JeusServer.log"], "keywords": ["ERROR","CRITICAL"], "log_type": "app" }
+  ],
+  "web_servers": [
+    { "name": "apache1", "display_name": "Apache 1",
+      "log_path": "/var/log/apache/access.log", "log_format": "combined",
+      "slow_threshold_ms": 1000, "was_services": ["jeus1","jeus2"] }
+  ]
+}
+```
+- `web_servers` 배열은 설치 Job에서 `[[web_servers]]` TOML 섹션으로 렌더링되어 Rust agent `WebServerConfig`로 전달된다 (name·log_path 미입력 엔트리는 자동 스킵). `log_format`은 `combined` | `nginx_json` | `clf` 중 하나.
 
 **DB 에이전트 공통 특이사항 (Phase 9 — oracle/postgresql/mssql/mysql):**
 - `agent_type = "db"`, `label_info.db_type`으로 DB 종류 구분

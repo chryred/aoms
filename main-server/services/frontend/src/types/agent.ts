@@ -17,12 +17,24 @@ export interface LogMonitorEntry {
   log_type: string
 }
 
+export type WebServerLogFormat = 'combined' | 'nginx_json' | 'clf'
+
+export interface WebServerEntry {
+  name: string
+  display_name: string
+  log_path: string
+  log_format: WebServerLogFormat
+  slow_threshold_ms: number
+  was_services: string[]
+}
+
 export interface SynapseAgentLabelInfo {
   system_name: string
   display_name: string
   instance_role: string
   collectors: Record<string, boolean>
   log_monitors: LogMonitorEntry[]
+  web_servers?: WebServerEntry[]
 }
 export type AgentStatus = 'installed' | 'running' | 'stopped' | 'unknown'
 export type InstallJobStatus = 'pending' | 'running' | 'done' | 'failed'
@@ -34,7 +46,6 @@ export interface AgentInstance {
   id: number
   system_id: number
   host: string
-  ssh_username: string | null // db 에이전트는 null
   agent_type: AgentType
   install_path: string | null // db 에이전트는 null
   config_path: string | null // db 에이전트는 null
@@ -51,7 +62,6 @@ export interface AgentInstance {
 export interface AgentInstanceCreate {
   system_id: number
   host: string
-  ssh_username?: string // db 에이전트는 불필요
   agent_type: AgentType
   install_path?: string // db 에이전트는 불필요
   config_path?: string // db 에이전트는 불필요
@@ -69,7 +79,6 @@ export interface AgentInstanceUpdate {
   pid_file?: string
   label_info?: string
   status?: AgentStatus
-  ssh_username?: string
   os_type?: OsType
   server_type?: ServerType
 }
