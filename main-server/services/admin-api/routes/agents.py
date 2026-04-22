@@ -429,13 +429,22 @@ async def _get_agent_or_404(agent_id: int, db: AsyncSession) -> AgentInstance:
     return agent
 
 
+def _shell_path(p: str) -> str:
+    """경로를 원격 쉘 명령어에 삽입할 때 tilde를 $HOME으로 치환. ~ 시작 경로는 shlex.quote가 단일 따옴표로 감싸 tilde 확장이 안 되므로 이중 따옴표 + $HOME 방식을 사용."""
+    if p.startswith("~/"):
+        return '"$HOME/' + p[2:].replace("\\", "\\\\").replace('"', '\\"') + '"'
+    if p == "~":
+        return '"$HOME"'
+    return shlex.quote(p)
+
+
 def _make_start_cmd(agent: AgentInstance) -> str:
-    """에이전트 타입별 실행 명령어 생성. shlex.quote로 경로 이스케이프."""
+    """에이전트 타입별 실행 명령어 생성."""
     if agent.agent_type == "db":
         raise HTTPException(400, "DB 에이전트는 프로세스 관리가 불필요합니다.")
-    ip = shlex.quote(agent.install_path)
-    cp = shlex.quote(agent.config_path) if agent.config_path else ""
-    pf = shlex.quote(agent.pid_file)
+    ip = _shell_path(agent.install_path)
+    cp = _shell_path(agent.config_path) if agent.config_path else ""
+    pf = _shell_path(agent.pid_file)
     if agent.agent_type == "synapse_agent":
         return f"nohup {ip} {cp} > /dev/null 2>&1 & echo $! > {pf}"
     if agent.agent_type == "alloy":
@@ -517,7 +526,7 @@ async def stop_agent(
     if not agent.pid_file:
         raise HTTPException(400, "pid_file 경로가 설정되어 있지 않습니다.")
 
-    pf = shlex.quote(agent.pid_file)
+    pf = _shell_path(agent.pid_file)
     cmd = f"kill $(cat {pf}) 2>/dev/null; rm -f {pf}; sleep 1"
     try:
         code, stdout, stderr = await asyncio.wait_for(
@@ -562,7 +571,7 @@ async def restart_agent(
     if not agent.pid_file:
         raise HTTPException(400, "pid_file 경로가 설정되어 있지 않습니다.")
 
-    pf = shlex.quote(agent.pid_file)
+    pf = _shell_path(agent.pid_file)
     stop_cmd = f"kill $(cat {pf}) 2>/dev/null; rm -f {pf}; sleep 1"
     start_cmd = _make_start_cmd(agent)
     try:
@@ -608,7 +617,7 @@ async def get_agent_status(
     message = ""
 
     if agent.pid_file:
-        pf = shlex.quote(agent.pid_file)
+        pf = _shell_path(agent.pid_file)
         cmd = f"cat {pf} 2>/dev/null && ps -p $(cat {pf} 2>/dev/null) -o pid= 2>/dev/null"
         try:
             code, stdout, _ = await asyncio.to_thread(
@@ -699,7 +708,7 @@ async def upload_agent_config(
     # Reload: PID 파일이 있으면 재시작 (synapse_agent는 inotify 자동 감지 지원, 재시작이 더 안정적)
     reload_cmd: str
     if agent.pid_file:
-        pf = shlex.quote(agent.pid_file)
+        pf = _shell_path(agent.pid_file)
         stop = f"kill $(cat {pf}) 2>/dev/null; rm -f {pf}; sleep 1"
         start = _make_start_cmd(agent)
         reload_cmd = f"{stop} && {start}"

@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
@@ -68,6 +68,7 @@ export function AgentDetailPage() {
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [installJobId, setInstallJobId] = useState<string | null>(null)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [liveProcessStatus, setLiveProcessStatus] = useState<AgentStatus | null>(null)
 
   const {
     data: agent,
@@ -141,7 +142,7 @@ export function AgentDetailPage() {
       return !!sessionHost && agent?.host !== sessionHost
     })()
 
-  async function runAction(action: string, fn: () => Promise<unknown>) {
+  async function runAction(action: string, fn: () => Promise<unknown>, postStatus?: AgentStatus) {
     if (!token && !isDbAgent) {
       setShowSSHModal(true)
       return
@@ -149,6 +150,7 @@ export function AgentDetailPage() {
     setActionLoading(action)
     try {
       await fn()
+      if (postStatus !== undefined) setLiveProcessStatus(postStatus)
       if (token) refreshExpiry()
       showMsg('success', `${action} 완료`)
       await refetch()
@@ -204,6 +206,33 @@ export function AgentDetailPage() {
     setConfigDirty(false)
   }
 
+  async function handleRefreshStatus() {
+    if (isDbAgent) {
+      await refetch()
+      return
+    }
+    if (!token) {
+      setShowSSHModal(true)
+      return
+    }
+    setActionLoading('상태 갱신')
+    try {
+      const result = await agentsApi.getStatus(agentId, token)
+      setLiveProcessStatus(result.status)
+      if (token) refreshExpiry()
+      showMsg('success', '상태 갱신 완료')
+      await refetch()
+    } catch (err) {
+      if (err instanceof HTTPError && err.response.status === 401) {
+        handleSSHExpired()
+      } else {
+        showMsg('error', '상태 갱신 실패')
+      }
+    } finally {
+      setActionLoading(null)
+    }
+  }
+
   async function handleInstall() {
     if (!token) {
       setShowSSHModal(true)
@@ -227,6 +256,17 @@ export function AgentDetailPage() {
     qc.invalidateQueries({ queryKey: qk.agents() })
   }, [refetch, qc])
 
+  useEffect(() => {
+    if (!sessionActive || hostMismatch || isDbAgent || isOtelAgent || !agent || !token) return
+    agentsApi
+      .getStatus(agentId, token)
+      .then((res) => setLiveProcessStatus(res.status))
+      .catch((err) => {
+        if (err instanceof HTTPError && err.response.status === 401) handleSSHExpired()
+      })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agentId, sessionActive, hostMismatch, isDbAgent, isOtelAgent, token])
+
   async function handleDelete() {
     try {
       await agentsApi.deleteAgent(agentId)
@@ -240,6 +280,10 @@ export function AgentDetailPage() {
 
   if (isLoading) return <LoadingSkeleton shape="card" count={3} />
   if (isError || !agent) return <ErrorCard onRetry={refetch} />
+
+  const effectiveStatus: AgentStatus = liveProcessStatus ?? agent.status
+  const dynamicStyling = !isOtelAgent && !isDbAgent
+  const isRunning = dynamicStyling && effectiveStatus === 'running'
 
   return (
     <div>
@@ -388,8 +432,9 @@ export function AgentDetailPage() {
             <div className="flex flex-wrap gap-2">
               <NeuButton
                 size="sm"
+                variant={isRunning ? 'ghost' : 'primary'}
                 onClick={() =>
-                  runAction('실행', () => agentsApi.startAgent(agentId, token ?? undefined))
+                  runAction('실행', () => agentsApi.startAgent(agentId, token ?? undefined), 'running')
                 }
                 loading={actionLoading === '실행'}
                 disabled={(!isDbAgent && !sessionActive) || hostMismatch}
@@ -399,9 +444,9 @@ export function AgentDetailPage() {
               </NeuButton>
               <NeuButton
                 size="sm"
-                variant="ghost"
+                variant={isRunning ? 'primary' : 'ghost'}
                 onClick={() =>
-                  runAction('중지', () => agentsApi.stopAgent(agentId, token ?? undefined))
+                  runAction('중지', () => agentsApi.stopAgent(agentId, token ?? undefined), 'stopped')
                 }
                 loading={actionLoading === '중지'}
                 disabled={(!isDbAgent && !sessionActive) || hostMismatch}
@@ -413,7 +458,11 @@ export function AgentDetailPage() {
                 size="sm"
                 variant="ghost"
                 onClick={() =>
-                  runAction('재시작', () => agentsApi.restartAgent(agentId, token ?? undefined))
+                  runAction(
+                    '재시작',
+                    () => agentsApi.restartAgent(agentId, token ?? undefined),
+                    'running',
+                  )
                 }
                 loading={actionLoading === '재시작'}
                 disabled={(!isDbAgent && !sessionActive) || hostMismatch}
@@ -424,12 +473,8 @@ export function AgentDetailPage() {
               <NeuButton
                 size="sm"
                 variant="ghost"
-                onClick={() =>
-                  isDbAgent
-                    ? refetch()
-                    : runAction('상태 확인', () => agentsApi.getStatus(agentId, token ?? undefined))
-                }
-                loading={actionLoading === '상태 확인'}
+                onClick={handleRefreshStatus}
+                loading={actionLoading === '상태 갱신'}
                 disabled={(!isDbAgent && !sessionActive) || hostMismatch}
               >
                 <RefreshCw className="h-3.5 w-3.5" />
