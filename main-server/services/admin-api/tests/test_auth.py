@@ -3,7 +3,7 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth import get_password_hash
-from models import User
+from models import User, System, Contact, SystemContact
 
 
 # ── 헬퍼 ────────────────────────────────────────────────────────────────────
@@ -140,4 +140,100 @@ async def test_me_with_valid_token(client: AsyncClient, db_session: AsyncSession
 @pytest.mark.asyncio
 async def test_me_without_token(client: AsyncClient, db_session: AsyncSession):
     resp = await client.get("/api/v1/auth/me")
+    assert resp.status_code == 401
+
+
+# ── /me/primary-systems 엔드포인트 테스트 ────────────────────────────────────
+async def _login_and_token(client: AsyncClient, email: str, password: str) -> str:
+    resp = await client.post(
+        "/api/v1/auth/login",
+        json={"email": email, "password": password},
+    )
+    assert resp.status_code == 200
+    return resp.json()["access_token"]
+
+
+@pytest.mark.asyncio
+async def test_my_primary_systems_returns_primary(
+    client: AsyncClient, db_session: AsyncSession
+):
+    user = await _create_user(db_session)
+    sys1 = System(system_name="cxm", display_name="고객경험")
+    sys2 = System(system_name="oms", display_name="주문관리")
+    sys3 = System(system_name="wms", display_name="창고관리")
+    db_session.add_all([sys1, sys2, sys3])
+    await db_session.flush()
+
+    contact = Contact(user_id=user.id, teams_upn=user.email)
+    db_session.add(contact)
+    await db_session.flush()
+
+    # sys1=primary, sys2=secondary, sys3=primary
+    db_session.add_all([
+        SystemContact(system_id=sys1.id, contact_id=contact.id, role="primary",
+                      notify_channels="teams"),
+        SystemContact(system_id=sys2.id, contact_id=contact.id, role="secondary",
+                      notify_channels="teams"),
+        SystemContact(system_id=sys3.id, contact_id=contact.id, role="primary",
+                      notify_channels="teams"),
+    ])
+    await db_session.commit()
+
+    token = await _login_and_token(client, user.email, "password123")
+    resp = await client.get(
+        "/api/v1/auth/me/primary-systems",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200
+    items = resp.json()
+    # primary 역할만 반환, id 오름차순
+    assert [i["system_name"] for i in items] == ["cxm", "wms"]
+    assert items[0] == {"system_id": sys1.id, "system_name": "cxm", "display_name": "고객경험"}
+
+
+@pytest.mark.asyncio
+async def test_my_primary_systems_empty_when_no_contact(
+    client: AsyncClient, db_session: AsyncSession
+):
+    await _create_user(db_session)
+    token = await _login_and_token(client, "test@example.com", "password123")
+    resp = await client.get(
+        "/api/v1/auth/me/primary-systems",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200
+    assert resp.json() == []
+
+
+@pytest.mark.asyncio
+async def test_my_primary_systems_empty_when_only_secondary(
+    client: AsyncClient, db_session: AsyncSession
+):
+    user = await _create_user(db_session)
+    system = System(system_name="sec-only", display_name="부담당만")
+    db_session.add(system)
+    await db_session.flush()
+    contact = Contact(user_id=user.id, teams_upn=user.email)
+    db_session.add(contact)
+    await db_session.flush()
+    db_session.add(SystemContact(
+        system_id=system.id, contact_id=contact.id,
+        role="secondary", notify_channels="teams",
+    ))
+    await db_session.commit()
+
+    token = await _login_and_token(client, user.email, "password123")
+    resp = await client.get(
+        "/api/v1/auth/me/primary-systems",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200
+    assert resp.json() == []
+
+
+@pytest.mark.asyncio
+async def test_my_primary_systems_without_token(
+    client: AsyncClient, db_session: AsyncSession
+):
+    resp = await client.get("/api/v1/auth/me/primary-systems")
     assert resp.status_code == 401

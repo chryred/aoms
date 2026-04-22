@@ -15,7 +15,7 @@ from auth import (
     require_admin,
 )
 from database import get_db
-from models import User, Contact
+from models import User, Contact, System, SystemContact
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
@@ -39,6 +39,14 @@ class UserOut(BaseModel):
     email: str
     name: str
     role: str
+
+    model_config = {"from_attributes": True}
+
+
+class PrimarySystemOut(BaseModel):
+    system_id: int
+    system_name: str
+    display_name: str
 
     model_config = {"from_attributes": True}
 
@@ -180,6 +188,33 @@ async def logout(response: Response):
 @router.get("/me", response_model=UserOut)
 async def me(user: User = Depends(get_current_user)):
     return user
+
+
+@router.get("/me/primary-systems", response_model=List[PrimarySystemOut])
+async def my_primary_systems(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """로그인 사용자가 primary 담당자로 등록된 시스템 목록.
+    AgentFormModal 시스템 자동선택 용도.
+    """
+    result = await db.execute(
+        select(System)
+        .join(SystemContact, SystemContact.system_id == System.id)
+        .join(Contact, Contact.id == SystemContact.contact_id)
+        .where(Contact.user_id == user.id)
+        .where(SystemContact.role == "primary")
+        .order_by(System.id)
+    )
+    systems = result.scalars().all()
+    return [
+        PrimarySystemOut(
+            system_id=s.id,
+            system_name=s.system_name,
+            display_name=s.display_name,
+        )
+        for s in systems
+    ]
 
 
 # ── Phase 3c ─────────────────────────────────────────────────────────────────

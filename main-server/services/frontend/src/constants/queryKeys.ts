@@ -11,6 +11,7 @@ export const qk = {
   feedbacks: (alertHistoryId: number) => ['feedbacks', alertHistoryId] as const,
   feedbackSearch: (params: FeedbackSearchParams) => ['feedbacks', 'search', params] as const,
   me: () => ['auth', 'me'] as const,
+  myPrimarySystems: () => ['auth', 'me', 'primary-systems'] as const,
 
   contacts: () => ['contacts'] as const,
   contact: (id: number) => ['contacts', id] as const,

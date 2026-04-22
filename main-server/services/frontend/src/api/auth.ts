@@ -11,6 +11,12 @@ import type {
   UserAdminUpdateRequest,
 } from '@/types/auth'
 
+export interface PrimarySystemOut {
+  system_id: number
+  system_name: string
+  display_name: string
+}
+
 export const authApi = {
   login: (body: LoginRequest) =>
     adminApi.post('api/v1/auth/login', { json: body }).json<LoginResponse>(),
@@ -20,6 +26,8 @@ export const authApi = {
   logout: () => adminApi.post('api/v1/auth/logout'),
 
   me: () => adminApi.get('api/v1/auth/me').json<User>(),
+
+  myPrimarySystems: () => adminApi.get('api/v1/auth/me/primary-systems').json<PrimarySystemOut[]>(),
 
   register: (body: RegisterRequest) =>
     adminApi.post('api/v1/auth/register', { json: body }).json<{ message: string }>(),
