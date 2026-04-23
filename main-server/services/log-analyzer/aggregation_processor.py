@@ -95,6 +95,17 @@ PROMQL_MAP: dict[str, dict[str, dict[str, str]]] = {
     },
 }
 
+# ── 추이 기반 이상 감지 설정 ─────────────────────────────────────────────────
+# 절대값 임계치 미달이지만 연속 상승/하락 추이를 보이는 경우 감지
+TREND_THRESHOLDS: dict[tuple[str, str], dict] = {
+    ("synapse_agent", "cpu"):          {"key": "cpu_avg",        "direction": "up",   "min_delta": 5.0,   "min_hours": 2, "label": "CPU 평균 상승 추이"},
+    ("synapse_agent", "memory"):       {"key": "mem_used_pct",   "direction": "up",   "min_delta": 3.0,   "min_hours": 2, "label": "메모리 사용률 상승 추이"},
+    ("synapse_agent", "web"):          {"key": "resp_avg_ms",    "direction": "up",   "min_delta": 300.0, "min_hours": 2, "label": "평균 응답시간 상승 추이"},
+    ("synapse_agent", "disk"):         {"key": "disk_io_ms",     "direction": "up",   "min_delta": 50.0,  "min_hours": 2, "label": "디스크 I/O 지연 상승 추이"},
+    ("db_exporter", "db_connections"): {"key": "conn_active_pct","direction": "up",   "min_delta": 5.0,   "min_hours": 2, "label": "DB 연결 사용률 상승 추이"},
+    ("db_exporter", "db_cache"):       {"key": "cache_hit_rate", "direction": "down", "min_delta": 1.0,   "min_hours": 2, "label": "캐시 히트율 하락 추이"},
+}
+
 
 # ── 공통 헬퍼 ────────────────────────────────────────────────────────────────
 
@@ -192,6 +203,88 @@ def _detect_anomaly(
             return True, f"캐시 히트율 {cache}% < 95%"
         if metrics.get("repl_lag_sec", 0) > 10:
             return True, f"복제 지연 {metrics['repl_lag_sec']}초 > 10초"
+
+    return False, ""
+
+
+async def _fetch_previous_hours(
+    client: httpx.AsyncClient,
+    system_id: int,
+    collector_type: str,
+    metric_group: str,
+    hour_bucket_iso: str,   # run_hourly_aggregation이 이미 naive UTC로 변환한 값
+    n: int = 3,
+) -> list[dict]:
+    """이전 n시간 집계 레코드 조회. 실패 시 빈 리스트 반환."""
+    hour_bucket_dt = datetime.fromisoformat(hour_bucket_iso)  # 이미 naive UTC
+    from_dt = (hour_bucket_dt - timedelta(hours=n)).isoformat()
+    to_dt   = (hour_bucket_dt - timedelta(hours=1)).isoformat()
+    try:
+        resp = await client.get(
+            f"{ADMIN_API_URL}/api/v1/aggregations/hourly",
+            params={
+                "system_id":      system_id,
+                "collector_type": collector_type,
+                "metric_group":   metric_group,
+                "from_dt":        from_dt,
+                "to_dt":          to_dt,
+                "limit":          n,
+            },
+            timeout=5.0,
+        )
+        if resp.status_code == 200:
+            records = resp.json()
+            records.sort(key=lambda r: r["hour_bucket"])
+            return records
+    except Exception as exc:
+        logger.debug("이전 시간 집계 조회 실패: %s", exc)
+    return []
+
+
+def _detect_trend_anomaly(
+    prev_records: list[dict],
+    current_metrics: dict,
+    collector_type: str,
+    metric_group: str,
+) -> tuple[bool, str]:
+    """이전 N시간 집계 기반 연속 상승/하락 추이 감지."""
+    cfg = TREND_THRESHOLDS.get((collector_type, metric_group))
+    if not cfg:
+        return False, ""
+
+    key       = cfg["key"]
+    direction = cfg["direction"]
+    min_delta = cfg["min_delta"]
+    min_hours = cfg["min_hours"]
+
+    values: list[float] = []
+    for rec in prev_records:
+        try:
+            v = json.loads(rec["metrics_json"]).get(key)
+            if v is not None:
+                values.append(float(v))
+        except Exception:
+            pass
+
+    cur = current_metrics.get(key)
+    if cur is None:
+        return False, ""
+    values.append(float(cur))
+
+    if len(values) < min_hours + 1:
+        return False, ""
+
+    values = values[-(min_hours + 1):]
+    deltas = [values[i + 1] - values[i] for i in range(len(values) - 1)]
+
+    if direction == "up":
+        if all(d >= min_delta for d in deltas):
+            total = values[-1] - values[0]
+            return True, f"{cfg['label']}: {values[0]:.1f}→{values[-1]:.1f} (+{total:.1f}, {len(deltas)}시간 연속)"
+    else:
+        if all(d <= -min_delta for d in deltas):
+            total = values[0] - values[-1]
+            return True, f"{cfg['label']}: {values[0]:.1f}→{values[-1]:.1f} (-{total:.1f}, {len(deltas)}시간 연속)"
 
     return False, ""
 
@@ -321,10 +414,24 @@ async def _process_single_config(
             if not metrics:
                 return {"status": "skipped", "reason": "no_prometheus_data", "system": system_name}
 
-            # 이상 감지
+            # 이상 감지 — 절대값 임계치
             anomaly_detected, anomaly_reason = _detect_anomaly(
                 collector_type, metric_group, metrics
             )
+
+            # 추이 감지 — 절대값 미달 시에만 이전 n시간 조회
+            prev_records: list[dict] = []
+            trend_anomaly = False
+            if not anomaly_detected:
+                prev_records = await _fetch_previous_hours(
+                    client, system_id, collector_type, metric_group, hour_bucket_iso, n=3
+                )
+                trend_anomaly, trend_reason = _detect_trend_anomaly(
+                    prev_records, metrics, collector_type, metric_group
+                )
+                if trend_anomaly:
+                    anomaly_detected = True
+                    anomaly_reason   = trend_reason
 
             # 기본 집계 저장 (llm_severity='normal')
             hourly_payload = {
@@ -362,11 +469,28 @@ async def _process_single_config(
 
             # 이상 감지 → LLM 분석
             metrics_formatted = "\n".join(f"  {k}: {v}" for k, v in metrics.items())
+
+            trend_section = ""
+            if trend_anomaly and prev_records:
+                cfg_key = (TREND_THRESHOLDS.get((collector_type, metric_group)) or {}).get("key", "")
+                lines = []
+                for rec in prev_records:
+                    try:
+                        v = json.loads(rec["metrics_json"]).get(cfg_key)
+                        if v is not None:
+                            lines.append(f"  {rec['hour_bucket']}: {cfg_key}={v:.1f}")
+                    except Exception:
+                        pass
+                if cfg_key and metrics.get(cfg_key) is not None:
+                    lines.append(f"  {hour_bucket_iso}: {cfg_key}={metrics[cfg_key]:.1f}  ← 현재")
+                if lines:
+                    trend_section = "\n[최근 추이]\n" + "\n".join(lines) + "\n"
+
             llm_prompt = (
                 f"시스템: {display_name} ({system_name})\n"
                 f"시간대: {hour_bucket_iso} (1시간 집계)\n"
                 f"수집기: {collector_type} / {metric_group}\n"
-                f"이상 감지 사유: {anomaly_reason}\n{trace_section}\n"
+                f"이상 감지 사유: {anomaly_reason}\n{trace_section}{trend_section}\n"
                 f"[현재 시간 집계 메트릭]\n{metrics_formatted}\n\n"
                 "위 메트릭 데이터를 분석하여 다음 JSON 형식으로만 응답하세요:\n"
                 "{\n"
