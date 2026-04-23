@@ -18,20 +18,6 @@ const schema = z.object({
 })
 type FormData = z.infer<typeof schema>
 
-// 비밀번호 복잡도 계산 — 로그인 화면에서 타이핑 피드백 용도
-function calcStrength(pw: string): { pct: number; color: string; label: string } {
-  if (!pw) return { pct: 0, color: '#2B2F37', label: '' }
-  let score = 0
-  if (pw.length >= 6) score++
-  if (pw.length >= 10) score++
-  if (/[A-Z]/.test(pw)) score++
-  if (/[0-9]/.test(pw)) score++
-  if (/[^A-Za-z0-9]/.test(pw)) score++
-
-  if (score <= 1) return { pct: 25, color: '#EF4444', label: '취약' }
-  if (score <= 3) return { pct: 60, color: '#F59E0B', label: '보통' }
-  return { pct: 100, color: '#22C55E', label: '강함' }
-}
 
 export function LoginPage() {
   const navigate = useNavigate()
@@ -44,13 +30,9 @@ export function LoginPage() {
   const {
     register,
     handleSubmit,
-    watch,
     formState: { errors },
     setError,
   } = useForm<FormData>({ resolver: zodResolver(schema) })
-
-  const password = watch('password', '')
-  const strength = calcStrength(password)
 
   // 폼에 수평 흔들기 — 잘못된 자격증명 피드백
   const triggerShake = () => {
@@ -92,9 +74,6 @@ export function LoginPage() {
   return (
     <NeuCard className="w-full max-w-md">
       <div className="mb-8 text-center">
-        <div className="bg-accent text-accent-contrast shadow-neu-flat mb-3 inline-flex h-14 w-14 items-center justify-center rounded-sm text-2xl font-bold">
-          S
-        </div>
         <h1 className="type-heading font-lora text-text-primary text-2xl font-bold italic">
           Synapse-V
         </h1>
@@ -119,34 +98,15 @@ export function LoginPage() {
           {...register('email')}
         />
 
-        {/* 비밀번호 필드 + 강도 표시기 */}
-        <div className="space-y-1.5">
-          <NeuInput
-            id="password"
-            type="password"
-            label="비밀번호"
-            placeholder="••••••••"
-            autoComplete="current-password"
-            error={errors.password?.message}
-            {...register('password')}
-          />
-          {password && (
-            <div className="flex items-center gap-2 px-0.5">
-              <div className="pw-track flex-1">
-                <div
-                  className="pw-fill"
-                  style={{
-                    transform: `scaleX(${strength.pct / 100})`,
-                    backgroundColor: strength.color,
-                  }}
-                />
-              </div>
-              <span className="type-data shrink-0 text-[10px]" style={{ color: strength.color }}>
-                {strength.label}
-              </span>
-            </div>
-          )}
-        </div>
+        <NeuInput
+          id="password"
+          type="password"
+          label="비밀번호"
+          placeholder="••••••••"
+          autoComplete="current-password"
+          error={errors.password?.message}
+          {...register('password')}
+        />
 
         {/* 상태 머신: idle → loading arc → success checkmark → navigate */}
         <NeuButton type="submit" className="mt-6 w-full" disabled={isPending || loginDone}>
