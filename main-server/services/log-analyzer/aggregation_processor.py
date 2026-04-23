@@ -12,6 +12,8 @@ import os
 import re
 from datetime import datetime, timezone, timedelta
 
+_KST = timezone(timedelta(hours=9))  # 집계 버킷 경계 기준 타임존
+
 
 def _dt_naive(dt: datetime) -> str:
     """admin-api는 timezone-naive datetime을 기대하므로 UTC offset 제거 후 isoformat 반환"""
@@ -510,9 +512,13 @@ async def run_hourly_aggregation() -> dict:
     2. asyncio.Semaphore(20) 병렬 처리
     3. 각 config별 Prometheus 쿼리 → 이상 감지 → 저장 → LLM → Qdrant → 알림
     """
-    now = datetime.now(timezone.utc)
-    # 현재 시각 기준 정각 (집계 대상 시간대)
-    hour_bucket = now.replace(minute=0, second=0, microsecond=0)
+    # KST 기준 정각으로 버킷 경계 설정 → UTC naive로 DB 저장
+    hour_bucket = (
+        datetime.now(_KST)
+        .replace(minute=0, second=0, microsecond=0)
+        .astimezone(timezone.utc)
+        .replace(tzinfo=None)
+    )
     hour_bucket_iso = hour_bucket.isoformat()
 
     async with httpx.AsyncClient(timeout=30.0) as client:
@@ -580,9 +586,12 @@ async def run_daily_aggregation() -> dict:
     3. 각 그룹: POST /api/v1/aggregations/daily
     4. 요약 텍스트 생성 → Qdrant 저장
     """
-    now = datetime.now(timezone.utc)
-    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    yesterday_start = today_start - timedelta(days=1)
+    # KST 기준 어제/오늘 자정 경계 → UTC naive로 DB 저장
+    now_kst = datetime.now(_KST)
+    today_start_kst = now_kst.replace(hour=0, minute=0, second=0, microsecond=0)
+    yesterday_start_kst = today_start_kst - timedelta(days=1)
+    today_start = today_start_kst.astimezone(timezone.utc).replace(tzinfo=None)
+    yesterday_start = yesterday_start_kst.astimezone(timezone.utc).replace(tzinfo=None)
     day_bucket_iso = yesterday_start.isoformat()
 
     async with httpx.AsyncClient(timeout=30.0) as client:
@@ -690,7 +699,7 @@ async def run_daily_aggregation() -> dict:
                 # Qdrant 요약 저장
                 predictions_str = " | ".join(g["predictions"][:3])
                 summary_parts = [
-                    f"시스템:{g['system_name']} 날짜:{day_bucket_iso.split('T')[0]}",
+                    f"시스템:{g['system_name']} 날짜:{yesterday_start_kst.strftime('%Y-%m-%d')}",
                     f"수집기:{g['collector_type']}/{g['metric_group']}",
                     f"집계시간:{g['hour_count']}h 이상:{g['anomaly_hours']}h",
                 ]
@@ -755,7 +764,7 @@ async def run_daily_aggregation() -> dict:
                 ds["cause"] = g["predictions"][0]
 
         if daily_system_summary:
-            day_label = yesterday_start.strftime("%Y년 %m월 %d일")
+            day_label = yesterday_start_kst.strftime("%Y년 %m월 %d일")
             daily_system_lines = [
                 f"- {ds['display_name']}: 이상 {round(ds['total_anomaly_hours'])}시간, "
                 f"심각도: {ds['worst_severity']}"
@@ -804,13 +813,15 @@ async def run_weekly_report() -> dict:
     """
     WF8 로직 이관 — 전주 일별 집계 → 주간 통계 → LLM → Teams → 이력 저장.
     """
-    now = datetime.now(timezone.utc)
-    # 이번 주 월요일 00:00
-    weekday = now.weekday()  # 0=월
-    this_monday = (now - timedelta(days=weekday)).replace(
+    # KST 기준 이번 주/지난 주 월요일 자정 → UTC naive로 DB 저장
+    now_kst = datetime.now(_KST)
+    weekday = now_kst.weekday()  # 0=월
+    this_monday_kst = (now_kst - timedelta(days=weekday)).replace(
         hour=0, minute=0, second=0, microsecond=0
     )
-    last_monday = this_monday - timedelta(days=7)
+    last_monday_kst = this_monday_kst - timedelta(days=7)
+    last_monday = last_monday_kst.astimezone(timezone.utc).replace(tzinfo=None)
+    this_monday = this_monday_kst.astimezone(timezone.utc).replace(tzinfo=None)
 
     week_start_iso = last_monday.isoformat()
     week_end_iso   = (this_monday - timedelta(seconds=1)).isoformat()
@@ -879,8 +890,8 @@ async def run_weekly_report() -> dict:
             for s in sorted_systems
         ]
 
-        week_start_dt = last_monday
-        week_end_dt   = this_monday - timedelta(days=1)
+        week_start_dt = last_monday_kst
+        week_end_dt   = this_monday_kst - timedelta(days=1)
         date_range = (
             f"{week_start_dt.strftime('%Y년 %m월 %d일')} ~ "
             f"{week_end_dt.strftime('%Y년 %m월 %d일')}"
@@ -969,19 +980,21 @@ async def run_monthly_report() -> dict:
     """
     WF9 로직 이관 — 전월 주별 집계 → 월간 통계 → LLM → Teams → 이력 저장.
     """
-    now = datetime.now(timezone.utc)
-    # 전월 시작일 ~ 이번달 시작일
-    this_month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    if this_month_start.month == 1:
-        prev_month_start = this_month_start.replace(
-            year=this_month_start.year - 1, month=12
+    # KST 기준 전월/이번달 시작 자정 → UTC naive로 DB 저장
+    now_kst = datetime.now(_KST)
+    this_month_start_kst = now_kst.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    if this_month_start_kst.month == 1:
+        prev_month_start_kst = this_month_start_kst.replace(
+            year=this_month_start_kst.year - 1, month=12
         )
     else:
-        prev_month_start = this_month_start.replace(month=this_month_start.month - 1)
+        prev_month_start_kst = this_month_start_kst.replace(month=this_month_start_kst.month - 1)
+    this_month_start = this_month_start_kst.astimezone(timezone.utc).replace(tzinfo=None)
+    prev_month_start = prev_month_start_kst.astimezone(timezone.utc).replace(tzinfo=None)
 
     month_start_iso = prev_month_start.isoformat()
     month_end_iso   = (this_month_start - timedelta(seconds=1)).isoformat()
-    month_name = prev_month_start.strftime("%Y년 %m월")
+    month_name = prev_month_start_kst.strftime("%Y년 %m월")
 
     async with httpx.AsyncClient(timeout=60.0) as client:
         try:
@@ -1240,7 +1253,7 @@ async def run_longperiod_report() -> dict:
     WF10 로직 이관 — 분기/반기/연간 리포트.
     오늘 날짜 기준으로 생성할 period_type 결정 후 순차 실행.
     """
-    now = datetime.now(timezone.utc)
+    now = datetime.now(_KST)
     month = now.month
 
     # 항상 quarterly, 1월/7월은 half_year, 1월은 annual 추가

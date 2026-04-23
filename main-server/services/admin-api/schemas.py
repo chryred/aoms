@@ -1,6 +1,17 @@
 from datetime import datetime
-from typing import Optional
+from typing import Annotated, Optional
 from pydantic import BaseModel, Field, field_validator
+from pydantic.functional_serializers import PlainSerializer
+
+# API 응답 datetime: JSON 직렬화 시 'Z' suffix 포함 UTC ISO 8601
+UtcDatetime = Annotated[
+    datetime,
+    PlainSerializer(
+        lambda v: v.strftime('%Y-%m-%dT%H:%M:%S') + 'Z',
+        return_type=str,
+        when_used='json',
+    ),
+]
 
 
 # ── System ──────────────────────────────────────────────────────────────
@@ -26,8 +37,8 @@ class SystemOut(BaseModel):
     description: Optional[str]
     status: str
     teams_webhook_url: Optional[str]
-    created_at: datetime
-    updated_at: datetime
+    created_at: UtcDatetime
+    updated_at: UtcDatetime
 
     model_config = {"from_attributes": True}
 
@@ -59,7 +70,7 @@ class SystemHostOut(BaseModel):
     system_id: int
     host_ip: str
     role_label: Optional[str]
-    created_at: datetime
+    created_at: UtcDatetime
 
     model_config = {"from_attributes": True}
 
@@ -83,7 +94,7 @@ class ContactOut(BaseModel):
     email: Optional[str]   # user.email에서 파생
     teams_upn: Optional[str]
     webhook_url: Optional[str]
-    created_at: datetime
+    created_at: UtcDatetime
     systems: list["SystemBrief"] = []
 
     model_config = {"from_attributes": False}
@@ -123,8 +134,8 @@ class LlmAgentConfigOut(BaseModel):
     agent_code: str
     description: Optional[str]
     is_active: bool
-    created_at: datetime
-    updated_at: datetime
+    created_at: UtcDatetime
+    updated_at: UtcDatetime
 
     model_config = {"from_attributes": True}
 
@@ -202,10 +213,10 @@ class AlertHistoryOut(BaseModel):
     anomaly_type:     Optional[str]
     similarity_score: Optional[float]
     qdrant_point_id:  Optional[str]
-    resolved_at: Optional[datetime]
+    resolved_at: Optional[UtcDatetime]
     error_message:    Optional[str]   # NULL=성공, 값=LLM/분석 실패 사유
     incident_id: Optional[int]
-    created_at: datetime
+    created_at: UtcDatetime
 
     model_config = {"from_attributes": True}
 
@@ -235,7 +246,7 @@ class FeedbackOut(BaseModel):
     error_type: str
     solution: str
     resolver: str
-    created_at: datetime
+    created_at: UtcDatetime
 
     model_config = {"from_attributes": True}
 
@@ -247,7 +258,7 @@ class FeedbackSearchOut(BaseModel):
     error_type: str
     solution: str
     resolver: str
-    created_at: datetime
+    created_at: UtcDatetime
     severity: Optional[str] = None
     alert_type: Optional[str] = None
     title: Optional[str] = None
@@ -298,7 +309,7 @@ class LogAnalysisOut(BaseModel):
     similarity_score: Optional[float]
     has_solution:     Optional[bool]
     error_message:    Optional[str]   # NULL=성공, 값=LLM/분석 실패 사유
-    created_at: datetime
+    created_at: UtcDatetime
 
 
 # ── Alertmanager Webhook ──────────────────────────────────────────────────
@@ -346,8 +357,8 @@ class CollectorConfigOut(BaseModel):
     enabled: bool
     prometheus_job: Optional[str]
     custom_config: Optional[str]
-    created_at: datetime
-    updated_at: datetime
+    created_at: UtcDatetime
+    updated_at: UtcDatetime
 
     model_config = {"from_attributes": True}
 
@@ -369,7 +380,7 @@ class _AggregationBase(BaseModel):
 class _AggregationOutBase(_AggregationBase):
     """집계 Out 스키마 공통 필드 (id, created_at 포함)"""
     id: int
-    created_at: datetime
+    created_at: UtcDatetime
 
     model_config = {"from_attributes": True}
 
@@ -383,7 +394,7 @@ class HourlyAggregationCreate(_AggregationBase):
 
 
 class HourlyAggregationOut(_AggregationOutBase):
-    hour_bucket: datetime
+    hour_bucket: UtcDatetime
     llm_prediction: Optional[str]
     llm_model_used: Optional[str]
 
@@ -395,7 +406,7 @@ class DailyAggregationCreate(_AggregationBase):
 
 
 class DailyAggregationOut(_AggregationOutBase):
-    day_bucket: datetime
+    day_bucket: UtcDatetime
 
 
 # ── 7일 집계 ─────────────────────────────────────────────────────────────────
@@ -405,7 +416,7 @@ class WeeklyAggregationCreate(_AggregationBase):
 
 
 class WeeklyAggregationOut(_AggregationOutBase):
-    week_start: datetime
+    week_start: UtcDatetime
 
 
 # ── 월/분기/반기/연간 집계 ────────────────────────────────────────────────────
@@ -416,7 +427,7 @@ class MonthlyAggregationCreate(_AggregationBase):
 
 
 class MonthlyAggregationOut(_AggregationOutBase):
-    period_start: datetime
+    period_start: UtcDatetime
     period_type: str
 
 
@@ -432,9 +443,9 @@ class ReportHistoryCreate(BaseModel):
 class ReportHistoryOut(BaseModel):
     id: int
     report_type: str
-    period_start: datetime
-    period_end: datetime
-    sent_at: datetime
+    period_start: UtcDatetime
+    period_end: UtcDatetime
+    sent_at: UtcDatetime
     teams_status: Optional[str]
     llm_summary: Optional[str]
     system_count: Optional[int]
@@ -525,8 +536,8 @@ class AgentInstanceOut(BaseModel):
     os_type: Optional[str]
     server_type: Optional[str]
     status: str
-    created_at: datetime
-    updated_at: datetime
+    created_at: UtcDatetime
+    updated_at: UtcDatetime
 
     model_config = {"from_attributes": True}
 
@@ -541,8 +552,8 @@ class AgentInstallJobOut(BaseModel):
     status: str
     logs: Optional[str]
     error: Optional[str]
-    created_at: datetime
-    updated_at: datetime
+    created_at: UtcDatetime
+    updated_at: UtcDatetime
 
     model_config = {"from_attributes": True}
 
@@ -573,10 +584,10 @@ class IncidentOut(BaseModel):
     title: str
     severity: str
     status: str
-    detected_at: datetime
-    acknowledged_at: Optional[datetime]
-    resolved_at: Optional[datetime]
-    closed_at: Optional[datetime]
+    detected_at: UtcDatetime
+    acknowledged_at: Optional[UtcDatetime]
+    resolved_at: Optional[UtcDatetime]
+    closed_at: Optional[UtcDatetime]
     root_cause: Optional[str]
     resolution: Optional[str]
     postmortem: Optional[str]
@@ -585,8 +596,8 @@ class IncidentOut(BaseModel):
     mtta_minutes: Optional[int] = None
     mttr_minutes: Optional[int] = None
     system_display_name: Optional[str] = None
-    created_at: datetime
-    updated_at: datetime
+    created_at: UtcDatetime
+    updated_at: UtcDatetime
 
     model_config = {"from_attributes": True}
 
@@ -597,7 +608,7 @@ class IncidentTimelineItemOut(BaseModel):
     event_type: str
     description: Optional[str]
     actor_name: Optional[str]
-    created_at: datetime
+    created_at: UtcDatetime
 
     model_config = {"from_attributes": True}
 
@@ -645,7 +656,7 @@ class ChatExecutorConfigOut(BaseModel):
     executor: str
     config: dict                 # secret 필드는 "***"로 마스킹됨
     config_schema: list[dict]
-    updated_at: Optional[datetime] = None
+    updated_at: Optional[UtcDatetime] = None
 
 
 class ChatExecutorConfigUpdate(BaseModel):
@@ -665,8 +676,8 @@ class ChatSessionOut(BaseModel):
     id: str
     title: str
     area_code: str
-    created_at: datetime
-    updated_at: datetime
+    created_at: UtcDatetime
+    updated_at: UtcDatetime
 
     model_config = {"from_attributes": True}
 
@@ -689,7 +700,7 @@ class ChatMessageOut(BaseModel):
     tool_args: Optional[dict] = None
     tool_result: Optional[dict] = None
     attachments: list[dict] = []
-    created_at: datetime
+    created_at: UtcDatetime
 
     model_config = {"from_attributes": True}
 
