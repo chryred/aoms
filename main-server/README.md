@@ -88,7 +88,7 @@ make dev-up
 | Alertmanager | `localhost:9093` | 알림 라우팅 → 로컬 admin-api |
 | Qdrant | `localhost:6333` | 벡터 DB |
 
-> **Ollama**: 리소스 소모가 크므로 기본 비활성화입니다. 벡터 임베딩 테스트 시 `docker-compose.dev.yml`의 주석을 해제하세요.
+> **임베딩**: ADR-011 이후 Ollama 제거 → log-analyzer 컨테이너(또는 venv) 내 FastEmbed(ONNX) 인프로세스 처리. 로컬 dev에서는 `make run-analyzer` 최초 실행 시 ~/.cache/fastembed/ 에 모델이 자동 다운로드됩니다.
 
 ---
 
@@ -221,9 +221,9 @@ docker compose up -d admin-api
 | `ADMIN_API_URL` | `http://localhost:8080` | `http://admin-api:8080` | 분석 결과 전송 |
 | `LLM_API_URL` | — | 내부 LLM API | 로그 분석 |
 | `LLM_API_KEY` | — | 실제 API 키 | 기본 키 (담당자 미등록 시) |
-| `OLLAMA_URL` | `http://localhost:11434` | `http://server-b:11434` | 임베딩 모델 (Server B) |
 | `QDRANT_URL` | `http://localhost:6333` | `http://server-b:6333` | 벡터 DB (Server B) |
-| `EMBED_MODEL` | `bge-m3` | `bge-m3` | 임베딩 모델명 |
+| `DENSE_EMBED_MODEL` | `BAAI/bge-m3` | `BAAI/bge-m3` | FastEmbed Dense 모델 (ADR-011, 1024dim) |
+| `SPARSE_EMBED_MODEL` | `Qdrant/bm25` | `Qdrant/bm25` | FastEmbed Sparse 모델 (BM25) |
 | `ANALYSIS_INTERVAL_SECONDS` | `300` | `300` | 자동 분석 주기(초) |
 
 ---

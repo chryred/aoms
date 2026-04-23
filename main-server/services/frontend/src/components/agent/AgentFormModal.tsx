@@ -372,8 +372,8 @@ export function AgentFormModal({ systems, onClose, onCreated }: AgentFormModalPr
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div className="bg-overlay absolute inset-0" onClick={onClose} />
-      <NeuCard className="relative mx-4 max-h-[90vh] w-full max-w-lg overflow-y-auto">
+      <div className="bg-overlay absolute inset-0 z-0" onClick={onClose} />
+      <NeuCard className="relative z-10 mx-4 max-h-[90vh] w-full max-w-lg overflow-y-auto">
         <div className="mb-4 flex items-center justify-between">
           <h3 className="text-text-primary text-base font-semibold">에이전트 등록</h3>
           <button
@@ -735,7 +735,7 @@ export function AgentFormModal({ systems, onClose, onCreated }: AgentFormModalPr
                         placeholder={'/server1/JeusServer.log\n/batch/JeusServer.log'}
                         rows={2}
                         disabled={!collectors.log_monitor}
-                        className="border-border bg-bg-base text-text-primary placeholder-text-secondary/50 focus:border-accent focus:ring-accent w-full resize-none rounded-sm border px-2 py-1 text-xs focus:ring-1 focus:outline-none disabled:cursor-not-allowed"
+                        className="border-border bg-bg-base text-text-primary placeholder-text-secondary/50 focus:border-accent focus:ring-accent w-full resize-none rounded-sm border px-2 py-1 text-xs focus:ring-1 focus:outline-none disabled:cursor-not-allowed pointer-events-auto"
                       />
                     </div>
                     <div className="flex gap-2">

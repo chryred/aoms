@@ -165,12 +165,16 @@ services:
       - LLM_MODEL=${LLM_MODEL}
       - DEVX_CLIENT_ID=${DEVX_CLIENT_ID}
       - DEVX_CLIENT_SECRET=${DEVX_CLIENT_SECRET}
-      # Phase 4b: 벡터 DB (Server B)
-      - OLLAMA_URL=${OLLAMA_URL}
-      - EMBED_MODEL=${EMBED_MODEL:-paraphrase-multilingual}
+      # ADR-011: ONNX 인프로세스 임베딩 (Ollama 제거)
+      # Dense : sentence-transformers ONNX 백엔드 + BAAI/bge-m3 (/app/dense-models에 번들)
+      # Sparse: fastembed BM25 (/app/fastembed-models에 번들)
+      - DENSE_EMBED_MODEL=${DENSE_EMBED_MODEL:-BAAI/bge-m3}
+      - DENSE_ONNX_FILE=${DENSE_ONNX_FILE:-onnx/model.onnx}
+      - SPARSE_EMBED_MODEL=${SPARSE_EMBED_MODEL:-Qdrant/bm25}
+      - HF_HUB_OFFLINE=1                 # 폐쇄망 안전장치: 로컬 번들만 사용
       - QDRANT_URL=${QDRANT_URL}
-    mem_limit: 256m
-    cpus: '0.3'
+    mem_limit: 2048m   # ADR-011: bge-m3 ONNX(~1.2GB) 로드를 위해 상향 (기존 256m)
+    cpus: '1.0'
     depends_on: [admin-api]
     restart: unless-stopped
     networks:
@@ -251,9 +255,7 @@ services:
       - LOG_ANALYZER_URL=http://log-analyzer:8000
       - ADMIN_API_URL=http://admin-api:8080
       - TEAMS_WEBHOOK_URL=${TEAMS_WEBHOOK_URL}
-      - OLLAMA_URL=${OLLAMA_URL}
       - QDRANT_URL=${QDRANT_URL}
-      - EMBED_MODEL=${EMBED_MODEL:-bge-m3}
       - LLM_API_URL=${LLM_API_URL}
       - LLM_API_KEY=${LLM_API_KEY}
     volumes:

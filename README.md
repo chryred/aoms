@@ -72,16 +72,15 @@
 - T4.9 LLM 분석 cron 등록 → Phase 4c n8n으로 대체
 - CP4 Phase 4 체크포인트
 
-### [Server B 구축 — Qdrant & Ollama 배포](./workflow/7.phase-serverb.md)
+### [Server B 구축 — Qdrant 배포](./workflow/7.phase-serverb.md)
 - SB.1 Server B 환경 준비 (RedHat 8.9, Docker)
-- SB.2 Docker 이미지 Load (Qdrant, Ollama)
-- SB.3 Ollama 배포 + bge-m3 임베딩 모델 로드
-- SB.4 Qdrant 배포 + log_incidents 컬렉션 생성 (int8 양자화)
-- SB.5 Server A ↔ Server B 방화벽 설정
-- SB.6 통합 E2E 연결 테스트
+- SB.2 Docker 이미지 Load (Qdrant)
+- SB.3 Qdrant 배포 + log_incidents 컬렉션 생성 (int8 양자화) — ADR-011/012: Ollama 제거됨
+- SB.4 Server A ↔ Server B 방화벽 설정
+- SB.5 통합 E2E 연결 테스트
 
 ### [Phase 4b — 벡터 DB 유사도 분석](./workflow/8.phase4b-vector.md)
-- T4.10 로그 정규화 + Ollama 임베딩 클라이언트
+- T4.10 로그 정규화 + FastEmbed ONNX 임베딩 (ADR-011)
 - T4.11 Qdrant 벡터 저장 & 유사 검색 클라이언트
 - T4.12 5분 집계 대표 벡터 생성 파이프라인
 - T4.13 이상 분류 로직 (new/recurring/related/duplicate)
@@ -126,7 +125,7 @@
 | Phase 2 | 5 | Admin API, Teams Adaptive Card 알림, 억제 규칙 |
 | Phase 3 | 6 | 전체 에이전트 배포 (Grafana Alloy, node_exporter, jmx_exporter), DB/WAS Exporter |
 | Phase 4 | 12 | Log Analyzer (Loki 3.x, PII 마스킹, 재시도), 담당자별 API key |
-| Server B | 6 | Qdrant + Ollama 배포 (int8 양자화, bge-m3 GGUF, 폐쇄망 구축) |
+| Server B | 5 | Qdrant 배포 (int8 양자화, 폐쇄망 구축). ADR-011/012: Ollama 제거 |
 | Phase 4b | 6 | 벡터 유사도 분석 (이상 분류, LLM 컨텍스트 강화, Teams 차별화) |
 | Phase 4c | 5 | n8n 5종 워크플로우 (cron 통합, 피드백, 일일리포트, 에스컬레이션) |
 | Phase 4d | 8 | Agentic LLM (2-tier 분리, ReAct 루프, 동적 도구 레지스트리, TTL 잠금) |
@@ -148,13 +147,16 @@
 - 오류 피드백 수집 서버 (Flask, 포트 8081) → Phase 4c n8n Webhook으로 대체
 - 담당자별 LLM API key 분리 (AI 비용 분리 청구)
 - **v2.1 추가**: 벡터 DB 유사도 분석 (Qdrant on-disk + int8 양자화, 526만 벡터/년)
-- **v2.1 추가**: Ollama bge-m3 GGUF 임베딩 서비스 (Server B, 폐쇄망)
+- **v2.1 추가** (ADR-011 이후 폐지): Ollama bge-m3 GGUF 임베딩 서비스 → FastEmbed(ONNX) 인프로세스로 이관
 - **v2.1 추가**: n8n 통합 자동화 (5종 워크플로우, cron 전면 대체)
 - **v2.1 추가**: 2-서버 아키텍처 (Server A: 모니터링, Server B: AI/데이터)
 - **v2.2 추가**: Agentic LLM 2-tier 분석 (vector 즉시 알림 + react 심층 분석 분리)
 - **v2.2 추가**: 프롬프트 기반 ReAct 루프 (내부 LLM API 제약 없음, 최대 5회 자율 추론)
 - **v2.2 추가**: PostgreSQL 동적 도구 레지스트리 (재배포 없는 도구 추가/수정)
 - **v2.2 추가**: per-system TTL 잠금 (5분 주기 n8n 중복 실행 방지)
+- **v2.3 (ADR-011)**: Ollama 임베딩 제거 → FastEmbed(ONNX) 인프로세스 + Qdrant Hybrid Search (Dense bge-m3 1024 + Sparse BM25 RRF)
+- **v2.3 (ADR-011)**: 챗봇 RAG 연동 — `qdrant_search_incident_knowledge` / `qdrant_search_aggregation_summary` 도구 추가
+- **v2.3 (ADR-012)**: LLM용 Ollama Strategy 제거 — 이제 devx/claude/openai만 지원
 
 ---
 

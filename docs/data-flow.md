@@ -142,7 +142,7 @@ Prometheus alert_rules.yml 평가 (매 15s)
     → 각 시스템별:
         PromQL: sum(increase(log_error_total{system_name=X}[5m])) by (level, template, log_type)
         → PII 마스킹 확인 (에이전트에서 이미 마스킹됨)
-        → normalize_log_for_embedding() → Ollama 임베딩 (Server B bge-m3)
+        → normalize_log_for_embedding() → FastEmbed 임베딩 (ONNX Dense bge-m3 1024 + Sparse BM25, ADR-011)
         → Qdrant log_incidents 컬렉션 유사도 검색
           → score ≥ 0.95: duplicate → 알림 억제
           → score ≥ 0.85: recurring → "반복 이상" 알림

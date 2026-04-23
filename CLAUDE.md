@@ -10,7 +10,7 @@
 | `.claude/memory/code-layout.md` | 디렉터리 트리 + Server A/B 포트 맵 | 파일 위치·포트 확인 시 |
 | `.claude/memory/data-flows.md` | 메트릭 알림 / LLM 로그 분석 / 벡터 유사도 분류 / 분석 실패 처리 흐름 | 기능 추가·버그 추적 시 |
 | `.claude/memory/development-notes.md` | system_name 일관성, instance_role 의미, synapse_agent, 폐쇄망 배포, 담당자별 LLM 키 등 | 구현 세부사항 필요 시 |
-| `.claude/memory/adrs.md` | ADR-001 ~ 005 전문 + 유지 규칙 | 아키텍처 결정 배경 재검토 시 |
+| `.claude/memory/adrs.md` | ADR-001 ~ 012 전문 + 유지 규칙 (ADR-011: FastEmbed+Hybrid+RAG, ADR-012: LLM Ollama 제거) | 아키텍처 결정 배경 재검토 시 |
 | `.claude/memory/implementation-status.md` | Phase 1 ~ Phase 10 구현 현황 표 | 이미 구현된 기능 확인 시 |
 
 > 참조 방식: `@` 자동 로드 아님. **필요할 때 Read tool로 경로를 읽는다** (예: `Read `.claude/memory/adrs.md``).
@@ -27,16 +27,22 @@
 - **n8n** (5678): 현재 미사용. 컨테이너만 예비 유지(WF4 일일 리포트 / WF5 에스컬레이션은 향후 log-analyzer 이관 예정으로 `main-server/n8n-workflows/`에 JSON만 보존)
 
 ### Server B
-- **Ollama** (11434): `paraphrase-multilingual` 임베딩 모델 (768차원, ADR-003)
-- **Qdrant** (6333): `log_incidents`, `metric_baselines`, `metric_hourly_patterns`, `aggregation_summaries` (모두 768차원)
+- **Qdrant** (6333): Dense+Sparse Hybrid Search (ADR-011)
+  - `log_incidents`, `metric_baselines`, `aggregation_summaries`: Dense(1024) + Sparse(BM25) Hybrid
+  - `metric_hourly_patterns`: Dense 전용
+  - Ollama는 ADR-011로 제거됨 — 임베딩은 log-analyzer 컨테이너 내 FastEmbed ONNX가 담당
 
 ### 핵심 환경변수
 | 변수 | 기본 값 / 설명 |
 |---|---|
 | `DATABASE_URL` | `postgresql+asyncpg://...` |
-| `LLM_TYPE` | `devx` / `ollama` / `claude` / `openai` — `llm_client.py` Strategy가 라우팅 (ADR-001) |
+| `LLM_TYPE` | `devx` / `claude` / `openai` — `llm_client.py` Strategy가 라우팅 (ADR-001). ADR-012: ollama 폐지 |
 | `DEVX_CLIENT_ID` / `DEVX_CLIENT_SECRET` | DevX OAuth client_credentials 인증 (시스템 발급) |
-| `OLLAMA_URL` / `EMBED_MODEL` | `paraphrase-multilingual` (ADR-003) |
+| `DENSE_EMBED_MODEL` | `BAAI/bge-m3` (onnxruntime 직접 호출, 1024차원, ADR-011) |
+| `DENSE_ONNX_FILE` | `onnx/model.onnx` (Dense ONNX 파일 경로 — int8 교체 시 `onnx/model_int8.onnx`) |
+| `SPARSE_EMBED_MODEL` | `Qdrant/bm25` (fastembed SparseTextEmbedding, IDF 기반) |
+| `DENSE_MODEL_CACHE` / `SPARSE_MODEL_CACHE` | 이미지 번들 경로 (Dockerfile에서 자동 설정) |
+| `HF_HUB_OFFLINE` | `1` (폐쇄망 필수). 개발기 미러 필요 시 `HF_ENDPOINT=https://hf-mirror.com` |
 | `QDRANT_URL` | `http://{server-b}:6333` |
 | `TEAMS_WEBHOOK_URL` | 전역 Teams 폴백 (시스템별 `systems.teams_webhook_url`이 우선) |
 | `FRONTEND_EXTERNAL_URL` | Teams 카드 "해결책 등록" 버튼이 여는 React 페이지 외부 접근 URL (예: `http://{server-a-ip}:3001`) |

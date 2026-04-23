@@ -101,7 +101,7 @@ export function SimilarSearchInput({
         onClick={() => handleSearch({ query, collection })}
         aria-busy={isPending}
         aria-label={isPending ? '검색 중' : '검색'}
-        className="self-end"
+        className="w-full"
       >
         {isPending && <Loader2 className="h-4 w-4 animate-spin" />}
         {isPending ? '검색 중...' : '검색'}

@@ -101,7 +101,7 @@ check_file "otel-collector-config.yml"    "$BASE_DIR/configs/otel-collector/otel
 
 # .env 필수 키 존재 여부
 if [[ -f "$BASE_DIR/.env" ]]; then
-  for key in TEAMS_WEBHOOK_URL LLM_API_URL OLLAMA_URL QDRANT_URL ENCRYPTION_KEY SECRET_KEY DEVX_CLIENT_ID DEVX_CLIENT_SECRET; do
+  for key in TEAMS_WEBHOOK_URL LLM_API_URL QDRANT_URL ENCRYPTION_KEY SECRET_KEY DEVX_CLIENT_ID DEVX_CLIENT_SECRET; do
     if grep -q "^${key}=" "$BASE_DIR/.env" 2>/dev/null; then
       VALUE=$(grep "^${key}=" "$BASE_DIR/.env" | cut -d= -f2-)
       if [[ -n "$VALUE" ]]; then
@@ -239,29 +239,9 @@ N8N_HEALTH=$(curl -s --max-time 5 http://localhost:5678/healthz 2>/dev/null | \
 
 # ──────────────────────────────────────────────────────────────
 # Server B 확인 (IP 인수 전달 시)
+# ADR-011/012: Ollama 제거됨 → Qdrant만 확인
 if [[ -n "$SERVER_B_IP" ]]; then
-  section "11. Server B (AI/Vector) 확인 — ${SERVER_B_IP}"
-
-  OLLAMA_MODELS=$(curl -s --max-time 10 "http://${SERVER_B_IP}:11434/api/tags" 2>/dev/null | \
-    python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d.get('models',[])))" 2>/dev/null || echo "-1")
-  if [[ "$OLLAMA_MODELS" =~ ^[0-9]+$ ]]; then
-    ok "Ollama 응답 OK (모델 ${OLLAMA_MODELS}개)"
-    if [[ "$OLLAMA_MODELS" -eq 0 ]]; then
-      warn "  → paraphrase-multilingual 모델이 없습니다"
-      warn "     docker exec synapse-ollama ollama pull paraphrase-multilingual"
-    else
-      PARA_OK=$(curl -s --max-time 5 "http://${SERVER_B_IP}:11434/api/tags" 2>/dev/null | \
-        python3 -c "
-import sys, json
-d = json.load(sys.stdin)
-names = [m.get('name','') for m in d.get('models',[])]
-print('yes' if any('paraphrase-multilingual' in n for n in names) else 'no')
-" 2>/dev/null || echo "no")
-      [[ "$PARA_OK" == "yes" ]] && ok "  paraphrase-multilingual 모델 확인 OK" || warn "  paraphrase-multilingual 모델 없음 (pull 필요)"
-    fi
-  else
-    fail "Ollama 응답 없음 (${SERVER_B_IP}:11434)"
-  fi
+  section "11. Server B (Vector DB) 확인 — ${SERVER_B_IP}"
 
   QDRANT_TITLE=$(curl -s --max-time 5 "http://${SERVER_B_IP}:6333/" 2>/dev/null | \
     python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('title','unknown'))" 2>/dev/null || echo "error")

@@ -63,21 +63,21 @@ export function SimilarResultCard({ result, collection }: SimilarResultCardProps
         severity === 'critical' ? 'critical' : severity === 'warning' ? 'warning' : undefined
       }
     >
-      {/* Header */}
-      <div className="mb-3 flex items-center justify-between">
-        <ScoreBadge score={score} />
-        <SeverityBadge severity={severity} />
-      </div>
-
-      {/* System + period */}
-      <div className="mb-2 flex items-center gap-2">
-        <span className="text-text-primary font-semibold">{payload.system_name}</span>
-        <span className="text-text-secondary text-sm">{periodLabel}</span>
+      {/* Header: 시스템명 + 기간 (left) | 유사도 + 심각도 (right) */}
+      <div className="mb-3 flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <span className="text-text-primary text-sm font-semibold">{payload.system_name}</span>
+          <span className="text-text-secondary ml-2 text-xs">{periodLabel}</span>
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <ScoreBadge score={score} />
+          <SeverityBadge severity={severity} />
+        </div>
       </div>
 
       {/* collector / metric badges (hourly only) */}
       {isHourlyPattern && (
-        <div className="mb-2 flex gap-2">
+        <div className="mb-3 flex gap-2">
           <span className="bg-accent-muted text-accent rounded px-2 py-0.5 text-xs">
             {(payload as HourlyPatternPayload).metric_group}
           </span>
@@ -88,22 +88,24 @@ export function SimilarResultCard({ result, collection }: SimilarResultCardProps
       )}
 
       {/* LLM summary */}
-      <p className="text-text-primary mb-2 text-sm whitespace-pre-wrap">{summaryText}</p>
+      <p className="text-text-primary text-sm whitespace-pre-wrap">{summaryText}</p>
 
       {/* llm_prediction (hourly only) */}
       {isHourlyPattern && (payload as HourlyPatternPayload).llm_prediction && (
-        <p className="text-text-secondary mb-3 text-sm whitespace-pre-wrap italic">
+        <p className="text-text-secondary mt-2 text-sm whitespace-pre-wrap italic">
           {(payload as HourlyPatternPayload).llm_prediction}
         </p>
       )}
 
-      {/* Footer link */}
-      <Link
-        to={`${ROUTES.ALERTS}?system_id=${payload.system_id}`}
-        className="text-accent focus:ring-accent focus:ring-offset-bg-base rounded text-sm hover:underline focus:ring-1 focus:ring-offset-2 focus:outline-none"
-      >
-        관련 알림 이력
-      </Link>
+      {/* Footer */}
+      <div className="border-border mt-4 border-t pt-3">
+        <Link
+          to={`${ROUTES.ALERTS}?system_id=${payload.system_id}`}
+          className="text-accent focus:ring-accent focus:ring-offset-bg-base rounded text-sm hover:underline focus:ring-1 focus:ring-offset-2 focus:outline-none"
+        >
+          관련 알림 이력
+        </Link>
+      </div>
     </NeuCard>
   )
 }

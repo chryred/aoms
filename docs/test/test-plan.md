@@ -1,8 +1,8 @@
 # Synapse-V 테스트 계획서
 
-> **기준일**: 2026-04-05
+> **기준일**: 2026-04-05 (ADR-011/012 반영: 2026-04-23)
 > **시스템**: 개발 환경 (localhost)
-> **제약 조건**: Teams Webhook 실제 발송 / LLM API (내부망) / Ollama 임베딩은 선택 테스트
+> **제약 조건**: Teams Webhook 실제 발송 / LLM API (내부망). ~~Ollama 임베딩~~ 은 제거됨 — FastEmbed(ONNX) 인프로세스로 이관
 
 ---
 
@@ -439,7 +439,7 @@ done
 |---|---|
 | Teams Webhook 실제 발송 | 내부망 Webhook URL 연결 시에만 검증 가능 |
 | LLM API 분석 결과 | 내부망 `devx-mcp-api.shinsegae-inc.com` 연결 필요 |
-| Ollama 임베딩 | localhost에서 bge-m3 모델 다운로드 필요 |
-| Qdrant 벡터 유사도 (실제) | Ollama 임베딩 연동 필요 |
+| FastEmbed 임베딩 (ONNX) | 최초 실행 시 HuggingFace 모델 다운로드 필요 (개발기 기준) |
+| Qdrant 벡터 유사도 (실제) | FastEmbed 모델 캐시 + Qdrant 기동 필요 |
 | Grafana Alloy 에이전트 | 실제 서버 배포 환경 필요 |
 | n8n 자동 스케줄 | 수동 트리거로 대체 |

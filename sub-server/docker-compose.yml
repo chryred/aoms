@@ -1,20 +1,9 @@
-services:
-  ollama:
-    image: ollama/ollama:0.18.0
-    container_name: synapse-ollama
-    ports:
-      - "11434:11434"
-    volumes:
-      - /app/synapse/services/ollama-models:/root/.ollama
-    deploy:
-      resources:
-        limits:
-          memory: 2048M
-          cpus: '0.5'
-    restart: unless-stopped
-    networks:
-      - llm-network
+# Sub-Server (Server B) — 벡터 DB 전용
+#
+# ADR-011 이전: Ollama(임베딩) + Qdrant
+# ADR-011 이후: Qdrant만 유지 (임베딩은 log-analyzer 컨테이너 내 FastEmbed ONNX로 이전)
 
+services:
   qdrant:
     image: qdrant/qdrant:v1.17.0
     container_name: synapse-qdrant

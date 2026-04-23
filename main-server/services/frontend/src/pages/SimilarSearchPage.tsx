@@ -78,7 +78,7 @@ export default function SimilarSearchPage() {
         isPending={isPending}
       />
 
-      <div className="mt-6">
+      <div className="mt-8">
         {isPending && <LoadingSkeleton shape="card" count={3} />}
 
         {isError && (

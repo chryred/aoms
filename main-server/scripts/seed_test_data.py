@@ -1,16 +1,15 @@
 #!/usr/bin/env python3
 """
-벡터 관리 화면 테스트 데이터 시드 스크립트
+벡터 관리 화면 테스트 데이터 시드 스크립트 (ADR-011/012 이후)
 
 등록된 시스템 수 x 100개의 집계 데이터를 생성한다.
 - 1시간~12개월 범위의 집계 데이터
 - PostgreSQL (admin-api) + Qdrant (log-analyzer) 동시 저장
-- Ollama llama3 → LLM 요약 텍스트 생성
-- Ollama bge-m3 → 임베딩 생성 (log-analyzer store 엔드포인트가 내부 처리)
+- LLM 분석/임베딩은 log-analyzer 내부 FastEmbed + DevX/Claude/OpenAI 가 처리
+  (이 스크립트는 템플릿 기반 fallback 텍스트만 생성)
 
 사전 조건:
-  - admin-api (8080), log-analyzer (8000), Ollama (11434), Qdrant (6333) 실행 중
-  - Ollama에 llama3, bge-m3 모델 설치됨
+  - admin-api (8080), log-analyzer (8000), Qdrant (6333) 실행 중
 
 사용법:
   python main-server/scripts/seed_test_data.py
@@ -38,9 +37,7 @@ except ImportError:
 
 ADMIN_API = os.getenv("ADMIN_API_URL", "http://localhost:8080")
 ANALYZER = os.getenv("LOG_ANALYZER_URL", "http://localhost:8000")
-OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
-LLM_MODEL = os.getenv("LLM_MODEL", "llama3")
-EMBED_MODEL = os.getenv("EMBED_MODEL", "bge-m3")
+# ADR-011/012: Ollama 제거 — 테스트 데이터 생성은 LLM 호출 없이 fallback 템플릿으로 채운다.
 
 # 시스템당 레코드 분배
 COUNTS = {
@@ -138,69 +135,15 @@ def _pick_severity() -> str:
     )[0]
 
 
-# ── LLM 호출 ─────────────────────────────────────────────────────────────────
-
-def call_ollama_llm(prompt: str, max_tokens: int = 400) -> str:
-    """Ollama llama3 호출 → 텍스트 응답 반환"""
-    try:
-        resp = requests.post(
-            f"{OLLAMA_URL}/api/chat",
-            json={
-                "model": LLM_MODEL,
-                "messages": [{"role": "user", "content": prompt}],
-                "stream": False,
-                "options": {"num_predict": max_tokens},
-            },
-            timeout=120,
-        )
-        resp.raise_for_status()
-        return resp.json().get("message", {}).get("content", "")
-    except Exception as e:
-        print(f"    [WARN] LLM 호출 실패: {e}")
-        return ""
-
-
-def parse_llm_json(text: str, fallback: dict) -> dict:
-    """LLM 텍스트에서 JSON 추출 (마크다운 코드블록 처리 포함)"""
-    if not text:
-        return fallback
-    try:
-        match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', text, re.DOTALL)
-        if match:
-            return json.loads(match.group(1))
-        # 중괄호 직접 추출
-        match = re.search(r'\{[^{}]*\}', text, re.DOTALL)
-        if match:
-            return json.loads(match.group(0))
-    except (json.JSONDecodeError, ValueError):
-        pass
-    return fallback
-
+# ── 테스트 분석 결과 생성 (LLM 호출 없이 템플릿 기반, ADR-012) ─────────────────
 
 def generate_llm_analysis(
     display_name: str, system_name: str,
     collector_type: str, metric_group: str,
     metrics: dict, severity_hint: str,
 ) -> dict:
-    """LLM을 호출하여 분석 결과 생성 → dict 반환"""
-    metrics_str = ", ".join(f"{k}={v}" for k, v in metrics.items())
-
-    prompt = (
-        f"시스템: {display_name} ({system_name})\n"
-        f"수집기: {collector_type} / {metric_group}\n"
-        f"메트릭: {metrics_str}\n\n"
-        "위 메트릭 데이터를 분석하여 다음 JSON 형식으로만 응답하세요:\n"
-        "{\n"
-        f'  "severity": "{severity_hint}",\n'
-        '  "trend": "상승 또는 하락 또는 안정 또는 불규칙 (1문장 설명)",\n'
-        '  "prediction": "현재 추세가 지속되면 임계치 도달 예상 (예측 불가 시 null)",\n'
-        '  "root_cause_hypothesis": "가능한 원인 (한국어, 1문장)",\n'
-        '  "recommendation": "권고 조치 (한국어, 1~2문장)"\n'
-        "}\n"
-        "JSON만 출력하고 다른 텍스트는 포함하지 마세요."
-    )
-
-    fallback = {
+    """템플릿 기반 분석 결과 생성 (LLM 호출 없음). ADR-012로 Ollama 제거됨 → 실제 LLM은 log-analyzer 스케줄러가 처리."""
+    result = {
         "severity": severity_hint,
         "trend": "안정적으로 유지되고 있습니다.",
         "prediction": None,
@@ -208,19 +151,11 @@ def generate_llm_analysis(
         "recommendation": "현재 상태 유지, 정기 모니터링 권장",
     }
 
-    raw_text = call_ollama_llm(prompt)
-    result = parse_llm_json(raw_text, fallback)
-
-    # severity는 힌트 값 강제 (LLM이 변경하지 않도록)
-    result["severity"] = severity_hint
-
     # summary_text 구성
-    trend = result.get("trend", "")
-    hypothesis = result.get("root_cause_hypothesis", "")
-    recommendation = result.get("recommendation", "")
     result["summary_text"] = (
         f"[{display_name}] {collector_type}/{metric_group} — "
-        f"추세: {trend}. 원인: {hypothesis}. 권고: {recommendation}"
+        f"추세: {result['trend']}. 원인: {result['root_cause_hypothesis']}. "
+        f"권고: {result['recommendation']}"
     )
 
     return result
@@ -288,27 +223,6 @@ def monthly_buckets(count: int) -> list[tuple[datetime, str]]:
 
 
 # ── Preflight 검사 ────────────────────────────────────────────────────────────
-
-def check_ollama() -> None:
-    print(f"[Preflight] Ollama ({OLLAMA_URL}) 연결 확인...")
-    try:
-        resp = requests.get(f"{OLLAMA_URL}/api/tags", timeout=10)
-        resp.raise_for_status()
-        models = [m["name"].split(":")[0] for m in resp.json().get("models", [])]
-        missing = []
-        if LLM_MODEL not in models:
-            missing.append(LLM_MODEL)
-        if EMBED_MODEL not in models:
-            missing.append(EMBED_MODEL)
-        if missing:
-            print(f"  ERROR: 다음 모델이 없습니다: {missing}")
-            print(f"  실행: ollama pull {' && ollama pull '.join(missing)}")
-            sys.exit(1)
-        print(f"  OK — 모델: {LLM_MODEL}, {EMBED_MODEL}")
-    except requests.ConnectionError:
-        print(f"  ERROR: Ollama에 연결할 수 없습니다 ({OLLAMA_URL})")
-        sys.exit(1)
-
 
 def check_admin_api() -> None:
     print(f"[Preflight] admin-api ({ADMIN_API}) 연결 확인...")
@@ -519,8 +433,7 @@ def main():
     print("=" * 60)
     start_time = time.time()
 
-    # Preflight
-    check_ollama()
+    # Preflight (ADR-012: Ollama 사전 체크 제거)
     check_admin_api()
     check_log_analyzer()
 

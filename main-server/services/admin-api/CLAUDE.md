@@ -49,7 +49,7 @@ admin-api/
     ├── cooldown.py              # 알림 중복 발송 방지 (5분 쿨다운)
     ├── notification.py          # TeamsNotifier — Adaptive Card 생성·발송
     ├── ssh_session.py           # SSH 세션 인메모리 관리 (5분 슬라이딩 TTL, DB 저장 금지)
-    ├── llm_client.py            # LLM Strategy (ADR-001, log-analyzer와 SYNC) — devx/ollama/claude/openai
+    ├── llm_client.py            # LLM Strategy (ADR-001, log-analyzer와 SYNC) — devx/claude/openai (ADR-012: ollama 제거)
     ├── prometheus_analyzer.py   # Prometheus PromQL 이상 감지 → LLM 분석 → Teams 알림 (Phase F, ADR-001 반영)
     ├── db_collector.py          # DB 메트릭 수집 루프 (encrypt/decrypt, Gauge, Strategy 디스패치)
     └── db_backends/             # Strategy + Registry 패턴 DB 백엔드
@@ -82,7 +82,7 @@ admin-api/
 | `agent_install_jobs` | 비동기 설치 Job 이력. `status`: pending/running/done/failed (Phase 6) |
 | `incidents` | 인시던트 라이프사이클 — 관련 알림을 하나의 사건으로 묶어 MTTA/MTTR 추적. `status`: open/acknowledged/investigating/resolved/closed |
 | `incident_timeline` | 인시던트 이벤트 타임라인 — `event_type`: alert_added / analysis_added / status_changed / comment |
-| `chat_tools` | ReAct 챗봇이 호출할 수 있는 도구 레지스트리. `executor` (ems/admin/log_analyzer), `is_enabled`, `input_schema` JSON Schema (Phase Chat) |
+| `chat_tools` | ReAct 챗봇이 호출할 수 있는 도구 레지스트리. `executor` (ems/admin/log_analyzer/qdrant), `is_enabled`, `input_schema` JSON Schema (Phase Chat, ADR-011 qdrant 추가) |
 | `chat_executor_configs` | Executor별 자격증명/설정. `config` JSONB (secret 필드는 Fernet 암호문), `config_schema` 폼 렌더 메타 (Phase Chat) |
 | `chat_sessions` | 사용자 챗봇 세션. UUID PK, `user_id` FK (Phase Chat) |
 | `chat_messages` | 세션 내 메시지. role: user/assistant/tool, `attachments` JSONB (Phase Chat) |
@@ -301,6 +301,7 @@ docker exec -it aoms-admin-api \
   - `ems`: ems-mcp 9개 (Polestar 서버 모니터링). 자격증명은 `chat_executor_configs.ems` 에서 로드 (60s TTL 캐시)
   - `admin`: `admin_list_systems` / `admin_search_alert_history` / `admin_list_contacts` (DB 직접 조회)
   - `log_analyzer`: 최근 LLM 로그 분석 조회 + log-analyzer HTTP 프록시
+  - `qdrant` (ADR-011 RAG): `qdrant_search_incident_knowledge` (log_incidents + metric_baselines Hybrid 검색) / `qdrant_search_aggregation_summary` (aggregation_summaries Hybrid 검색). 구현은 `services/chat_tools/executors/qdrant.py`가 log-analyzer `/incident/search`와 `/aggregation/search`를 호출. `chat_agent.py._decision_prompt()` 에 사용 트리거 가이드 포함
 
 ### 예방적 패턴 감지
 - `MetricHourlyAggregation.llm_prediction` 필드가 있는 최근 8시간 집계 항목을 조회

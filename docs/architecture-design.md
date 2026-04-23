@@ -1,12 +1,13 @@
 # Synapse-V 아키텍처 설계서
 
-> **문서 버전**: v1.2
+> **문서 버전**: v1.3
 > **작성일**: 2026-03-08
 > **상태**: 설계 검토 단계
 > **기반 문서**: [요구사항 명세서](./requirements-specification.md)
 > **변경 이력**:
-> - v1.1 - Ollama 제거 → 내부 LLM API 연동, 서버 사양 최적화 (4Core/10GB/50GB)
+> - v1.1 - Ollama(LLM) 제거 → 내부 LLM API 연동, 서버 사양 최적화 (4Core/10GB/50GB)
 > - v1.2 - Promtail → Grafana Alloy 교체 (glibc 2.34+ 의존성 문제, RHEL 8.9 호환성 확보)
+> - v1.3 - **ADR-011/012**: Ollama 임베딩까지 완전 제거 → FastEmbed(ONNX) 인프로세스 + Qdrant Hybrid Search (Dense bge-m3 + Sparse BM25 RRF) + 챗봇 RAG 연동
 
 ---
 

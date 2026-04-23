@@ -47,7 +47,7 @@ vi .env
 | `PROM_PASS` | Prometheus Basic Auth 비밀번호 | `PromPass789!` |
 | `SECRET_KEY` | JWT 서명 키 **(운영 배포 필수 변경)** | `python3 -c "import secrets; print(secrets.token_urlsafe(32))"` |
 | `CORS_ORIGINS` | 허용 프론트엔드 도메인 (콤마 구분) | `http://192.168.10.5:3001` |
-| `LLM_TYPE` | LLM 프로바이더 선택 | `devx` / `ollama` / `claude` / `openai` |
+| `LLM_TYPE` | LLM 프로바이더 선택 (ADR-012: ollama 폐지) | `devx` / `claude` / `openai` |
 | `LLM_API_URL` | 내부 LLM API 엔드포인트 | `http://llm-server:8080/v1` |
 | `LLM_MODEL` | 사용할 LLM 모델명 | `your-model-name` |
 | `DEVX_CLIENT_ID` | DevX OAuth Client ID | `synapse-client` |
@@ -56,8 +56,6 @@ vi .env
 | `N8N_USER` | n8n 관리자 사용자명 | `admin` |
 | `N8N_PASSWORD` | n8n 관리자 비밀번호 | `N8nPass!234` |
 | `MONITORING_SERVER_IP` | Server A IP 주소 | `192.168.10.5` |
-| `OLLAMA_URL` | Server B Ollama URL | `http://192.168.10.6:11434` |
-| `EMBED_MODEL` | 임베딩 모델명 | `paraphrase-multilingual` |
 | `QDRANT_URL` | Server B Qdrant URL | `http://192.168.10.6:6333` |
 | `FRONTEND_EXTERNAL_URL` | Teams 카드 "해결책 등록" 버튼이 여는 React 페이지 URL (브라우저 접근 가능) | `http://192.168.10.5:3001` |
 | `ENCRYPTION_KEY` | 공통 Fernet 대칭키 (DB 모니터링 자격증명 · 챗봇 executor 자격증명 공용) | 아래 생성 방법 참고 |
@@ -138,10 +136,8 @@ scp main-server/.env                $SERVER_A:$REMOTE_DIR/
 scp -r main-server/configs/         $SERVER_A:$REMOTE_DIR/configs/
 scp -r main-server/n8n-workflows/   $SERVER_A:$REMOTE_DIR/n8n-workflows/
 
-# ── Server B — 이미지 ───────────────────────────────────────
-scp aoms-offline/docker-images/ollama-0.18.0.tar.gz    $SERVER_B:$REMOTE_DIR/images/
+# ── Server B — 이미지 (ADR-011/012: Qdrant만) ─────────────────
 scp aoms-offline/docker-images/qdrant-v1.17.0.tar.gz   $SERVER_B:$REMOTE_DIR/images/
-scp aoms-offline/ollama-models.tar.gz                  $SERVER_B:$REMOTE_DIR/
 
 # ── Server B — docker-compose ───────────────────────────────
 scp sub-server/docker-compose.yml   $SERVER_B:$REMOTE_DIR/
@@ -152,15 +148,16 @@ scp sub-server/docker-compose.yml   $SERVER_B:$REMOTE_DIR/
 
 ---
 
-## 2. Server B 배포 (AI/Vector 서버)
+## 2. Server B 배포 (Vector DB 서버)
 
-> **배포 순서**: Server B를 먼저 배포해야 Server A의 log-analyzer가 임베딩 모델을 사용할 수 있습니다.
+> **배포 순서**: Server B를 먼저 배포해야 Server A의 log-analyzer가 Qdrant에 접근할 수 있습니다.
+> **ADR-011/012**: 임베딩 및 LLM 용도의 Ollama는 모두 제거됨 → Server B는 Qdrant 전용.
 
 ### 2-1. 디렉터리 구조 생성
 
 ```bash
 ssh user@SERVER_B
-sudo mkdir -p /app/synapse/{images,services/ollama-models,services/qdrant-storage}
+sudo mkdir -p /app/synapse/{images,services/qdrant-storage}
 sudo chown -R $USER:$USER /app/synapse
 ```
 
@@ -169,26 +166,13 @@ sudo chown -R $USER:$USER /app/synapse
 ```bash
 cd /app/synapse/images
 
-docker load < ollama-0.18.0.tar.gz
 docker load < qdrant-v1.17.0.tar.gz
 
 # 로드 확인
-docker images | grep -E "ollama|qdrant"
+docker images | grep qdrant
 ```
 
-### 2-3. Ollama 모델 복원
-
-```bash
-cd /app/synapse
-
-# 사전 다운로드한 모델 압축 해제
-tar xzf ollama-models.tar.gz -C services/ollama-models/
-
-# paraphrase-multilingual 모델 확인
-ls services/ollama-models/models/manifests/registry.ollama.ai/library/ | grep paraphrase
-```
-
-### 2-4. 서비스 시작
+### 2-3. 서비스 시작
 
 ```bash
 cd /app/synapse
@@ -198,24 +182,17 @@ docker compose up -d
 docker compose ps
 ```
 
-### 2-5. Ollama paraphrase-multilingual 모델 확인
+### 2-4. Qdrant 헬스 체크
 
 ```bash
-# Ollama API 응답 확인
-curl -s http://localhost:11434/api/tags | python3 -c "
-import sys, json
-d = json.load(sys.stdin)
-for m in d.get('models', []):
-    print(m['name'])
-"
-
-# paraphrase-multilingual이 목록에 없으면 수동 확인
-docker exec synapse-ollama ollama list
+curl -s http://localhost:6333/readyz
+# 응답: "all shards are ready"
 ```
 
-### 2-6. Qdrant 컬렉션 초기화
+### 2-5. Qdrant 컬렉션 초기화
 
 Server A 배포 완료 후 log-analyzer API를 통해 수행됩니다. (섹션 3-3 참조)
+임베딩은 log-analyzer 컨테이너 내 FastEmbed ONNX로 이미지에 번들됨 (ADR-011).
 
 ---
 
@@ -293,11 +270,10 @@ vi /app/synapse/.env
 # DB_USER=synapse                            ← synapse 고정
 # SECRET_KEY=<랜덤 32자 이상>                ← JWT 서명 키
 # MONITORING_SERVER_IP=192.168.10.5          ← Server A 실제 IP
-# OLLAMA_URL=http://192.168.10.6:11434       ← Server B 실제 IP
 # QDRANT_URL=http://192.168.10.6:6333        ← Server B 실제 IP
-# EMBED_MODEL=paraphrase-multilingual        ← 임베딩 모델 (768차원)
 # ENCRYPTION_KEY=<fernet_key>                ← 공통 암호화 키
 # CORS_ORIGINS=http://192.168.10.5:3001      ← 프론트엔드 접근 URL
+# LLM_TYPE=devx                              ← LLM 프로바이더 (ollama 폐지, ADR-012)
 ```
 
 #### 인프라 서비스 시작 (순서 중요)
@@ -546,7 +522,7 @@ chmod +x /app/synapse/verify-deploy.sh
 | 8. Prometheus 스크레이프 상태 | 타겟 UP 비율, Remote Write Receiver 활성화 |
 | 9. Tempo / OTel Collector 상태 | 내부 health endpoint 확인 |
 | 10. n8n 상태 확인 | healthz → ok |
-| 11. Server B 확인 (선택) | Ollama paraphrase-multilingual 모델, Qdrant 컬렉션 4종 |
+| 11. Server B 확인 (선택) | Qdrant 컬렉션 4종 (/collections) — ADR-011/012 이후 Ollama 없음 |
 
 **모든 검증 통과 후 최종 확인:**
 
@@ -628,7 +604,7 @@ cd /app/synapse && docker compose logs --tail 30
 | 로그인 불가 (JWT 오류) | `SECRET_KEY` 미설정 또는 기본값 사용 | `python3 -c "import secrets; print(secrets.token_urlsafe(32))"` 로 키 생성 후 `.env` 반영, `docker compose up -d admin-api` |
 | Teams 알림 미발송 | `TEAMS_WEBHOOK_URL` 오류 | `.env` 확인 후 `docker compose up -d admin-api` |
 | log-analyzer LLM 호출 실패 | `LLM_API_URL` / `DEVX_CLIENT_ID/SECRET` 오류 | `.env` 확인 후 `docker compose up -d log-analyzer` |
-| log-analyzer 임베딩 오류 | Server B 미기동 또는 paraphrase-multilingual 모델 없음 | Server B에서 `docker exec synapse-ollama ollama list` 확인 |
+| log-analyzer 임베딩 오류 | FastEmbed ONNX 로딩 실패 또는 Qdrant 미기동 | `docker logs synapse-log-analyzer \| grep FastEmbed` 확인, Server B Qdrant `/readyz` 확인 |
 | synapse_agent 메트릭 미수신 | Prometheus Remote Write Receiver 비활성화 | `docker-compose.yml`에 `--web.enable-remote-write-receiver` 플래그 확인 |
 | synapse_agent 설치 실패 | SSH 키 또는 대상 서버 접근 오류 | `docker logs synapse-admin-api`에서 SFTP 에러 확인 |
 | Prometheus Basic Auth 401 | 인증 정보 오류 | `PROM_USER` / `PROM_PASS` 확인, bcrypt 해시 재생성 |
