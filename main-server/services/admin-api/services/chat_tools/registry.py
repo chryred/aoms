@@ -15,6 +15,7 @@ from models import ChatTool
 from services.chat_tools.executors import admin as admin_exec
 from services.chat_tools.executors import ems as ems_exec
 from services.chat_tools.executors import log_analyzer as log_exec
+from services.chat_tools.executors import qdrant as qdrant_exec
 
 try:  # 선택 의존성. 없으면 기본 validation 생략.
     import jsonschema  # type: ignore
@@ -28,6 +29,7 @@ _EXECUTORS = {
     "ems": ems_exec.execute,
     "admin": admin_exec.execute,
     "log_analyzer": log_exec.execute,
+    "qdrant": qdrant_exec.execute,
 }
 
 

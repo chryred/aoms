@@ -80,6 +80,13 @@ def _decision_prompt(tools: list[dict[str, Any]], history: str, user_message: st
 - 같은 도구의 결과가 대화 이력에 여러 번 있는 경우 가장 최근 observation을 사용하고, 이전 실패(null·에러)는 무시한다.
 - admin_list_systems 호출 시 시스템명을 알고 있으면 반드시 display_name 파라미터를 지정해 해당 시스템만 조회한다 (전체 조회 금지).
 - ems_get_team_group_id는 사용자가 EMS Polestar 자체의 팀/그룹명을 직접 지정한 경우에만 사용한다.
+- 과거 장애 원인·해결책·재발 여부를 묻는 질문은 qdrant_search_incident_knowledge 를 사용한다 (Qdrant Hybrid 벡터 검색 — 의미 + 키워드).
+  예: "이 에러 전에도 발생했나?", "OOM 이슈 어떻게 해결했어?", "DB 연결 오류 원인이 뭐야?", "이거랑 비슷한 장애 찾아줘"
+- 특정 기간의 시스템 분석 요약·이슈를 묻는 질문은 qdrant_search_aggregation_summary 를 사용한다.
+  예: "지난달 결제 서비스 상태 요약", "3월에 어떤 장애가 있었나?", "이번 주 DB 서버 이슈"
+- 최근 몇 시간 이내의 시스템 메트릭 패턴·이상 징후를 묻는 질문은 qdrant_search_hourly_patterns 를 사용한다 (1시간 집계 LLM 분석 결과 Hybrid 검색).
+  예: "오늘 오후 3시 결제 시스템 CPU 상태", "아까 DB 서버 메모리 어땠어?", "오전에 로그 에러 급증한 시스템 있었나?"
+- qdrant_* 도구는 admin_search_alert_history 보다 '의미 기반 검색'이 필요한 경우 우선 사용한다. admin_search_alert_history 는 특정 날짜·알림명·시스템으로 이력 정확 조회 시에만 사용한다.
 
 사용 가능한 도구:
 {tools_json}
