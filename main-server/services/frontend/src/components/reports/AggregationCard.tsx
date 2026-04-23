@@ -39,8 +39,17 @@ export function AggregationCard({
         {aggregation.llm_severity && <SeverityBadge severity={aggregation.llm_severity} />}
       </div>
 
-      {metricSummary && (
-        <p className="text-text-secondary mb-2 font-mono text-xs">{metricSummary}</p>
+      {metricSummary.length > 0 && (
+        <div className="border-border mb-2 flex flex-wrap gap-x-4 gap-y-1 border-t pt-2">
+          {metricSummary.map(({ key, value }) => (
+            <div key={key} className="flex flex-col">
+              <span className="text-text-secondary text-xs leading-tight">{key}</span>
+              <span className="text-text-primary tabular-nums text-sm font-semibold leading-tight">
+                {value}
+              </span>
+            </div>
+          ))}
+        </div>
       )}
 
       {aggregation.llm_summary && (
@@ -55,9 +64,10 @@ export function AggregationCard({
       <Link
         to={ROUTES.systemDetail(systemId)}
         onClick={onDrillDown}
+        aria-label={`${displayName} 상세 보기`}
         className="text-accent text-xs font-medium hover:underline"
       >
-        상세 보기 →
+        상세 보기 <span aria-hidden="true">→</span>
       </Link>
     </NeuCard>
   )

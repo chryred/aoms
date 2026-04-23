@@ -33,27 +33,36 @@ export function useHourlyAggregations(params: HourlyParams) {
   })
 }
 
-export function useDailyAggregations(params: { system_id?: number; collector_type?: string }) {
+export function useDailyAggregations(
+  params: { system_id?: number; collector_type?: string },
+  enabled = true,
+) {
   return useQuery({
     queryKey: qk.aggregations.daily(params),
     queryFn: () => aggregationsApi.getDaily(params),
     staleTime: 86_400_000,
+    enabled,
   })
 }
 
-export function useWeeklyAggregations(params: { system_id?: number }) {
+export function useWeeklyAggregations(params: { system_id?: number }, enabled = true) {
   return useQuery({
     queryKey: qk.aggregations.weekly(params),
     queryFn: () => aggregationsApi.getWeekly(params),
     staleTime: 86_400_000,
+    enabled,
   })
 }
 
-export function useMonthlyAggregations(params: { system_id?: number; period_type?: PeriodType }) {
+export function useMonthlyAggregations(
+  params: { system_id?: number; period_type?: PeriodType },
+  enabled = true,
+) {
   return useQuery({
     queryKey: qk.aggregations.monthly(params),
     queryFn: () => aggregationsApi.getMonthly(params),
     staleTime: 86_400_000,
+    enabled,
   })
 }
 

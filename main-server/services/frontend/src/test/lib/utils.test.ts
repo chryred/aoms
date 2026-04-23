@@ -85,61 +85,60 @@ describe('formatRelative', () => {
 
 describe('severityColor', () => {
   it('critical', () => {
-    expect(severityColor('critical')).toBe('text-[#EF4444]')
+    expect(severityColor('critical')).toBe('text-critical')
   })
 
   it('warning', () => {
-    expect(severityColor('warning')).toBe('text-[#F59E0B]')
+    expect(severityColor('warning')).toBe('text-warning')
   })
 
   it('그 외 (normal 등)', () => {
-    expect(severityColor('normal')).toBe('text-[#22C55E]')
-    expect(severityColor('info')).toBe('text-[#22C55E]')
+    expect(severityColor('normal')).toBe('text-normal')
+    expect(severityColor('info')).toBe('text-normal')
   })
 })
 
 describe('anomalyColor', () => {
   it('duplicate', () => {
-    expect(anomalyColor('duplicate')).toContain('text-[#8B97AD]')
+    expect(anomalyColor('duplicate')).toContain('text-text-secondary')
   })
 
   it('recurring', () => {
-    expect(anomalyColor('recurring')).toContain('text-[#F87171]')
+    expect(anomalyColor('recurring')).toContain('text-critical-text')
   })
 
   it('related', () => {
-    expect(anomalyColor('related')).toContain('text-[#FCD34D]')
+    expect(anomalyColor('related')).toContain('text-warning-text')
   })
 
   it('null (new/default)', () => {
-    expect(anomalyColor(null)).toContain('text-[#00D4FF]')
+    expect(anomalyColor(null)).toContain('text-accent')
   })
 
   it('new', () => {
-    expect(anomalyColor('new')).toContain('text-[#00D4FF]')
+    expect(anomalyColor('new')).toContain('text-accent')
   })
 })
 
 describe('summarizeMetrics', () => {
-  it('첫 3개 키:값 반환', () => {
+  it('첫 3개 키:값 구조 반환', () => {
     const json = JSON.stringify({ cpu_avg: 55.123, mem_used_pct: 70.5, disk_read_mb: 30.0 })
     const result = summarizeMetrics(json, 'synapse_agent')
-    expect(result).toContain('cpu_avg: 55.123')
-    expect(result).toContain('mem_used_pct: 70.5')
-    expect(result).toContain('disk_read_mb: 30')
+    expect(result).toHaveLength(3)
+    expect(result[0]).toEqual({ key: 'cpu_avg', value: '55.123' })
+    expect(result[1]).toEqual({ key: 'mem_used_pct', value: '70.5' })
+    expect(result[2]).toEqual({ key: 'disk_read_mb', value: '30' })
   })
 
   it('3개 초과 시 첫 3개만 반환', () => {
     const json = JSON.stringify({ a: 1, b: 2, c: 3, d: 4 })
     const result = summarizeMetrics(json)
-    expect(result).toContain('a: 1')
-    expect(result).toContain('b: 2')
-    expect(result).toContain('c: 3')
-    expect(result).not.toContain('d: 4')
+    expect(result).toHaveLength(3)
+    expect(result.map((m) => m.key)).not.toContain('d')
   })
 
-  it('잘못된 JSON — "-" 반환', () => {
-    expect(summarizeMetrics('not-json')).toBe('-')
+  it('잘못된 JSON — 빈 배열 반환', () => {
+    expect(summarizeMetrics('not-json')).toEqual([])
   })
 })
 

@@ -53,24 +53,24 @@ export function formatRelative(utcDate: string): string {
 export function severityColor(severity: Severity | string): string {
   switch (severity) {
     case 'critical':
-      return 'text-[#EF4444]'
+      return 'text-critical'
     case 'warning':
-      return 'text-[#F59E0B]'
+      return 'text-warning'
     default:
-      return 'text-[#22C55E]'
+      return 'text-normal'
   }
 }
 
 export function anomalyColor(type: AnomalyType | null): string {
   switch (type) {
     case 'duplicate':
-      return 'bg-[rgba(255,255,255,0.06)] text-[#8B97AD] border-[rgba(255,255,255,0.10)]'
+      return 'bg-hover-subtle text-text-secondary border-border'
     case 'recurring':
-      return 'bg-[rgba(239,68,68,0.12)] text-[#F87171] border-[rgba(239,68,68,0.25)]'
+      return 'bg-critical-bg text-critical-text border-critical-border'
     case 'related':
-      return 'bg-[rgba(245,158,11,0.12)] text-[#FCD34D] border-[rgba(245,158,11,0.25)]'
+      return 'bg-warning-bg text-warning-text border-warning-border'
     default:
-      return 'bg-[rgba(0,212,255,0.10)] text-[#00D4FF] border-[rgba(0,212,255,0.20)]'
+      return 'bg-accent-muted text-accent border-accent/20'
   }
 }
 
@@ -94,15 +94,17 @@ export function getAgentTypeLabel(type: string): string {
   return AGENT_TYPE_LABEL[type as AgentType] ?? type
 }
 
-export function summarizeMetrics(metricsJson: string, _collectorType?: string): string {
+export function summarizeMetrics(
+  metricsJson: string,
+  _collectorType?: string,
+): { key: string; value: string }[] {
   try {
     const parsed = JSON.parse(metricsJson) as Record<string, number>
     return Object.entries(parsed)
       .slice(0, 3)
-      .map(([k, v]) => `${k}: ${typeof v === 'number' ? v : v}`)
-      .join(' | ')
+      .map(([k, v]) => ({ key: k, value: String(v) }))
   } catch {
-    return '-'
+    return []
   }
 }
 
@@ -111,28 +113,29 @@ export function formatPeriodLabel(
   startDate: string,
   endDate?: string,
 ): string {
-  const d = new Date(startDate)
-  const kst = new Date(d.getTime() + 9 * 60 * 60 * 1000)
+  const kstStr = formatKST(startDate, 'date') // YYYY-MM-DD already in KST
+  const [yearNum, monthNum] = kstStr.split('-').map(Number)
+  const kstDate = new Date(kstStr + 'T00:00:00+09:00')
+
   if (periodType === 'daily') {
     const days = ['일', '월', '화', '수', '목', '금', '토']
-    return `${kst.toISOString().slice(0, 10).replace(/-/g, '.')} (${days[kst.getDay()]})`
+    return `${kstStr.replace(/-/g, '.')} (${days[kstDate.getDay()]})`
   }
   if (periodType === 'weekly' && endDate) {
-    const e = new Date(new Date(endDate).getTime() + 9 * 60 * 60 * 1000)
-    return `${kst.toISOString().slice(0, 10).replace(/-/g, '.')} ~ ${e.toISOString().slice(0, 10).replace(/-/g, '.')}`
+    const endKstStr = formatKST(endDate, 'date')
+    return `${kstStr.replace(/-/g, '.')} ~ ${endKstStr.replace(/-/g, '.')}`
   }
   if (periodType === 'monthly') {
-    return `${kst.getFullYear()}년 ${kst.getMonth() + 1}월`
+    return `${yearNum}년 ${monthNum}월`
   }
   if (periodType === 'quarterly') {
-    const q = Math.ceil((kst.getMonth() + 1) / 3)
-    return `${kst.getFullYear()}년 ${q}분기`
+    const q = Math.ceil(monthNum / 3)
+    return `${yearNum}년 ${q}분기`
   }
   if (periodType === 'half_year') {
-    const half = kst.getMonth() < 6 ? '상반기' : '하반기'
-    return `${kst.getFullYear()}년 ${half}`
+    return `${yearNum}년 ${monthNum <= 6 ? '상반기' : '하반기'}`
   }
-  return `${kst.getFullYear()}년`
+  return `${yearNum}년`
 }
 
 export function llmSeverityToCardSeverity(

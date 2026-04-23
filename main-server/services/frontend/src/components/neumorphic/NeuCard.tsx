@@ -34,8 +34,8 @@ export function NeuCard({ children, className, severity, pressed, onClick }: Neu
             : severity === 'warning'
               ? 'shadow-glow-warning'
               : 'shadow-neu-flat',
-        severity === 'critical' && 'bg-critical-card-bg',
-        severity === 'warning' && 'bg-warning-card-bg',
+        severity === 'critical' && 'bg-critical-card-bg ring-1 ring-critical/50',
+        severity === 'warning' && 'bg-warning-card-bg ring-1 ring-warning/40',
         onClick && [
           'cursor-pointer',
           'hover:shadow-neu-flat-hover',
