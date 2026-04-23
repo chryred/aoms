@@ -15,16 +15,16 @@ describe('NeuCard', () => {
     expect(card.className).toContain('bg-bg-base')
   })
 
-  it('severity=critical — 빨간 좌측 보더', () => {
+  it('severity=critical — glow shadow 적용', () => {
     const { container } = render(<NeuCard severity="critical">내용</NeuCard>)
     const card = container.firstChild as HTMLElement
-    expect(card.className).toContain('border-l-critical')
+    expect(card.className).toContain('shadow-glow-critical')
   })
 
-  it('severity=warning — 노란 좌측 보더', () => {
+  it('severity=warning — glow shadow 적용', () => {
     const { container } = render(<NeuCard severity="warning">내용</NeuCard>)
     const card = container.firstChild as HTMLElement
-    expect(card.className).toContain('border-l-warning')
+    expect(card.className).toContain('shadow-glow-warning')
   })
 
   it('pressed=true — inset shadow', () => {

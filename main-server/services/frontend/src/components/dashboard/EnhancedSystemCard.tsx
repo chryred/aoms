@@ -16,21 +16,21 @@ const STATUS_CONFIG = {
   critical: {
     color: 'text-critical-text',
     dotBg: 'bg-critical',
-    borderColor: 'border-l-4 border-critical',
+    bgColor: 'bg-critical-card-bg',
     sparkColor: 'var(--t-critical)',
     label: '위험',
   },
   warning: {
     color: 'text-warning-text',
     dotBg: 'bg-warning',
-    borderColor: 'border-l-4 border-warning',
+    bgColor: 'bg-warning-card-bg',
     sparkColor: 'var(--t-warning)',
     label: '경고',
   },
   normal: {
     color: 'text-normal-text',
     dotBg: 'bg-normal/50',
-    borderColor: 'border-l-4 border-normal/30',
+    bgColor: '',
     sparkColor: 'var(--t-accent)',
     label: '정상',
   },
@@ -92,7 +92,7 @@ export const EnhancedSystemCard = memo(function EnhancedSystemCard({
         'hover:bg-accent-muted',
         'focus-visible:ring-accent focus:outline-none focus-visible:ring-1',
         'group',
-        statusConfig.borderColor,
+        statusConfig.bgColor,
         showTopBorder && 'border-border border-t',
       )}
     >

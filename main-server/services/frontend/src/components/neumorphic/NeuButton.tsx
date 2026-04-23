@@ -49,10 +49,10 @@ export function NeuButton({
         ],
         variant === 'ghost' && [
           'text-text-secondary hover:bg-hover-subtle hover:text-text-primary',
-          'active:bg-[rgba(255,255,255,0.08)]',
+          'active:bg-hover-subtle active:text-text-primary',
         ],
         variant === 'danger' && [
-          'bg-critical text-white',
+          'bg-critical text-accent-contrast',
           'shadow-neu-flat',
           'hover:bg-critical',
           'active:shadow-[inset_2px_2px_6px_rgba(0,0,0,0.3)]',

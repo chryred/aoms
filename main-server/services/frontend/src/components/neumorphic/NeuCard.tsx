@@ -27,9 +27,15 @@ export function NeuCard({ children, className, severity, pressed, onClick }: Neu
       tabIndex={onClick ? 0 : undefined}
       className={cn(
         'bg-bg-base rounded-sm p-6 transition-shadow',
-        pressed ? 'shadow-neu-inset' : 'shadow-neu-flat',
-        severity === 'critical' && 'border-l-critical bg-critical-card-bg border-l-4',
-        severity === 'warning' && 'border-l-warning bg-warning-card-bg border-l-4',
+        pressed
+          ? 'shadow-neu-inset'
+          : severity === 'critical'
+            ? 'shadow-glow-critical'
+            : severity === 'warning'
+              ? 'shadow-glow-warning'
+              : 'shadow-neu-flat',
+        severity === 'critical' && 'bg-critical-card-bg',
+        severity === 'warning' && 'bg-warning-card-bg',
         onClick && [
           'cursor-pointer',
           'hover:shadow-neu-flat-hover',
