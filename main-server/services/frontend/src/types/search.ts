@@ -4,7 +4,6 @@ export interface SimilarSearchRequest {
   collection: string // "metric_hourly_patterns" | "aggregation_summaries"
   system_id?: number
   limit?: number
-  score_threshold?: number // 기본 0.70 (0.5 ~ 1.0)
 }
 
 // metric_hourly_patterns payload 구조
@@ -63,7 +62,6 @@ export interface CollectionsInfo {
 
 export interface SearchParams {
   q: string
-  threshold: number
   collection: string
 }
 

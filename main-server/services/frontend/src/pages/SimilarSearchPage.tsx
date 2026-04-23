@@ -45,7 +45,6 @@ function CollectionInfoBar() {
 export default function SimilarSearchPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const query = searchParams.get('q') ?? ''
-  const threshold = Number(searchParams.get('threshold') ?? '0.5')
   const collection = searchParams.get('collection') ?? 'metric_hourly_patterns'
 
   const { mutate, data, isPending, isError, reset } = useSimilarSearch()
@@ -53,13 +52,12 @@ export default function SimilarSearchPage() {
   // URL 파라미터가 있으면 자동 검색
   useEffect(() => {
     if (!query.trim()) return
-    mutate({ query_text: query, collection, score_threshold: threshold, limit: 10 })
-  }, [query, threshold, collection]) // eslint-disable-line react-hooks/exhaustive-deps
+    mutate({ query_text: query, collection, limit: 10 })
+  }, [query, collection]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  function handleSearch(params: { query: string; threshold: number; collection: string }) {
+  function handleSearch(params: { query: string; collection: string }) {
     setSearchParams({
       q: params.query,
-      threshold: String(params.threshold),
       collection: params.collection,
     })
   }
@@ -75,7 +73,6 @@ export default function SimilarSearchPage() {
 
       <SimilarSearchInput
         defaultQuery={query}
-        defaultThreshold={threshold}
         defaultCollection={collection}
         onSearch={handleSearch}
         isPending={isPending}
@@ -88,7 +85,7 @@ export default function SimilarSearchPage() {
           <ErrorCard
             onRetry={() => {
               reset()
-              mutate({ query_text: query, collection, score_threshold: threshold, limit: 10 })
+              mutate({ query_text: query, collection, limit: 10 })
             }}
           />
         )}
@@ -105,7 +102,7 @@ export default function SimilarSearchPage() {
           <EmptyState
             icon={<SearchX className="text-text-secondary h-12 w-12" />}
             title="유사한 장애 패턴을 찾지 못했습니다"
-            description={`유사도 기준값(${(threshold * 100).toFixed(0)}%)을 낮추거나 검색어를 변경해보세요.`}
+            description="검색어를 변경하거나 다른 컬렉션에서 검색해보세요."
           />
         )}
 

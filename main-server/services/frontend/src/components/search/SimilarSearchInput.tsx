@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { Loader2 } from 'lucide-react'
 import { NeuCard } from '@/components/neumorphic/NeuCard'
 import { NeuButton } from '@/components/neumorphic/NeuButton'
@@ -6,9 +6,8 @@ import { cn } from '@/lib/utils'
 
 interface SimilarSearchInputProps {
   defaultQuery?: string
-  defaultThreshold?: number
   defaultCollection?: string
-  onSearch: (params: { query: string; threshold: number; collection: string }) => void
+  onSearch: (params: { query: string; collection: string }) => void
   isPending: boolean
 }
 
@@ -24,23 +23,19 @@ function debounce<T extends (...args: Parameters<T>) => void>(fn: T, ms: number)
 
 export function SimilarSearchInput({
   defaultQuery = '',
-  defaultThreshold = 0.5,
   defaultCollection = 'metric_hourly_patterns',
   onSearch,
   isPending,
 }: SimilarSearchInputProps) {
   const [query, setQuery] = useState(defaultQuery)
-  const [threshold, setThreshold] = useState(defaultThreshold)
   const [collection, setCollection] = useState(defaultCollection)
-  const thresholdId = useRef(`threshold-desc-${Math.random().toString(36).slice(2)}`)
 
   useEffect(() => setQuery(defaultQuery), [defaultQuery])
-  useEffect(() => setThreshold(defaultThreshold), [defaultThreshold])
   useEffect(() => setCollection(defaultCollection), [defaultCollection])
 
   const handleSearch = useMemo(
     () =>
-      debounce((params: { query: string; threshold: number; collection: string }) => {
+      debounce((params: { query: string; collection: string }) => {
         if (!params.query.trim()) return
         onSearch(params)
       }, 500),
@@ -89,54 +84,21 @@ export function SimilarSearchInput({
         )}
         placeholder="예: ERROR 로그가 급증하며 시스템 장애가 예상되는 패턴 (Enter=검색, Shift+Enter=줄바꿈)"
         aria-label="검색 쿼리 입력"
-        aria-describedby={thresholdId.current}
         onKeyDown={(e) => {
           // 한글 IME 조합 중 Enter는 무시 (조합 확정용)
           if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
             e.preventDefault()
-            handleSearch({ query, threshold, collection })
+            handleSearch({ query, collection })
           }
           // Shift+Enter 는 기본 줄바꿈 동작 유지 (preventDefault 없음)
         }}
       />
 
-      {/* Threshold slider */}
-      <div className="flex flex-col gap-1">
-        <div className="flex items-center justify-between">
-          <label
-            htmlFor="threshold-slider"
-            id={thresholdId.current}
-            className="text-text-primary text-sm font-medium"
-          >
-            유사도 기준값
-          </label>
-          <span className="text-accent text-sm font-semibold">{(threshold * 100).toFixed(0)}%</span>
-        </div>
-        <input
-          id="threshold-slider"
-          type="range"
-          min={0.5}
-          max={1.0}
-          step={0.05}
-          value={threshold}
-          onChange={(e) => setThreshold(Number(e.target.value))}
-          className="focus:ring-accent focus:ring-offset-bg-base w-full accent-[#00D4FF] focus:ring-1 focus:ring-offset-2 focus:outline-none"
-          aria-label="유사도 기준값"
-          aria-valuemin={0.5}
-          aria-valuemax={1.0}
-          aria-valuenow={threshold}
-        />
-        <div className="text-text-disabled flex justify-between text-xs">
-          <span>50%</span>
-          <span>100%</span>
-        </div>
-      </div>
-
       {/* Search button */}
       <NeuButton
         type="button"
         disabled={isPending || !query.trim()}
-        onClick={() => handleSearch({ query, threshold, collection })}
+        onClick={() => handleSearch({ query, collection })}
         aria-busy={isPending}
         aria-label={isPending ? '검색 중' : '검색'}
         className="self-end"
