@@ -196,18 +196,18 @@
   --t-hover-subtle: rgba(0, 0, 0, 0.04);
 
   /* 시맨틱: 위험 */
-  --t-critical: #f43f5e;
-  --t-critical-text: #e11d48;
-  --t-critical-bg: rgba(244, 63, 94, 0.08);
-  --t-critical-border: rgba(244, 63, 94, 0.2);
-  --t-critical-card-bg: rgba(244, 63, 94, 0.04);
+  --t-critical: #dc2626;
+  --t-critical-text: #b91c1c;
+  --t-critical-bg: rgba(220, 38, 38, 0.10);
+  --t-critical-border: rgba(220, 38, 38, 0.25);
+  --t-critical-card-bg: rgba(220, 38, 38, 0.05);
 
   /* 시맨틱: 경고 */
-  --t-warning: #f97316;
-  --t-warning-text: #ea580c;
-  --t-warning-bg: rgba(249, 115, 22, 0.08);
-  --t-warning-border: rgba(249, 115, 22, 0.2);
-  --t-warning-card-bg: rgba(249, 115, 22, 0.03);
+  --t-warning: #d97706;
+  --t-warning-text: #92400e;
+  --t-warning-bg: rgba(245, 158, 11, 0.12);
+  --t-warning-border: rgba(245, 158, 11, 0.28);
+  --t-warning-card-bg: rgba(245, 158, 11, 0.05);
 
   /* 시맨틱: 정상 */
   --t-normal: #10b981;
