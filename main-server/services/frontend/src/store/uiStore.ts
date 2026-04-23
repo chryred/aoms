@@ -13,6 +13,9 @@ interface UiState {
   // Critical alert count
   criticalCount: number
   setCriticalCount: (n: number) => void
+  // Banner snooze (session-only, ms timestamp)
+  bannerSnoozedUntil: number
+  snoozeBanner: () => void
   // Theme
   theme: Theme
   toggleTheme: () => void
@@ -26,6 +29,8 @@ export const useUiStore = create<UiState>((set) => ({
   closeMobileSidebar: () => set({ sidebarOpen: false }),
   criticalCount: 0,
   setCriticalCount: (n) => set({ criticalCount: n }),
+  bannerSnoozedUntil: 0,
+  snoozeBanner: () => set({ bannerSnoozedUntil: Date.now() + 30 * 60 * 1000 }),
   theme: (localStorage.getItem('theme') as Theme) ?? 'dark',
   toggleTheme: () =>
     set((s) => {

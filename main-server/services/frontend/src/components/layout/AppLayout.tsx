@@ -13,6 +13,8 @@ import { cn } from '@/lib/utils'
 export function AppLayout() {
   const setCriticalCount = useUiStore((s) => s.setCriticalCount)
   const criticalCount = useUiStore((s) => s.criticalCount)
+  const bannerSnoozedUntil = useUiStore((s) => s.bannerSnoozedUntil)
+  const bannerVisible = criticalCount > 0 && Date.now() >= bannerSnoozedUntil
   const sidebarOpen = useUiStore((s) => s.sidebarOpen)
   const closeMobileSidebar = useUiStore((s) => s.closeMobileSidebar)
   const chatOpen = useChatStore((s) => s.isOpen)
@@ -29,7 +31,7 @@ export function AppLayout() {
   return (
     <div className="bg-bg-base flex h-screen overflow-hidden">
       {/* Critical banner — fixed top */}
-      {criticalCount > 0 && <CriticalBanner />}
+      {bannerVisible && <CriticalBanner />}
 
       {/* Mobile overlay backdrop */}
       {sidebarOpen && (
@@ -46,7 +48,7 @@ export function AppLayout() {
           'fixed inset-y-0 left-0 z-30 md:relative md:z-auto md:flex md:shrink-0',
           'transition-transform duration-200 ease-in-out',
           sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0',
-          criticalCount > 0 && 'md:mt-9',
+          bannerVisible && 'md:mt-9',
         )}
       >
         <Sidebar />
@@ -54,7 +56,7 @@ export function AppLayout() {
 
       {/* Main content */}
       <div
-        className={cn('flex min-w-0 flex-1 flex-col overflow-hidden', criticalCount > 0 && 'mt-9')}
+        className={cn('flex min-w-0 flex-1 flex-col overflow-hidden', bannerVisible && 'mt-9')}
       >
         <TopBar />
         <main
