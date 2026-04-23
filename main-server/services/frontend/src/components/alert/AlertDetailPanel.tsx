@@ -44,6 +44,7 @@ interface ParsedDescription {
   severity?: string
   root_cause?: string
   recommendation?: string
+  log_content?: string
 }
 
 // LLM이 JSON 값 안에 literal "\n" 문자열(두 글자)을 그대로 흘리는 경우도 있어
@@ -66,7 +67,7 @@ function parseDescription(desc: string | null | undefined): ParsedDescription | 
     if (
       obj &&
       typeof obj === 'object' &&
-      ('root_cause' in obj || 'recommendation' in obj || 'anomaly_type' in obj || 'severity' in obj)
+      ('root_cause' in obj || 'recommendation' in obj || 'anomaly_type' in obj || 'severity' in obj || 'log_content' in obj)
     ) {
       return {
         ...obj,
@@ -127,6 +128,16 @@ export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
       setEditSolution(existingFeedback.solution)
     }
   }, [isEditing, existingFeedback])
+
+  // When panel closes, blur focused element inside to avoid aria-hidden-on-focus warning
+  useEffect(() => {
+    if (!open && panelRef.current) {
+      const focused = panelRef.current.contains(document.activeElement)
+      if (focused && document.activeElement instanceof HTMLElement) {
+        document.activeElement.blur()
+      }
+    }
+  }, [open])
 
   // Focus trap + ESC close
   useEffect(() => {
@@ -239,6 +250,9 @@ export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
             <span className="text-text-secondary text-sm">
               {ALERT_TYPE_LABELS[displayAlert.alert_type] ?? displayAlert.alert_type}
             </span>
+            {displayAlert.error_message && (
+              <NeuBadge variant="critical">LLM 분석 실패</NeuBadge>
+            )}
             {displayAlert.acknowledged && (
               <NeuBadge variant="normal">
                 <CheckCircle className="mr-0.5 h-3 w-3" />
@@ -340,28 +354,61 @@ export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
             </div>
           )}
 
-          {/* 해결방안 — 화면의 시각 앵커. 원인은 상단 타이틀이 이미 보여주므로 중복 제거 */}
-          {parsedDesc?.recommendation ? (
-            <div className="border-accent rounded-sm border p-4">
-              <div className="mb-2.5 flex items-center gap-2">
-                <Lightbulb className="text-accent h-5 w-5" aria-hidden="true" />
-                <p className="text-accent text-lg font-bold tracking-tight">해결방안</p>
-              </div>
-              <p className="text-text-primary text-base leading-relaxed font-medium break-words whitespace-pre-wrap">
-                {parsedDesc.recommendation}
-              </p>
-            </div>
-          ) : (
-            !parsedDesc &&
-            displayAlert.description && (
-              <div>
-                <p className="type-label mb-1.5">상세 내용</p>
-                <div className="bg-bg-base shadow-neu-inset rounded-sm p-4">
-                  <p className="text-text-primary text-sm leading-relaxed break-words whitespace-pre-wrap">
-                    {displayAlert.description}
-                  </p>
+          {/* LLM 분석 실패 — 원본 로그 표시 */}
+          {displayAlert.error_message ? (
+            <>
+              {parsedDesc?.log_content ? (
+                <div>
+                  <p className="type-label mb-1.5">원본 로그</p>
+                  <div className="bg-bg-base shadow-neu-inset max-h-96 overflow-y-auto rounded-sm p-4">
+                    <pre className="text-text-primary text-xs leading-relaxed break-words whitespace-pre-wrap font-mono">
+                      {parsedDesc.log_content}
+                    </pre>
+                  </div>
                 </div>
+              ) : (
+                displayAlert.description && (
+                  <div>
+                    <p className="type-label mb-1.5">상세 내용</p>
+                    <div className="bg-bg-base shadow-neu-inset rounded-sm p-4">
+                      <p className="text-text-primary text-sm leading-relaxed break-words whitespace-pre-wrap">
+                        {displayAlert.description}
+                      </p>
+                    </div>
+                  </div>
+                )
+              )}
+              <div>
+                <p className="type-label mb-1">분석 실패 사유</p>
+                <p className="text-text-secondary font-mono text-xs break-all">
+                  {displayAlert.error_message}
+                </p>
               </div>
+            </>
+          ) : (
+            /* 해결방안 — 화면의 시각 앵커. 원인은 상단 타이틀이 이미 보여주므로 중복 제거 */
+            parsedDesc?.recommendation ? (
+              <div className="border-accent rounded-sm border p-4">
+                <div className="mb-2.5 flex items-center gap-2">
+                  <Lightbulb className="text-accent h-5 w-5" aria-hidden="true" />
+                  <p className="text-accent text-lg font-bold tracking-tight">해결방안</p>
+                </div>
+                <p className="text-text-primary text-base leading-relaxed font-medium break-words whitespace-pre-wrap">
+                  {parsedDesc.recommendation}
+                </p>
+              </div>
+            ) : (
+              !parsedDesc &&
+              displayAlert.description && (
+                <div>
+                  <p className="type-label mb-1.5">상세 내용</p>
+                  <div className="bg-bg-base shadow-neu-inset rounded-sm p-4">
+                    <p className="text-text-primary text-sm leading-relaxed break-words whitespace-pre-wrap">
+                      {displayAlert.description}
+                    </p>
+                  </div>
+                </div>
+              )
             )
           )}
 

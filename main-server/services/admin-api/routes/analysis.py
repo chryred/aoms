@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 
@@ -49,14 +50,18 @@ async def create_analysis(payload: LogAnalysisCreate, db: AsyncSession = Depends
             severity=payload.severity,
             alertname=f"LogAnalysis_{system.system_name}",
             title=(
-                "LLM 분석 실패" if is_failure
+                f"로그 이상 감지 - {system.display_name}" if is_failure
                 else (
                     (payload.root_cause or "").strip()
                     or (payload.recommendation or "").strip()
                     or f"로그 이상 감지 - {system.display_name}"
                 )
             ),
-            description=payload.analysis_result,
+            description=(
+                json.dumps({"log_content": (payload.log_content or "")[:2500]}, ensure_ascii=False)
+                if is_failure
+                else payload.analysis_result
+            ),
             instance_role=payload.instance_role,
             anomaly_type=payload.anomaly_type,
             similarity_score=payload.similarity_score,
