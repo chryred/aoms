@@ -706,9 +706,12 @@ async def run_daily_aggregation() -> dict:
 
                 if pg_row_id:
                     try:
+                        # Hybrid 저장 — Dense + Sparse 둘 다 생성 (ADR-011)
                         embedding = await vector_client.get_embedding(embed_input)
+                        sparse    = await vector_client.get_sparse_vector(embed_input)
                         await aggregation_vector_client.store_aggregation_summary_vector(
                             embedding=embedding,
+                            sparse=sparse,
                             system_id=g["system_id"],
                             system_name=g["system_name"],
                             period_type="daily",

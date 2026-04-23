@@ -5,9 +5,10 @@ LLM 멀티 프로바이더 클라이언트 (Strategy 패턴)
 
 LLM_TYPE 환경변수로 프로바이더를 선택하고, 동일 인터페이스로 호출.
 - devx:   DevX OAuth (client_credentials → agent chat)
-- ollama: 로컬 Ollama 서버
 - claude: Anthropic Claude Messages API
 - openai: OpenAI Chat Completions API
+
+(ADR-012) ollama Strategy는 제거됨 — 임베딩(ADR-011) + LLM 모두 Ollama 미사용.
 """
 
 import asyncio
@@ -136,25 +137,6 @@ class DevxStrategy(LLMStrategy):
         return answer
 
 
-class OllamaStrategy(LLMStrategy):
-    """로컬 Ollama 서버"""
-
-    async def call(self, prompt, *, api_key="", agent_code="", max_tokens=1024):
-        url = LLM_API_URL or "http://localhost:11434"
-        model = LLM_MODEL or "llama3"
-        resp = await _http.post(
-            f"{url}/api/chat",
-            json={
-                "model": model,
-                "messages": [{"role": "user", "content": prompt}],
-                "stream": False,
-                "options": {"num_predict": max_tokens},
-            },
-        )
-        resp.raise_for_status()
-        return resp.json().get("message", {}).get("content", "")
-
-
 class ClaudeStrategy(LLMStrategy):
     """Anthropic Claude Messages API"""
 
@@ -204,7 +186,6 @@ class OpenAIStrategy(LLMStrategy):
 
 _STRATEGIES: dict[str, type[LLMStrategy]] = {
     "devx": DevxStrategy,
-    "ollama": OllamaStrategy,
     "claude": ClaudeStrategy,
     "openai": OpenAIStrategy,
 }

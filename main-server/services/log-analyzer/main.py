@@ -162,10 +162,10 @@ async def _longperiod_agg_scheduler() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Phase 4b: log_incidents / metric_baselines 컬렉션이 없으면 생성 (런타임 silent 실패 방지)
+    # ADR-011: log_incidents / metric_baselines 는 Hybrid (Dense+Sparse) 스키마
     for col in ("log_incidents", "metric_baselines"):
         try:
-            await vector_client.ensure_collection(col)
+            await vector_client.ensure_collection(col, hybrid=True)
         except Exception as e:
             logger.warning("컬렉션 초기화 실패 %s — 분석 중 재시도됨: %s", col, e)
 
@@ -182,9 +182,8 @@ async def lifespan(app: FastAPI):
     for t in tasks:
         t.cancel()
     await asyncio.gather(*tasks, return_exceptions=True)
-    # 모듈 레벨 httpx 클라이언트 정리
+    # 모듈 레벨 httpx 클라이언트 정리 (FastEmbed는 인프로세스이므로 close 불필요)
     await vector_client._qdrant_http.aclose()
-    await vector_client._ollama_http.aclose()
     await analyzer._admin_http.aclose()
     await analyzer._prom_http.aclose()
 
@@ -275,10 +274,13 @@ async def create_collection(collection_type: str):
     컬렉션 생성 (log_incidents / metric_baselines).
     이미 존재하면 created=false 반환.
     HNSW: m=16, ef_construct=200, ef=128
+
+    ADR-011: hourly만 Dense 전용, 나머지 3개는 Dense+Sparse Hybrid.
     """
     name    = _resolve_collection(collection_type)
-    created = await vector_client.ensure_collection(name)
-    return {"collection": name, "created": created}
+    hybrid  = collection_type != "hourly"
+    created = await vector_client.ensure_collection(name, hybrid=hybrid)
+    return {"collection": name, "created": created, "hybrid": hybrid}
 
 
 @app.delete("/collections/{collection_type}", status_code=200)
@@ -292,9 +294,10 @@ async def delete_collection_endpoint(collection_type: str):
 @app.post("/collections/{collection_type}/reset", status_code=200)
 async def reset_collection(collection_type: str):
     """컬렉션 초기화 — 삭제 후 재생성 (테스트용). 모든 데이터가 삭제됩니다."""
-    name = _resolve_collection(collection_type)
-    await vector_client.reset_collection(name)
-    return {"collection": name, "reset": True}
+    name   = _resolve_collection(collection_type)
+    hybrid = collection_type != "hourly"
+    await vector_client.reset_collection(name, hybrid=hybrid)
+    return {"collection": name, "reset": True, "hybrid": hybrid}
 
 
 # ── 메트릭 복구 엔드포인트 ────────────────────────────────────────────────────
@@ -339,11 +342,10 @@ async def solution_update(req: SolutionUpdateRequest):
 # ── Phase 5: 집계 벡터 검색 엔드포인트 (UI 프록시) ────────────────────────────
 
 class AggregationSearchRequest(BaseModel):
-    query_text:      str
-    collection:      str           # "metric_hourly_patterns" | "aggregation_summaries"
-    system_id:       int | None = None
-    limit:           int = 10
-    score_threshold: float = 0.70
+    query_text:  str
+    collection:  str           # "metric_hourly_patterns" | "aggregation_summaries"
+    system_id:   int | None = None
+    limit:       int = 10
 
 
 class SimilarPeriodRequest(BaseModel):
@@ -362,6 +364,8 @@ async def aggregation_search(req: AggregationSearchRequest):
     collection 옵션:
       - "metric_hourly_patterns"  : 1시간 집계 패턴 검색
       - "aggregation_summaries"   : 일/주/월 리포트 요약 검색
+
+    ADR-011: Hybrid Dense+Sparse RRF 검색. prefetch cosine >= 0.5 + RRF 순위 기준 limit N개 반환.
     """
     try:
         results = await aggregation_vector_client.search_similar_aggregations(
@@ -369,11 +373,92 @@ async def aggregation_search(req: AggregationSearchRequest):
             collection=req.collection,
             system_id=req.system_id,
             limit=req.limit,
-            score_threshold=req.score_threshold,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return {"count": len(results), "results": results}
+
+
+# ── RAG 챗봇용 인시던트 통합 검색 ────────────────────────────────────────────
+
+class IncidentSearchRequest(BaseModel):
+    query: str
+    system_name: str | None = None
+    limit: int = 5
+
+
+@app.post("/incident/search")
+async def incident_search(req: IncidentSearchRequest):
+    """
+    RAG 챗봇 전용 — log_incidents + metric_baselines Hybrid 통합 검색.
+    admin-api chat_tools.qdrant.qdrant_search_incident_knowledge 에서 호출.
+    """
+    try:
+        dense  = await vector_client.get_embedding(req.query)
+        sparse = await vector_client.get_sparse_vector(req.query)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"임베딩 실패: {exc}")
+
+    filter_must = None
+    if req.system_name:
+        filter_must = [{"key": "system_name", "match": {"value": req.system_name}}]
+
+    log_hits = []
+    metric_hits = []
+    try:
+        log_hits = await vector_client._hybrid_search(
+            collection=vector_client.COLLECTION,
+            dense=dense,
+            sparse=sparse,
+            filter_must=filter_must,
+            limit=req.limit,
+        )
+    except Exception as exc:
+        logger.warning("log_incidents 검색 실패: %s", exc)
+
+    try:
+        metric_hits = await vector_client._hybrid_search(
+            collection=vector_client.METRIC_COLLECTION,
+            dense=dense,
+            sparse=sparse,
+            filter_must=filter_must,
+            limit=req.limit,
+        )
+    except Exception as exc:
+        logger.warning("metric_baselines 검색 실패: %s", exc)
+
+    return {
+        "log_incidents": [
+            {
+                "id":             h["id"],
+                "score":          h["score"],
+                "system_name":    h["payload"].get("system_name"),
+                "severity":       h["payload"].get("severity"),
+                "log_pattern":    h["payload"].get("log_pattern", "")[:300],
+                "root_cause":     h["payload"].get("root_cause"),
+                "recommendation": h["payload"].get("recommendation"),
+                "resolution":     h["payload"].get("resolution"),
+                "resolver":       h["payload"].get("resolver"),
+                "timestamp":      h["payload"].get("timestamp"),
+            }
+            for h in log_hits
+        ],
+        "metric_incidents": [
+            {
+                "id":           h["id"],
+                "score":        h["score"],
+                "system_name":  h["payload"].get("system_name"),
+                "metric_name":  h["payload"].get("metric_name"),
+                "alertname":    h["payload"].get("alertname"),
+                "severity":     h["payload"].get("severity"),
+                "metric_value": h["payload"].get("metric_value"),
+                "resolution":   h["payload"].get("resolution"),
+                "resolver":     h["payload"].get("resolver"),
+                "timestamp":    h["payload"].get("timestamp"),
+            }
+            for h in metric_hits
+        ],
+    }
 
 
 @app.post("/aggregation/similar-period")
@@ -442,9 +527,13 @@ async def store_hourly_pattern(req: StoreHourlyPatternRequest):
     WF6 호출용 — 1시간 집계 요약 텍스트를 임베딩 후 metric_hourly_patterns에 저장.
     point_id 반환 (admin-api hourly 레코드에 업데이트 용도).
     """
-    embedding = await vector_client.get_embedding(req.summary_text)
+    embedding, sparse = await asyncio.gather(
+        vector_client.get_embedding(req.summary_text),
+        vector_client.get_sparse_vector(req.summary_text),
+    )
     point_id = await aggregation_vector_client.store_hourly_pattern_vector(
         embedding=embedding,
+        sparse=sparse,
         system_id=req.system_id,
         system_name=req.system_name,
         hour_bucket=req.hour_bucket,
@@ -553,9 +642,13 @@ async def store_agg_summary(req: StoreAggSummaryRequest):
     WF7-WF10 호출용 — 일/주/월 집계 요약을 임베딩 후 aggregation_summaries에 저장.
     point_id 반환.
     """
-    embedding = await vector_client.get_embedding(req.summary_text)
+    embedding, sparse = await asyncio.gather(
+        vector_client.get_embedding(req.summary_text),
+        vector_client.get_sparse_vector(req.summary_text),
+    )
     point_id = await aggregation_vector_client.store_aggregation_summary_vector(
         embedding=embedding,
+        sparse=sparse,
         system_id=req.system_id,
         system_name=req.system_name,
         period_type=req.period_type,

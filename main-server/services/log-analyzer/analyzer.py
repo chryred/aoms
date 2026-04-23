@@ -25,6 +25,7 @@ from vector_client import (
     build_enhanced_prompt,
     classify_anomaly,
     get_embedding,
+    get_sparse_vector,
     normalize_log_for_embedding,
     search_similar_incidents,
     store_incident_vector,
@@ -69,6 +70,50 @@ def mask_sensitive_data(text: str) -> str:
     text = re.sub(r'\b01[0-9][-\s]?\d{3,4}[-\s]?\d{4}\b', '010-****-****', text)               # 전화번호
     text = re.sub(r'[\w.-]+@[\w.-]+\.\w+', '***@***.***', text)                                 # 이메일
     return text
+
+
+def _sample_logs_by_type(logs: list[dict], max_count: int = 50) -> list[dict]:
+    """log_type 비율 보장 샘플링. 전체 ≤ max_count면 전부 반환."""
+    if len(logs) <= max_count:
+        return logs
+    by_type: dict[str, list[dict]] = {}
+    for entry in logs:
+        by_type.setdefault(entry.get("log_type", "app"), []).append(entry)
+    # 발생 횟수(count) 합계 내림차순으로 log_type 정렬
+    sorted_types = sorted(
+        by_type.items(),
+        key=lambda x: -sum(e["count"] for e in x[1]),
+    )
+    total = len(logs)
+    sampled: list[dict] = []
+    remaining = max_count
+    for i, (_, type_logs) in enumerate(sorted_types):
+        if i == len(sorted_types) - 1:
+            alloc = remaining
+        else:
+            alloc = max(1, round(len(type_logs) / total * max_count))
+            alloc = min(alloc, remaining)
+        sampled.extend(type_logs[:alloc])
+        remaining -= alloc
+        if remaining <= 0:
+            break
+    return sampled
+
+
+def _format_logs_by_type(logs: list[dict]) -> str:
+    """log_type별 섹션으로 분리. 단일 타입이면 헤더 없이 단순 나열."""
+    by_type: dict[str, list[dict]] = {}
+    for entry in logs:
+        by_type.setdefault(entry.get("log_type", "app"), []).append(entry)
+    if len(by_type) == 1:
+        return "\n".join(entry["line"] for entry in logs)
+    lines: list[str] = []
+    for log_type, type_logs in sorted(by_type.items(), key=lambda x: -len(x[1])):
+        lines.append(f"[{log_type}] {len(type_logs)}건")
+        lines.append("─" * 20)
+        lines.extend(entry["line"] for entry in type_logs)
+        lines.append("")
+    return "\n".join(lines).strip()
 
 
 async def get_systems() -> list[dict]:
@@ -187,34 +232,36 @@ async def analyze_with_vector_context(
 
     처리 순서:
       1. 로그 정규화 및 압축
-      2. Ollama 임베딩 생성 (Server B)
-      3. Qdrant 유사 이력 검색 (anomaly_type 판정만 수행 — duplicate/recurring/related/new)
-      4. 강화 프롬프트 구성 + LLM 호출 (duplicate 포함 전 케이스에서 호출 — 표기는 anomaly_type으로 구분)
-      5. 분석 결과 Qdrant 저장
+      2. FastEmbed 인프로세스 임베딩 (Dense bge-m3 + Sparse BM25, ADR-011)
+      3. Qdrant Hybrid 유사 이력 검색 (RRF fusion — duplicate/recurring/related/new)
+      4. 강화 프롬프트 구성 + LLM 호출 (duplicate 포함 전 케이스에서 호출)
+      5. 분석 결과 Qdrant에 Dense+Sparse로 저장
     """
     # trace context 로컬 바인딩 (build_enhanced_prompt에 주입)
     _trace_context = trace_context
     _trace_tier = trace_tier
 
-    # 1. 로그 정규화 및 압축
-    log_text   = mask_sensitive_data("\n".join(entry["line"] for entry in logs[:50]))
+    # 1. 로그 정규화 및 압축 (log_type 비율 보장 샘플링 → 섹션 구조화)
+    sampled_logs = _sample_logs_by_type(logs)
+    log_text     = mask_sensitive_data(_format_logs_by_type(sampled_logs))
     normalized = normalize_log_for_embedding(log_text)
 
-    # 2. 임베딩 생성 (Server B Ollama)
-    embedding = None
+    # 2. 임베딩 생성 (FastEmbed ONNX — Dense bge-m3 + Sparse BM25)
+    dense_vec = None
+    sparse_vec = None
     try:
-        embedding = await get_embedding(normalized)
+        dense_vec  = await get_embedding(normalized)
+        sparse_vec = await get_sparse_vector(normalized)
     except Exception as e:
-        # httpx 타임아웃 예외는 str(e)가 비어있으므로 type명+repr로 사유 명확화
         logger.warning(
             f"임베딩 생성 실패: {type(e).__name__}: {e!r} → 벡터 검색 없이 분석 진행"
         )
 
-    # 3. 유사 이력 검색
+    # 3. 유사 이력 Hybrid 검색 (Dense + Sparse RRF)
     anomaly_info: dict = {"type": "new", "score": 0.0, "has_solution": False, "top_results": []}
-    if embedding:
+    if dense_vec and sparse_vec:
         try:
-            similar      = await search_similar_incidents(embedding, system_name)
+            similar      = await search_similar_incidents(dense_vec, sparse_vec, system_name)
             anomaly_info = classify_anomaly(similar)
         except Exception as e:
             logger.warning(
@@ -239,13 +286,13 @@ async def analyze_with_vector_context(
     )
     analysis = await call_llm_structured(prompt, agent_code=agent_code)
 
-    # 5. 벡터 저장 (새로운 분석 결과 누적 — duplicate 포함)
+    # 5. 벡터 저장 (새로운 분석 결과 누적 — duplicate 포함, Dense+Sparse)
     point_id = None
     qdrant_store_error: str | None = None
-    if embedding:
+    if dense_vec and sparse_vec:
         try:
             point_id = await store_incident_vector(
-                embedding, system_name, instance_role,
+                dense_vec, sparse_vec, system_name, instance_role,
                 analysis.get("severity", "unknown"),
                 normalized[:500],
                 analysis.get("error_category"),
@@ -298,7 +345,7 @@ async def submit_analysis(
     """Admin API에 LLM 분석 결과 제출 (Teams 알림은 Admin API가 처리)
 
     error_message: LLM/분석 실패 사유. 값이 있으면 admin-api에서 Teams 미발송 + UI 분석 실패 뱃지.
-    model_used: LLM 프로바이더 코드 (devx/ollama/claude/openai). 미지정 시 LLM_TYPE 기본값.
+    model_used: LLM 프로바이더 코드 (devx/claude/openai). 미지정 시 LLM_TYPE 기본값. (ADR-012: ollama 제거)
     """
     payload: dict = {
         "system_id":       system_id,
@@ -393,7 +440,7 @@ async def run_analysis() -> dict:
             for instance_role, logs in logs_by_role.items():
                 # masked_log는 성공/실패 두 경로 모두에서 필요 → try 진입 전 구성
                 masked_log = mask_sensitive_data(
-                    "\n".join(entry["line"] for entry in logs[:50])
+                    _format_logs_by_type(_sample_logs_by_type(logs))
                 )
                 try:
                     analysis = await analyze_with_vector_context(

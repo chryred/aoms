@@ -143,7 +143,7 @@ async def test_text_passes_max_tokens(monkeypatch):
 # ── Strategy 디스패치 ──────────────────────────────────────────────────────
 
 def test_build_strategy_known_types():
-    assert set(llm_client._STRATEGIES.keys()) >= {"devx", "ollama", "claude", "openai"}
+    assert set(llm_client._STRATEGIES.keys()) >= {"devx", "claude", "openai"}
     for cls in llm_client._STRATEGIES.values():
         assert issubclass(cls, LLMStrategy)
 
