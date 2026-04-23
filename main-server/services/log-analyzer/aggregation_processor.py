@@ -98,7 +98,7 @@ PROMQL_MAP: dict[str, dict[str, dict[str, str]]] = {
 # ── 추이 기반 이상 감지 설정 ─────────────────────────────────────────────────
 # 절대값 임계치 미달이지만 연속 상승/하락 추이를 보이는 경우 감지
 TREND_THRESHOLDS: dict[tuple[str, str], dict] = {
-    ("synapse_agent", "cpu"):          {"key": "cpu_avg",        "direction": "up",   "min_delta": 5.0,   "min_hours": 2, "label": "CPU 평균 상승 추이"},
+    ("synapse_agent", "cpu"):          {"key": "cpu_avg",        "direction": "up",   "min_delta": 5.0,   "min_hours": 2, "min_floor": 60.0, "label": "CPU 평균 상승 추이"},
     ("synapse_agent", "memory"):       {"key": "mem_used_pct",   "direction": "up",   "min_delta": 3.0,   "min_hours": 2, "label": "메모리 사용률 상승 추이"},
     ("synapse_agent", "web"):          {"key": "resp_avg_ms",    "direction": "up",   "min_delta": 300.0, "min_hours": 2, "label": "평균 응답시간 상승 추이"},
     ("synapse_agent", "disk"):         {"key": "disk_io_ms",     "direction": "up",   "min_delta": 50.0,  "min_hours": 2, "label": "디스크 I/O 지연 상승 추이"},
@@ -269,6 +269,11 @@ def _detect_trend_anomaly(
     cur = current_metrics.get(key)
     if cur is None:
         return False, ""
+
+    min_floor = cfg.get("min_floor", 0.0)
+    if float(cur) < min_floor:
+        return False, ""
+
     values.append(float(cur))
 
     if len(values) < min_hours + 1:
