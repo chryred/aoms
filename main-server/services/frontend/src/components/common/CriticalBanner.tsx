@@ -20,7 +20,7 @@ export function CriticalBanner() {
       className="bg-surface border-critical focus-visible:ring-accent fixed inset-x-0 top-0 z-50 flex cursor-pointer items-center justify-center gap-2 border-b-2 px-4 py-3 text-sm font-semibold tracking-wide text-critical-text transition-colors hover:bg-bg-base focus-visible:ring-1 focus-visible:outline-none"
     >
       <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden="true" />
-      미확인 Critical 알림 {count}건 — 즉시 확인이 필요합니다
+      <span className="truncate">미확인 Critical 알림 {count}건 — 즉시 확인이 필요합니다</span>
     </button>
   )
 }
