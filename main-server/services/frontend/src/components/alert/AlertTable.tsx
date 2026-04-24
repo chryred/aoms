@@ -7,7 +7,7 @@ import { AnomalyTypeBadge } from './AnomalyTypeBadge'
 import { formatAlertTitle } from './alertTitle'
 import { EmptyState } from '@/components/common/EmptyState'
 import { useSystems } from '@/hooks/queries/useSystems'
-import { formatRelative } from '@/lib/utils'
+import { formatRelative, formatKST } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 import { ROUTES } from '@/constants/routes'
 import type { AlertHistory } from '@/types/alert'
@@ -147,8 +147,11 @@ export function AlertTable({ alerts, onSelect }: AlertTableProps) {
                   <span className="text-text-disabled text-xs">—</span>
                 )}
               </td>
-              <td className="text-text-secondary px-4 py-3 text-sm whitespace-nowrap">
-                {formatRelative(alert.created_at)}
+              <td className="px-4 py-3 whitespace-nowrap">
+                <p className="text-text-secondary text-sm">{formatRelative(alert.created_at)}</p>
+                <p className="text-text-disabled font-mono text-xs">
+                  {formatKST(alert.created_at, 'datetime')}
+                </p>
               </td>
               <td className="px-4 py-3">
                 {alert.acknowledged ? (

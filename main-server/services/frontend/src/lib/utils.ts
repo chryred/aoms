@@ -20,8 +20,11 @@ export function normalizeUtc(utcDate: string): string {
 // 예: "2026-04-21" (KST) → start "2026-04-20T15:00:00", end "2026-04-21T14:59:59"
 export const kstDateToUtcStart = (d: string) =>
   new Date(d + 'T00:00:00+09:00').toISOString().replace('.000Z', '')
-export const kstDateToUtcEnd = (d: string) =>
-  new Date(d + 'T23:59:59+09:00').toISOString().replace('.000Z', '')
+export const kstDateToUtcEnd = (d: string) => {
+  const date = new Date(d + 'T00:00:00+09:00')
+  date.setUTCDate(date.getUTCDate() + 1)
+  return date.toISOString().replace('.000Z', '')
+}
 
 // UTC → KST (UTC+9) 변환
 export function formatKST(
