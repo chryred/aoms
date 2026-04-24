@@ -47,21 +47,22 @@ vi .env
 | `PROM_PASS` | Prometheus Basic Auth 비밀번호 | `PromPass789!` |
 | `SECRET_KEY` | JWT 서명 키 **(운영 배포 필수 변경)** | `python3 -c "import secrets; print(secrets.token_urlsafe(32))"` |
 | `CORS_ORIGINS` | 허용 프론트엔드 도메인 (콤마 구분) | `http://192.168.10.5:3001` |
+| `FRONTEND_EXTERNAL_URL` | Teams 카드 "해결책 등록" 버튼이 여는 React 페이지 URL (브라우저 접근 가능) | `http://192.168.10.5:3001` |
+| `AGENT_PROMETHEUS_URL` | synapse_agent live-status 쿼리용 Prometheus URL | `http://192.168.10.5:9090` |
 | `LLM_TYPE` | LLM 프로바이더 선택 (ADR-012: ollama 폐지) | `devx` / `claude` / `openai` |
 | `LLM_API_URL` | 내부 LLM API 엔드포인트 | `http://llm-server:8080/v1` |
-| `LLM_MODEL` | 사용할 LLM 모델명 | `your-model-name` |
+| `LLM_MODEL` | 사용할 LLM 모델명 (`devx` 타입은 agent_code로 관리하므로 생략 가능) | `your-model-name` |
 | `DEVX_CLIENT_ID` | DevX OAuth Client ID | `synapse-client` |
 | `DEVX_CLIENT_SECRET` | DevX OAuth Client Secret | `your-secret` |
 | `TEAMS_WEBHOOK_URL` | Microsoft Teams Webhook URL | `https://...webhook.office.com/...` |
 | `N8N_USER` | n8n 관리자 사용자명 | `admin` |
 | `N8N_PASSWORD` | n8n 관리자 비밀번호 | `N8nPass!234` |
-| `MONITORING_SERVER_IP` | Server A IP 주소 | `192.168.10.5` |
+| `MONITORING_SERVER_IP` | Server A IP 주소 (n8n webhook URL 구성용) | `192.168.10.5` |
 | `QDRANT_URL` | Server B Qdrant URL | `http://192.168.10.6:6333` |
-| `FRONTEND_EXTERNAL_URL` | Teams 카드 "해결책 등록" 버튼이 여는 React 페이지 URL (브라우저 접근 가능) | `http://192.168.10.5:3001` |
 | `ENCRYPTION_KEY` | 공통 Fernet 대칭키 (DB 모니터링 자격증명 · 챗봇 executor 자격증명 공용) | 아래 생성 방법 참고 |
-| `AGENT_PROMETHEUS_URL` | synapse_agent live-status 쿼리용 Prometheus URL | `http://192.168.10.5:9090` |
+| `LLM_API_KEY` | n8n WF4/WF5 활성화 시 필요 (현재 n8n 미사용으로 선택 항목) | `your-api-key` |
 
-> **주의**: `DB_USER`는 반드시 `synapse`이어야 합니다. `docker-compose.yml`의 PostgreSQL 헬스체크와 `DATABASE_URL`이 `synapse`로 하드코딩되어 있어 다른 값 사용 시 admin-api 기동 실패합니다.
+> **주의**: `DB_USER`는 반드시 `synapse`이어야 합니다. `.env.example`의 기본값이 `aoms`로 되어 있으나 이는 잘못된 기본값입니다. `docker-compose.yml`의 `DATABASE_URL`이 `postgresql+asyncpg://synapse:...`로 **하드코딩**되어 있어 `DB_USER=aoms`로 배포하면 Postgres 사용자는 `aoms`로 생성되지만 admin-api는 `synapse`로 접속 시도하여 DB 연결에 실패합니다.
 
 > **`ENCRYPTION_KEY` 생성 방법:**
 > ```bash
@@ -108,6 +109,8 @@ ls -lh main-server/*.tar.gz
 # main-server/synapse-frontend-1.0.tar.gz
 ```
 
+> **주의**: `synapse-log-analyzer-1.0.tar.gz`는 BAAI/bge-m3 ONNX 모델이 이미지에 번들되어 **약 3GB** 크기입니다. SCP 전송 전 Server A 디스크 여유 공간(최소 10GB 권장)을 확인하세요.
+
 ### 1-4. 파일 전송
 
 ```bash
@@ -135,6 +138,9 @@ scp main-server/docker-compose.yml  $SERVER_A:$REMOTE_DIR/
 scp main-server/.env                $SERVER_A:$REMOTE_DIR/
 scp -r main-server/configs/         $SERVER_A:$REMOTE_DIR/configs/
 scp -r main-server/n8n-workflows/   $SERVER_A:$REMOTE_DIR/n8n-workflows/
+
+# ── Server A — alertmanager 디렉터리 생성 확인 (configs/ scp 후) ─
+ssh $SERVER_A "mkdir -p $REMOTE_DIR/configs/alertmanager"
 
 # ── Server B — 이미지 (ADR-011/012: Qdrant만) ─────────────────
 scp aoms-offline/docker-images/qdrant-v1.17.0.tar.gz   $SERVER_B:$REMOTE_DIR/images/
@@ -221,6 +227,17 @@ chmod 600 /app/synapse/ssl/grafana.key
 chmod 644 /app/synapse/ssl/grafana.crt
 ```
 
+#### Alertmanager 설정 확인
+
+`configs/alertmanager/alertmanager.yml`이 SCP로 전송되어 있어야 합니다. 이 파일은 admin-api webhook URL이 Docker 내부 서비스명으로 지정되어 있습니다. 별도 수정 없이 바로 사용 가능합니다.
+
+```bash
+# 파일 존재 확인
+cat /app/synapse/configs/alertmanager/alertmanager.yml
+```
+
+---
+
 #### Prometheus Basic Auth 해시 생성
 
 `configs/prometheus/web.yml`의 `password_bcrypt` 항목에 입력할 bcrypt 해시를 생성합니다.
@@ -267,13 +284,18 @@ docker images | grep -E "prometheus|alertmanager|grafana|postgres|n8n|tempo|otel
 vi /app/synapse/.env
 
 # 반드시 확인할 항목:
-# DB_USER=synapse                            ← synapse 고정
-# SECRET_KEY=<랜덤 32자 이상>                ← JWT 서명 키
-# MONITORING_SERVER_IP=192.168.10.5          ← Server A 실제 IP
+# DB_USER=synapse                            ← synapse 고정 (.env.example 기본값 aoms는 잘못된 값)
+# DB_PASSWORD=<비밀번호>
+# SECRET_KEY=<랜덤 32자 이상>                ← JWT 서명 키 (미설정 시 로그인 불가)
+# CORS_ORIGINS=http://192.168.10.5:3001      ← 프론트엔드 접근 URL
+# FRONTEND_EXTERNAL_URL=http://192.168.10.5:3001  ← Teams 카드 버튼 URL
+# AGENT_PROMETHEUS_URL=http://192.168.10.5:9090   ← agent live-status용
+# MONITORING_SERVER_IP=192.168.10.5          ← Server A 실제 IP (n8n webhook용)
 # QDRANT_URL=http://192.168.10.6:6333        ← Server B 실제 IP
 # ENCRYPTION_KEY=<fernet_key>                ← 공통 암호화 키
-# CORS_ORIGINS=http://192.168.10.5:3001      ← 프론트엔드 접근 URL
 # LLM_TYPE=devx                              ← LLM 프로바이더 (ollama 폐지, ADR-012)
+# DEVX_CLIENT_ID=<client_id>
+# DEVX_CLIENT_SECRET=<client_secret>
 ```
 
 #### 인프라 서비스 시작 (순서 중요)
@@ -367,17 +389,29 @@ docker logs synapse-admin-api 2>&1 | grep -E "admin|user|created" | tail -5
 
 ### 3-3. n8n (현재 미사용, 컨테이너만 예비 유지)
 
-> **중요**: WF1·WF2·WF3·WF6~WF12는 각각 log-analyzer 스케줄러 / admin-api 직접 호출 / frontend 직결로 이관·제거되었습니다 (ADR-006).
+> **중요**: 모든 워크플로우(WF1~WF12)는 log-analyzer 스케줄러 / admin-api 직접 호출 / frontend 직결로 이관·제거되었습니다 (ADR-006).
 > WF4(일일 장애 리포트)·WF5(반복 이상 에스컬레이션)는 보류 상태로 `n8n-workflows/` 디렉터리에 JSON만 보존되어 있으며,
 > 추후 log-analyzer로 포팅할 때 참고용입니다.
 
 n8n 컨테이너는 docker-compose에 남아 있지만 워크플로우를 import하지 않아도 됩니다.
 
+#### Qdrant 컬렉션 초기화
+
+log-analyzer가 기동되면 `log_incidents`와 `metric_baselines` 컬렉션은 **자동 생성**됩니다.
+`metric_hourly_patterns`와 `aggregation_summaries`는 **수동 1회** 실행이 필요합니다:
+
 ```bash
-# Qdrant 집계 컬렉션 초기화 (과거 WF12 역할) — log-analyzer API 직접 호출
+# 집계 컬렉션 초기화 (최초 1회)
 curl -s -X POST http://localhost:8000/aggregation/collections/setup \
   -H "Content-Type: application/json" | python3 -m json.tool
 ```
+
+> **긴급 복구 (전체 재설정)**: 컬렉션 차원 불일치 등으로 전체 재생성이 필요한 경우:
+> ```bash
+> # Mac에서 실행 (Server B IP를 인자로 전달)
+> ./collection_reset.sh http://192.168.10.6:6333
+> ```
+> 이 스크립트는 4개 컬렉션을 모두 **삭제 후 재생성**합니다. 기존 벡터 데이터가 모두 삭제되므로 주의하세요.
 
 WF4/WF5 재활용이 필요해질 때만 기존 `docs/workflow/9.phase4c-n8n.md`를 참고해 n8n 초기 계정 설정 + 크리덴셜 등록 + 워크플로우 import 절차를 밟으면 됩니다.
 
@@ -533,6 +567,10 @@ curl -sf http://localhost:8080/docs > /dev/null && echo "OK"
 # log-analyzer 내부 스케줄러 확인 (5분마다 분석, 1시간마다 집계)
 docker logs synapse-log-analyzer 2>&1 | grep -E "scheduler|analysis|aggregation" | tail -10
 
+# log-analyzer 기동 시 자동 생성: log_incidents, metric_baselines
+# 아래 명령으로 생성 여부 확인 후, 없으면 log-analyzer 로그 재확인
+curl -s http://192.168.10.6:6333/collections | python3 -m json.tool
+
 # Qdrant 집계 컬렉션 초기화 (최초 1회 — metric_hourly_patterns, aggregation_summaries 생성)
 curl -s -X POST http://localhost:8000/aggregation/collections/setup \
   -H "Content-Type: application/json" | python3 -m json.tool
@@ -600,8 +638,9 @@ cd /app/synapse && docker compose logs --tail 30
 | 증상 | 원인 | 해결 |
 |---|---|---|
 | admin-api 기동 실패 | PostgreSQL 미준비 또는 `DB_USER` 오류 | `docker logs synapse-postgres` 확인. `.env`에서 `DB_USER=synapse` 확인 |
-| admin-api DB 연결 실패 | `DB_USER` 값이 `synapse`가 아님 | `.env`에서 `DB_USER=synapse`로 수정 후 `docker compose up -d admin-api` |
+| admin-api DB 연결 실패 | `DB_USER` 값이 `synapse`가 아님 (`.env.example` 기본값 `aoms` 그대로 사용) | `.env`에서 `DB_USER=synapse`로 수정 후 `docker compose up -d admin-api` |
 | 로그인 불가 (JWT 오류) | `SECRET_KEY` 미설정 또는 기본값 사용 | `python3 -c "import secrets; print(secrets.token_urlsafe(32))"` 로 키 생성 후 `.env` 반영, `docker compose up -d admin-api` |
+| Teams 카드 버튼 URL 오류 | `FRONTEND_EXTERNAL_URL` 미설정 | `.env`에서 `FRONTEND_EXTERNAL_URL=http://{server-a-ip}:3001` 확인 |
 | Teams 알림 미발송 | `TEAMS_WEBHOOK_URL` 오류 | `.env` 확인 후 `docker compose up -d admin-api` |
 | log-analyzer LLM 호출 실패 | `LLM_API_URL` / `DEVX_CLIENT_ID/SECRET` 오류 | `.env` 확인 후 `docker compose up -d log-analyzer` |
 | log-analyzer 임베딩 오류 | FastEmbed ONNX 로딩 실패 또는 Qdrant 미기동 | `docker logs synapse-log-analyzer \| grep FastEmbed` 확인, Server B Qdrant `/readyz` 확인 |
@@ -609,7 +648,10 @@ cd /app/synapse && docker compose logs --tail 30
 | synapse_agent 설치 실패 | SSH 키 또는 대상 서버 접근 오류 | `docker logs synapse-admin-api`에서 SFTP 에러 확인 |
 | Prometheus Basic Auth 401 | 인증 정보 오류 | `PROM_USER` / `PROM_PASS` 확인, bcrypt 해시 재생성 |
 | Grafana HTTPS 접속 불가 | SSL 인증서 경로 오류 | `/app/synapse/ssl/` 경로와 `docker-compose.yml` volume 확인 |
-| Qdrant 컬렉션 없음 | 초기화 미실행 | `curl -X POST http://localhost:8000/aggregation/collections/setup` |
+| Alertmanager 기동 실패 | alertmanager.yml 파일 없음 | `/app/synapse/configs/alertmanager/alertmanager.yml` 파일 존재 확인 |
+| PostgreSQL 기동 실패 | postgresql.conf 파일 없음 | `/app/synapse/configs/postgres/postgresql.conf` 파일 존재 확인 |
+| Qdrant 컬렉션 없음 (`metric_hourly_patterns`, `aggregation_summaries`) | 초기화 미실행 | `curl -X POST http://localhost:8000/aggregation/collections/setup` |
+| Qdrant 컬렉션 없음 (`log_incidents`, `metric_baselines`) | log-analyzer 미기동 | log-analyzer 부팅 시 자동 생성됨. `docker logs synapse-log-analyzer` 확인 |
 | 암호화 키 오류 (DB 모니터링 / 챗봇 executor) | `ENCRYPTION_KEY` 미설정 | Fernet 키 생성 후 `.env`에 추가, 컨테이너 재시작 |
 | Tempo 컨테이너 기동 실패 | tempo.yml 설정 파일 없음 | `/app/synapse/configs/tempo/tempo.yml` 파일 존재 확인 |
 | OTel Collector 기동 실패 | otel-collector-config.yml 없음 | `/app/synapse/configs/otel-collector/otel-collector-config.yml` 파일 존재 확인 |

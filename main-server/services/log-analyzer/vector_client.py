@@ -170,7 +170,7 @@ def _embed_dense_sync(text: str) -> list[float]:
         return_tensors="np",
         padding=True,
         truncation=True,
-        max_length=512,
+        max_length=8192,  # bge-m3 모델 최대값. 실질적 길이 제어는 _EMBED_MAX_CHARS(3000자)가 담당.
     )
     feed = {k: v for k, v in enc.items() if k in input_names}
     outputs = sess.run(None, feed)

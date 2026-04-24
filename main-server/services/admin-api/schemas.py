@@ -271,6 +271,53 @@ class FeedbackSearchResponse(BaseModel):
     total: int
 
 
+# ── AlertExclusion ───────────────────────────────────────────────────────
+class AlertExclusionItem(BaseModel):
+    system_id: int
+    instance_role: Optional[str] = None
+    template: str
+    reason: Optional[str] = None
+
+
+class AlertExclusionCreate(BaseModel):
+    items: list[AlertExclusionItem]
+    created_by: Optional[str] = None
+
+
+class AlertExclusionOut(BaseModel):
+    id: int
+    system_id: int
+    instance_role: Optional[str]
+    template: str
+    reason: Optional[str]
+    created_by: Optional[str]
+    created_at: UtcDatetime
+    active: bool
+    deactivated_by: Optional[str]
+    deactivated_at: Optional[UtcDatetime]
+    skip_count: int
+    last_skipped_at: Optional[UtcDatetime]
+
+    model_config = {"from_attributes": True}
+
+
+class AlertExclusionDeactivateRequest(BaseModel):
+    ids: list[int]
+    deactivated_by: Optional[str] = None
+
+
+class BulkExcludeResult(BaseModel):
+    succeeded: list[int]
+    failed: list[dict]
+
+
+class AlertsBulkExcludeRequest(BaseModel):
+    alert_ids: list[int]
+    reason: Optional[str] = None
+    include_instance_role: bool = True
+    created_by: Optional[str] = None
+
+
 # ── LogAnalysis ──────────────────────────────────────────────────────────
 class LogAnalysisCreate(BaseModel):
     model_config = {"protected_namespaces": ()}
@@ -291,6 +338,11 @@ class LogAnalysisCreate(BaseModel):
     has_solution:      Optional[bool]       = None
     similar_incidents: Optional[list[dict]] = None  # Teams 알림용 (DB 저장 안 함)
     error_message:     Optional[str]        = None  # LLM/분석 실패 사유 (값 있으면 실패 레코드)
+    # 예외 처리용: Prometheus log_error_total.template 라벨 목록
+    templates:         Optional[list[str]]  = None
+    # OTel trace 상관
+    referenced_trace_ids: Optional[list[str]] = None
+    trace_summary_text:   Optional[str]       = None
 
 
 class LogAnalysisOut(BaseModel):

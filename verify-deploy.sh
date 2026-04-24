@@ -94,6 +94,7 @@ check_file "web.yml (Basic Auth)"         "$BASE_DIR/configs/prometheus/web.yml"
 check_file "alertmanager.yml"             "$BASE_DIR/configs/alertmanager/alertmanager.yml"
 check_dir  "grafana/provisioning"         "$BASE_DIR/configs/grafana/provisioning"
 check_file "postgres/init.sql"            "$BASE_DIR/configs/postgres/init.sql"
+check_file "postgres/postgresql.conf"     "$BASE_DIR/configs/postgres/postgresql.conf"
 check_file "ssl/grafana.crt"              "$BASE_DIR/ssl/grafana.crt"
 check_file "ssl/grafana.key"              "$BASE_DIR/ssl/grafana.key"
 check_file "tempo/tempo.yml"              "$BASE_DIR/configs/tempo/tempo.yml"
@@ -101,7 +102,7 @@ check_file "otel-collector-config.yml"    "$BASE_DIR/configs/otel-collector/otel
 
 # .env 필수 키 존재 여부
 if [[ -f "$BASE_DIR/.env" ]]; then
-  for key in TEAMS_WEBHOOK_URL LLM_API_URL QDRANT_URL ENCRYPTION_KEY SECRET_KEY DEVX_CLIENT_ID DEVX_CLIENT_SECRET; do
+  for key in SECRET_KEY CORS_ORIGINS FRONTEND_EXTERNAL_URL AGENT_PROMETHEUS_URL TEAMS_WEBHOOK_URL LLM_API_URL QDRANT_URL ENCRYPTION_KEY DEVX_CLIENT_ID DEVX_CLIENT_SECRET; do
     if grep -q "^${key}=" "$BASE_DIR/.env" 2>/dev/null; then
       VALUE=$(grep "^${key}=" "$BASE_DIR/.env" | cut -d= -f2-)
       if [[ -n "$VALUE" ]]; then

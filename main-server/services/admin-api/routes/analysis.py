@@ -7,8 +7,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
-from models import AlertHistory, IncidentTimeline, LogAnalysisHistory, System
+from models import AlertHistory, AlertExclusion, IncidentTimeline, LogAnalysisHistory, System
 from routes.alerts import _get_system_and_contacts
+from services.exclusion_filter import is_excluded, mark_skipped
 from services.incident_service import get_or_create_incident
 from routes.websocket import notify_log_analysis
 from schemas import LogAnalysisCreate, LogAnalysisOut
@@ -28,9 +29,43 @@ async def create_analysis(payload: LogAnalysisCreate, db: AsyncSession = Depends
     if not system:
         raise HTTPException(status_code=404, detail="System not found")
 
-    # similar_incidents는 DB에 저장하지 않음 (알림 전용 필드)
-    record = LogAnalysisHistory(**payload.model_dump(exclude={"similar_incidents"}))
+    # ── 예외 처리 게이트 (이중 안전망 — log-analyzer 캐시 미스 방어) ──────────
+    # templates 중 하나라도 예외 규칙에 해당하면 LLM 결과를 excluded=true 로 저장하고 즉시 반환
+    if payload.templates:
+        matched_rule: AlertExclusion | None = None
+        for tmpl in payload.templates:
+            matched_rule = await is_excluded(db, payload.system_id, payload.instance_role, tmpl)
+            if matched_rule:
+                break
+        if matched_rule:
+            excluded_record = LogAnalysisHistory(
+                system_id=payload.system_id,
+                instance_role=payload.instance_role,
+                log_content=payload.log_content[:10000],
+                analysis_result=payload.analysis_result,
+                severity=payload.severity,
+                root_cause=payload.root_cause,
+                recommendation=payload.recommendation,
+                model_used=payload.model_used,
+                excluded=True,
+                exclusion_rule_id=matched_rule.id,
+                templates_json=payload.templates,
+            )
+            db.add(excluded_record)
+            await db.commit()
+            await db.refresh(excluded_record)
+            await mark_skipped(db, matched_rule.id)
+            await db.commit()
+            return excluded_record
+
+    # similar_incidents, templates(→templates_json으로 매핑)는 model_dump에서 제외
+    record = LogAnalysisHistory(
+        **payload.model_dump(exclude={"similar_incidents", "templates"})
+    )
+    if payload.templates:
+        record.templates_json = payload.templates
     db.add(record)
+    await db.flush()  # record.id 확보 (alert_record.log_analysis_id 연결용)
 
     is_failure = bool(payload.error_message)
     # 분석 실패(severity="warning")도 포함 — LLM 연결 장애를 Teams로 알림
@@ -68,6 +103,7 @@ async def create_analysis(payload: LogAnalysisCreate, db: AsyncSession = Depends
             similarity_score=payload.similarity_score,
             qdrant_point_id=payload.qdrant_point_id,
             error_message=payload.error_message,   # 실패 사유 전달 (성공 시 None)
+            log_analysis_id=record.id,             # templates_json 조회용 역참조
         )
         db.add(alert_record)
         await db.flush()  # alert_record.id 발급 (Teams 카드 URL에 포함)

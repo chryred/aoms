@@ -156,6 +156,8 @@ class AlertHistory(Base):
     related_trace_ids = Column(JSONB)
     # 인시던트 연결 (NULL = 인시던트 미생성)
     incident_id = Column(Integer, ForeignKey("incidents.id", ondelete="SET NULL"), nullable=True)
+    # log_analysis 타입일 때 연결된 log_analysis_history (예외 처리 UI용 templates_json 조회)
+    log_analysis_id = Column(Integer, ForeignKey("log_analysis_history.id", ondelete="SET NULL"), nullable=True)
     created_at = Column(DateTime, default=func.now())
 
     __table_args__ = (
@@ -191,10 +193,16 @@ class LogAnalysisHistory(Base):
     trace_summary_text   = Column(Text)
     # 인시던트 연결 (NULL = 인시던트 미생성)
     incident_id = Column(Integer, ForeignKey("incidents.id", ondelete="SET NULL"), nullable=True)
+    # 예외 처리 (NULL = 정상 분석)
+    excluded           = Column(Boolean, default=False, server_default="false")
+    exclusion_rule_id  = Column(Integer, ForeignKey("alert_exclusions.id", ondelete="SET NULL"), nullable=True)
+    # 개별 template 목록 (Prometheus log_error_total.template 라벨 원본, 예외 처리 UI용)
+    templates_json     = Column(JSONB)
     created_at = Column(DateTime, default=func.now())
 
     __table_args__ = (
         Index("idx_log_analysis_system", "system_id", "created_at"),
+        Index("idx_log_analysis_excluded", "excluded", "system_id"),
     )
 
 
@@ -227,6 +235,28 @@ class AlertCooldown(Base):
     __table_args__ = (
         UniqueConstraint("system_id", "alert_key"),
         Index("idx_alert_cooldown_lookup", "system_id", "alert_key"),
+    )
+
+
+class AlertExclusion(Base):
+    """에러 알림 예외 처리 규칙 — 동일 template이 수집되어도 알림/인시던트/LLM 분석 생략"""
+    __tablename__ = "alert_exclusions"
+
+    id               = Column(Integer, primary_key=True)
+    system_id        = Column(Integer, ForeignKey("systems.id", ondelete="CASCADE"), nullable=False)
+    instance_role    = Column(String(50), nullable=True)   # NULL = 해당 시스템 전체 role에 적용
+    template         = Column(Text, nullable=False)        # synapse_agent 정규화 template 라벨 원본
+    reason           = Column(Text)
+    created_by       = Column(String(100))
+    created_at       = Column(DateTime, default=func.now())
+    active           = Column(Boolean, default=True, server_default="true")
+    deactivated_by   = Column(String(100))
+    deactivated_at   = Column(DateTime)
+    skip_count       = Column(Integer, default=0, server_default="0")
+    last_skipped_at  = Column(DateTime)
+
+    __table_args__ = (
+        Index("idx_alert_exclusions_active_system", "system_id", "active"),
     )
 
 

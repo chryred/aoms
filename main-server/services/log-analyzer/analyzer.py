@@ -214,6 +214,7 @@ async def fetch_logs_for_system(system_name: str) -> dict[str, list[dict]]:
             "log_type":      log_type,
             "level":         level,
             "count":         count,
+            "template":      template,   # 예외 처리 매칭용 원본 template 라벨
         })
 
     return by_role
@@ -341,6 +342,7 @@ async def submit_analysis(
     model_used: str | None = None,
     referenced_trace_ids: list[str] | None = None,
     trace_summary_text: str | None = None,
+    templates: list[str] | None = None,
 ) -> dict:
     """Admin API에 LLM 분석 결과 제출 (Teams 알림은 Admin API가 처리)
 
@@ -366,23 +368,61 @@ async def submit_analysis(
     if error_message          is not None: payload["error_message"]          = error_message
     if referenced_trace_ids   is not None: payload["referenced_trace_ids"]   = referenced_trace_ids
     if trace_summary_text     is not None: payload["trace_summary_text"]     = trace_summary_text
+    if templates              is not None: payload["templates"]              = templates
 
     resp = await _admin_http.post(f"{ADMIN_API_URL}/api/v1/analysis", json=payload)
     resp.raise_for_status()
     return resp.json()
 
 
+async def _load_exclusion_rules() -> list[dict]:
+    """admin-api에서 활성 예외 규칙 목록 조회. 실패 시 빈 목록 반환."""
+    try:
+        resp = await _admin_http.get(
+            f"{ADMIN_API_URL}/api/v1/alert-exclusions",
+            params={"active": "true", "limit": 500},
+            timeout=5.0,
+        )
+        if resp.status_code == 200:
+            return resp.json()
+    except Exception as exc:
+        logger.warning("예외 규칙 조회 실패 (분석 계속): %s", exc)
+    return []
+
+
+def _is_template_excluded(
+    rules: list[dict],
+    system_id: int,
+    instance_role: str,
+    template: str,
+) -> int | None:
+    """캐시된 규칙 목록에서 매칭 규칙 id 반환. 없으면 None."""
+    for rule in rules:
+        if rule["system_id"] != system_id:
+            continue
+        if rule["template"] != template:
+            continue
+        if rule["instance_role"] is None or rule["instance_role"] == instance_role:
+            return rule["id"]
+    return None
+
+
 async def run_analysis() -> dict:
     """전체 활성 시스템 로그 분석 실행 (n8n 트리거 또는 내부 스케줄러 호출)
 
     results 필드:
-      analyzed: 분석 완료 건 (성공)
-      skipped : 비활성 시스템 skip 건
-      no_logs : 활성 시스템이지만 최근 5분 이상 로그 없음
-      errors  : 분석 과정 예외 발생 건 (실패 레코드는 DB에 별도 저장됨)
+      analyzed:  분석 완료 건 (성공)
+      skipped:   비활성 시스템 skip 건
+      no_logs:   활성 시스템이지만 최근 5분 이상 로그 없음
+      excluded:  예외 처리된 instance_role 건
+      errors:    분석 과정 예외 발생 건 (실패 레코드는 DB에 별도 저장됨)
     """
     logger.info("로그 분석 시작")
-    results: dict = {"analyzed": 0, "skipped": 0, "no_logs": 0, "errors": 0, "systems": []}
+    results: dict = {"analyzed": 0, "skipped": 0, "no_logs": 0, "excluded": 0, "errors": 0, "systems": []}
+
+    # 이번 분석 주기의 활성 예외 규칙 캐시 (300초 주기 1회 조회)
+    exclusion_rules = await _load_exclusion_rules()
+    logger.debug(f"활성 예외 규칙 {len(exclusion_rules)}건 로드")
 
     try:
         systems = await get_systems()
@@ -438,6 +478,32 @@ async def run_analysis() -> dict:
                     logger.debug("trace_context 조회 실패 → fallback: %s", exc)
 
             for instance_role, logs in logs_by_role.items():
+                # ── 예외 처리 게이트 (1차 방어 — LLM 호출 전) ──────────────────
+                if exclusion_rules:
+                    filtered_logs = [
+                        log for log in logs
+                        if _is_template_excluded(
+                            exclusion_rules, system_id, instance_role, log.get("template", "")
+                        ) is None
+                    ]
+                    excluded_templates = [
+                        log.get("template", "") for log in logs
+                        if _is_template_excluded(
+                            exclusion_rules, system_id, instance_role, log.get("template", "")
+                        ) is not None
+                    ]
+                    if excluded_templates:
+                        logger.info(
+                            f"[{system_name}/{instance_role}] 예외 처리 템플릿 {len(excluded_templates)}건 스킵"
+                        )
+                    if not filtered_logs:
+                        results["excluded"] += 1
+                        continue
+                    logs = filtered_logs
+
+                # 분석에 포함된 template 목록 수집 (admin-api templates_json 저장용)
+                analysis_templates = list({log.get("template", "") for log in logs if log.get("template")})
+
                 # masked_log는 성공/실패 두 경로 모두에서 필요 → try 진입 전 구성
                 masked_log = mask_sensitive_data(
                     _format_logs_by_type(_sample_logs_by_type(logs))
@@ -470,6 +536,7 @@ async def run_analysis() -> dict:
                         error_message=analysis.get("qdrant_store_error"),
                         referenced_trace_ids=trace_ref_ids or None,
                         trace_summary_text=trace_ctx or None,
+                        templates=analysis_templates or None,
                     )
                     results["analyzed"] += 1
                     results["systems"].append(f"{system_name}/{instance_role}")

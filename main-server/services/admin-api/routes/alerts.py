@@ -9,8 +9,8 @@ from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
-from models import AlertHistory, IncidentTimeline, System, Contact, SystemContact, User
-from schemas import AlertHistoryOut, AlertmanagerPayload, AcknowledgeRequest
+from models import AlertExclusion, AlertHistory, IncidentTimeline, LogAnalysisHistory, System, Contact, SystemContact, User
+from schemas import AlertHistoryOut, AlertmanagerPayload, AcknowledgeRequest, AlertsBulkExcludeRequest, BulkExcludeResult
 from services.cooldown import is_in_cooldown, make_alert_key, record_sent
 from services.incident_service import get_or_create_incident
 from services.notification import TeamsNotifier
@@ -381,6 +381,79 @@ async def acknowledge_alert(
     await db.commit()
     await db.refresh(alert)
     return alert
+
+
+@router.post("/bulk-exclude", response_model=BulkExcludeResult)
+async def bulk_exclude_alerts(
+    payload: AlertsBulkExcludeRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """log_analysis 타입 알림 다건 선택 → templates_json 조회 → AlertExclusion 일괄 등록."""
+    succeeded: list[int] = []
+    failed: list[dict] = []
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    seen_templates: set[tuple] = set()
+
+    for alert_id in payload.alert_ids:
+        alert = await db.get(AlertHistory, alert_id)
+        if not alert:
+            failed.append({"alert_id": alert_id, "reason": "알림을 찾을 수 없습니다"})
+            continue
+        if alert.alert_type != "log_analysis":
+            failed.append({"alert_id": alert_id, "reason": "메트릭 알림은 예외 처리 대상이 아닙니다"})
+            continue
+
+        # log_analysis_id → LogAnalysisHistory → templates_json
+        templates: list[str] = []
+        if alert.log_analysis_id:
+            log_rec = await db.get(LogAnalysisHistory, alert.log_analysis_id)
+            if log_rec and log_rec.templates_json:
+                templates = log_rec.templates_json
+        if not templates:
+            failed.append({"alert_id": alert_id, "reason": "분석 템플릿 정보가 없습니다"})
+            continue
+
+        instance_role = alert.instance_role if payload.include_instance_role else None
+
+        for tmpl in templates:
+            key = (alert.system_id, instance_role, tmpl)
+            if key in seen_templates:
+                continue
+            seen_templates.add(key)
+
+            # 중복 체크
+            q_clause = (
+                AlertExclusion.instance_role == instance_role
+                if instance_role is not None
+                else AlertExclusion.instance_role.is_(None)
+            )
+            existing = await db.execute(
+                select(AlertExclusion)
+                .where(AlertExclusion.system_id == alert.system_id)
+                .where(AlertExclusion.active == True)  # noqa: E712
+                .where(AlertExclusion.template == tmpl)
+                .where(q_clause)
+                .limit(1)
+            )
+            if existing.scalar_one_or_none():
+                continue  # 이미 예외 등록됨, skip
+
+            rule = AlertExclusion(
+                system_id=alert.system_id,
+                instance_role=instance_role,
+                template=tmpl,
+                reason=payload.reason,
+                created_by=payload.created_by,
+                created_at=now,
+                active=True,
+            )
+            db.add(rule)
+            await db.flush()
+            succeeded.append(rule.id)
+
+    await db.commit()
+    return BulkExcludeResult(succeeded=succeeded, failed=failed)
 
 
 # 장애보고서 자동 생성 엔드포인트는 routes/incidents.py::generate_incident_report 로 이관됨

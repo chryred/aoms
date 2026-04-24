@@ -1,0 +1,23 @@
+global:
+  resolve_timeout: 5m
+
+route:
+  group_by: ['system_name', 'alertname', 'severity']
+  group_wait: 10s
+  group_interval: 30s
+  repeat_interval: 1h
+  receiver: "admin-api-webhook"
+
+receivers:
+  - name: "admin-api-webhook"
+    webhook_configs:
+      - url: "http://admin-api:8080/api/v1/alerts/receive"
+        send_resolved: true
+
+# 억제 규칙: Critical 발생 시 동일 인스턴스의 Warning 억제
+inhibit_rules:
+  - source_match:
+      severity: 'critical'
+    target_match:
+      severity: 'warning'
+    equal: ['instance']

@@ -26,9 +26,11 @@ function getTypeLabel(alert: AlertHistory): string {
 interface AlertTableProps {
   alerts: AlertHistory[]
   onSelect: (alert: AlertHistory) => void
+  selectedIds?: Set<number>
+  onToggleSelect?: (id: number) => void
 }
 
-export function AlertTable({ alerts, onSelect }: AlertTableProps) {
+export function AlertTable({ alerts, onSelect, selectedIds, onToggleSelect }: AlertTableProps) {
   const navigate = useNavigate()
   const { data: systems = [] } = useSystems()
   const systemMap = useMemo(
@@ -93,8 +95,24 @@ export function AlertTable({ alerts, onSelect }: AlertTableProps) {
                 'hover:bg-[rgba(0,212,255,0.04)]',
                 'focus-visible:bg-accent-muted focus-visible:outline-none',
                 alert.acknowledged && 'opacity-60',
+                selectedIds?.has(alert.id) && 'bg-accent/5',
               )}
             >
+              {onToggleSelect && (
+                <td
+                  className="px-3 py-3"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <input
+                    type="checkbox"
+                    className="accent-accent"
+                    checked={selectedIds?.has(alert.id) ?? false}
+                    onChange={() => onToggleSelect(alert.id)}
+                    disabled={alert.alert_type !== 'log_analysis'}
+                    aria-label={`알림 ${alert.id} 선택`}
+                  />
+                </td>
+              )}
               <td className="text-text-secondary px-4 py-3 font-mono text-xs whitespace-nowrap">
                 #{alert.id}
               </td>
