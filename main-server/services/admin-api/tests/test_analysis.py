@@ -204,7 +204,7 @@ async def test_create_analysis_failure_inserts_alert_history(authed_client: Asyn
     failure_alerts = [a for a in alerts if a.get("error_message")]
     assert len(failure_alerts) >= 1
     assert failure_alerts[0]["error_message"] == "RuntimeError: LLM endpoint unreachable"
-    assert failure_alerts[0]["title"] == "LLM 분석 실패"
+    assert failure_alerts[0]["title"] == f"로그 이상 감지 - {SYSTEM_PAYLOAD['display_name']}"
 
 
 # ── alert_history.title 폴백 우선순위 ────────────────────────────────────────

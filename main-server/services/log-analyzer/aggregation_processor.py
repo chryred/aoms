@@ -102,6 +102,7 @@ TREND_THRESHOLDS: dict[tuple[str, str], dict] = {
     ("synapse_agent", "memory"):       {"key": "mem_used_pct",   "direction": "up",   "min_delta": 3.0,   "min_hours": 2, "label": "메모리 사용률 상승 추이"},
     ("synapse_agent", "web"):          {"key": "resp_avg_ms",    "direction": "up",   "min_delta": 300.0, "min_hours": 2, "label": "평균 응답시간 상승 추이"},
     ("synapse_agent", "disk"):         {"key": "disk_io_ms",     "direction": "up",   "min_delta": 50.0,  "min_hours": 2, "label": "디스크 I/O 지연 상승 추이"},
+    ("synapse_agent", "network"):      {"key": "net_rx_mb",      "direction": "up",   "min_delta": 20.0,  "min_hours": 2, "label": "네트워크 RX 트래픽 상승 추이"},
     ("db_exporter", "db_connections"): {"key": "conn_active_pct","direction": "up",   "min_delta": 5.0,   "min_hours": 2, "label": "DB 연결 사용률 상승 추이"},
     ("db_exporter", "db_cache"):       {"key": "cache_hit_rate", "direction": "down", "min_delta": 1.0,   "min_hours": 2, "label": "캐시 히트율 하락 추이"},
 }
@@ -179,10 +180,10 @@ def _detect_anomaly(
             if metrics.get("cpu_avg", 0) > 65:
                 return True, f"CPU avg {metrics['cpu_avg']}% > 65%"
         elif metric_group == "memory":
-            if metrics.get("mem_p95", 0) > 85:
-                return True, f"Memory p95 {metrics['mem_p95']}% > 85%"
-            if metrics.get("mem_used_pct", 0) > 80:
-                return True, f"Memory avg {metrics['mem_used_pct']}% > 80%"
+            if metrics.get("mem_p95", 0) > 80:
+                return True, f"Memory p95 {metrics['mem_p95']}% > 80%"
+            if metrics.get("mem_used_pct", 0) > 70:
+                return True, f"Memory avg {metrics['mem_used_pct']}% > 70%"
         elif metric_group == "log":
             if metrics.get("log_errors_err", 0) > 10:
                 return True, f"ERROR 로그 {int(metrics['log_errors_err'])}건 발생"
@@ -193,6 +194,15 @@ def _detect_anomaly(
                     return True, f"슬로우 요청 {slow_rate:.1f}% > 5%"
             if metrics.get("resp_avg_ms", 0) > 2000:
                 return True, f"평균 응답시간 {metrics['resp_avg_ms']}ms > 2000ms"
+        elif metric_group == "network":
+            _net_max_mb = float(os.getenv("PROM_NET_MAX_MBPS", "1000.0")) / 8
+            _net_thr = _net_max_mb * float(os.getenv("PROM_ALERT_NET_THRESHOLD_PCT", "70.0")) / 100
+            if metrics.get("net_rx_mb", 0) > _net_thr:
+                pct = metrics["net_rx_mb"] / _net_max_mb * 100
+                return True, f"네트워크 RX {metrics['net_rx_mb']:.1f} MB/s ({pct:.0f}%) > 대역폭 70%"
+            if metrics.get("net_tx_mb", 0) > _net_thr:
+                pct = metrics["net_tx_mb"] / _net_max_mb * 100
+                return True, f"네트워크 TX {metrics['net_tx_mb']:.1f} MB/s ({pct:.0f}%) > 대역폭 70%"
 
     elif collector_type == "db_exporter":
         if metrics.get("conn_active_pct", 0) > 80:

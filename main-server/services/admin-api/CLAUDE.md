@@ -351,10 +351,17 @@ log-analyzer → POST /api/v1/analysis
 | `COOKIE_SECURE` | `false` | HTTPS 환경에서 `true`로 설정 |
 | `PROMETHEUS_URL` | `""` | Prometheus HTTP API URL (설정 시 Phase F 자동 분석 활성화) |
 | `PROMETHEUS_ANALYZE_INTERVAL_SECONDS` | `300` | Prometheus 이상 감지 주기(초) |
-| `PROM_ALERT_CPU_THRESHOLD` | `85.0` | CPU 이상 감지 임계치(%) |
+| `PROM_ALERT_CPU_THRESHOLD` | `70.0` | CPU warning 임계치(%) |
+| `PROM_ALERT_CPU_CRITICAL` | `90.0` | CPU critical 판정 임계치(%) |
+| `PROM_ALERT_MEM_THRESHOLD` | `70.0` | 메모리 warning 임계치(%) |
+| `PROM_ALERT_MEM_CRITICAL` | `90.0` | 메모리 critical 판정 임계치(%) |
 | `PROM_ALERT_HTTP_SLOW_MS` | `3000.0` | HTTP 응답 지연 임계치(ms) |
-| `PROM_ALERT_MEM_THRESHOLD` | `85.0` | 메모리 이상 감지 임계치(%) |
 | `PROM_ALERT_LOG_ERROR_RATE` | `5.0` | 로그 에러 급증 임계치(건/분) |
+| `PROM_ALERT_DISK_IO_MS` | `200.0` | 디스크 I/O 응답시간 임계치(ms) |
+| `PROM_NET_MAX_MBPS` | `1000.0` | NIC 최대 속도 Mbps (1Gbps 기본). TX/RX 각각 독립 판정 |
+| `PROM_ALERT_NET_THRESHOLD_PCT` | `70.0` | 네트워크 대역폭 warning % |
+| `PROM_ALERT_NET_CRITICAL_PCT` | `90.0` | 네트워크 대역폭 critical % |
+| `PROM_ALERT_COOLDOWN_SECONDS` | `1800` | prometheus_analyzer host별 쿨다운(초, 기본 30분) |
 | `ENCRYPTION_KEY` | 없음 (필수) | 공통 Fernet 대칭키 — DB 비밀번호 및 챗봇 executor 자격증명 암호화에 사용. 미설정 시 `db_collection_loop` 비활성화. 생성: `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` |
 | `DB_COLLECT_INTERVAL_SECS` | `60` | DB 메트릭 수집 주기(초). 하위 호환: `ORACLE_COLLECT_INTERVAL_SECS`도 인식 |
 | `CHAT_ATTACHMENT_DIR` | `/var/lib/synapse-v/chat-attachments` | 챗봇 메시지 첨부 이미지 저장 루트 |

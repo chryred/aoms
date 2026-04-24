@@ -7,8 +7,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
-from models import AlertHistory, Incident, IncidentTimeline, LogAnalysisHistory, System
-from routes.alerts import _get_or_create_incident, _get_system_and_contacts
+from models import AlertHistory, IncidentTimeline, LogAnalysisHistory, System
+from routes.alerts import _get_system_and_contacts
+from services.incident_service import get_or_create_incident
 from routes.websocket import notify_log_analysis
 from schemas import LogAnalysisCreate, LogAnalysisOut
 from services.notification import TeamsNotifier
@@ -72,7 +73,7 @@ async def create_analysis(payload: LogAnalysisCreate, db: AsyncSession = Depends
         await db.flush()  # alert_record.id 발급 (Teams 카드 URL에 포함)
 
         # 인시던트 자동 그루핑
-        incident = await _get_or_create_incident(
+        incident = await get_or_create_incident(
             db, system.id, title=alert_record.title, severity=payload.severity
         )
         alert_record.incident_id = incident.id

@@ -1,7 +1,7 @@
 import json
 import logging
 import os
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -9,9 +9,10 @@ from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
-from models import AlertHistory, Incident, IncidentTimeline, System, Contact, SystemContact, User
+from models import AlertHistory, IncidentTimeline, System, Contact, SystemContact, User
 from schemas import AlertHistoryOut, AlertmanagerPayload, AcknowledgeRequest
 from services.cooldown import is_in_cooldown, make_alert_key, record_sent
+from services.incident_service import get_or_create_incident
 from services.notification import TeamsNotifier
 from .websocket import notify_alert_fired, notify_alert_resolved
 
@@ -24,42 +25,6 @@ router = APIRouter(prefix="/api/v1/alerts", tags=["alerts"])
 DEFAULT_WEBHOOK_URL = os.getenv("TEAMS_WEBHOOK_URL", "")
 notifier = TeamsNotifier(default_webhook_url=DEFAULT_WEBHOOK_URL)
 
-
-async def _get_or_create_incident(
-    db: AsyncSession,
-    system_id: int | None,
-    title: str,
-    severity: str,
-) -> Incident:
-    """30분 이내 같은 시스템의 열린 인시던트에 연결하거나 신규 생성."""
-    if system_id:
-        cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=30)
-        result = await db.execute(
-            select(Incident)
-            .where(Incident.system_id == system_id)
-            .where(Incident.status.in_(["open", "acknowledged", "investigating"]))
-            .where(Incident.detected_at >= cutoff)
-            .order_by(Incident.detected_at.desc())
-            .limit(1)
-        )
-        existing = result.scalar_one_or_none()
-        if existing:
-            if severity == "critical" and existing.severity != "critical":
-                existing.severity = "critical"
-            existing.alert_count = (existing.alert_count or 0) + 1
-            return existing
-
-    incident = Incident(
-        system_id=system_id,
-        title=title,
-        severity=severity,
-        status="open",
-        detected_at=datetime.now(timezone.utc).replace(tzinfo=None),
-        alert_count=1,
-    )
-    db.add(incident)
-    await db.flush()
-    return incident
 
 
 async def _get_system_and_contacts(db: AsyncSession, system_name: str):
@@ -232,7 +197,7 @@ async def receive_alertmanager(
         await db.flush()  # history.id 발급
 
         # 인시던트 자동 그루핑
-        incident = await _get_or_create_incident(db, system_id, title=summary, severity=severity)
+        incident = await get_or_create_incident(db, system_id, title=summary, severity=severity)
         history.incident_id = incident.id
         db.add(IncidentTimeline(
             incident_id=incident.id,
@@ -350,7 +315,7 @@ def _apply_alert_filters(stmt, *, system_id, severity, alert_type, resolved, ack
     if date_from:
         stmt = stmt.where(AlertHistory.created_at >= datetime.fromisoformat(date_from))
     if date_to:
-        stmt = stmt.where(AlertHistory.created_at <= datetime.fromisoformat(date_to))
+        stmt = stmt.where(AlertHistory.created_at < datetime.fromisoformat(date_to))
     return stmt
 
 

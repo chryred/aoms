@@ -3,7 +3,7 @@ Prometheus 기반 자동 이상 감지 + LLM 분석 + Teams 알림
 
 [분석 단위: host (물리 서버)]
 같은 host에 여러 에이전트가 설치된 경우 (계정별 WAS 에이전트):
-  - 인프라 메트릭(CPU/메모리): host 내 어느 agent에서 수집하든 통합
+  - 인프라 메트릭(CPU/메모리/네트워크/디스크): host 내 어느 agent에서 수집하든 통합
   - WAS별 로그/HTTP: system_name 별로 구분 수집
   → LLM이 "이 서버 CPU 급등 + jeussic 로그 에러 동시 발생" 교차 분석 가능
 
@@ -23,19 +23,47 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import AsyncSessionLocal
-from models import Contact, LlmAgentConfig, LogAnalysisHistory, System, SystemContact
+from models import AlertHistory, Contact, IncidentTimeline, LlmAgentConfig, LogAnalysisHistory, System, SystemContact
+from services.incident_service import get_or_create_incident
 from services.llm_client import call_llm_text, LLM_TYPE
 
 logger = logging.getLogger(__name__)
 
-_PROMETHEUS_URL = os.getenv("PROMETHEUS_URL", "").rstrip("/")
+_PROMETHEUS_URL   = os.getenv("PROMETHEUS_URL", "").rstrip("/")
 _ANALYZE_INTERVAL = int(os.getenv("PROMETHEUS_ANALYZE_INTERVAL_SECONDS", "300"))
 _TEAMS_WEBHOOK_URL = os.getenv("TEAMS_WEBHOOK_URL", "")
 
-_CPU_THRESHOLD = float(os.getenv("PROM_ALERT_CPU_THRESHOLD", "85.0"))
-_MEM_THRESHOLD = float(os.getenv("PROM_ALERT_MEM_THRESHOLD", "85.0"))
-_HTTP_SLOW_THRESHOLD_MS = float(os.getenv("PROM_ALERT_HTTP_SLOW_MS", "3000.0"))
-_LOG_ERROR_RATE_THRESHOLD = float(os.getenv("PROM_ALERT_LOG_ERROR_RATE", "5.0"))  # 건/분
+# ── 임계치 (warning) ──────────────────────────────────────────────────────────
+_CPU_THRESHOLD          = float(os.getenv("PROM_ALERT_CPU_THRESHOLD",         "70.0"))
+_MEM_THRESHOLD          = float(os.getenv("PROM_ALERT_MEM_THRESHOLD",         "70.0"))
+_HTTP_SLOW_THRESHOLD_MS = float(os.getenv("PROM_ALERT_HTTP_SLOW_MS",         "3000.0"))
+_LOG_ERROR_RATE_THRESHOLD = float(os.getenv("PROM_ALERT_LOG_ERROR_RATE",       "5.0"))   # 건/분
+_DISK_IO_MS_THRESHOLD   = float(os.getenv("PROM_ALERT_DISK_IO_MS",           "200.0"))   # ms
+
+# ── 네트워크 대역폭 ───────────────────────────────────────────────────────────
+# Full-duplex NIC: TX / RX 각각 독립 판정. 합산 사용 금지.
+_NET_MAX_MBPS        = float(os.getenv("PROM_NET_MAX_MBPS",               "1000.0"))  # NIC 속도 Mbps
+_NET_THRESHOLD_PCT   = float(os.getenv("PROM_ALERT_NET_THRESHOLD_PCT",     "70.0"))   # warning %
+_NET_CRITICAL_PCT    = float(os.getenv("PROM_ALERT_NET_CRITICAL_PCT",      "90.0"))   # critical %
+
+# ── 임계치 (critical) ─────────────────────────────────────────────────────────
+_CPU_CRITICAL = float(os.getenv("PROM_ALERT_CPU_CRITICAL", "90.0"))
+_MEM_CRITICAL = float(os.getenv("PROM_ALERT_MEM_CRITICAL", "90.0"))
+
+# ── 쿨다운 (인메모리, 재시작 시 초기화) ──────────────────────────────────────
+_COOLDOWN_SECONDS = int(os.getenv("PROM_ALERT_COOLDOWN_SECONDS", "1800"))  # 30분
+_host_cooldown: dict[str, datetime] = {}
+
+
+def _is_in_cooldown(host: str) -> bool:
+    last = _host_cooldown.get(host)
+    if not last:
+        return False
+    return (datetime.now(timezone.utc).replace(tzinfo=None) - last).total_seconds() < _COOLDOWN_SECONDS
+
+
+def _record_sent(host: str) -> None:
+    _host_cooldown[host] = datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 # ── 데이터 구조 ───────────────────────────────────────────────────────────────
@@ -48,10 +76,14 @@ class SystemMetrics:
     # 인프라 수집기가 이 system에 붙어 있는 경우에만 값 있음
     cpu_avg: Optional[float] = None
     mem_used_pct: Optional[float] = None
+    net_rx_mbps: Optional[float] = None
+    net_tx_mbps: Optional[float] = None
+    disk_io_ms: Optional[float] = None
     # WAS 로그/HTTP (log=true 인 에이전트)
-    log_error_rate: float = 0.0              # 건/분 (전체 레벨 합계)
-    log_by_level: dict = field(default_factory=dict)   # level → 건/분
-    http_slow: list = field(default_factory=list)      # [{"url": .., "ms": ..}]
+    log_error_rate: float = 0.0
+    log_by_level: dict = field(default_factory=dict)      # level → 건/분
+    http_slow: list = field(default_factory=list)          # [{"url": .., "ms": ..}]
+    http_req_rate: Optional[float] = None                  # req/분
     # 감지된 이상 설명 (LLM 프롬프트용)
     anomalies: list = field(default_factory=list)
 
@@ -73,7 +105,6 @@ class HostContext:
 
     @property
     def infra_cpu(self) -> Optional[tuple[str, float]]:
-        """CPU 수집 중인 (system_name, value) — 없으면 None"""
         for sm in self.systems.values():
             if sm.cpu_avg is not None:
                 return (sm.system_name, sm.cpu_avg)
@@ -81,10 +112,24 @@ class HostContext:
 
     @property
     def infra_mem(self) -> Optional[tuple[str, float]]:
-        """메모리 수집 중인 (system_name, value) — 없으면 None"""
         for sm in self.systems.values():
             if sm.mem_used_pct is not None:
                 return (sm.system_name, sm.mem_used_pct)
+        return None
+
+    @property
+    def infra_net(self) -> Optional[tuple[str, float, float]]:
+        """(system_name, rx_mbps, tx_mbps) — 없으면 None"""
+        for sm in self.systems.values():
+            if sm.net_rx_mbps is not None or sm.net_tx_mbps is not None:
+                return (sm.system_name, sm.net_rx_mbps or 0.0, sm.net_tx_mbps or 0.0)
+        return None
+
+    @property
+    def infra_disk(self) -> Optional[tuple[str, float]]:
+        for sm in self.systems.values():
+            if sm.disk_io_ms is not None:
+                return (sm.system_name, sm.disk_io_ms)
         return None
 
 
@@ -124,6 +169,7 @@ async def _get_system_info(db: AsyncSession, system_name: str) -> Optional[dict]
     )
     contacts = contacts_result.scalars().all()
     return {
+        "id": system.id,
         "system_name": system.system_name,
         "display_name": system.display_name,
         "teams_webhook_url": system.teams_webhook_url,
@@ -151,9 +197,9 @@ async def _build_host_contexts() -> dict[str, HostContext]:
     )
     for r in cpu_results:
         host = r["metric"].get("host", "")
-        sn = r["metric"].get("system_name", "unknown")
-        dn = r["metric"].get("display_name", sn)
-        val = float(r["value"][1])
+        sn   = r["metric"].get("system_name", "unknown")
+        dn   = r["metric"].get("display_name", sn)
+        val  = float(r["value"][1])
         if not host:
             continue
         sm = _get_host(host).get_or_create(sn)
@@ -162,16 +208,16 @@ async def _build_host_contexts() -> dict[str, HostContext]:
         if val > _CPU_THRESHOLD:
             sm.anomalies.append(f"CPU 평균 {val:.1f}% (임계치 {_CPU_THRESHOLD}%)")
 
-    # 2. 메모리 사용률 (used / total * 100)
+    # 2. 메모리 사용률
     mem_results = await _query_prometheus(
         "(avg by (host, system_name, display_name) (memory_used_bytes{type=\"used\"})"
         " / avg by (host, system_name, display_name) (memory_used_bytes{type=\"total\"})) * 100"
     )
     for r in mem_results:
         host = r["metric"].get("host", "")
-        sn = r["metric"].get("system_name", "unknown")
-        dn = r["metric"].get("display_name", sn)
-        val = float(r["value"][1])
+        sn   = r["metric"].get("system_name", "unknown")
+        dn   = r["metric"].get("display_name", sn)
+        val  = float(r["value"][1])
         if not host:
             continue
         sm = _get_host(host).get_or_create(sn)
@@ -186,11 +232,11 @@ async def _build_host_contexts() -> dict[str, HostContext]:
         " (rate(log_error_total[5m])) * 60"
     )
     for r in log_results:
-        host = r["metric"].get("host", "")
-        sn = r["metric"].get("system_name", "unknown")
-        dn = r["metric"].get("display_name", sn)
+        host  = r["metric"].get("host", "")
+        sn    = r["metric"].get("system_name", "unknown")
+        dn    = r["metric"].get("display_name", sn)
         level = r["metric"].get("level", "UNKNOWN")
-        val = float(r["value"][1])
+        val   = float(r["value"][1])
         if not host:
             continue
         sm = _get_host(host).get_or_create(sn)
@@ -198,7 +244,6 @@ async def _build_host_contexts() -> dict[str, HostContext]:
         sm.log_by_level[level] = sm.log_by_level.get(level, 0.0) + val
         sm.log_error_rate += val
 
-    # 로그 이상 여부 판정 (레벨 합계 기준)
     for hc in hosts.values():
         for sm in hc.systems.values():
             if sm.log_error_rate > _LOG_ERROR_RATE_THRESHOLD:
@@ -218,20 +263,113 @@ async def _build_host_contexts() -> dict[str, HostContext]:
     )
     for r in http_results:
         host = r["metric"].get("host", "")
-        sn = r["metric"].get("system_name", "unknown")
-        dn = r["metric"].get("display_name", sn)
-        url = r["metric"].get("url_pattern", "?")
-        val = float(r["value"][1])
+        sn   = r["metric"].get("system_name", "unknown")
+        dn   = r["metric"].get("display_name", sn)
+        url  = r["metric"].get("url_pattern", "?")
+        val  = float(r["value"][1])
         if not host:
             continue
         sm = _get_host(host).get_or_create(sn)
         sm.display_name = sm.display_name or dn
         sm.http_slow.append({"url": url, "ms": val})
-        sm.anomalies.append(
-            f"HTTP 지연 {url} {val:.0f}ms (임계치 {_HTTP_SLOW_THRESHOLD_MS}ms)"
-        )
+        sm.anomalies.append(f"HTTP 지연 {url} {val:.0f}ms (임계치 {_HTTP_SLOW_THRESHOLD_MS}ms)")
+
+    # 5. 네트워크 RX (MB/s) — Full-duplex TX/RX 각각 독립 판정
+    _net_threshold_mbps = _NET_MAX_MBPS / 8 * _NET_THRESHOLD_PCT / 100
+    net_rx_results = await _query_prometheus(
+        'avg by (host, system_name, display_name)'
+        ' (rate(network_bytes_total{direction="rx"}[5m])) / 1048576'
+    )
+    for r in net_rx_results:
+        host = r["metric"].get("host", "")
+        sn   = r["metric"].get("system_name", "unknown")
+        dn   = r["metric"].get("display_name", sn)
+        val  = float(r["value"][1])
+        if not host:
+            continue
+        sm = _get_host(host).get_or_create(sn)
+        sm.display_name = sm.display_name or dn
+        sm.net_rx_mbps = val
+        if val > _net_threshold_mbps:
+            sm.anomalies.append(
+                f"네트워크 RX {val:.1f} MB/s"
+                f" (대역폭 {val / (_NET_MAX_MBPS / 8) * 100:.0f}%,"
+                f" 임계 {_NET_THRESHOLD_PCT}%)"
+            )
+
+    # 6. 네트워크 TX (MB/s)
+    net_tx_results = await _query_prometheus(
+        'avg by (host, system_name, display_name)'
+        ' (rate(network_bytes_total{direction="tx"}[5m])) / 1048576'
+    )
+    for r in net_tx_results:
+        host = r["metric"].get("host", "")
+        sn   = r["metric"].get("system_name", "unknown")
+        dn   = r["metric"].get("display_name", sn)
+        val  = float(r["value"][1])
+        if not host:
+            continue
+        sm = _get_host(host).get_or_create(sn)
+        sm.display_name = sm.display_name or dn
+        sm.net_tx_mbps = val
+        if val > _net_threshold_mbps:
+            sm.anomalies.append(
+                f"네트워크 TX {val:.1f} MB/s"
+                f" (대역폭 {val / (_NET_MAX_MBPS / 8) * 100:.0f}%,"
+                f" 임계 {_NET_THRESHOLD_PCT}%)"
+            )
+
+    # 7. 디스크 I/O 응답시간 (ms)
+    disk_io_results = await _query_prometheus(
+        'avg by (host, system_name, display_name) (disk_io_time_ms)'
+    )
+    for r in disk_io_results:
+        host = r["metric"].get("host", "")
+        sn   = r["metric"].get("system_name", "unknown")
+        dn   = r["metric"].get("display_name", sn)
+        val  = float(r["value"][1])
+        if not host:
+            continue
+        sm = _get_host(host).get_or_create(sn)
+        sm.display_name = sm.display_name or dn
+        sm.disk_io_ms = val
+        if val > _DISK_IO_MS_THRESHOLD:
+            sm.anomalies.append(f"디스크 I/O {val:.0f}ms (임계치 {_DISK_IO_MS_THRESHOLD}ms)")
+
+    # 8. HTTP 요청 수 (req/분) — 이상 감지는 run_analysis_cycle()에서 이전 주기 비교
+    http_req_results = await _query_prometheus(
+        'sum by (host, system_name, display_name)'
+        ' (rate(http_requests_total[5m])) * 60'
+    )
+    for r in http_req_results:
+        host = r["metric"].get("host", "")
+        sn   = r["metric"].get("system_name", "unknown")
+        dn   = r["metric"].get("display_name", sn)
+        val  = float(r["value"][1])
+        if not host:
+            continue
+        sm = _get_host(host).get_or_create(sn)
+        sm.display_name = sm.display_name or dn
+        sm.http_req_rate = val
 
     return hosts
+
+
+# ── 심각도 판정 ───────────────────────────────────────────────────────────────
+
+def _calc_severity(hc: HostContext) -> str:
+    """이상 수치 기준으로 critical / warning 판정"""
+    _net_critical_mbps = _NET_MAX_MBPS / 8 * _NET_CRITICAL_PCT / 100
+    for sm in hc.systems.values():
+        if sm.cpu_avg is not None and sm.cpu_avg > _CPU_CRITICAL:
+            return "critical"
+        if sm.mem_used_pct is not None and sm.mem_used_pct > _MEM_CRITICAL:
+            return "critical"
+        if sm.net_rx_mbps is not None and sm.net_rx_mbps > _net_critical_mbps:
+            return "critical"
+        if sm.net_tx_mbps is not None and sm.net_tx_mbps > _net_critical_mbps:
+            return "critical"
+    return "warning"
 
 
 # ── LLM 프롬프트 구성 ─────────────────────────────────────────────────────────
@@ -252,6 +390,22 @@ def _build_llm_prompt(hc: HostContext, system_infos: dict[str, dict]) -> str:
         dn = hc.systems[sn].display_name or sn
         flag = " ⚠️ 임계치 초과" if val > _MEM_THRESHOLD else ""
         infra_lines.append(f"  메모리 사용률: {val:.1f}%{flag} (수집: {dn})")
+    if hc.infra_net:
+        sn, rx, tx = hc.infra_net
+        net_max_mbps = _NET_MAX_MBPS / 8
+        rx_pct = rx / net_max_mbps * 100
+        tx_pct = tx / net_max_mbps * 100
+        _net_thr = _net_threshold_mbps = _NET_MAX_MBPS / 8 * _NET_THRESHOLD_PCT / 100
+        rx_flag = " ⚠️" if rx > _net_thr else ""
+        tx_flag = " ⚠️" if tx > _net_thr else ""
+        infra_lines.append(
+            f"  네트워크: RX {rx:.1f} MB/s ({rx_pct:.0f}%){rx_flag}"
+            f" / TX {tx:.1f} MB/s ({tx_pct:.0f}%){tx_flag}"
+        )
+    if hc.infra_disk:
+        sn, val = hc.infra_disk
+        flag = " ⚠️ 임계치 초과" if val > _DISK_IO_MS_THRESHOLD else ""
+        infra_lines.append(f"  디스크 I/O: {val:.0f}ms{flag}")
 
     if infra_lines:
         lines.append("[인프라 메트릭]")
@@ -264,6 +418,8 @@ def _build_llm_prompt(hc: HostContext, system_infos: dict[str, dict]) -> str:
         dn = sm.display_name or sn
         label = f"{dn} ({sn})"
         status_parts = []
+        if sm.http_req_rate is not None:
+            status_parts.append(f"HTTP 요청 {sm.http_req_rate:.0f}건/분")
         if sm.log_error_rate > 0:
             level_str = " / ".join(
                 f"{lv} {r:.1f}건/분"
@@ -287,7 +443,7 @@ def _build_llm_prompt(hc: HostContext, system_infos: dict[str, dict]) -> str:
     ]
     lines.append(
         "위 현황을 종합하여 다음을 분석하세요 (한국어, 5문장 이내):\n"
-        "1. 인프라 자원(CPU/메모리)과 각 시스템 로그 에러의 연관성\n"
+        "1. 인프라 자원(CPU/메모리/네트워크/디스크)과 각 시스템 로그 에러의 연관성\n"
         "2. 어느 시스템이 자원 부하의 원인일 가능성이 높은지\n"
         "3. 운영팀이 즉시 확인해야 할 조치사항"
     )
@@ -299,12 +455,10 @@ def _build_llm_prompt(hc: HostContext, system_infos: dict[str, dict]) -> str:
 
 # ── Teams 알림 전송 ───────────────────────────────────────────────────────────
 
-async def _notify_host(hc: HostContext, analysis: str, db: AsyncSession) -> None:
+async def _notify_host(hc: HostContext, analysis: str, severity: str, db: AsyncSession) -> None:
     """host 내 이상 시스템의 담당자에게 통합 알림 발송"""
-    # 이상이 있는 system_name 목록
     anomalous_systems = [sn for sn, sm in hc.systems.items() if sm.anomalies]
 
-    # 담당자/webhook 수집 (이상 시스템 우선, 중복 제거)
     all_contacts: list[dict] = []
     webhook_url = ""
     system_labels: list[str] = []
@@ -327,7 +481,8 @@ async def _notify_host(hc: HostContext, analysis: str, db: AsyncSession) -> None
         logger.info("Teams webhook URL 없음 — host %s 분석 결과만 로깅:\n%s", hc.host, analysis)
         return
 
-    title = f"[{hc.host}] 이상 감지 — {', '.join(system_labels)}"
+    severity_color = "Attention" if severity == "critical" else "Warning"
+    title = f"[{hc.host}] {'🔴' if severity == 'critical' else '🟡'} 이상 감지 — {', '.join(system_labels)}"
     mention_str = ""
     if all_contacts:
         mention_str = " ".join(
@@ -351,7 +506,7 @@ async def _notify_host(hc: HostContext, analysis: str, db: AsyncSession) -> None
                             "text": title,
                             "weight": "Bolder",
                             "size": "Medium",
-                            "color": "Attention",
+                            "color": severity_color,
                             "wrap": True,
                         },
                         {
@@ -382,7 +537,7 @@ async def _notify_host(hc: HostContext, analysis: str, db: AsyncSession) -> None
             if resp.status_code != 200:
                 logger.warning("Teams webhook responded %s for host %s", resp.status_code, hc.host)
             else:
-                logger.info("Teams 알림 발송 완료 — host=%s systems=%s", hc.host, anomalous_systems)
+                logger.info("Teams 알림 발송 완료 — host=%s systems=%s severity=%s", hc.host, anomalous_systems, severity)
     except Exception as e:
         logger.warning("Teams send failed for host %s: %s", hc.host, e)
 
@@ -401,32 +556,35 @@ async def run_analysis_cycle() -> None:
         return
 
     async with AsyncSessionLocal() as db:
+        # 업무영역별 agent_code 조회 (한 번만)
+        _cfg_result = await db.execute(
+            select(LlmAgentConfig.agent_code)
+            .where(LlmAgentConfig.area_code == "infra_analysis", LlmAgentConfig.is_active == True)
+        )
+        infra_agent_code = _cfg_result.scalar_one_or_none() or ""
+
         for host, hc in anomalous_hosts.items():
-            # 업무영역별 agent_code 조회
-            _cfg_result = await db.execute(
-                select(LlmAgentConfig.agent_code)
-                .where(LlmAgentConfig.area_code == "infra_analysis", LlmAgentConfig.is_active == True)
-            )
-            _infra_agent_code = _cfg_result.scalar_one_or_none() or ""
+            # 쿨다운 체크 — 30분 이내 이미 발송한 host 스킵
+            if _is_in_cooldown(host):
+                logger.debug("prometheus_analyzer 쿨다운 중 — host=%s", host)
+                continue
+
+            severity = _calc_severity(hc)
 
             # LLM 분석
-            system_infos = {}
+            system_infos: dict[str, dict] = {}
             for sn in hc.systems:
                 info = await _get_system_info(db, sn)
                 if info:
                     system_infos[sn] = info
 
             prompt = _build_llm_prompt(hc, system_infos)
-            logger.info("Anomaly detected — host=%s systems=%s", host, list(hc.systems.keys()))
+            logger.info("Anomaly detected — host=%s severity=%s systems=%s", host, severity, list(hc.systems.keys()))
 
-            # LLM 호출 — services.llm_client Strategy로 일원화 (LLM_TYPE 기반)
             analysis: Optional[str] = None
             llm_error: Optional[str] = None
             try:
-                analysis = await call_llm_text(
-                    prompt, max_tokens=400,
-                    agent_code=_infra_agent_code,
-                )
+                analysis = await call_llm_text(prompt, max_tokens=400, agent_code=infra_agent_code)
                 if not analysis:
                     llm_error = "LLM empty response"
             except Exception as e:
@@ -434,7 +592,6 @@ async def run_analysis_cycle() -> None:
                 logger.warning("LLM call failed for host %s: %s", host, e)
 
             if not analysis:
-                # LLM 실패 시 이상 목록만 나열 (Teams 알림 fallback 유지)
                 lines = [f"[{host}] 다음 이상이 감지되었습니다. 즉시 확인하세요."]
                 for sn, sm in hc.systems.items():
                     if sm.anomalies:
@@ -443,29 +600,59 @@ async def run_analysis_cycle() -> None:
                             lines.append(f"- {dn} ({sn}): {a}")
                 analysis = "\n".join(lines)
 
-            await _notify_host(hc, analysis, db)
+            await _notify_host(hc, analysis, severity, db)
+            _record_sent(host)
 
-            # 이상 시스템별 LogAnalysisHistory 기록 (성공/실패 모두 누적)
+            # 이상 시스템별 AlertHistory + LogAnalysisHistory 저장
             for sn, sm in hc.systems.items():
                 if not sm.anomalies:
                     continue
                 info = system_infos.get(sn)
                 if not info:
                     continue
+
+                anomaly_title = f"[prometheus_analyzer] {', '.join(sm.anomalies[:2])}"
+
+                # ① AlertHistory (인시던트 그루핑 포함)
+                history = AlertHistory(
+                    system_id=info["id"],
+                    alert_type="metric",
+                    severity=severity,
+                    alertname="prometheus_analyzer_anomaly",
+                    title=anomaly_title,
+                    description=analysis[:500],
+                    instance_role="prometheus_analyzer",
+                    host=host,
+                    anomaly_type="new",
+                )
+                db.add(history)
+                await db.flush()
+
+                incident = await get_or_create_incident(
+                    db, info["id"], title=anomaly_title, severity=severity
+                )
+                history.incident_id = incident.id
+                db.add(IncidentTimeline(
+                    incident_id=incident.id,
+                    event_type="alert_added",
+                    description=f"[{severity.upper()}] prometheus_analyzer: {', '.join(sm.anomalies)}",
+                    actor_name="prometheus_analyzer",
+                ))
+
+                # ② LogAnalysisHistory (LLM 분석 내용)
                 db.add(LogAnalysisHistory(
                     system_id=info["id"],
                     instance_role="prometheus_analyzer",
                     log_content=analysis[:10000],
                     analysis_result=analysis,
-                    severity="info",
-                    root_cause=(
-                        "LLM 분석 실패 — 이상 목록만 나열" if llm_error
-                        else analysis[:500]
-                    ),
+                    severity=severity,
+                    root_cause="LLM 분석 실패 — 이상 목록만 나열" if llm_error else analysis[:500],
                     recommendation="",
-                    error_message=llm_error,  # None=성공, 값=실패 사유
+                    error_message=llm_error,
                     model_used=LLM_TYPE,
+                    incident_id=incident.id,
                 ))
+
             await db.commit()
 
 
@@ -476,9 +663,8 @@ async def run_prometheus_analyzer_loop() -> None:
         return
 
     logger.info(
-        "prometheus_analyzer 시작 (interval=%ds, url=%s)",
-        _ANALYZE_INTERVAL,
-        _PROMETHEUS_URL,
+        "prometheus_analyzer 시작 (interval=%ds, cpu_thr=%.0f%%, mem_thr=%.0f%%, net_max=%.0fMbps, cooldown=%ds)",
+        _ANALYZE_INTERVAL, _CPU_THRESHOLD, _MEM_THRESHOLD, _NET_MAX_MBPS, _COOLDOWN_SECONDS,
     )
     while True:
         try:
