@@ -7,11 +7,14 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
 	"synapse-cli/auth"
 )
+
+const defaultTailLines = 300
 
 const askHelp = `synapse ask — 단방향 LLM 질의
 
@@ -22,6 +25,8 @@ const askHelp = `synapse ask — 단방향 LLM 질의
 옵션:
   --system <name>   시스템 이름 지정 (기본: 로그인 시 설정한 시스템)
   --area <code>     분석 영역 (기본: cli_query)
+  --file <path>     파일 내용을 프롬프트에 포함 (기본: 마지막 300줄)
+  --tail <n>        --file 사용 시 마지막 N줄 읽기 (기본: 300)
   --help, -h        이 도움말 출력`
 
 func RunAsk(args []string) {
@@ -45,6 +50,8 @@ func RunAsk(args []string) {
 	systemName := cfg.SystemName
 	area := "cli_query"
 	var promptParts []string
+	var filePath string
+	tailLines := defaultTailLines
 
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
@@ -57,6 +64,18 @@ func RunAsk(args []string) {
 			if i+1 < len(args) {
 				i++
 				area = args[i]
+			}
+		case "--file":
+			if i+1 < len(args) {
+				i++
+				filePath = args[i]
+			}
+		case "--tail":
+			if i+1 < len(args) {
+				i++
+				if n, err := strconv.Atoi(args[i]); err == nil && n > 0 {
+					tailLines = n
+				}
 			}
 		default:
 			promptParts = append(promptParts, args[i])
@@ -75,17 +94,40 @@ func RunAsk(args []string) {
 		stdinText = strings.TrimSpace(string(data))
 	}
 
-	userPrompt := strings.TrimSpace(strings.Join(promptParts, " "))
-	if stdinText != "" && userPrompt != "" {
-		userPrompt = stdinText + "\n\n" + userPrompt
-	} else if stdinText != "" {
-		userPrompt = stdinText
+	fileText := ""
+	if filePath != "" {
+		data, err := os.ReadFile(filePath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "파일 읽기 오류: %v\n", err)
+			os.Exit(1)
+		}
+		lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+		total := len(lines)
+		if total > tailLines {
+			fmt.Fprintf(os.Stderr,
+				"[경고] 파일이 %d줄입니다. 마지막 %d줄만 분석합니다. (전체 분석: --tail %d)\n",
+				total, tailLines, total)
+			lines = lines[total-tailLines:]
+		}
+		fileText = strings.Join(lines, "\n")
 	}
 
-	if userPrompt == "" {
+	var parts []string
+	if fileText != "" {
+		parts = append(parts, fileText)
+	}
+	if stdinText != "" {
+		parts = append(parts, stdinText)
+	}
+	if q := strings.TrimSpace(strings.Join(promptParts, " ")); q != "" {
+		parts = append(parts, q)
+	}
+
+	if len(parts) == 0 {
 		fmt.Fprintln(os.Stderr, "질문을 입력해주세요.")
 		os.Exit(1)
 	}
+	userPrompt := strings.Join(parts, "\n\n")
 
 	body, _ := json.Marshal(map[string]string{
 		"prompt":      userPrompt,

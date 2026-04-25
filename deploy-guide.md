@@ -16,11 +16,12 @@
 3. [Server A 배포 (Main 서버)](#3-server-a-배포-main-서버)
    - [3-1. 인프라 서비스 (Prometheus, Alertmanager, Grafana, PostgreSQL, Tempo, OTel)](#3-1-인프라-서비스)
    - [3-2. 애플리케이션 서비스 (admin-api, log-analyzer, frontend)](#3-2-애플리케이션-서비스)
-   - [3-3. n8n 워크플로우 자동화](#3-3-n8n-워크플로우-자동화)
+   - [3-3. n8n (미사용, 예비 컨테이너)](#3-3-n8n-미사용-예비-컨테이너)
 4. [모니터링 에이전트 배포 (대상 서버)](#4-모니터링-에이전트-배포-대상-서버)
-5. [배포 후 검증](#5-배포-후-검증)
-6. [롤백 절차](#6-롤백-절차)
-7. [트러블슈팅 체크리스트](#7-트러블슈팅-체크리스트)
+5. [Synapse CLI 배포 (운영 담당자 서버)](#5-synapse-cli-배포-운영-담당자-서버)
+6. [배포 후 검증](#6-배포-후-검증)
+7. [롤백 절차](#7-롤백-절차)
+8. [트러블슈팅 체크리스트](#8-트러블슈팅-체크리스트)
 
 ---
 
@@ -96,15 +97,22 @@ file dist/agent-v   # "statically linked" 여야 함
 
 ### 1-3. Docker 이미지 빌드
 
+admin-api Dockerfile은 **멀티스테이지 빌드**입니다.  
+- Stage 1: Go로 synapse CLI 바이너리를 빌드 (`synapse-cli/` 디렉터리)
+- Stage 2: Python admin-api 이미지에 agent-v + synapse CLI 번들
+
+**별도 CLI 빌드 없이** `build-images.sh` 한 번으로 모두 처리됩니다.
+
 ```bash
 cd /path/to/aoms
 
 # 전체 빌드 (admin-api, log-analyzer, frontend)
+# 빌드 컨텍스트는 프로젝트 루트 (build-images.sh가 자동 처리)
 ./build-images.sh
 
 # 결과물 확인
 ls -lh main-server/*.tar.gz
-# main-server/synapse-admin-api-1.0.tar.gz
+# main-server/synapse-admin-api-1.0.tar.gz  (agent-v + synapse CLI 포함)
 # main-server/synapse-log-analyzer-1.0.tar.gz
 # main-server/synapse-frontend-1.0.tar.gz
 ```
@@ -149,8 +157,9 @@ scp aoms-offline/docker-images/qdrant-v1.17.0.tar.gz   $SERVER_B:$REMOTE_DIR/ima
 scp sub-server/docker-compose.yml   $SERVER_B:$REMOTE_DIR/
 ```
 
-> **synapse_agent 별도 전송 불필요**: 에이전트 바이너리는 `synapse-admin-api:1.0` 이미지에 번들되어 있습니다.  
-> 대상 서버 배포는 admin-api의 `/api/v1/agents/install` API로 자동화됩니다.
+> **synapse_agent 및 synapse CLI 별도 전송 불필요**: 두 바이너리 모두 `synapse-admin-api:1.0` 이미지에 번들되어 있습니다.  
+> - `synapse_agent` 배포: admin-api의 `/api/v1/agents/install` API로 자동화
+> - `synapse CLI` 배포: 프론트엔드 `/admin/synapse-cli` UI로 자동화 (섹션 5 참조)
 
 ---
 
@@ -344,6 +353,10 @@ docker load < synapse-frontend-1.0.tar.gz
 docker images | grep synapse
 ```
 
+> `synapse-admin-api:1.0`에는 세 바이너리가 번들됩니다:  
+> - `/app/bin/agent-v` — synapse_agent (Rust musl 정적 바이너리)  
+> - `/app/bin/synapse` — synapse CLI (Go 정적 바이너리, 멀티스테이지 빌드)
+
 #### 서비스 시작 순서
 
 ```bash
@@ -385,9 +398,23 @@ docker exec -it synapse-admin-api \
 docker logs synapse-admin-api 2>&1 | grep -E "admin|user|created" | tail -5
 ```
 
+#### LLM 에이전트 설정 (최초 배포 1회만)
+
+init.sql에서 기본 LLM 영역 설정이 자동 삽입되지만, **DevX `agent_code` 값은 실제 운영 환경에 맞게 업데이트**해야 합니다.
+
+```bash
+# 프론트엔드 LLM 설정 페이지에서 수정
+# http://192.168.10.5:3001/admin/llm-config (admin 로그인 필요)
+```
+
+| 수정 항목 | 내용 |
+|---|---|
+| `agent_code` | init.sql 기본값 `custom_8f9ee032e5594452bff5602c03e966eb`를 실제 DevX 에이전트 코드로 교체 |
+| `cli_query` 영역 추가 (선택) | synapse CLI `ask` 명령에서 사용할 DevX 에이전트 코드 등록. 등록하지 않으면 `--area` 옵션에 DevX 에이전트 코드를 직접 지정해야 함 |
+
 ---
 
-### 3-3. n8n (현재 미사용, 컨테이너만 예비 유지)
+### 3-3. n8n (미사용, 예비 컨테이너)
 
 > **중요**: 모든 워크플로우(WF1~WF12)는 log-analyzer 스케줄러 / admin-api 직접 호출 / frontend 직결로 이관·제거되었습니다 (ADR-006).
 > WF4(일일 장애 리포트)·WF5(반복 이상 에스컬레이션)는 보류 상태로 `n8n-workflows/` 디렉터리에 JSON만 보존되어 있으며,
@@ -528,7 +555,107 @@ curl -su "${PROM_USER}:${PROM_PASS}" \
 
 ---
 
-## 5. 배포 후 검증
+## 5. Synapse CLI 배포 (운영 담당자 서버)
+
+synapse CLI는 운영 서버 담당자가 **터미널에서 직접 LLM에 질의**하는 Go CLI 도구입니다.  
+`synapse-admin-api:1.0` 이미지 내 `/app/bin/synapse`에 번들되어 있으며,  
+프론트엔드 UI를 통해 SSH/SCP로 대상 서버에 배포됩니다.
+
+### 5-1. CLI 배포 방식 개요
+
+```
+[admin-api 이미지 /app/bin/synapse]
+        ↓ SSH/SCP (SSH 세션 등록 후 자동)
+[운영 담당자 서버 ~/bin/synapse]
+        ↓ synapse login
+[config: ~/bin/.synapse_config.json]
+```
+
+### 5-2. 프론트엔드 UI로 배포
+
+1. **프론트엔드 접속**: `http://192.168.10.5:3001/admin/synapse-cli` (admin 로그인 필요)
+
+2. **SSH 세션 등록**: 우상단 "SSH 연결" 버튼 → 대상 서버 정보 입력
+   - 호스트 IP, 포트(기본: 22), 사용자명, 비밀번호
+
+3. **CLI 서버 등록**: "CLI 서버 추가" → 아래 항목 입력
+
+   | 필드 | 설명 | 예시 |
+   |---|---|---|
+   | 시스템 | 등록된 시스템 선택 | `customer-experience` |
+   | 호스트 | 대상 서버 표시명 | `cx-was01` |
+   | 설치 경로 | 바이너리 설치 위치 | `~/bin/synapse` |
+
+4. **설치 실행**: 목록에서 해당 서버의 "배포" 버튼 클릭 → 실시간 로그로 진행 상황 확인
+
+5. **완료 확인**: 설치 완료 후 대상 서버에서:
+
+   ```bash
+   ~/bin/synapse --version
+   ```
+
+### 5-3. CLI 초기 설정 (담당자 서버에서 1회)
+
+배포 완료 후 운영 담당자가 대상 서버에서 직접 실행합니다.
+
+```bash
+# admin-api 서버 주소 및 계정 설정
+~/bin/synapse login
+
+# 프롬프트 안내:
+# Server URL: http://192.168.10.5:8080
+# Email: gildong@company.com
+# Password: ****
+# Default system: customer-experience
+# → config 저장: ~/bin/.synapse_config.json
+```
+
+> **config 파일 위치**: 바이너리 옆 `.synapse_config.json` (홈 디렉터리 아님)  
+> Docker 컨테이너 내 UID 불일치로 인한 `permission denied` 방지를 위해 바이너리 옆에 저장합니다.
+
+### 5-4. CLI 사용 방법
+
+```bash
+# 단방향 질의 — 현재 시스템 알림 컨텍스트 포함
+~/bin/synapse ask "현재 CPU 사용률이 왜 높나요?"
+
+# 다른 시스템 컨텍스트로 질의
+~/bin/synapse ask --system oms "주문 처리 지연 원인을 분석해줘"
+
+# 로그 파일 첨부 (기본: 마지막 300줄)
+~/bin/synapse ask --file /apps/logs/JeusServer.log "에러 패턴을 분석해줘"
+
+# 로그 파일 마지막 N줄 지정
+~/bin/synapse ask --file app.log --tail 500 "분석해줘"
+
+# stdin 파이프 지원
+tail -200 /apps/logs/app.log | ~/bin/synapse ask "에러 원인을 찾아줘"
+
+# 대화형 모드 (세션 유지)
+~/bin/synapse chat
+
+# 새 세션 강제 시작
+~/bin/synapse chat --new
+```
+
+> **DevX 사용 시 `--area` 옵션**: 기본값은 `cli_query`. admin-api `llm_agent_configs` 테이블에  
+> `cli_query` area_code가 등록되어 있지 않으면 `/admin/llm-config`에서 등록하거나,  
+> `--area <실제_DevX_agent_code>` 형식으로 직접 지정합니다.
+>
+> ```bash
+> ~/bin/synapse ask --area "custom_8f9ee032e5594452bff5602c03e966eb" "분석해줘"
+> ```
+
+### 5-5. CLI 재배포 (업데이트)
+
+admin-api 이미지 재배포 후 CLI 바이너리도 업데이트해야 하면:
+
+1. 프론트엔드 `/admin/synapse-cli` 접속
+2. 해당 서버의 "배포" 버튼 재실행 (기존 config 파일은 보존됨)
+
+---
+
+## 6. 배포 후 검증
 
 Server A에서 `verify-deploy.sh`를 실행합니다.
 
@@ -556,7 +683,8 @@ chmod +x /app/synapse/verify-deploy.sh
 | 8. Prometheus 스크레이프 상태 | 타겟 UP 비율, Remote Write Receiver 활성화 |
 | 9. Tempo / OTel Collector 상태 | 내부 health endpoint 확인 |
 | 10. n8n 상태 확인 | healthz → ok |
-| 11. Server B 확인 (선택) | Qdrant 컬렉션 4종 (/collections) — ADR-011/012 이후 Ollama 없음 |
+| 11. admin-api 번들 바이너리 확인 | /app/bin/agent-v, /app/bin/synapse 존재 여부 |
+| 12. Server B 확인 (선택) | Qdrant 컬렉션 4종 (/collections) — ADR-011/012 이후 Ollama 없음 |
 
 **모든 검증 통과 후 최종 확인:**
 
@@ -574,11 +702,15 @@ curl -s http://192.168.10.6:6333/collections | python3 -m json.tool
 # Qdrant 집계 컬렉션 초기화 (최초 1회 — metric_hourly_patterns, aggregation_summaries 생성)
 curl -s -X POST http://localhost:8000/aggregation/collections/setup \
   -H "Content-Type: application/json" | python3 -m json.tool
+
+# synapse CLI 번들 확인 (admin-api 이미지 내)
+docker exec synapse-admin-api ls -lh /app/bin/
+# → agent-v, synapse 두 파일 모두 있어야 함
 ```
 
 ---
 
-## 6. 롤백 절차
+## 7. 롤백 절차
 
 ### 애플리케이션 서비스 롤백
 
@@ -616,7 +748,7 @@ docker compose up -d
 
 ---
 
-## 7. 트러블슈팅 체크리스트
+## 8. 트러블슈팅 체크리스트
 
 ### 서비스 로그 확인
 
@@ -655,6 +787,11 @@ cd /app/synapse && docker compose logs --tail 30
 | 암호화 키 오류 (DB 모니터링 / 챗봇 executor) | `ENCRYPTION_KEY` 미설정 | Fernet 키 생성 후 `.env`에 추가, 컨테이너 재시작 |
 | Tempo 컨테이너 기동 실패 | tempo.yml 설정 파일 없음 | `/app/synapse/configs/tempo/tempo.yml` 파일 존재 확인 |
 | OTel Collector 기동 실패 | otel-collector-config.yml 없음 | `/app/synapse/configs/otel-collector/otel-collector-config.yml` 파일 존재 확인 |
+| synapse CLI 배포 실패 (SFTP 오류) | SSH 세션 만료 또는 대상 서버 연결 오류 | `/admin/synapse-cli`에서 SSH 세션 재등록 후 재시도 |
+| synapse CLI 배포 실패 (바이너리 없음) | admin-api 이미지 재빌드 필요 | `docker exec synapse-admin-api ls /app/bin/synapse` 확인. 없으면 이미지 재빌드 |
+| `synapse ask` 실패 (401) | 토큰 만료 | `synapse login` 재실행 |
+| `synapse ask` 실패 (LLM 오류) | `cli_query` area_code 미등록 또는 DevX 에이전트 코드 불일치 | `/admin/llm-config`에서 `cli_query` 영역 등록, 또는 `--area <agent_code>` 직접 지정 |
+| `synapse login` 실패 (`permission denied`) | config 파일 쓰기 권한 오류 | `ls -la ~/bin/` 확인. 소유자 불일치 시 `chown $USER ~/bin/.synapse_config.json` |
 
 ### 환경변수 적용 후 재시작
 
@@ -679,7 +816,10 @@ SELECT system_name, teams_webhook_url FROM systems;
 SELECT * FROM alert_history ORDER BY created_at DESC LIMIT 10;
 
 # 에이전트 등록 현황
-SELECT system_name, instance_role, host, status, last_seen FROM agent_instances;
+SELECT system_name, instance_role, host, agent_type, status, last_seen FROM agent_instances;
+
+# LLM 에이전트 설정 확인
+SELECT area_code, area_name, agent_code FROM llm_agent_configs;
 ```
 
 ### Prometheus 쿼리 (인증 필요)
@@ -702,4 +842,4 @@ curl -su "${PROM_USER}:${PROM_PASS}" -X POST http://localhost:9090/-/reload
 
 ---
 
-*최종 업데이트: 2026-04-19*
+*최종 업데이트: 2026-04-25*

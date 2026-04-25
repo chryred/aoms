@@ -239,10 +239,21 @@ N8N_HEALTH=$(curl -s --max-time 5 http://localhost:5678/healthz 2>/dev/null | \
 [[ "$N8N_HEALTH" == "ok" ]] && ok "n8n healthz → ok" || warn "n8n 상태: $N8N_HEALTH (초기 설정 필요할 수 있음)"
 
 # ──────────────────────────────────────────────────────────────
+section "11. admin-api 번들 바이너리 확인"
+
+# agent-v (synapse_agent) 번들 확인
+AGENT_BIN=$(docker exec synapse-admin-api test -f /app/bin/agent-v && echo "ok" || echo "missing")
+[[ "$AGENT_BIN" == "ok" ]] && ok "admin-api 이미지: /app/bin/agent-v 존재" || fail "admin-api 이미지: /app/bin/agent-v 없음 (이미지 재빌드 필요)"
+
+# synapse CLI 번들 확인
+CLI_BIN=$(docker exec synapse-admin-api test -f /app/bin/synapse && echo "ok" || echo "missing")
+[[ "$CLI_BIN" == "ok" ]] && ok "admin-api 이미지: /app/bin/synapse 존재" || fail "admin-api 이미지: /app/bin/synapse 없음 (이미지 재빌드 필요)"
+
+# ──────────────────────────────────────────────────────────────
 # Server B 확인 (IP 인수 전달 시)
 # ADR-011/012: Ollama 제거됨 → Qdrant만 확인
 if [[ -n "$SERVER_B_IP" ]]; then
-  section "11. Server B (Vector DB) 확인 — ${SERVER_B_IP}"
+  section "12. Server B (Vector DB) 확인 — ${SERVER_B_IP}"
 
   QDRANT_TITLE=$(curl -s --max-time 5 "http://${SERVER_B_IP}:6333/" 2>/dev/null | \
     python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('title','unknown'))" 2>/dev/null || echo "error")
