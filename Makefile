@@ -18,7 +18,7 @@ ENV_FILE      := $(MAIN_SERVER)/.env.local
 .PHONY: help
 help:
 	@echo ""
-	@echo "AOMS 로컬 개발 명령어"
+	@echo "synapse 로컬 개발 명령어"
 	@echo "────────────────────────────────────────────────"
 	@echo "  인프라"
 	@echo "    make dev-up         로컬 인프라 시작 (postgres, prometheus, qdrant 등)"
@@ -161,9 +161,9 @@ build-api:
 	@echo "→ [2/2] admin-api Docker 빌드 (synapse CLI 포함)..."
 	docker build \
 		-f $(ADMIN_API_DIR)/Dockerfile \
-		-t aoms-admin-api:1.0 \
+		-t synapse-admin-api:1.0 \
 		$(ROOT_DIR)
-	@echo "✓ aoms-admin-api:1.0 빌드 완료 (agent-v + synapse CLI 번들)"
+	@echo "✓ synapse-admin-api:1.0 빌드 완료 (agent-v + synapse CLI 번들)"
 
 # 로컬 개발용 바이너리 추출 (agent-v + synapse CLI)
 # agent-v: agent/build.sh 활용 / synapse CLI: cli-builder 스테이지만 빌드
@@ -178,12 +178,12 @@ extract-binaries:
 	docker build \
 		--target cli-builder \
 		-f $(ADMIN_API_DIR)/Dockerfile \
-		-t aoms-cli-builder-tmp \
+		-t synapse-cli-builder-tmp \
 		$(ROOT_DIR)
-	docker create --name aoms-cli-tmp aoms-cli-builder-tmp
-	docker cp aoms-cli-tmp:/build/synapse $(ROOT_DIR)/local-bin/synapse
-	docker rm aoms-cli-tmp
-	docker rmi aoms-cli-builder-tmp
+	docker create --name synapse-cli-tmp synapse-cli-builder-tmp
+	docker cp synapse-cli-tmp:/build/synapse $(ROOT_DIR)/local-bin/synapse
+	docker rm synapse-cli-tmp
+	docker rmi synapse-cli-builder-tmp
 	@echo "✓ 추출 완료:"
 	@echo "  local-bin/agent-v"
 	@echo "  local-bin/synapse"
@@ -195,13 +195,13 @@ extract-binaries:
 .PHONY: build-analyzer
 build-analyzer:
 	@echo "→ log-analyzer 이미지 빌드..."
-	docker build -t aoms-log-analyzer:1.0 $(ANALYZER_DIR)
-	@echo "✓ aoms-log-analyzer:1.0 빌드 완료"
+	docker build -t synapse-log-analyzer:1.0 $(ANALYZER_DIR)
+	@echo "✓ synapse-log-analyzer:1.0 빌드 완료"
 
 # ── 편의 도구 ────────────────────────────────────────────────────────────────
 .PHONY: db-shell
 db-shell:
-	docker exec -it dev-postgres psql -U aoms -d aoms
+	docker exec -it dev-postgres psql -U synapse -d synapse
 
 .PHONY: health
 health:
@@ -273,7 +273,7 @@ test-metric:
 .PHONY: reset-cooldown
 reset-cooldown:
 	@echo "→ 쿨다운 초기화 ($(SEED_SYSTEM_NAME))"
-	@docker exec dev-postgres psql -U aoms -d aoms \
+	@docker exec dev-postgres psql -U synapse -d synapse \
 	  -c "DELETE FROM alert_cooldown WHERE alert_key LIKE '$(SEED_SYSTEM_NAME):%';"
 	@echo "✓ 완료"
 
