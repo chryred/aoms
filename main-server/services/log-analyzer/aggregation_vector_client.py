@@ -136,11 +136,17 @@ async def search_similar_aggregations(
     collection: str,
     system_id: int | None = None,
     limit: int = 10,
+    *,
+    rerank: bool = False,
+    rerank_top_k: int = 10,
 ) -> list[dict]:
     """
     query_text를 임베딩하여 Qdrant 컬렉션에서 유사 집계 검색.
     UI 프록시 엔드포인트 /aggregation/search 에서 호출.
     두 컬렉션 모두 Hybrid (Dense + Sparse RRF) 검색.
+
+    rerank=True 일 때 cross-encoder(bge-reranker-v2-m3)로 재정렬한다.
+    이 경우 retrieval 후보를 limit*4 까지 늘려 확보한 뒤 reranker로 rerank_top_k 개만 반환.
     """
     if collection not in (HOURLY_PATTERNS_COLLECTION, AGG_SUMMARIES_COLLECTION):
         raise ValueError(f"지원하지 않는 컬렉션: {collection}")
@@ -152,13 +158,31 @@ async def search_similar_aggregations(
     if system_id is not None:
         filter_must = [{"key": "system_id", "match": {"value": system_id}}]
 
-    return await _hybrid_search(
+    retrieval_limit = limit * 4 if rerank else limit
+    hits = await _hybrid_search(
         collection=collection,
         dense=dense,
         sparse=sparse,
         filter_must=filter_must,
-        limit=limit,
+        limit=retrieval_limit,
     )
+
+    if not rerank or not hits:
+        return hits
+
+    # 재정렬 대상 텍스트 평탄화 (payload.summary_text)
+    from reranker import rerank as _rerank
+    candidates = []
+    for h in hits:
+        payload = h.get("payload") or {}
+        candidates.append({**h, "_rerank_text": payload.get("summary_text", "")})
+    reranked = await _rerank(
+        query_text, candidates, top_k=rerank_top_k, text_field="_rerank_text"
+    )
+    # 내부 임시 필드 제거
+    for r in reranked:
+        r.pop("_rerank_text", None)
+    return reranked
 
 
 async def search_similar_by_vector(

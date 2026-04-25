@@ -1,0 +1,874 @@
+{
+  "eval_set_version": "1.0",
+  "eval_set_path": "docs/rag-eval/korean-eval-set.json",
+  "endpoint": "http://localhost:8000/incident/search",
+  "top_k": 10,
+  "system_name": null,
+  "response_format": "auto",
+  "started_at": "2026-04-25T17:51:41.787465",
+  "finished_at": "2026-04-25T17:51:58.270607",
+  "duration_seconds": 16.483,
+  "summary": {
+    "overall": {
+      "n": 36,
+      "n_valid": 36,
+      "n_errored": 0,
+      "recall@5": 0.0278,
+      "recall@10": 0.0278,
+      "mrr": 0.0278,
+      "ndcg@5": 0.0278
+    },
+    "by_category": {
+      "cross-lingual": {
+        "n": 4,
+        "n_valid": 4,
+        "n_errored": 0,
+        "recall@5": 0.25,
+        "recall@10": 0.25,
+        "mrr": 0.25,
+        "ndcg@5": 0.25
+      },
+      "메트릭": {
+        "n": 4,
+        "n_valid": 4,
+        "n_errored": 0,
+        "recall@5": 0.0,
+        "recall@10": 0.0,
+        "mrr": 0.0,
+        "ndcg@5": 0.0
+      },
+      "모호질의": {
+        "n": 2,
+        "n_valid": 2,
+        "n_errored": 0,
+        "recall@5": 0.0,
+        "recall@10": 0.0,
+        "mrr": 0.0,
+        "ndcg@5": 0.0
+      },
+      "비즈니스": {
+        "n": 4,
+        "n_valid": 4,
+        "n_errored": 0,
+        "recall@5": 0.0,
+        "recall@10": 0.0,
+        "mrr": 0.0,
+        "ndcg@5": 0.0
+      },
+      "운영절차": {
+        "n": 8,
+        "n_valid": 8,
+        "n_errored": 0,
+        "recall@5": 0.0,
+        "recall@10": 0.0,
+        "mrr": 0.0,
+        "ndcg@5": 0.0
+      },
+      "장애대응": {
+        "n": 8,
+        "n_valid": 8,
+        "n_errored": 0,
+        "recall@5": 0.0,
+        "recall@10": 0.0,
+        "mrr": 0.0,
+        "ndcg@5": 0.0
+      },
+      "정책": {
+        "n": 6,
+        "n_valid": 6,
+        "n_errored": 0,
+        "recall@5": 0.0,
+        "recall@10": 0.0,
+        "mrr": 0.0,
+        "ndcg@5": 0.0
+      }
+    }
+  },
+  "results": [
+    {
+      "id": "ops-001",
+      "category": "운영절차",
+      "query": "결제 배치 실패 시 처리 절차가 어떻게 되나요?",
+      "expected_keywords": [
+        "배치",
+        "실패",
+        "재시도"
+      ],
+      "expected_doc_hints": [
+        "결제 운영매뉴얼",
+        "batch failure runbook"
+      ],
+      "language": "ko",
+      "query_length": "medium",
+      "hits_count": 0,
+      "ranks": [],
+      "top1_score": null,
+      "recall@5": 0.0,
+      "recall@10": 0.0,
+      "mrr": 0.0,
+      "ndcg@5": 0.0
+    },
+    {
+      "id": "ops-002",
+      "category": "운영절차",
+      "query": "POS 단말 재시작 방법 알려줘",
+      "expected_keywords": [
+        "pos",
+        "재시작",
+        "단말"
+      ],
+      "expected_doc_hints": [
+        "POS 운영가이드"
+      ],
+      "language": "ko",
+      "query_length": "short",
+      "hits_count": 0,
+      "ranks": [],
+      "top1_score": null,
+      "recall@5": 0.0,
+      "recall@10": 0.0,
+      "mrr": 0.0,
+      "ndcg@5": 0.0
+    },
+    {
+      "id": "ops-003",
+      "category": "운영절차",
+      "query": "야간 백업 누락되었을 때 수동 복구 절차",
+      "expected_keywords": [
+        "백업",
+        "수동",
+        "복구"
+      ],
+      "expected_doc_hints": [
+        "백업 운영절차서"
+      ],
+      "language": "ko",
+      "query_length": "medium",
+      "hits_count": 0,
+      "ranks": [],
+      "top1_score": null,
+      "recall@5": 0.0,
+      "recall@10": 0.0,
+      "mrr": 0.0,
+      "ndcg@5": 0.0
+    },
+    {
+      "id": "ops-004",
+      "category": "운영절차",
+      "query": "재고 동기화 작업이 멈췄을 때 어떻게 재기동하지?",
+      "expected_keywords": [
+        "재고",
+        "동기화",
+        "재기동"
+      ],
+      "expected_doc_hints": [
+        "재고 운영가이드",
+        "inventory sync"
+      ],
+      "language": "ko",
+      "query_length": "medium",
+      "hits_count": 0,
+      "ranks": [],
+      "top1_score": null,
+      "recall@5": 0.0,
+      "recall@10": 0.0,
+      "mrr": 0.0,
+      "ndcg@5": 0.0
+    },
+    {
+      "id": "ops-005",
+      "category": "운영절차",
+      "query": "월말 마감 작업 순서를 알려주세요",
+      "expected_keywords": [
+        "월말",
+        "마감"
+      ],
+      "expected_doc_hints": [
+        "월마감 절차서"
+      ],
+      "language": "ko",
+      "query_length": "medium",
+      "hits_count": 0,
+      "ranks": [],
+      "top1_score": null,
+      "recall@5": 0.0,
+      "recall@10": 0.0,
+      "mrr": 0.0,
+      "ndcg@5": 0.0
+    },
+    {
+      "id": "ops-006",
+      "category": "운영절차",
+      "query": "Grafana 대시보드 모니터링 항목 점검 체크리스트",
+      "expected_keywords": [
+        "grafana",
+        "대시보드",
+        "모니터링"
+      ],
+      "expected_doc_hints": [
+        "모니터링 체크리스트"
+      ],
+      "language": "ko",
+      "query_length": "long",
+      "hits_count": 0,
+      "ranks": [],
+      "top1_score": null,
+      "recall@5": 0.0,
+      "recall@10": 0.0,
+      "mrr": 0.0,
+      "ndcg@5": 0.0
+    },
+    {
+      "id": "ops-007",
+      "category": "운영절차",
+      "query": "주문 취소 보정 작업 어떻게 처리해?",
+      "expected_keywords": [
+        "주문",
+        "취소",
+        "보정"
+      ],
+      "expected_doc_hints": [
+        "주문관리 운영가이드"
+      ],
+      "language": "ko",
+      "query_length": "medium",
+      "hits_count": 0,
+      "ranks": [],
+      "top1_score": null,
+      "recall@5": 0.0,
+      "recall@10": 0.0,
+      "mrr": 0.0,
+      "ndcg@5": 0.0
+    },
+    {
+      "id": "ops-008",
+      "category": "운영절차",
+      "query": "배포 후 헬스체크 절차",
+      "expected_keywords": [
+        "배포",
+        "헬스체크"
+      ],
+      "expected_doc_hints": [
+        "배포 운영절차"
+      ],
+      "language": "ko",
+      "query_length": "short",
+      "hits_count": 0,
+      "ranks": [],
+      "top1_score": null,
+      "recall@5": 0.0,
+      "recall@10": 0.0,
+      "mrr": 0.0,
+      "ndcg@5": 0.0
+    },
+    {
+      "id": "incident-001",
+      "category": "장애대응",
+      "query": "DB 커넥션 풀이 가득 찼을 때 응급 조치 방법",
+      "expected_keywords": [
+        "커넥션",
+        "풀",
+        "db"
+      ],
+      "expected_doc_hints": [
+        "DB 장애대응 가이드",
+        "connection pool exhausted"
+      ],
+      "language": "ko",
+      "query_length": "medium",
+      "hits_count": 0,
+      "ranks": [],
+      "top1_score": null,
+      "recall@5": 0.0,
+      "recall@10": 0.0,
+      "mrr": 0.0,
+      "ndcg@5": 0.0
+    },
+    {
+      "id": "incident-002",
+      "category": "장애대응",
+      "query": "메모리 누수 의심될 때 진단 순서",
+      "expected_keywords": [
+        "메모리",
+        "누수",
+        "진단"
+      ],
+      "expected_doc_hints": [
+        "JVM 메모리 트러블슈팅"
+      ],
+      "language": "ko",
+      "query_length": "medium",
+      "hits_count": 1,
+      "ranks": [],
+      "top1_score": 0.5,
+      "recall@5": 0.0,
+      "recall@10": 0.0,
+      "mrr": 0.0,
+      "ndcg@5": 0.0
+    },
+    {
+      "id": "incident-003",
+      "category": "장애대응",
+      "query": "디스크 100% 찼습니다 어떻게 해야 하나요",
+      "expected_keywords": [
+        "디스크",
+        "용량",
+        "정리"
+      ],
+      "expected_doc_hints": [
+        "디스크 풀 장애대응"
+      ],
+      "language": "ko",
+      "query_length": "medium",
+      "hits_count": 1,
+      "ranks": [],
+      "top1_score": 0.5,
+      "recall@5": 0.0,
+      "recall@10": 0.0,
+      "mrr": 0.0,
+      "ndcg@5": 0.0
+    },
+    {
+      "id": "incident-004",
+      "category": "장애대응",
+      "query": "결제 게이트웨이 응답 지연 발생 시 대응",
+      "expected_keywords": [
+        "결제",
+        "지연",
+        "타임아웃"
+      ],
+      "expected_doc_hints": [
+        "결제 게이트웨이 장애 매뉴얼"
+      ],
+      "language": "ko",
+      "query_length": "medium",
+      "hits_count": 1,
+      "ranks": [],
+      "top1_score": 0.5,
+      "recall@5": 0.0,
+      "recall@10": 0.0,
+      "mrr": 0.0,
+      "ndcg@5": 0.0
+    },
+    {
+      "id": "incident-005",
+      "category": "장애대응",
+      "query": "네트워크 단절 후 복구 안 될 때",
+      "expected_keywords": [
+        "네트워크",
+        "단절",
+        "복구"
+      ],
+      "expected_doc_hints": [
+        "네트워크 장애대응"
+      ],
+      "language": "ko",
+      "query_length": "medium",
+      "hits_count": 0,
+      "ranks": [],
+      "top1_score": null,
+      "recall@5": 0.0,
+      "recall@10": 0.0,
+      "mrr": 0.0,
+      "ndcg@5": 0.0
+    },
+    {
+      "id": "incident-006",
+      "category": "장애대응",
+      "query": "장애 원인은?",
+      "expected_keywords": [
+        "장애",
+        "원인"
+      ],
+      "expected_doc_hints": [
+        "RCA 보고서"
+      ],
+      "language": "ko",
+      "query_length": "short",
+      "hits_count": 0,
+      "ranks": [],
+      "top1_score": null,
+      "recall@5": 0.0,
+      "recall@10": 0.0,
+      "mrr": 0.0,
+      "ndcg@5": 0.0
+    },
+    {
+      "id": "incident-007",
+      "category": "장애대응",
+      "query": "오라클 세션이 비정상적으로 늘어났을 때 분석 방법",
+      "expected_keywords": [
+        "오라클",
+        "세션",
+        "분석"
+      ],
+      "expected_doc_hints": [
+        "Oracle 세션 트러블슈팅"
+      ],
+      "language": "ko",
+      "query_length": "long",
+      "hits_count": 0,
+      "ranks": [],
+      "top1_score": null,
+      "recall@5": 0.0,
+      "recall@10": 0.0,
+      "mrr": 0.0,
+      "ndcg@5": 0.0
+    },
+    {
+      "id": "incident-008",
+      "category": "장애대응",
+      "query": "WAS 응답시간이 갑자기 느려졌어요 원인 파악 어떻게 하지",
+      "expected_keywords": [
+        "was",
+        "응답시간",
+        "느려"
+      ],
+      "expected_doc_hints": [
+        "WAS 성능 장애 가이드"
+      ],
+      "language": "ko",
+      "query_length": "long",
+      "hits_count": 0,
+      "ranks": [],
+      "top1_score": null,
+      "recall@5": 0.0,
+      "recall@10": 0.0,
+      "mrr": 0.0,
+      "ndcg@5": 0.0
+    },
+    {
+      "id": "policy-001",
+      "category": "정책",
+      "query": "VIP 고객 등급은 어떻게 산정되나요?",
+      "expected_keywords": [
+        "vip",
+        "등급",
+        "산정"
+      ],
+      "expected_doc_hints": [
+        "VIP 운영정책"
+      ],
+      "language": "ko",
+      "query_length": "medium",
+      "hits_count": 0,
+      "ranks": [],
+      "top1_score": null,
+      "recall@5": 0.0,
+      "recall@10": 0.0,
+      "mrr": 0.0,
+      "ndcg@5": 0.0
+    },
+    {
+      "id": "policy-002",
+      "category": "정책",
+      "query": "환불 처리 기간 정책",
+      "expected_keywords": [
+        "환불",
+        "기간",
+        "정책"
+      ],
+      "expected_doc_hints": [
+        "환불 정책 문서"
+      ],
+      "language": "ko",
+      "query_length": "short",
+      "hits_count": 0,
+      "ranks": [],
+      "top1_score": null,
+      "recall@5": 0.0,
+      "recall@10": 0.0,
+      "mrr": 0.0,
+      "ndcg@5": 0.0
+    },
+    {
+      "id": "policy-003",
+      "category": "정책",
+      "query": "회원 탈퇴 시 개인정보 보관 기간이 어떻게 되나요",
+      "expected_keywords": [
+        "회원",
+        "탈퇴",
+        "개인정보"
+      ],
+      "expected_doc_hints": [
+        "개인정보 처리방침"
+      ],
+      "language": "ko",
+      "query_length": "long",
+      "hits_count": 0,
+      "ranks": [],
+      "top1_score": null,
+      "recall@5": 0.0,
+      "recall@10": 0.0,
+      "mrr": 0.0,
+      "ndcg@5": 0.0
+    },
+    {
+      "id": "policy-004",
+      "category": "정책",
+      "query": "쿠폰 중복 사용 가능 여부",
+      "expected_keywords": [
+        "쿠폰",
+        "중복",
+        "사용"
+      ],
+      "expected_doc_hints": [
+        "프로모션 운영정책"
+      ],
+      "language": "ko",
+      "query_length": "medium",
+      "hits_count": 0,
+      "ranks": [],
+      "top1_score": null,
+      "recall@5": 0.0,
+      "recall@10": 0.0,
+      "mrr": 0.0,
+      "ndcg@5": 0.0
+    },
+    {
+      "id": "policy-005",
+      "category": "정책",
+      "query": "VIP?",
+      "expected_keywords": [
+        "vip"
+      ],
+      "expected_doc_hints": [
+        "VIP 등급 안내"
+      ],
+      "language": "ko",
+      "query_length": "short",
+      "hits_count": 0,
+      "ranks": [],
+      "top1_score": null,
+      "recall@5": 0.0,
+      "recall@10": 0.0,
+      "mrr": 0.0,
+      "ndcg@5": 0.0
+    },
+    {
+      "id": "policy-006",
+      "category": "정책",
+      "query": "장기 휴면 회원 자동 휴면 전환 기준 설명해줘",
+      "expected_keywords": [
+        "휴면",
+        "회원",
+        "전환"
+      ],
+      "expected_doc_hints": [
+        "회원 휴면 정책"
+      ],
+      "language": "ko",
+      "query_length": "long",
+      "hits_count": 0,
+      "ranks": [],
+      "top1_score": null,
+      "recall@5": 0.0,
+      "recall@10": 0.0,
+      "mrr": 0.0,
+      "ndcg@5": 0.0
+    },
+    {
+      "id": "metric-001",
+      "category": "메트릭",
+      "query": "CPU 사용률 임계치 기준이 몇 퍼센트인가요?",
+      "expected_keywords": [
+        "cpu",
+        "임계치"
+      ],
+      "expected_doc_hints": [
+        "메트릭 임계치 정의서"
+      ],
+      "language": "ko",
+      "query_length": "medium",
+      "hits_count": 1,
+      "ranks": [],
+      "top1_score": 1.0,
+      "recall@5": 0.0,
+      "recall@10": 0.0,
+      "mrr": 0.0,
+      "ndcg@5": 0.0
+    },
+    {
+      "id": "metric-002",
+      "category": "메트릭",
+      "query": "메모리 사용률 70% 넘어가면 어떻게 되나요",
+      "expected_keywords": [
+        "메모리",
+        "70",
+        "사용률"
+      ],
+      "expected_doc_hints": [
+        "임계치 70% 정책 ADR"
+      ],
+      "language": "ko",
+      "query_length": "medium",
+      "hits_count": 1,
+      "ranks": [],
+      "top1_score": 1.0,
+      "recall@5": 0.0,
+      "recall@10": 0.0,
+      "mrr": 0.0,
+      "ndcg@5": 0.0
+    },
+    {
+      "id": "metric-003",
+      "category": "메트릭",
+      "query": "네트워크 트래픽 급증 알람 기준",
+      "expected_keywords": [
+        "네트워크",
+        "트래픽",
+        "알람"
+      ],
+      "expected_doc_hints": [
+        "네트워크 메트릭 임계치"
+      ],
+      "language": "ko",
+      "query_length": "medium",
+      "hits_count": 0,
+      "ranks": [],
+      "top1_score": null,
+      "recall@5": 0.0,
+      "recall@10": 0.0,
+      "mrr": 0.0,
+      "ndcg@5": 0.0
+    },
+    {
+      "id": "metric-004",
+      "category": "메트릭",
+      "query": "디스크 IO 지표 어떤 거 봐야 해",
+      "expected_keywords": [
+        "디스크",
+        "io"
+      ],
+      "expected_doc_hints": [
+        "디스크 모니터링 가이드"
+      ],
+      "language": "ko",
+      "query_length": "medium",
+      "hits_count": 0,
+      "ranks": [],
+      "top1_score": null,
+      "recall@5": 0.0,
+      "recall@10": 0.0,
+      "mrr": 0.0,
+      "ndcg@5": 0.0
+    },
+    {
+      "id": "biz-001",
+      "category": "비즈니스",
+      "query": "프리미엄 멤버십 혜택이 뭐가 있나요?",
+      "expected_keywords": [
+        "프리미엄",
+        "멤버십",
+        "혜택"
+      ],
+      "expected_doc_hints": [
+        "멤버십 상품 안내"
+      ],
+      "language": "ko",
+      "query_length": "medium",
+      "hits_count": 0,
+      "ranks": [],
+      "top1_score": null,
+      "recall@5": 0.0,
+      "recall@10": 0.0,
+      "mrr": 0.0,
+      "ndcg@5": 0.0
+    },
+    {
+      "id": "biz-002",
+      "category": "비즈니스",
+      "query": "선물 포장 서비스 운영 시간",
+      "expected_keywords": [
+        "선물",
+        "포장",
+        "서비스"
+      ],
+      "expected_doc_hints": [
+        "고객 서비스 안내"
+      ],
+      "language": "ko",
+      "query_length": "medium",
+      "hits_count": 0,
+      "ranks": [],
+      "top1_score": null,
+      "recall@5": 0.0,
+      "recall@10": 0.0,
+      "mrr": 0.0,
+      "ndcg@5": 0.0
+    },
+    {
+      "id": "biz-003",
+      "category": "비즈니스",
+      "query": "백화점 영업시간 알려주세요",
+      "expected_keywords": [
+        "영업",
+        "시간"
+      ],
+      "expected_doc_hints": [
+        "영업 안내"
+      ],
+      "language": "ko",
+      "query_length": "medium",
+      "hits_count": 0,
+      "ranks": [],
+      "top1_score": null,
+      "recall@5": 0.0,
+      "recall@10": 0.0,
+      "mrr": 0.0,
+      "ndcg@5": 0.0
+    },
+    {
+      "id": "biz-004",
+      "category": "비즈니스",
+      "query": "주차 할인 받으려면",
+      "expected_keywords": [
+        "주차",
+        "할인"
+      ],
+      "expected_doc_hints": [
+        "주차 안내"
+      ],
+      "language": "ko",
+      "query_length": "short",
+      "hits_count": 0,
+      "ranks": [],
+      "top1_score": null,
+      "recall@5": 0.0,
+      "recall@10": 0.0,
+      "mrr": 0.0,
+      "ndcg@5": 0.0
+    },
+    {
+      "id": "mixed-001",
+      "category": "cross-lingual",
+      "query": "payment timeout 발생했을 때 어떻게 처리?",
+      "expected_keywords": [
+        "payment",
+        "timeout"
+      ],
+      "expected_doc_hints": [
+        "결제 타임아웃 가이드"
+      ],
+      "language": "mixed",
+      "query_length": "medium",
+      "hits_count": 1,
+      "ranks": [
+        1
+      ],
+      "top1_score": 1.0,
+      "recall@5": 1.0,
+      "recall@10": 1.0,
+      "mrr": 1.0,
+      "ndcg@5": 1.0
+    },
+    {
+      "id": "mixed-002",
+      "category": "cross-lingual",
+      "query": "DB connection pool 초과 알람 분석",
+      "expected_keywords": [
+        "connection",
+        "pool"
+      ],
+      "expected_doc_hints": [
+        "DB 커넥션 풀 운영"
+      ],
+      "language": "mixed",
+      "query_length": "medium",
+      "hits_count": 1,
+      "ranks": [],
+      "top1_score": 0.5,
+      "recall@5": 0.0,
+      "recall@10": 0.0,
+      "mrr": 0.0,
+      "ndcg@5": 0.0
+    },
+    {
+      "id": "mixed-003",
+      "category": "cross-lingual",
+      "query": "JVM heap OOM 발생 원인",
+      "expected_keywords": [
+        "jvm",
+        "heap",
+        "oom"
+      ],
+      "expected_doc_hints": [
+        "JVM OOM 트러블슈팅"
+      ],
+      "language": "mixed",
+      "query_length": "medium",
+      "hits_count": 0,
+      "ranks": [],
+      "top1_score": null,
+      "recall@5": 0.0,
+      "recall@10": 0.0,
+      "mrr": 0.0,
+      "ndcg@5": 0.0
+    },
+    {
+      "id": "mixed-004",
+      "category": "cross-lingual",
+      "query": "Kafka consumer lag 늘어날 때 대응",
+      "expected_keywords": [
+        "kafka",
+        "lag",
+        "consumer"
+      ],
+      "expected_doc_hints": [
+        "Kafka 운영가이드"
+      ],
+      "language": "mixed",
+      "query_length": "medium",
+      "hits_count": 0,
+      "ranks": [],
+      "top1_score": null,
+      "recall@5": 0.0,
+      "recall@10": 0.0,
+      "mrr": 0.0,
+      "ndcg@5": 0.0
+    },
+    {
+      "id": "ambig-001",
+      "category": "모호질의",
+      "query": "이거 왜 그래요?",
+      "expected_keywords": [
+        "원인",
+        "장애",
+        "오류"
+      ],
+      "expected_doc_hints": [
+        "일반 트러블슈팅"
+      ],
+      "language": "ko",
+      "query_length": "short",
+      "hits_count": 0,
+      "ranks": [],
+      "top1_score": null,
+      "recall@5": 0.0,
+      "recall@10": 0.0,
+      "mrr": 0.0,
+      "ndcg@5": 0.0
+    },
+    {
+      "id": "ambig-002",
+      "category": "모호질의",
+      "query": "결제 안 됨",
+      "expected_keywords": [
+        "결제",
+        "실패"
+      ],
+      "expected_doc_hints": [
+        "결제 트러블슈팅"
+      ],
+      "language": "ko",
+      "query_length": "short",
+      "hits_count": 1,
+      "ranks": [],
+      "top1_score": 0.5,
+      "recall@5": 0.0,
+      "recall@10": 0.0,
+      "mrr": 0.0,
+      "ndcg@5": 0.0
+    }
+  ]
+}

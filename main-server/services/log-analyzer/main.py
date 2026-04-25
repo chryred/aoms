@@ -376,6 +376,8 @@ class AggregationSearchRequest(BaseModel):
     collection:  str           # "metric_hourly_patterns" | "aggregation_summaries"
     system_id:   int | None = None
     limit:       int = 10
+    rerank:        bool = False    # cross-encoder 재정렬 (bge-reranker-v2-m3)
+    rerank_top_k:  int  = 10
 
 
 class SimilarPeriodRequest(BaseModel):
@@ -403,6 +405,8 @@ async def aggregation_search(req: AggregationSearchRequest):
             collection=req.collection,
             system_id=req.system_id,
             limit=req.limit,
+            rerank=req.rerank,
+            rerank_top_k=req.rerank_top_k,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -415,6 +419,8 @@ class IncidentSearchRequest(BaseModel):
     query: str
     system_name: str | None = None
     limit: int = 5
+    rerank: bool = False         # cross-encoder 재정렬 (bge-reranker-v2-m3)
+    rerank_top_k: int | None = None  # None이면 limit과 동일
 
 
 @app.post("/incident/search")
@@ -422,6 +428,9 @@ async def incident_search(req: IncidentSearchRequest):
     """
     RAG 챗봇 전용 — log_incidents + metric_baselines Hybrid 통합 검색.
     admin-api chat_tools.qdrant.qdrant_search_incident_knowledge 에서 호출.
+
+    rerank=True 일 때 retrieval limit를 limit*4로 늘려 후보 확보 후
+    cross-encoder(bge-reranker-v2-m3)로 rerank_top_k 개로 재정렬한다.
     """
     try:
         dense  = await vector_client.get_embedding(req.query)
@@ -433,6 +442,9 @@ async def incident_search(req: IncidentSearchRequest):
     if req.system_name:
         filter_must = [{"key": "system_name", "match": {"value": req.system_name}}]
 
+    retrieval_limit = req.limit * 4 if req.rerank else req.limit
+    rerank_top_k = req.rerank_top_k if req.rerank_top_k is not None else req.limit
+
     log_hits = []
     metric_hits = []
     try:
@@ -441,7 +453,7 @@ async def incident_search(req: IncidentSearchRequest):
             dense=dense,
             sparse=sparse,
             filter_must=filter_must,
-            limit=req.limit,
+            limit=retrieval_limit,
         )
     except Exception as exc:
         logger.warning("log_incidents 검색 실패: %s", exc)
@@ -452,10 +464,49 @@ async def incident_search(req: IncidentSearchRequest):
             dense=dense,
             sparse=sparse,
             filter_must=filter_must,
-            limit=req.limit,
+            limit=retrieval_limit,
         )
     except Exception as exc:
         logger.warning("metric_baselines 검색 실패: %s", exc)
+
+    if req.rerank:
+        # cross-encoder 재정렬: 두 컬렉션 후보를 합쳐서 reranker로 정렬한 뒤 분리
+        from reranker import rerank as _rerank
+
+        def _log_text(h: dict) -> str:
+            p = h.get("payload") or {}
+            return " | ".join(filter(None, [
+                p.get("log_pattern", ""),
+                p.get("root_cause", ""),
+                p.get("recommendation", ""),
+                p.get("resolution", ""),
+            ]))
+
+        def _metric_text(h: dict) -> str:
+            p = h.get("payload") or {}
+            return " | ".join(filter(None, [
+                p.get("alertname", ""),
+                p.get("metric_name", ""),
+                str(p.get("metric_value", "") or ""),
+                p.get("resolution", ""),
+            ]))
+
+        log_candidates = [{**h, "_rt": _log_text(h), "_kind": "log"} for h in log_hits]
+        metric_candidates = [{**h, "_rt": _metric_text(h), "_kind": "metric"} for h in metric_hits]
+        merged = log_candidates + metric_candidates
+        if merged:
+            try:
+                reranked = await _rerank(req.query, merged, top_k=rerank_top_k * 2, text_field="_rt")
+                log_hits = [r for r in reranked if r["_kind"] == "log"][:rerank_top_k]
+                metric_hits = [r for r in reranked if r["_kind"] == "metric"][:rerank_top_k]
+                # 임시 필드 제거
+                for r in log_hits + metric_hits:
+                    r.pop("_rt", None)
+                    r.pop("_kind", None)
+            except Exception as exc:
+                logger.warning("Reranker 실패: %s → 원본 RRF 순서 유지", exc)
+                log_hits = log_hits[:rerank_top_k]
+                metric_hits = metric_hits[:rerank_top_k]
 
     return {
         "log_incidents": [
