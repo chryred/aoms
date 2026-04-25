@@ -406,7 +406,7 @@ class AgentInstance(Base):
     id           = Column(Integer, primary_key=True)
     system_id    = Column(Integer, ForeignKey("systems.id", ondelete="CASCADE"), nullable=False)
     host         = Column(String(200), nullable=False)          # 서버 IP
-    agent_type   = Column(String(50), nullable=False)           # synapse_agent | db
+    agent_type   = Column(String(50), nullable=False)           # synapse_agent | db | otel_javaagent | cli
     install_path = Column(String(500), nullable=True)           # 바이너리 경로 (db 에이전트는 NULL)
     config_path  = Column(String(500), nullable=True)           # 설정파일 경로 (db 에이전트는 NULL)
     port         = Column(Integer)                              # 메트릭 노출 포트

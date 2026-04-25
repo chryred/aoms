@@ -28,7 +28,7 @@ export function InstallJobMonitor({ jobId, onDone }: InstallJobMonitorProps) {
   }, [job?.logs])
 
   useEffect(() => {
-    if (job?.status === 'done' && !doneFired.current) {
+    if ((job?.status === 'done' || job?.status === 'failed') && !doneFired.current) {
       doneFired.current = true
       onDone?.()
     }

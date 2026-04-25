@@ -156,9 +156,41 @@ build: build-api build-analyzer
 
 .PHONY: build-api
 build-api:
-	@echo "→ admin-api 이미지 빌드..."
-	docker build -t aoms-admin-api:1.0 $(ADMIN_API_DIR)
-	@echo "✓ aoms-admin-api:1.0 빌드 완료"
+	@echo "→ [1/2] agent-v 빌드 (agent/build.sh — rust:1.88 musl static)..."
+	cd $(ROOT_DIR)/agent && ./build.sh
+	@echo "→ [2/2] admin-api Docker 빌드 (synapse CLI 포함)..."
+	docker build \
+		-f $(ADMIN_API_DIR)/Dockerfile \
+		-t aoms-admin-api:1.0 \
+		$(ROOT_DIR)
+	@echo "✓ aoms-admin-api:1.0 빌드 완료 (agent-v + synapse CLI 번들)"
+
+# 로컬 개발용 바이너리 추출 (agent-v + synapse CLI)
+# agent-v: agent/build.sh 활용 / synapse CLI: cli-builder 스테이지만 빌드
+# .env.local: SYNAPSE_CLI_BINARY_PATH, SYNAPSE_AGENT_BINARY_PATH 참조
+.PHONY: extract-binaries
+extract-binaries:
+	@echo "→ [1/2] agent-v 빌드 (agent/build.sh — rust:1.88 musl static)..."
+	cd $(ROOT_DIR)/agent && ./build.sh
+	@mkdir -p $(ROOT_DIR)/local-bin
+	cp $(ROOT_DIR)/agent/dist/agent-v $(ROOT_DIR)/local-bin/agent-v
+	@echo "→ [2/2] synapse CLI 바이너리 추출 (Docker cli-builder)..."
+	docker build \
+		--target cli-builder \
+		-f $(ADMIN_API_DIR)/Dockerfile \
+		-t aoms-cli-builder-tmp \
+		$(ROOT_DIR)
+	docker create --name aoms-cli-tmp aoms-cli-builder-tmp
+	docker cp aoms-cli-tmp:/build/synapse $(ROOT_DIR)/local-bin/synapse
+	docker rm aoms-cli-tmp
+	docker rmi aoms-cli-builder-tmp
+	@echo "✓ 추출 완료:"
+	@echo "  local-bin/agent-v"
+	@echo "  local-bin/synapse"
+	@echo ""
+	@echo "  .env.local에 추가:"
+	@echo "  SYNAPSE_CLI_BINARY_PATH=$(ROOT_DIR)/local-bin/synapse"
+	@echo "  SYNAPSE_AGENT_BINARY_PATH=$(ROOT_DIR)/local-bin/agent-v"
 
 .PHONY: build-analyzer
 build-analyzer:

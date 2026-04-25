@@ -116,8 +116,15 @@ class UserAdminUpdate(BaseModel):
 
 
 # ── 엔드포인트 ───────────────────────────────────────────────────────────────
-@router.post("/login", response_model=LoginResponse)
-async def login(body: LoginRequest, response: Response, db: AsyncSession = Depends(get_db)):
+class CliLoginResponse(BaseModel):
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+    user: UserOut
+
+
+@router.post("/login")
+async def login(request: Request, body: LoginRequest, response: Response, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(User).where(User.email == body.email))
     user: User | None = result.scalar_one_or_none()
 
@@ -143,6 +150,14 @@ async def login(body: LoginRequest, response: Response, db: AsyncSession = Depen
         max_age=REFRESH_TOKEN_EXPIRE_DAYS * 86400,
         path="/api/v1/auth",
     )
+
+    # CLI 클라이언트: refresh_token을 body에도 포함 (httpOnly 쿠키 대신 로컬 파일 관리)
+    if request.headers.get("X-Client") == "cli":
+        return CliLoginResponse(
+            access_token=access_token,
+            refresh_token=refresh_token,
+            user=UserOut.model_validate(user),
+        )
 
     return LoginResponse(
         access_token=access_token,

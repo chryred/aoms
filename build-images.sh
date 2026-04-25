@@ -15,8 +15,10 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SERVICES_DIR="$SCRIPT_DIR/main-server/services"
 OUTPUT_DIR="$SCRIPT_DIR/main-server"
 
-IMAGES=(
-  "synapse-admin-api:$TAG:$SERVICES_DIR/admin-api"
+# admin-api는 멀티스테이지 빌드 — 컨텍스트가 프로젝트 루트
+ADMIN_API_DOCKERFILE="$SERVICES_DIR/admin-api/Dockerfile"
+
+IMAGES_STANDARD=(
   "synapse-log-analyzer:$TAG:$SERVICES_DIR/log-analyzer"
   "synapse-frontend:$TAG:$SERVICES_DIR/frontend"
 )
@@ -38,20 +40,25 @@ do_build() {
   info "플랫폼: $PLATFORM / 태그: $TAG"
   echo ""
 
-  # ── 에이전트 바이너리 준비 (admin-api Docker 이미지에 번들링) ───────────
-  AGENT_BIN_SRC="$SCRIPT_DIR/agent/dist/agent-v"
-  AGENT_BIN_DST="$SERVICES_DIR/admin-api/bin/agent-v"
+  # ── admin-api: 멀티스테이지 빌드 (agent-v + synapse CLI 자동 빌드) ─────────
+  # 빌드 컨텍스트 = 프로젝트 루트 (agent/, synapse-cli/ 접근 필요)
+  info "admin-api 멀티스테이지 빌드 시작 (agent-v + synapse CLI 포함)..."
+  docker build \
+    --platform "$PLATFORM" \
+    -f "$ADMIN_API_DOCKERFILE" \
+    -t "synapse-admin-api:$TAG" \
+    "$SCRIPT_DIR" \
+    || error "synapse-admin-api:$TAG 빌드 실패"
+  success "빌드 완료: synapse-admin-api:$TAG"
 
-  if [ ! -f "$AGENT_BIN_SRC" ]; then
-    error "에이전트 바이너리를 찾을 수 없습니다: $AGENT_BIN_SRC\n  먼저 agent/build.sh 를 실행하여 바이너리를 빌드하세요."
-  fi
-
-  info "에이전트 바이너리 복사: $AGENT_BIN_SRC → $AGENT_BIN_DST"
-  mkdir -p "$(dirname "$AGENT_BIN_DST")"
-  cp "$AGENT_BIN_SRC" "$AGENT_BIN_DST"
+  tarfile="$OUTPUT_DIR/synapse-admin-api-${TAG}.tar.gz"
+  info "저장 중:  $tarfile"
+  docker save "synapse-admin-api:$TAG" | gzip > "$tarfile"
+  success "저장 완료: $tarfile  ($(du -sh "$tarfile" | cut -f1))"
   echo ""
 
-  for entry in "${IMAGES[@]}"; do
+  # ── 나머지 이미지: 기존 방식 ─────────────────────────────────────────────
+  for entry in "${IMAGES_STANDARD[@]}"; do
     IFS=':' read -r name tag context <<< "$entry"
     image="$name:$tag"
 
@@ -66,11 +73,6 @@ do_build() {
     success "저장 완료: $tarfile  ($(du -sh "$tarfile" | cut -f1))"
     echo ""
   done
-
-  # ── 임시 복사본 제거 ──────────────────────────────────────────────────────
-  rm -rf "$SERVICES_DIR/admin-api/bin"
-  success "에이전트 바이너리 임시 복사본 삭제 완료"
-  echo ""
 
   echo -e "${GREEN}============================================${NC}"
   echo -e "${GREEN}  빌드 완료${NC}"

@@ -1,4 +1,4 @@
-export type AgentType = 'synapse_agent' | 'db' | 'otel_javaagent'
+export type AgentType = 'synapse_agent' | 'db' | 'otel_javaagent' | 'cli'
 
 export type OtelServiceType = 'tomcat' | 'jboss' | 'jeus' | 'systemd' | 'standalone'
 
@@ -44,7 +44,7 @@ export type ServerType = 'web' | 'was' | 'db' | 'middleware' | 'other'
 
 export interface AgentInstance {
   id: number
-  system_id: number
+  system_id: number | null
   host: string
   agent_type: AgentType
   install_path: string | null // db 에이전트는 null

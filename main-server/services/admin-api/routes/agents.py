@@ -811,6 +811,106 @@ async def get_install_job(
     return job
 
 
+async def _run_cli_install(job_id: str, agent: AgentInstance, session: dict) -> None:
+    """Synapse CLI 바이너리 배포 (mkdir + scp + chmod + PATH 등록). 데몬 없음."""
+    from database import AsyncSessionLocal
+    from pathlib import Path
+
+    _STANDARD_PATH = {"/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin", "/usr/local/sbin"}
+
+    def _log(msg: str):
+        _live_jobs[job_id]["logs"] += f"{msg}\n"
+
+    install_path_raw = agent.install_path or "~/bin/synapse"
+
+    async with AsyncSessionLocal() as db:
+        try:
+            _log("[1/4] 홈 디렉터리 확인 및 설치 경로 준비 중...")
+            # SFTP는 tilde 미지원 → 절대경로로 확장
+            install_path = await _expand_remote_tilde(session, install_path_raw)
+            install_dir = install_path.rsplit("/", 1)[0]
+            _log(f"  → 설치 경로: {install_path}")
+
+            _log("[2/4] 설치 디렉터리 생성 중...")
+            mkdir_cmd = f"mkdir -p {_shell_path(install_dir)}"
+            code, _, stderr = await asyncio.to_thread(
+                ssh_exec,
+                session["host"], session["port"], session["username"], session["password"],
+                mkdir_cmd,
+            )
+            if code != 0:
+                raise RuntimeError(f"mkdir -p 실패: {stderr.strip()}")
+            _log(f"  → 완료: {install_dir}")
+
+            _log("[3/4] CLI 바이너리 업로드 중 (SFTP)...")
+            _default_cli = "/app/bin/synapse"
+            bin_path = Path(os.environ.get("SYNAPSE_CLI_BINARY_PATH", _default_cli))
+            if not bin_path.exists():
+                raise RuntimeError(
+                    f"synapse CLI 바이너리를 찾을 수 없습니다 ({bin_path}). "
+                    "Docker 이미지: make build-api로 재빌드, "
+                    "로컬 개발: SYNAPSE_CLI_BINARY_PATH 환경변수를 설정하세요."
+                )
+            binary_content = await asyncio.to_thread(bin_path.read_bytes)
+            await asyncio.to_thread(
+                ssh_put_binary,
+                session["host"], session["port"], session["username"], session["password"],
+                install_path, binary_content,
+            )
+            _log(f"  → 업로드 완료: {install_path}")
+
+            _log("[4/4] 실행 권한 설정 중...")
+            code, _, stderr = await asyncio.to_thread(
+                ssh_exec,
+                session["host"], session["port"], session["username"], session["password"],
+                f"chmod +x {shlex.quote(install_path)}",
+            )
+            if code != 0:
+                raise RuntimeError(f"chmod +x 실패: {stderr.strip()}")
+
+            if install_dir not in _STANDARD_PATH:
+                path_line = f'export PATH="{install_dir}:$PATH"'
+                add_cmd = (
+                    f'grep -qF {shlex.quote(install_dir)} ~/.bashrc || '
+                    f'echo {shlex.quote(path_line)} >> ~/.bashrc'
+                )
+                await asyncio.to_thread(
+                    ssh_exec,
+                    session["host"], session["port"], session["username"], session["password"],
+                    add_cmd,
+                )
+                _log(f"  → ~/.bashrc에 PATH 등록 완료. 'source ~/.bashrc' 또는 재로그인 후 'synapse --help'로 확인하세요.")
+            else:
+                _log(f"  → 완료. 대상 서버에서 'synapse --help'로 확인하세요.")
+
+            _live_jobs[job_id]["status"] = "done"
+            job = await db.get(AgentInstallJob, None)
+            jobs = await db.execute(
+                select(AgentInstallJob).where(AgentInstallJob.job_id == job_id)
+            )
+            job = jobs.scalar_one_or_none()
+            if job:
+                job.status = "done"
+                job.logs = _live_jobs[job_id]["logs"]
+            agent_row = await db.get(AgentInstance, agent.id)
+            if agent_row:
+                agent_row.status = "installed"
+            await db.commit()
+
+        except Exception as exc:
+            _log(f"\n[오류] {exc}")
+            _live_jobs[job_id]["status"] = "failed"
+            jobs = await db.execute(
+                select(AgentInstallJob).where(AgentInstallJob.job_id == job_id)
+            )
+            job = jobs.scalar_one_or_none()
+            if job:
+                job.status = "failed"
+                job.logs = _live_jobs[job_id]["logs"]
+                job.error = str(exc)
+            await db.commit()
+
+
 async def _run_db_connect(job_id: str, agent: AgentInstance) -> None:
     """
     db 에이전트 '설치' = DB 연결 테스트 후 status 업데이트.
@@ -912,6 +1012,11 @@ async def _run_install(
     # OTel Java Agent 설치
     if agent.agent_type == "otel_javaagent":
         await _run_otel_install(job_id, agent, session)
+        return
+
+    # Synapse CLI 배포 (단순 scp + chmod, 데몬 없음)
+    if agent.agent_type == "cli":
+        await _run_cli_install(job_id, agent, session)
         return
 
     # 로컬 경로 변수 초기화 (tilde 해석 전)

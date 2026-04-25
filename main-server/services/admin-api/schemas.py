@@ -552,7 +552,7 @@ class AgentInstanceCreate(BaseModel):
     system_id: int
     host: str
     agent_type: str = Field(
-        pattern="^(alloy|node_exporter|jmx_exporter|synapse_agent|db|otel_javaagent)$"
+        pattern="^(alloy|node_exporter|jmx_exporter|synapse_agent|db|otel_javaagent|cli)$"
     )
     install_path: Optional[str] = None   # db 에이전트는 바이너리 없음
     config_path: Optional[str] = None    # db 에이전트는 설정 파일 없음
@@ -587,7 +587,7 @@ class AgentInstanceUpdate(BaseModel):
 
 class AgentInstanceOut(BaseModel):
     id: int
-    system_id: int
+    system_id: Optional[int]
     host: str
     agent_type: str
     install_path: Optional[str]   # db 에이전트는 null

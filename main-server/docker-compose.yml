@@ -138,6 +138,7 @@ services:
       # DB 수집기
       - DB_COLLECT_INTERVAL_SECS=${DB_COLLECT_INTERVAL_SECS:-${ORACLE_COLLECT_INTERVAL_SECS:-60}}
       - AGENT_BINARY_PATH=${AGENT_BINARY_PATH:-/app/bin/agent-v}
+      - SYNAPSE_CLI_BINARY_PATH=${SYNAPSE_CLI_BINARY_PATH:-/app/bin/synapse}
       # OTel / Tempo
       - TEMPO_URL=${TEMPO_URL:-http://tempo:3200}
     mem_limit: 256m

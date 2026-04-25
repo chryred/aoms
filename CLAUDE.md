@@ -50,6 +50,7 @@
 | `PROMETHEUS_ANALYZE_INTERVAL_SECONDS` | 300 (admin-api 메트릭 교차 분석 주기) |
 | `TEMPO_URL` | `http://tempo:3200` — admin-api + log-analyzer Tempo HTTP API (ADR-008) |
 | `OTEL_COLLECTOR_ENDPOINT` | `http://otel-collector:4317` — Java Agent OTLP gRPC 전송 목적지 (ADR-008) |
+| `SYNAPSE_CLI_BINARY_PATH` | `/app/bin/synapse` — CLI 배포용 바이너리 경로 (Docker 이미지 내 번들) |
 
 ### 로컬 개발
 ```bash
