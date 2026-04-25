@@ -1,5 +1,6 @@
 import { cn } from '@/lib/utils'
 import { Loader2 } from 'lucide-react'
+import { forwardRef } from 'react'
 import type { ButtonHTMLAttributes, ReactNode } from 'react'
 
 interface NeuButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
@@ -9,17 +10,13 @@ interface NeuButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   loading?: boolean
 }
 
-export function NeuButton({
-  children,
-  variant = 'primary',
-  size = 'md',
-  loading,
-  className,
-  disabled,
-  ...props
-}: NeuButtonProps) {
+export const NeuButton = forwardRef<HTMLButtonElement, NeuButtonProps>(function NeuButton(
+  { children, variant = 'primary', size = 'md', loading, className, disabled, ...props },
+  ref,
+) {
   return (
     <button
+      ref={ref}
       disabled={disabled || loading}
       className={cn(
         'inline-flex items-center justify-center gap-2 rounded-sm font-medium',
@@ -61,8 +58,8 @@ export function NeuButton({
       )}
       {...props}
     >
-      {loading && <Loader2 className="h-4 w-4 animate-spin" />}
+      {loading && <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />}
       {children}
     </button>
   )
-}
+})

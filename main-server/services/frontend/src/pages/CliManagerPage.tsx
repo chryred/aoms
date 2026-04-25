@@ -5,11 +5,11 @@ import {
   Terminal,
   Trash2,
   RefreshCw,
-  CheckCircle2,
-  CircleDashed,
   Lock,
   LogOut,
   AlertCircle,
+  Upload,
+  ChevronDown,
 } from 'lucide-react'
 import { NeuButton } from '@/components/neumorphic/NeuButton'
 import { NeuCard } from '@/components/neumorphic/NeuCard'
@@ -94,8 +94,20 @@ export function CliManagerPage() {
   const [deployState, setDeployState] = useState<DeployState | null>(null)
   const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null)
   const [errorModal, setErrorModal] = useState<ErrorModal | null>(null)
+  const [usageOpen, setUsageOpen] = useState(() => {
+    const saved = localStorage.getItem('cli-manager.usage-open')
+    return saved === null ? true : saved === '1'
+  })
   const errorModalConfirmRef = useRef<HTMLButtonElement>(null)
   const errorModalTriggerRef = useRef<HTMLElement | null>(null)
+
+  const toggleUsage = useCallback(() => {
+    setUsageOpen((prev) => {
+      const next = !prev
+      localStorage.setItem('cli-manager.usage-open', next ? '1' : '0')
+      return next
+    })
+  }, [])
 
   const refreshList = useCallback(() => {
     qc.invalidateQueries({ queryKey: ['agents', 'cli'] })
@@ -160,7 +172,7 @@ export function CliManagerPage() {
   return (
     <div className="space-y-6 p-6">
       <PageHeader
-        title="시스템 CLI 배포 관리"
+        title="CLI 배포 관리"
         description="운영 서버에 CLI 바이너리를 배포하고 관리합니다."
         action={
           <div className="flex flex-wrap items-center gap-2">
@@ -249,51 +261,38 @@ export function CliManagerPage() {
                 : isDeploying
                   ? '배포 진행 중'
                   : isInstalled
-                    ? `${agent.host}에 재배포`
-                    : `${agent.host}에 배포`
+                    ? `${agent.host} — 기존 바이너리를 새 버전으로 덮어씁니다`
+                    : `${agent.host}에 신규 배포`
               const deployLabel = isDeploying ? '배포 중...' : isInstalled ? '재배포' : '배포'
               return (
                 <div
                   key={agent.id}
                   className="flex flex-col gap-3 py-3 sm:flex-row sm:items-center sm:gap-4"
                 >
-                  <div className="flex min-w-0 flex-1 items-center gap-3">
-                    {/* 상태 아이콘 (장식 — 옆 뱃지가 의미 담당) */}
-                    <div className="shrink-0">
-                      {isInstalled ? (
-                        <CheckCircle2 className="text-normal h-4 w-4" aria-hidden="true" />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="text-text-primary truncate text-sm font-medium">{agent.host}</p>
+                      {sys ? (
+                        <span className="bg-bg-deep text-text-primary rounded-sm px-1.5 py-0.5 text-xs">
+                          {sys.display_name}
+                          <span className="text-text-secondary ml-1 font-mono">
+                            ({sys.system_name})
+                          </span>
+                        </span>
                       ) : (
-                        <CircleDashed className="text-text-secondary h-4 w-4" aria-hidden="true" />
+                        <span className="text-warning bg-warning-bg border-warning-border rounded-sm border px-1.5 py-0.5 text-xs">
+                          시스템 미지정
+                        </span>
                       )}
                     </div>
-
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <p className="text-text-primary truncate text-sm font-medium">
-                          {agent.host}
-                        </p>
-                        {sys ? (
-                          <span className="bg-bg-deep text-text-primary rounded-sm px-1.5 py-0.5 text-xs">
-                            {sys.display_name}
-                            <span className="text-text-secondary ml-1 font-mono">
-                              ({sys.system_name})
-                            </span>
-                          </span>
-                        ) : (
-                          <span className="text-warning bg-warning-bg border-warning-border rounded-sm border px-1.5 py-0.5 text-xs">
-                            시스템 미지정
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-text-secondary mt-0.5 text-xs">
-                        {agent.install_path || '~/bin/synapse'}
-                        {agent.updated_at && (
-                          <span className="ml-2">
-                            · 최근 업데이트: {formatKST(agent.updated_at, 'date')}
-                          </span>
-                        )}
-                      </p>
-                    </div>
+                    <p className="text-text-secondary mt-0.5 text-xs">
+                      {agent.install_path || '~/bin/synapse'}
+                      {agent.updated_at && (
+                        <span className="ml-2">
+                          · 최근 업데이트: {formatKST(agent.updated_at, 'datetime')}
+                        </span>
+                      )}
+                    </p>
                   </div>
 
                   <div className="flex flex-wrap items-center gap-2 sm:shrink-0">
@@ -325,13 +324,19 @@ export function CliManagerPage() {
                     ) : (
                       <>
                         <NeuButton
-                          variant="ghost"
-                          className="text-xs"
+                          variant="secondary"
+                          size="sm"
                           onClick={() => handleDeploy(agent)}
                           disabled={!sessionActive}
                           loading={isDeploying}
                           title={deployTitle}
                         >
+                          {!isDeploying &&
+                            (isInstalled ? (
+                              <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
+                            ) : (
+                              <Upload className="h-3.5 w-3.5" aria-hidden="true" />
+                            ))}
                           {deployLabel}
                         </NeuButton>
                         <IconButton
@@ -354,24 +359,40 @@ export function CliManagerPage() {
 
       {/* 사용 안내 */}
       <NeuCard>
-        <h3 className="text-text-primary mb-3 text-sm font-semibold">CLI 사용법</h3>
-        <div className="space-y-2">
-          {[
-            ['초기 설정', 'synapse login'],
-            ['단방향 질의', 'synapse ask "ORA-01555 에러 즉각 조치 알려줘"'],
-            ['시스템 컨텍스트', 'synapse ask --system cms "현재 알림 상황"'],
-            ['로그 파이프', 'tail -100 /app/error.log | synapse ask "분석해줘"'],
-            ['대화형 모드', 'synapse chat'],
-            ['새 대화', 'synapse chat --new'],
-          ].map(([label, cmd]) => (
-            <div key={label} className="flex items-start gap-3">
-              <span className="text-text-secondary min-w-[7rem] shrink-0 text-xs">{label}</span>
-              <code className="bg-bg-deep text-text-primary rounded-sm px-2 py-0.5 font-mono text-xs break-all">
-                {cmd}
-              </code>
-            </div>
-          ))}
-        </div>
+        <button
+          type="button"
+          onClick={toggleUsage}
+          aria-expanded={usageOpen}
+          aria-controls="cli-usage-panel"
+          className="text-text-primary hover:bg-hover-subtle focus:ring-accent -m-1 flex w-full items-center justify-between rounded-sm p-1 text-sm font-semibold transition-colors duration-150 focus:ring-1 focus:outline-none"
+        >
+          <span>CLI 사용법</span>
+          <ChevronDown
+            className={`text-text-secondary h-4 w-4 transition-transform duration-150 ${
+              usageOpen ? '' : '-rotate-90'
+            }`}
+            aria-hidden="true"
+          />
+        </button>
+        {usageOpen && (
+          <div id="cli-usage-panel" className="mt-3 space-y-2">
+            {[
+              ['초기 설정', 'synapse login'],
+              ['단방향 질의', 'synapse ask "ORA-01555 에러 즉각 조치 알려줘"'],
+              ['시스템 컨텍스트', 'synapse ask --system cms "현재 알림 상황"'],
+              ['로그 파이프', 'tail -100 /app/error.log | synapse ask "분석해줘"'],
+              ['대화형 모드', 'synapse chat'],
+              ['새 대화', 'synapse chat --new'],
+            ].map(([label, cmd]) => (
+              <div key={label} className="flex items-start gap-3">
+                <span className="text-text-secondary min-w-[7rem] shrink-0 text-xs">{label}</span>
+                <code className="bg-bg-deep text-text-primary rounded-sm px-2 py-0.5 font-mono text-xs break-all">
+                  {cmd}
+                </code>
+              </div>
+            ))}
+          </div>
+        )}
       </NeuCard>
 
       {/* 모달 */}

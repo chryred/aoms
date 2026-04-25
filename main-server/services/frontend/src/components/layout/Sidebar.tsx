@@ -238,7 +238,7 @@ export function Sidebar() {
           <NavItem
             to={ROUTES.CLI_MANAGER}
             icon={<Bot className="h-4 w-4" />}
-            label="CLI 관리"
+            label="CLI 배포 관리"
             collapsed={collapsed}
             onNavigate={closeMobileSidebar}
           />
