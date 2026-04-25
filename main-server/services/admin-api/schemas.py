@@ -515,6 +515,34 @@ class ReportHistoryOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+# ── SchedulerRunHistory ──────────────────────────────────────────────────────
+
+class SchedulerRunCreate(BaseModel):
+    scheduler_type: str
+    started_at: datetime
+    finished_at: datetime
+    status: str                          # ok | error
+    error_count: int = 0
+    analyzed_count: int = 0
+    summary_json: Optional[dict] = None
+    error_message: Optional[str] = None
+
+
+class SchedulerRunOut(BaseModel):
+    id: int
+    scheduler_type: str
+    started_at: UtcDatetime
+    finished_at: UtcDatetime
+    status: str
+    error_count: int
+    analyzed_count: int
+    summary_json: Optional[dict]
+    error_message: Optional[str]
+    created_at: UtcDatetime
+
+    model_config = {"from_attributes": True}
+
+
 # ── Agent (수집기 인스턴스) ──────────────────────────────────────────────────
 
 class SSHSessionCreate(BaseModel):

@@ -399,6 +399,27 @@ class AggregationReportHistory(Base):
     )
 
 
+class SchedulerRunHistory(Base):
+    """스케줄러 실행 이력 — 성공/실패 모두 기록 (log-analyzer 재시작 시 메모리 손실 방지)"""
+    __tablename__ = "scheduler_run_history"
+
+    id             = Column(Integer, primary_key=True)
+    scheduler_type = Column(String(20), nullable=False)  # analysis | hourly | daily | weekly | monthly | longperiod | trend
+    started_at     = Column(DateTime, nullable=False)
+    finished_at    = Column(DateTime, nullable=False)
+    status         = Column(String(10), nullable=False)  # ok | error
+    error_count    = Column(Integer, default=0)
+    analyzed_count = Column(Integer, default=0)
+    summary_json   = Column(JSONB)                       # 전체 result dict
+    error_message  = Column(Text)                        # status='error' 시 최상위 예외 메시지
+    created_at     = Column(DateTime, default=func.now())
+
+    __table_args__ = (
+        Index("idx_scheduler_run_type_started", "scheduler_type", "started_at"),
+        Index("idx_scheduler_run_started", "started_at"),
+    )
+
+
 class AgentInstance(Base):
     """설치된 수집기 인스턴스 메타정보 (계정 정보는 저장하지 않음)"""
     __tablename__ = "agent_instances"

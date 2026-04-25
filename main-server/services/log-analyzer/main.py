@@ -23,6 +23,7 @@ import os
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 
+import httpx
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
@@ -38,8 +39,31 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 ANALYSIS_INTERVAL = int(os.getenv("ANALYSIS_INTERVAL_SECONDS", "300"))
+ADMIN_API_URL = os.getenv("ADMIN_API_URL", "http://admin-api:8080")
 
 _KST = timezone(timedelta(hours=9))  # 집계 스케줄 기준 타임존
+
+
+async def _record_run(scheduler_type: str, started_at: str, finished_at: str, result: dict | None) -> None:
+    """스케줄러 실행 결과를 admin-api에 기록 (fire-and-forget, 실패해도 무시)"""
+    if result is None:
+        result = {}
+    has_error = "error" in result
+    payload = {
+        "scheduler_type": scheduler_type,
+        "started_at": started_at,
+        "finished_at": finished_at,
+        "status": "error" if has_error else "ok",
+        "error_count": result.get("errors", 0),
+        "analyzed_count": result.get("analyzed", 0) if scheduler_type == "analysis" else result.get("anomalies", 0),
+        "summary_json": result,
+        "error_message": str(result["error"]) if has_error else None,
+    }
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            await client.post(f"{ADMIN_API_URL}/api/v1/scheduler-runs", json=payload)
+    except Exception as exc:
+        logger.debug("스케줄러 이력 기록 실패 (무시): %s", exc)
 
 _running = False
 _last_run: dict = {"started_at": None, "finished_at": None, "result": None}
@@ -67,6 +91,12 @@ async def _run_analysis_task() -> None:
     finally:
         _running = False
         _last_run["finished_at"] = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
+        asyncio.create_task(_record_run(
+            "analysis",
+            _last_run["started_at"],
+            _last_run["finished_at"],
+            _last_run["result"],
+        ))
 
 
 async def _scheduler() -> None:
@@ -566,6 +596,12 @@ async def _run_agg_task(name: str, fn) -> None:
     finally:
         _agg_running[name] = False
         _agg_last_run[name]["finished_at"] = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
+        asyncio.create_task(_record_run(
+            name,
+            _agg_last_run[name]["started_at"],
+            _agg_last_run[name]["finished_at"],
+            _agg_last_run[name]["result"],
+        ))
 
 
 def _trigger_aggregation(task_key: str, coro_fn) -> dict:

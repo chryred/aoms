@@ -306,6 +306,22 @@ CREATE TABLE IF NOT EXISTS aggregation_report_history (
 
 CREATE INDEX IF NOT EXISTS idx_report_history_type_time ON aggregation_report_history(report_type, period_start DESC);
 
+-- ── 스케줄러 실행 이력 ────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS scheduler_run_history (
+    id             SERIAL PRIMARY KEY,
+    scheduler_type VARCHAR(20)  NOT NULL,   -- analysis | hourly | daily | weekly | monthly | longperiod | trend
+    started_at     TIMESTAMP    NOT NULL,
+    finished_at    TIMESTAMP    NOT NULL,
+    status         VARCHAR(10)  NOT NULL,   -- ok | error
+    error_count    INTEGER      DEFAULT 0,
+    analyzed_count INTEGER      DEFAULT 0,
+    summary_json   JSONB,
+    error_message  TEXT,
+    created_at     TIMESTAMP    DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_scheduler_run_type_started ON scheduler_run_history(scheduler_type, started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_scheduler_run_started      ON scheduler_run_history(started_at DESC);
+
 -- ── 에이전트 인스턴스 (Phase 6 / Phase 9) ────────────────────────────
 CREATE TABLE IF NOT EXISTS agent_instances (
     id           SERIAL PRIMARY KEY,

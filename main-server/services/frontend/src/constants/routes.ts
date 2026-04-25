@@ -21,6 +21,7 @@ export const ROUTES = {
   AGENTS: '/agents',
   INCIDENTS: '/incidents',
   CLI_MANAGER: '/synapse-cli',
+  SCHEDULER_RUNS: '/admin/scheduler-runs',
   systemDetail: (id: number | string) => `/dashboard/${id}`,
   agentDetail: (id: number | string) => `/agents/${id}`,
   incidentDetail: (id: number | string) => `/incidents/${id}`,

@@ -86,6 +86,7 @@ admin-api/
 | `chat_executor_configs` | Executor별 자격증명/설정. `config` JSONB (secret 필드는 Fernet 암호문), `config_schema` 폼 렌더 메타 (Phase Chat) |
 | `chat_sessions` | 사용자 챗봇 세션. UUID PK, `user_id` FK (Phase Chat) |
 | `chat_messages` | 세션 내 메시지. role: user/assistant/tool, `attachments` JSONB (Phase Chat) |
+| `scheduler_run_history` | log-analyzer 스케줄러 실행 이력. `scheduler_type`(analysis/hourly/daily/weekly/monthly/longperiod/trend), `status`(ok/error), `error_count`, `analyzed_count`, `summary_json`, `error_message` |
 
 ## API 엔드포인트
 

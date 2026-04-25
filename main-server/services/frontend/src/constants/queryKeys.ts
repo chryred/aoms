@@ -29,6 +29,8 @@ export const qk = {
 
   reports: (type?: ReportType) => ['reports', type] as const,
 
+  schedulerRuns: (params?: Record<string, unknown>) => ['scheduler-runs', params] as const,
+
   search: {
     collectionInfo: () => ['search', 'collection-info'] as const,
     aggregationStatus: () => ['search', 'aggregation-status'] as const,

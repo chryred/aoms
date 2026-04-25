@@ -15,6 +15,7 @@ from routes import incidents as incidents_router
 from routes import chat, chat_attachments, chat_tools as chat_tools_router, chat_executor_configs
 from routes import alert_exclusions as alert_exclusions_router
 from routes import llm_query as llm_query_router
+from routes import scheduler_runs as scheduler_runs_router
 from services.ssh_session import run_cleanup_loop
 from services.prometheus_analyzer import run_prometheus_analyzer_loop
 from services.db_collector import db_collection_loop
@@ -88,6 +89,7 @@ app.include_router(chat_tools_router.router)
 app.include_router(chat_executor_configs.router)
 app.include_router(alert_exclusions_router.router)
 app.include_router(llm_query_router.router)
+app.include_router(scheduler_runs_router.router)
 
 
 @app.get("/health")

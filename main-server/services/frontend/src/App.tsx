@@ -76,6 +76,9 @@ const IncidentListPage = lazy(() =>
 const IncidentDetailPage = lazy(() =>
   import('@/pages/IncidentDetailPage').then((m) => ({ default: m.IncidentDetailPage })),
 )
+const SchedulerRunHistoryPage = lazy(() =>
+  import('@/pages/SchedulerRunHistoryPage').then((m) => ({ default: m.SchedulerRunHistoryPage })),
+)
 
 export function App() {
   return (
@@ -295,6 +298,14 @@ export function App() {
               element={
                 <Suspense fallback={<LoadingSkeleton shape="table" />}>
                   <ChatToolsPage />
+                </Suspense>
+              }
+            />
+            <Route
+              path="/admin/scheduler-runs"
+              element={
+                <Suspense fallback={<LoadingSkeleton shape="table" />}>
+                  <SchedulerRunHistoryPage />
                 </Suspense>
               }
             />

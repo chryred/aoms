@@ -265,7 +265,7 @@ export function Sidebar() {
         <div
           className={cn(
             'absolute right-0 bottom-full left-0 overflow-hidden transition-all duration-200 ease-in-out',
-            accountMenuOpen ? 'max-h-[200px] opacity-100' : 'pointer-events-none max-h-0 opacity-0',
+            accountMenuOpen ? 'max-h-[320px] opacity-100' : 'pointer-events-none max-h-0 opacity-0',
           )}
         >
           <div className="border-border bg-bg-deep space-y-0.5 rounded-sm border px-2 pt-1 pb-1 shadow-[0_-4px_12px_rgba(0,0,0,0.3)]">
@@ -304,6 +304,13 @@ export function Sidebar() {
                   to={ROUTES.VECTOR_HEALTH}
                   icon={<Database className="h-4 w-4" />}
                   label="벡터 상태"
+                  collapsed={collapsed}
+                  onNavigate={closeMobileSidebar}
+                />
+                <NavItem
+                  to={ROUTES.SCHEDULER_RUNS}
+                  icon={<Activity className="h-4 w-4" />}
+                  label="스케줄러 이력"
                   collapsed={collapsed}
                   onNavigate={closeMobileSidebar}
                 />

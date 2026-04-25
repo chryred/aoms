@@ -29,6 +29,7 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/admin/users', label: '사용자 관리', group: '계정', adminOnly: true },
   { to: '/admin/llm-config', label: 'DevX AgentCode 관리', group: '계정', adminOnly: true },
   { to: '/vector-health', label: '벡터 상태', group: '계정', adminOnly: true },
+  { to: '/admin/scheduler-runs', label: '스케줄러 이력', group: '계정', adminOnly: true },
 ]
 
 const isMac = typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform)
