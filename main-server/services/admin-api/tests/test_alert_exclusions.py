@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -6,6 +7,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from models import AlertExclusion, System
 from services.exclusion_filter import is_excluded, mark_skipped
+
+
+def _utc_naive_now() -> datetime:
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 SYSTEM_PAYLOAD = {"system_name": "test-system", "display_name": "테스트시스템"}
@@ -198,6 +203,204 @@ async def test_analysis_excluded_skips_alert_and_incident(authed_client: AsyncCl
     inc_resp = await authed_client.get("/api/v1/incidents", params={"system_id": system["id"]})
     assert inc_resp.status_code == 200
     assert len(inc_resp.json()) == 0
+
+
+# ── count 임계값 테스트 ────────────────────────────────────────────────────
+
+async def test_is_excluded_count_within_threshold(db_session: AsyncSession):
+    """count <= max_count_per_window → 예외 적용"""
+    sys = System(system_name="cs1", display_name="CS1", status="active")
+    db_session.add(sys)
+    await db_session.flush()
+
+    rule = AlertExclusion(
+        system_id=sys.id, instance_role="was1", template="ERROR: noisy",
+        active=True, max_count_per_window=10,
+    )
+    db_session.add(rule)
+    await db_session.flush()
+
+    result = await is_excluded(db_session, sys.id, "was1", "ERROR: noisy", count=5)
+    assert result is not None
+    assert result.id == rule.id
+
+
+async def test_is_excluded_count_exceeds_threshold(db_session: AsyncSession):
+    """count > max_count_per_window → 예외 미적용 (None 반환)"""
+    sys = System(system_name="cs2", display_name="CS2", status="active")
+    db_session.add(sys)
+    await db_session.flush()
+
+    db_session.add(AlertExclusion(
+        system_id=sys.id, instance_role="was1", template="ERROR: spike",
+        active=True, max_count_per_window=10,
+    ))
+    await db_session.flush()
+
+    result = await is_excluded(db_session, sys.id, "was1", "ERROR: spike", count=100)
+    assert result is None  # 임계값 초과 → 예외 미적용 → 정상 분석 진행
+
+
+async def test_is_excluded_count_unlimited(db_session: AsyncSession):
+    """max_count_per_window=NULL이면 무제한 (어떤 count에도 예외 적용)"""
+    sys = System(system_name="cs3", display_name="CS3", status="active")
+    db_session.add(sys)
+    await db_session.flush()
+
+    db_session.add(AlertExclusion(
+        system_id=sys.id, instance_role="was1", template="ERROR: always",
+        active=True, max_count_per_window=None,
+    ))
+    await db_session.flush()
+
+    # 매우 큰 count도 예외 적용
+    result = await is_excluded(db_session, sys.id, "was1", "ERROR: always", count=99999)
+    assert result is not None
+
+
+async def test_is_excluded_count_none_skips_threshold_check(db_session: AsyncSession):
+    """count=None이면 max_count 검사 생략 (admin-api 호환)"""
+    sys = System(system_name="cs4", display_name="CS4", status="active")
+    db_session.add(sys)
+    await db_session.flush()
+
+    db_session.add(AlertExclusion(
+        system_id=sys.id, instance_role="was1", template="ERROR: legacy",
+        active=True, max_count_per_window=5,
+    ))
+    await db_session.flush()
+
+    # count 인자 미제공 → 임계값 무시하고 매칭만 확인
+    result = await is_excluded(db_session, sys.id, "was1", "ERROR: legacy", count=None)
+    assert result is not None
+
+
+# ── 만료(expires_at) 테스트 ────────────────────────────────────────────────
+
+async def test_is_excluded_future_expiry_matches(db_session: AsyncSession):
+    """expires_at이 미래면 매칭됨"""
+    sys = System(system_name="ex1", display_name="EX1", status="active")
+    db_session.add(sys)
+    await db_session.flush()
+
+    db_session.add(AlertExclusion(
+        system_id=sys.id, instance_role="was1", template="ERROR: future",
+        active=True, expires_at=_utc_naive_now() + timedelta(days=7),
+    ))
+    await db_session.flush()
+
+    result = await is_excluded(db_session, sys.id, "was1", "ERROR: future")
+    assert result is not None
+
+
+async def test_is_excluded_past_expiry_skipped(db_session: AsyncSession):
+    """expires_at이 과거면 매칭 안 됨 (Lazy 만료)"""
+    sys = System(system_name="ex2", display_name="EX2", status="active")
+    db_session.add(sys)
+    await db_session.flush()
+
+    db_session.add(AlertExclusion(
+        system_id=sys.id, instance_role="was1", template="ERROR: expired",
+        active=True, expires_at=_utc_naive_now() - timedelta(days=1),
+    ))
+    await db_session.flush()
+
+    result = await is_excluded(db_session, sys.id, "was1", "ERROR: expired")
+    assert result is None  # 만료된 규칙은 매칭 안 됨
+
+
+async def test_is_excluded_null_expiry_matches(db_session: AsyncSession):
+    """expires_at=NULL이면 만료 없음 (기존 동작 호환)"""
+    sys = System(system_name="ex3", display_name="EX3", status="active")
+    db_session.add(sys)
+    await db_session.flush()
+
+    db_session.add(AlertExclusion(
+        system_id=sys.id, instance_role="was1", template="ERROR: forever",
+        active=True, expires_at=None,
+    ))
+    await db_session.flush()
+
+    result = await is_excluded(db_session, sys.id, "was1", "ERROR: forever")
+    assert result is not None
+
+
+# ── /analysis 통합 테스트 ──────────────────────────────────────────────────
+
+async def test_analysis_count_below_threshold_excluded(authed_client: AsyncClient):
+    """template_counts가 임계값 이하 → alert/incident 미생성"""
+    system = await _create_system(authed_client)
+    template = "ERROR: batch noise"
+
+    await authed_client.post("/api/v1/alert-exclusions", json={
+        "items": [{
+            "system_id": system["id"], "instance_role": "was1",
+            "template": template, "max_count_per_window": 10,
+        }]
+    })
+
+    resp = await authed_client.post("/api/v1/analysis", json={
+        **ANALYSIS_PAYLOAD,
+        "system_id": system["id"],
+        "templates": [template],
+        "template_counts": {template: 3},   # 임계값 이하
+    })
+    assert resp.status_code == 201
+
+    alerts = (await authed_client.get("/api/v1/alerts", params={"system_id": system["id"]})).json()
+    incidents = (await authed_client.get("/api/v1/incidents", params={"system_id": system["id"]})).json()
+    assert len(alerts) == 0
+    assert len(incidents) == 0
+
+
+async def test_analysis_count_exceeds_threshold_alerts(authed_client: AsyncClient):
+    """template_counts가 임계값 초과 → 정상 분석 경로 (alert 생성)"""
+    system = await _create_system(authed_client)
+    template = "ERROR: spike pattern"
+
+    await authed_client.post("/api/v1/alert-exclusions", json={
+        "items": [{
+            "system_id": system["id"], "instance_role": "was1",
+            "template": template, "max_count_per_window": 10,
+        }]
+    })
+
+    with patch("routes.analysis.notifier.send_log_analysis_alert", new_callable=AsyncMock, return_value=False):
+        resp = await authed_client.post("/api/v1/analysis", json={
+            **ANALYSIS_PAYLOAD,
+            "system_id": system["id"],
+            "templates": [template],
+            "template_counts": {template: 100},  # 임계값 초과
+        })
+    assert resp.status_code == 201
+
+    # 임계값 초과 → 정상 분석 → alert_history 생성
+    alerts = (await authed_client.get("/api/v1/alerts", params={"system_id": system["id"]})).json()
+    assert len(alerts) == 1
+    assert alerts[0]["alert_type"] == "log_analysis"
+
+
+# ── 만료 자동 필터링 (list API) ────────────────────────────────────────────
+
+async def test_list_exclusions_active_excludes_expired_by_default(authed_client: AsyncClient):
+    """GET /alert-exclusions?active=true는 기본적으로 만료된 규칙 제외"""
+    system = await _create_system(authed_client)
+
+    # 활성 + 미만료
+    await authed_client.post("/api/v1/alert-exclusions", json={
+        "items": [{"system_id": system["id"], "template": "ERROR: live"}]
+    })
+    # 활성 + 만료
+    past = (_utc_naive_now() - timedelta(days=1)).isoformat() + "Z"
+    await authed_client.post("/api/v1/alert-exclusions", json={
+        "items": [{"system_id": system["id"], "template": "ERROR: expired", "expires_at": past}]
+    })
+
+    resp = await authed_client.get("/api/v1/alert-exclusions", params={"active": "true"})
+    rules = resp.json()
+    templates = {r["template"] for r in rules}
+    assert "ERROR: live" in templates
+    assert "ERROR: expired" not in templates
 
 
 async def test_analysis_not_excluded_without_matching_template(authed_client: AsyncClient):

@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
@@ -16,22 +16,33 @@ from schemas import (
 router = APIRouter(prefix="/api/v1/alert-exclusions", tags=["alert-exclusions"])
 
 
+def _normalize_expires_at(dt: datetime | None) -> datetime | None:
+    """입력 datetime을 UTC naive로 정규화 (CLAUDE.md 타임존 규칙)."""
+    if dt is None:
+        return None
+    if dt.tzinfo is not None:
+        return dt.astimezone(timezone.utc).replace(tzinfo=None)
+    return dt
+
+
 @router.post("", response_model=BulkExcludeResult, status_code=200)
 async def create_exclusions(
     payload: AlertExclusionCreate,
     db: AsyncSession = Depends(get_db),
 ):
-    """예외 규칙 일괄 등록 (1건~다건). 이미 활성 규칙이 있으면 skip."""
+    """예외 규칙 일괄 등록 (1건~다건). 활성·미만료 규칙 중복 시 skip."""
     succeeded: list[int] = []
     failed: list[dict] = []
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
 
     for item in payload.items:
-        # 중복 체크 (same system_id + instance_role + template + active=true)
+        # 중복 체크 — 활성 + 미만료 규칙만 중복으로 간주
         existing = await db.execute(
             select(AlertExclusion)
             .where(AlertExclusion.system_id == item.system_id)
             .where(AlertExclusion.active == True)  # noqa: E712
             .where(AlertExclusion.template == item.template)
+            .where(or_(AlertExclusion.expires_at.is_(None), AlertExclusion.expires_at > now))
             .where(
                 AlertExclusion.instance_role == item.instance_role
                 if item.instance_role is not None
@@ -54,8 +65,10 @@ async def create_exclusions(
             template=item.template,
             reason=item.reason,
             created_by=payload.created_by,
-            created_at=datetime.now(timezone.utc).replace(tzinfo=None),
+            created_at=now,
             active=True,
+            max_count_per_window=item.max_count_per_window,
+            expires_at=_normalize_expires_at(item.expires_at),
         )
         db.add(rule)
         await db.flush()
@@ -69,11 +82,16 @@ async def create_exclusions(
 async def list_exclusions(
     system_id: int | None = Query(None),
     active: str | None = Query(None, description="true | false | all"),
+    include_expired: bool = Query(False, description="active=true 조회 시 만료된 규칙 포함 여부"),
     limit: int = Query(100, le=500),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
 ):
-    """예외 규칙 목록 조회."""
+    """예외 규칙 목록 조회.
+
+    active=true 시 기본적으로 만료된 규칙은 제외됨. 감사용으로 만료 포함 보려면 include_expired=true.
+    """
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     stmt = (
         select(AlertExclusion)
         .order_by(AlertExclusion.created_at.desc())
@@ -84,6 +102,8 @@ async def list_exclusions(
         stmt = stmt.where(AlertExclusion.system_id == system_id)
     if active == "true":
         stmt = stmt.where(AlertExclusion.active == True)  # noqa: E712
+        if not include_expired:
+            stmt = stmt.where(or_(AlertExclusion.expires_at.is_(None), AlertExclusion.expires_at > now))
     elif active == "false":
         stmt = stmt.where(AlertExclusion.active == False)  # noqa: E712
     # active == "all" 또는 None이면 필터 없음

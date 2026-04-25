@@ -56,6 +56,9 @@ export function AlertHistoryPage() {
   const [showExcludeModal, setShowExcludeModal] = useState(false)
   const [excludeReason, setExcludeReason] = useState('')
   const [includeRole, setIncludeRole] = useState(true)
+  const [maxCountInput, setMaxCountInput] = useState('')   // count 임계값 (빈문자열 = 무제한)
+  const [expiryOption, setExpiryOption] = useState<'30' | '7' | '90' | 'custom' | 'never'>('30')
+  const [customExpiryDate, setCustomExpiryDate] = useState('')   // YYYY-MM-DD (KST)
   const [isExcluding, setIsExcluding] = useState(false)
   const [excludeResultMsg, setExcludeResultMsg] = useState<string | null>(null)
 
@@ -211,6 +214,20 @@ export function AlertHistoryPage() {
     (a) => selectedIds.has(a.id) && a.alert_type !== 'log_analysis'
   )
 
+  // 만료 옵션 → ISO UTC 변환
+  const computeExpiresAt = (): string | null => {
+    if (expiryOption === 'never') return null
+    if (expiryOption === 'custom') {
+      if (!customExpiryDate) return null
+      // KST 기준 자정 → UTC ISO. kstDateToUtcEnd: KST 23:59:59 → UTC ISO
+      return kstDateToUtcEnd(customExpiryDate)
+    }
+    // '30' | '7' | '90' — N일 후 자정 (현재 시각 기준 N*86400000 ms)
+    const days = parseInt(expiryOption, 10)
+    const target = new Date(Date.now() + days * 86400000)
+    return target.toISOString()
+  }
+
   // 예외 처리 실행
   const handleBulkExclude = async () => {
     const alertIds = currentAlerts
@@ -220,17 +237,28 @@ export function AlertHistoryPage() {
     if (alertIds.length === 0) return
     setIsExcluding(true)
     try {
+      const maxCount = maxCountInput.trim() === '' ? null : Number(maxCountInput)
+      if (maxCount !== null && (!Number.isFinite(maxCount) || maxCount < 1)) {
+        setExcludeResultMsg('임계값은 1 이상의 정수여야 합니다.')
+        setIsExcluding(false)
+        return
+      }
       const result = await alertExclusionsApi.bulkExcludeAlerts({
         alert_ids: alertIds,
         reason: excludeReason || null,
         include_instance_role: includeRole,
         created_by: user?.name ?? null,
+        max_count_per_window: maxCount,
+        expires_at: computeExpiresAt(),
       })
       const msg = `예외 처리 완료: 규칙 ${result.succeeded.length}건 등록${result.failed.length > 0 ? `, ${result.failed.length}건 실패` : ''}`
       setExcludeResultMsg(msg)
       setSelectedIds(new Set())
       setShowExcludeModal(false)
       setExcludeReason('')
+      setMaxCountInput('')
+      setExpiryOption('30')
+      setCustomExpiryDate('')
     } catch {
       setExcludeResultMsg('예외 처리 중 오류가 발생했습니다.')
     } finally {
@@ -274,12 +302,23 @@ export function AlertHistoryPage() {
     })
   }
 
+  // 만료 여부 판정 (lazy: 클라이언트 측에서 계산)
+  const isExclusionExpired = (ex: AlertExclusion): boolean => {
+    if (!ex.expires_at) return false
+    const normalized =
+      !ex.expires_at.endsWith('Z') && !/[+-]\d{2}:?\d{2}$/.test(ex.expires_at)
+        ? ex.expires_at + 'Z'
+        : ex.expires_at
+    return new Date(normalized).getTime() <= Date.now()
+  }
+
   const toggleSelectAllExclusions = () => {
-    const activeIds = exclusions.filter((e) => e.active).map((e) => e.id)
-    if (activeIds.every((id) => selectedExclusionIds.has(id))) {
+    // 활성 + 미만료 규칙만 선택 가능
+    const eligibleIds = exclusions.filter((e) => e.active && !isExclusionExpired(e)).map((e) => e.id)
+    if (eligibleIds.length > 0 && eligibleIds.every((id) => selectedExclusionIds.has(id))) {
       setSelectedExclusionIds(new Set())
     } else {
-      setSelectedExclusionIds(new Set(activeIds))
+      setSelectedExclusionIds(new Set(eligibleIds))
     }
   }
 
@@ -381,8 +420,8 @@ export function AlertHistoryPage() {
                         type="checkbox"
                         className="accent-accent"
                         checked={
-                          exclusions.filter((e) => e.active).length > 0 &&
-                          exclusions.filter((e) => e.active).every((e) => selectedExclusionIds.has(e.id))
+                          exclusions.filter((e) => e.active && !isExclusionExpired(e)).length > 0 &&
+                          exclusions.filter((e) => e.active && !isExclusionExpired(e)).every((e) => selectedExclusionIds.has(e.id))
                         }
                         onChange={toggleSelectAllExclusions}
                       />
@@ -391,6 +430,8 @@ export function AlertHistoryPage() {
                     <th className="text-text-secondary px-3 py-3 text-left font-medium">Role</th>
                     <th className="text-text-secondary px-3 py-3 text-left font-medium">Template</th>
                     <th className="text-text-secondary px-3 py-3 text-left font-medium">사유</th>
+                    <th className="text-text-secondary px-3 py-3 text-center font-medium">임계값</th>
+                    <th className="text-text-secondary px-3 py-3 text-left font-medium">만료</th>
                     <th className="text-text-secondary px-3 py-3 text-left font-medium">등록일시</th>
                     <th className="text-text-secondary px-3 py-3 text-center font-medium">Skip</th>
                     <th className="text-text-secondary px-3 py-3 text-left font-medium">상태</th>
@@ -400,10 +441,12 @@ export function AlertHistoryPage() {
                 <tbody>
                   {exclusions.map((ex) => {
                     const sys = systems.find((s) => s.id === ex.system_id)
+                    const expired = isExclusionExpired(ex)
+                    const canDeactivate = ex.active && !expired
                     return (
                       <tr key={ex.id} className="border-border hover:bg-surface/50 border-b last:border-0">
                         <td className="px-3 py-2.5">
-                          {ex.active && (
+                          {canDeactivate && (
                             <input
                               type="checkbox"
                               className="accent-accent"
@@ -419,15 +462,24 @@ export function AlertHistoryPage() {
                           {ex.instance_role ?? <span className="text-text-disabled">전체</span>}
                         </td>
                         <td className="text-text-primary max-w-xs px-3 py-2.5">
-                          <span
-                            title={ex.template}
-                            className="block truncate font-mono text-xs"
-                          >
+                          <span title={ex.template} className="block truncate font-mono text-xs">
                             {ex.template}
                           </span>
                         </td>
                         <td className="text-text-secondary max-w-[160px] px-3 py-2.5">
                           <span className="block truncate">{ex.reason ?? '—'}</span>
+                        </td>
+                        <td className="text-text-primary px-3 py-2.5 text-center">
+                          {ex.max_count_per_window != null ? (
+                            <span className="font-mono text-xs">{ex.max_count_per_window}건/5분</span>
+                          ) : (
+                            <span className="text-text-disabled text-xs">무제한</span>
+                          )}
+                        </td>
+                        <td className="text-text-secondary px-3 py-2.5 whitespace-nowrap">
+                          {ex.expires_at ? formatKST(ex.expires_at, 'date') : (
+                            <span className="text-text-disabled">없음</span>
+                          )}
                         </td>
                         <td className="text-text-secondary px-3 py-2.5 whitespace-nowrap">
                           {formatKST(ex.created_at, 'datetime')}
@@ -436,14 +488,16 @@ export function AlertHistoryPage() {
                           {ex.skip_count}
                         </td>
                         <td className="px-3 py-2.5">
-                          {ex.active ? (
-                            <span className="text-normal text-xs font-medium">활성</span>
-                          ) : (
+                          {!ex.active ? (
                             <span className="text-text-disabled text-xs">해제됨</span>
+                          ) : expired ? (
+                            <span className="text-warning text-xs font-medium">만료</span>
+                          ) : (
+                            <span className="text-normal text-xs font-medium">활성</span>
                           )}
                         </td>
                         <td className="px-3 py-2.5 text-right">
-                          {ex.active && (
+                          {canDeactivate && (
                             <NeuButton
                               size="sm"
                               variant="ghost"
@@ -686,8 +740,13 @@ export function AlertHistoryPage() {
       {/* 예외 처리 모달 */}
       {showExcludeModal && (
         <div className="bg-overlay fixed inset-0 z-50 flex items-center justify-center">
-          <div className="bg-surface shadow-neu-flat w-full max-w-md rounded-sm p-6">
-            <h3 className="text-text-primary mb-4 text-base font-semibold">
+          <div
+            className="bg-surface shadow-neu-flat w-full max-w-md rounded-sm p-6"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="exclude-modal-title"
+          >
+            <h3 id="exclude-modal-title" className="text-text-primary mb-4 text-base font-semibold">
               예외 처리 등록
             </h3>
             <p className="text-text-secondary mb-4 text-sm">
@@ -702,6 +761,45 @@ export function AlertHistoryPage() {
                 onChange={(e) => setExcludeReason(e.target.value)}
               />
             </div>
+
+            <div className="mb-4">
+              <label className="text-text-secondary mb-1.5 block text-xs font-medium">
+                발생 건수 임계값 (선택)
+              </label>
+              <NeuInput
+                type="number"
+                min={1}
+                placeholder="비워두면 무제한 (모든 건수에 예외 적용)"
+                value={maxCountInput}
+                onChange={(e) => setMaxCountInput(e.target.value)}
+              />
+              <p className="text-text-disabled mt-1 text-xs">
+                5분 윈도우 내 발생 건수가 이 값 이하일 때만 예외 처리됩니다. 초과 시 정상 알림 발생.
+              </p>
+            </div>
+
+            <div className="mb-4">
+              <label className="text-text-secondary mb-1.5 block text-xs font-medium">자동 만료</label>
+              <NeuSelect
+                value={expiryOption}
+                onChange={(e) => setExpiryOption(e.target.value as typeof expiryOption)}
+              >
+                <option value="30">30일 후 자동 해제 (권장)</option>
+                <option value="7">7일 후 자동 해제</option>
+                <option value="90">90일 후 자동 해제</option>
+                <option value="custom">날짜 직접 지정</option>
+                <option value="never">만료 없음</option>
+              </NeuSelect>
+              {expiryOption === 'custom' && (
+                <NeuInput
+                  type="date"
+                  className="mt-2"
+                  value={customExpiryDate}
+                  onChange={(e) => setCustomExpiryDate(e.target.value)}
+                />
+              )}
+            </div>
+
             <div className="mb-6 flex items-center gap-2">
               <input
                 id="includeRole"
@@ -717,7 +815,13 @@ export function AlertHistoryPage() {
             <div className="flex justify-end gap-3">
               <NeuButton
                 variant="ghost"
-                onClick={() => { setShowExcludeModal(false); setExcludeReason('') }}
+                onClick={() => {
+                  setShowExcludeModal(false)
+                  setExcludeReason('')
+                  setMaxCountInput('')
+                  setExpiryOption('30')
+                  setCustomExpiryDate('')
+                }}
               >
                 취소
               </NeuButton>

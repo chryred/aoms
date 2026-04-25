@@ -343,6 +343,7 @@ async def submit_analysis(
     referenced_trace_ids: list[str] | None = None,
     trace_summary_text: str | None = None,
     templates: list[str] | None = None,
+    template_counts: dict[str, int] | None = None,
 ) -> dict:
     """Admin API에 LLM 분석 결과 제출 (Teams 알림은 Admin API가 처리)
 
@@ -369,6 +370,7 @@ async def submit_analysis(
     if referenced_trace_ids   is not None: payload["referenced_trace_ids"]   = referenced_trace_ids
     if trace_summary_text     is not None: payload["trace_summary_text"]     = trace_summary_text
     if templates              is not None: payload["templates"]              = templates
+    if template_counts        is not None: payload["template_counts"]        = template_counts
 
     resp = await _admin_http.post(f"{ADMIN_API_URL}/api/v1/analysis", json=payload)
     resp.raise_for_status()
@@ -395,15 +397,39 @@ def _is_template_excluded(
     system_id: int,
     instance_role: str,
     template: str,
+    count: int = 0,
 ) -> int | None:
-    """캐시된 규칙 목록에서 매칭 규칙 id 반환. 없으면 None."""
+    """캐시된 규칙 목록에서 매칭 규칙 id 반환. 없으면 None.
+
+    매칭 조건:
+      - system_id, template 일치
+      - instance_role 일치 (rule.instance_role=None이면 모든 role)
+      - expires_at 미래거나 NULL (Lazy 만료 검증)
+      - max_count_per_window 임계값 이내 (count 인자 제공 시)
+    """
+    now_naive = datetime.now(timezone.utc).replace(tzinfo=None)
     for rule in rules:
         if rule["system_id"] != system_id:
             continue
         if rule["template"] != template:
             continue
-        if rule["instance_role"] is None or rule["instance_role"] == instance_role:
-            return rule["id"]
+        if rule["instance_role"] is not None and rule["instance_role"] != instance_role:
+            continue
+        # 만료 체크
+        expires_at = rule.get("expires_at")
+        if expires_at:
+            try:
+                # admin-api는 'Z' suffix UTC ISO로 응답
+                expires_dt = datetime.fromisoformat(expires_at.replace("Z", ""))
+                if expires_dt <= now_naive:
+                    continue
+            except (ValueError, AttributeError):
+                pass  # 파싱 실패 시 만료 무시 (안전 fallback)
+        # count 임계값 체크
+        max_count = rule.get("max_count_per_window")
+        if max_count is not None and count > max_count:
+            continue
+        return rule["id"]
     return None
 
 
@@ -479,19 +505,20 @@ async def run_analysis() -> dict:
 
             for instance_role, logs in logs_by_role.items():
                 # ── 예외 처리 게이트 (1차 방어 — LLM 호출 전) ──────────────────
+                # count 임계값 + 만료 검증 포함
                 if exclusion_rules:
-                    filtered_logs = [
-                        log for log in logs
-                        if _is_template_excluded(
-                            exclusion_rules, system_id, instance_role, log.get("template", "")
-                        ) is None
-                    ]
-                    excluded_templates = [
-                        log.get("template", "") for log in logs
-                        if _is_template_excluded(
-                            exclusion_rules, system_id, instance_role, log.get("template", "")
-                        ) is not None
-                    ]
+                    filtered_logs = []
+                    excluded_templates: list[str] = []
+                    for log in logs:
+                        tmpl = log.get("template", "")
+                        cnt = int(log.get("count", 0))
+                        rule_id = _is_template_excluded(
+                            exclusion_rules, system_id, instance_role, tmpl, count=cnt,
+                        )
+                        if rule_id is None:
+                            filtered_logs.append(log)
+                        else:
+                            excluded_templates.append(tmpl)
                     if excluded_templates:
                         logger.info(
                             f"[{system_name}/{instance_role}] 예외 처리 템플릿 {len(excluded_templates)}건 스킵"
@@ -501,8 +528,14 @@ async def run_analysis() -> dict:
                         continue
                     logs = filtered_logs
 
-                # 분석에 포함된 template 목록 수집 (admin-api templates_json 저장용)
+                # 분석에 포함된 template 목록 + count 매핑 수집 (admin-api 임계값 검증용)
                 analysis_templates = list({log.get("template", "") for log in logs if log.get("template")})
+                analysis_template_counts: dict[str, int] = {}
+                for log in logs:
+                    tmpl = log.get("template")
+                    if tmpl:
+                        # 동일 template이 여러 host에서 발생 시 count 합산
+                        analysis_template_counts[tmpl] = analysis_template_counts.get(tmpl, 0) + int(log.get("count", 0))
 
                 # masked_log는 성공/실패 두 경로 모두에서 필요 → try 진입 전 구성
                 masked_log = mask_sensitive_data(
@@ -537,6 +570,7 @@ async def run_analysis() -> dict:
                         referenced_trace_ids=trace_ref_ids or None,
                         trace_summary_text=trace_ctx or None,
                         templates=analysis_templates or None,
+                        template_counts=analysis_template_counts or None,
                     )
                     results["analyzed"] += 1
                     results["systems"].append(f"{system_name}/{instance_role}")

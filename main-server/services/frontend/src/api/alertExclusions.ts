@@ -5,6 +5,8 @@ export interface AlertExclusionItem {
   instance_role?: string | null
   template: string
   reason?: string | null
+  max_count_per_window?: number | null
+  expires_at?: string | null   // ISO 8601 UTC
 }
 
 export interface AlertExclusionCreate {
@@ -25,6 +27,8 @@ export interface AlertExclusion {
   deactivated_at: string | null
   skip_count: number
   last_skipped_at: string | null
+  max_count_per_window: number | null
+  expires_at: string | null   // ISO 8601 UTC
 }
 
 export interface BulkExcludeResult {
@@ -37,11 +41,14 @@ export interface AlertsBulkExcludeRequest {
   reason?: string | null
   include_instance_role?: boolean
   created_by?: string | null
+  max_count_per_window?: number | null
+  expires_at?: string | null   // ISO 8601 UTC
 }
 
 export interface AlertExclusionListParams {
   system_id?: number
   active?: 'true' | 'false' | 'all'
+  include_expired?: boolean
   limit?: number
   offset?: number
 }

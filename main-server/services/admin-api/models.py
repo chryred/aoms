@@ -242,21 +242,26 @@ class AlertExclusion(Base):
     """에러 알림 예외 처리 규칙 — 동일 template이 수집되어도 알림/인시던트/LLM 분석 생략"""
     __tablename__ = "alert_exclusions"
 
-    id               = Column(Integer, primary_key=True)
-    system_id        = Column(Integer, ForeignKey("systems.id", ondelete="CASCADE"), nullable=False)
-    instance_role    = Column(String(50), nullable=True)   # NULL = 해당 시스템 전체 role에 적용
-    template         = Column(Text, nullable=False)        # synapse_agent 정규화 template 라벨 원본
-    reason           = Column(Text)
-    created_by       = Column(String(100))
-    created_at       = Column(DateTime, default=func.now())
-    active           = Column(Boolean, default=True, server_default="true")
-    deactivated_by   = Column(String(100))
-    deactivated_at   = Column(DateTime)
-    skip_count       = Column(Integer, default=0, server_default="0")
-    last_skipped_at  = Column(DateTime)
+    id                   = Column(Integer, primary_key=True)
+    system_id            = Column(Integer, ForeignKey("systems.id", ondelete="CASCADE"), nullable=False)
+    instance_role        = Column(String(50), nullable=True)   # NULL = 해당 시스템 전체 role에 적용
+    template             = Column(Text, nullable=False)        # synapse_agent 정규화 template 라벨 원본
+    reason               = Column(Text)
+    created_by           = Column(String(100))
+    created_at           = Column(DateTime, default=func.now())
+    active               = Column(Boolean, default=True, server_default="true")
+    deactivated_by       = Column(String(100))
+    deactivated_at       = Column(DateTime)
+    skip_count           = Column(Integer, default=0, server_default="0")
+    last_skipped_at      = Column(DateTime)
+    # 5분 윈도우 내 발생 건수 임계값 (NULL = 무제한, 모든 count에 대해 예외 적용)
+    max_count_per_window = Column(Integer)
+    # 자동 만료 시각 (NULL = 만료 없음). UTC naive — Lazy 검증 (매칭 시점에 비교)
+    expires_at           = Column(DateTime)
 
     __table_args__ = (
         Index("idx_alert_exclusions_active_system", "system_id", "active"),
+        Index("idx_alert_exclusions_expires_at", "expires_at"),
     )
 
 

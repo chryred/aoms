@@ -277,6 +277,10 @@ class AlertExclusionItem(BaseModel):
     instance_role: Optional[str] = None
     template: str
     reason: Optional[str] = None
+    # 5분 윈도우 내 발생 건수 임계값 (None = 무제한)
+    max_count_per_window: Optional[int] = None
+    # 자동 만료 시각 (None = 만료 없음). 입력은 UTC naive 또는 ISO 8601 'Z'.
+    expires_at: Optional[datetime] = None
 
 
 class AlertExclusionCreate(BaseModel):
@@ -297,6 +301,8 @@ class AlertExclusionOut(BaseModel):
     deactivated_at: Optional[UtcDatetime]
     skip_count: int
     last_skipped_at: Optional[UtcDatetime]
+    max_count_per_window: Optional[int] = None
+    expires_at: Optional[UtcDatetime] = None
 
     model_config = {"from_attributes": True}
 
@@ -316,6 +322,8 @@ class AlertsBulkExcludeRequest(BaseModel):
     reason: Optional[str] = None
     include_instance_role: bool = True
     created_by: Optional[str] = None
+    max_count_per_window: Optional[int] = None
+    expires_at: Optional[datetime] = None
 
 
 # ── LogAnalysis ──────────────────────────────────────────────────────────
@@ -340,6 +348,8 @@ class LogAnalysisCreate(BaseModel):
     error_message:     Optional[str]        = None  # LLM/분석 실패 사유 (값 있으면 실패 레코드)
     # 예외 처리용: Prometheus log_error_total.template 라벨 목록
     templates:         Optional[list[str]]  = None
+    # 예외 처리 count 임계값 검증용: {template: count} 매핑 (5분 윈도우 합계)
+    template_counts:   Optional[dict[str, int]] = None
     # OTel trace 상관
     referenced_trace_ids: Optional[list[str]] = None
     trace_summary_text:   Optional[str]       = None

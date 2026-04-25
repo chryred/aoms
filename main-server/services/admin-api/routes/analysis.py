@@ -31,10 +31,15 @@ async def create_analysis(payload: LogAnalysisCreate, db: AsyncSession = Depends
 
     # ── 예외 처리 게이트 (이중 안전망 — log-analyzer 캐시 미스 방어) ──────────
     # templates 중 하나라도 예외 규칙에 해당하면 LLM 결과를 excluded=true 로 저장하고 즉시 반환
+    # template_counts가 제공되면 max_count_per_window 임계값까지 검증
     if payload.templates:
+        counts = payload.template_counts or {}
         matched_rule: AlertExclusion | None = None
         for tmpl in payload.templates:
-            matched_rule = await is_excluded(db, payload.system_id, payload.instance_role, tmpl)
+            matched_rule = await is_excluded(
+                db, payload.system_id, payload.instance_role, tmpl,
+                count=counts.get(tmpl),
+            )
             if matched_rule:
                 break
         if matched_rule:
@@ -58,9 +63,9 @@ async def create_analysis(payload: LogAnalysisCreate, db: AsyncSession = Depends
             await db.commit()
             return excluded_record
 
-    # similar_incidents, templates(→templates_json으로 매핑)는 model_dump에서 제외
+    # similar_incidents, templates(→templates_json으로 매핑), template_counts(예외 검증용)는 model_dump에서 제외
     record = LogAnalysisHistory(
-        **payload.model_dump(exclude={"similar_incidents", "templates"})
+        **payload.model_dump(exclude={"similar_incidents", "templates", "template_counts"})
     )
     if payload.templates:
         record.templates_json = payload.templates

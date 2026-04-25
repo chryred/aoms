@@ -191,21 +191,24 @@ END $$;
 
 -- ── 에러 알림 예외 처리 규칙 ────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS alert_exclusions (
-    id               SERIAL PRIMARY KEY,
-    system_id        INTEGER NOT NULL REFERENCES systems(id) ON DELETE CASCADE,
-    instance_role    VARCHAR(50),                              -- NULL = 해당 시스템 전체 role
-    template         TEXT NOT NULL,                           -- synapse_agent 정규화 template 라벨
-    reason           TEXT,
-    created_by       VARCHAR(100),
-    created_at       TIMESTAMP NOT NULL DEFAULT NOW(),
-    active           BOOLEAN NOT NULL DEFAULT TRUE,
-    deactivated_by   VARCHAR(100),
-    deactivated_at   TIMESTAMP,
-    skip_count       INTEGER NOT NULL DEFAULT 0,
-    last_skipped_at  TIMESTAMP
+    id                   SERIAL PRIMARY KEY,
+    system_id            INTEGER NOT NULL REFERENCES systems(id) ON DELETE CASCADE,
+    instance_role        VARCHAR(50),                              -- NULL = 해당 시스템 전체 role
+    template             TEXT NOT NULL,                           -- synapse_agent 정규화 template 라벨
+    reason               TEXT,
+    created_by           VARCHAR(100),
+    created_at           TIMESTAMP NOT NULL DEFAULT NOW(),
+    active               BOOLEAN NOT NULL DEFAULT TRUE,
+    deactivated_by       VARCHAR(100),
+    deactivated_at       TIMESTAMP,
+    skip_count           INTEGER NOT NULL DEFAULT 0,
+    last_skipped_at      TIMESTAMP,
+    max_count_per_window INTEGER,                                 -- NULL = 무제한 (모든 count에 예외 적용)
+    expires_at           TIMESTAMP                                -- NULL = 만료 없음 (UTC naive)
 );
 
 CREATE INDEX IF NOT EXISTS idx_alert_exclusions_active_system ON alert_exclusions(system_id, active);
+CREATE INDEX IF NOT EXISTS idx_alert_exclusions_expires_at    ON alert_exclusions(expires_at);
 
 -- log_analysis_history.exclusion_rule_id FK (alert_exclusions 생성 후)
 DO $$ BEGIN

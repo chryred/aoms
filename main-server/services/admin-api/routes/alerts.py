@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import func, select, text
+from sqlalchemy import func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
@@ -393,6 +393,11 @@ async def bulk_exclude_alerts(
     failed: list[dict] = []
     now = datetime.now(timezone.utc).replace(tzinfo=None)
 
+    # expires_at 정규화 (UTC naive)
+    expires_at = payload.expires_at
+    if expires_at is not None and expires_at.tzinfo is not None:
+        expires_at = expires_at.astimezone(timezone.utc).replace(tzinfo=None)
+
     seen_templates: set[tuple] = set()
 
     for alert_id in payload.alert_ids:
@@ -422,7 +427,7 @@ async def bulk_exclude_alerts(
                 continue
             seen_templates.add(key)
 
-            # 중복 체크
+            # 중복 체크 — 활성 + 미만료 규칙만 중복으로 간주
             q_clause = (
                 AlertExclusion.instance_role == instance_role
                 if instance_role is not None
@@ -433,6 +438,7 @@ async def bulk_exclude_alerts(
                 .where(AlertExclusion.system_id == alert.system_id)
                 .where(AlertExclusion.active == True)  # noqa: E712
                 .where(AlertExclusion.template == tmpl)
+                .where(or_(AlertExclusion.expires_at.is_(None), AlertExclusion.expires_at > now))
                 .where(q_clause)
                 .limit(1)
             )
@@ -447,6 +453,8 @@ async def bulk_exclude_alerts(
                 created_by=payload.created_by,
                 created_at=now,
                 active=True,
+                max_count_per_window=payload.max_count_per_window,
+                expires_at=expires_at,
             )
             db.add(rule)
             await db.flush()
