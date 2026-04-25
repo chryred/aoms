@@ -264,7 +264,7 @@ export function AgentDetailPage() {
       .catch((err) => {
         if (err instanceof HTTPError && err.response.status === 401) handleSSHExpired()
       })
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agentId, sessionActive, hostMismatch, isDbAgent, isOtelAgent, token])
 
   async function handleDelete() {
@@ -434,7 +434,11 @@ export function AgentDetailPage() {
                 size="sm"
                 variant={isRunning ? 'ghost' : 'primary'}
                 onClick={() =>
-                  runAction('실행', () => agentsApi.startAgent(agentId, token ?? undefined), 'running')
+                  runAction(
+                    '실행',
+                    () => agentsApi.startAgent(agentId, token ?? undefined),
+                    'running',
+                  )
                 }
                 loading={actionLoading === '실행'}
                 disabled={(!isDbAgent && !sessionActive) || hostMismatch}
@@ -446,7 +450,11 @@ export function AgentDetailPage() {
                 size="sm"
                 variant={isRunning ? 'primary' : 'ghost'}
                 onClick={() =>
-                  runAction('중지', () => agentsApi.stopAgent(agentId, token ?? undefined), 'stopped')
+                  runAction(
+                    '중지',
+                    () => agentsApi.stopAgent(agentId, token ?? undefined),
+                    'stopped',
+                  )
                 }
                 loading={actionLoading === '중지'}
                 disabled={(!isDbAgent && !sessionActive) || hostMismatch}

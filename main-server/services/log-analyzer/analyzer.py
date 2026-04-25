@@ -13,6 +13,7 @@ Synapse Log Analyzer — 핵심 분석 로직
   (Loki 의존성 완전 제거)
 """
 
+import asyncio
 import json
 import logging
 import os
@@ -433,6 +434,101 @@ def _is_template_excluded(
     return None
 
 
+async def _analyze_one_role(
+    sem: asyncio.Semaphore,
+    system_id: int,
+    system_name: str,
+    instance_role: str,
+    logs: list,
+    agent_code: str,
+    trace_ctx: str,
+    trace_ref_ids: list,
+    exclusion_rules: list,
+) -> dict:
+    """단일 system/instance_role 조합 분석. run_analysis의 gather 태스크 단위."""
+    label = f"{system_name}/{instance_role}"
+
+    # 예외 처리 게이트 (semaphore 획득 전 — CPU only)
+    if exclusion_rules:
+        filtered_logs = []
+        excluded_templates: list[str] = []
+        for log in logs:
+            tmpl = log.get("template", "")
+            cnt = int(log.get("count", 0))
+            rule_id = _is_template_excluded(
+                exclusion_rules, system_id, instance_role, tmpl, count=cnt,
+            )
+            if rule_id is None:
+                filtered_logs.append(log)
+            else:
+                excluded_templates.append(tmpl)
+        if excluded_templates:
+            logger.info(f"[{label}] 예외 처리 템플릿 {len(excluded_templates)}건 스킵")
+        if not filtered_logs:
+            return {"status": "excluded", "label": label}
+        logs = filtered_logs
+
+    analysis_templates = list({log.get("template", "") for log in logs if log.get("template")})
+    analysis_template_counts: dict[str, int] = {}
+    for log in logs:
+        tmpl = log.get("template")
+        if tmpl:
+            analysis_template_counts[tmpl] = analysis_template_counts.get(tmpl, 0) + int(log.get("count", 0))
+
+    masked_log = mask_sensitive_data(_format_logs_by_type(_sample_logs_by_type(logs)))
+
+    async with sem:
+        try:
+            analysis = await analyze_with_vector_context(
+                system_name, instance_role, logs, agent_code,
+                trace_context=trace_ctx,
+                trace_tier="5min",
+            )
+
+            severity       = analysis.get("severity", "info")
+            root_cause     = analysis.get("root_cause", "")
+            recommendation = analysis.get("recommendation", "")
+
+            await submit_analysis(
+                system_id=system_id,
+                instance_role=instance_role,
+                log_content=masked_log,
+                analysis_result=analysis,
+                severity=severity,
+                root_cause=root_cause,
+                recommendation=recommendation,
+                anomaly_type=analysis.get("anomaly_type"),
+                similarity_score=analysis.get("similarity_score"),
+                qdrant_point_id=analysis.get("qdrant_point_id"),
+                has_solution=analysis.get("has_solution"),
+                similar_incidents=analysis.get("similar_incidents"),
+                error_message=analysis.get("qdrant_store_error"),
+                referenced_trace_ids=trace_ref_ids or None,
+                trace_summary_text=trace_ctx or None,
+                templates=analysis_templates or None,
+                template_counts=analysis_template_counts or None,
+            )
+            logger.info(f"[{label}] 분석 완료: {severity} [{analysis.get('anomaly_type', 'unknown')}]")
+            return {"status": "analyzed", "label": label}
+
+        except Exception as e:
+            logger.error(f"[{label}] 분석 실패: {e}")
+            try:
+                await submit_analysis(
+                    system_id=system_id,
+                    instance_role=instance_role,
+                    log_content=masked_log,
+                    analysis_result={"error": str(e)[:500]},
+                    severity="warning",
+                    root_cause="LLM 분석 실패 — 재시도 필요",
+                    recommendation="",
+                    error_message=f"{type(e).__name__}: {str(e)[:300]}",
+                )
+            except Exception as submit_e:
+                logger.error(f"[{label}] 분석 실패 레코드 저장도 실패: {submit_e}")
+            return {"status": "error", "label": label}
+
+
 async def run_analysis() -> dict:
     """전체 활성 시스템 로그 분석 실행 (n8n 트리거 또는 내부 스케줄러 호출)
 
@@ -471,6 +567,10 @@ async def run_analysis() -> dict:
     except Exception as exc:
         logger.debug("OTel system set 조회 실패 (분석 계속): %s", exc)
 
+    # ── 데이터 수집 (순차) + 분석 태스크 구성 ──────────────────────────────
+    sem = asyncio.Semaphore(10)
+    role_tasks = []
+
     for system in systems:
         if system.get("status") != "active":
             results["skipped"] += 1
@@ -489,7 +589,6 @@ async def run_analysis() -> dict:
 
             agent_code = await get_agent_code_for_area("log_analysis")
 
-            # OTel gating: trace_context 조회 (5분 window)
             trace_ctx = ""
             trace_ref_ids: list[str] = []
             if has_otel:
@@ -504,104 +603,29 @@ async def run_analysis() -> dict:
                     logger.debug("trace_context 조회 실패 → fallback: %s", exc)
 
             for instance_role, logs in logs_by_role.items():
-                # ── 예외 처리 게이트 (1차 방어 — LLM 호출 전) ──────────────────
-                # count 임계값 + 만료 검증 포함
-                if exclusion_rules:
-                    filtered_logs = []
-                    excluded_templates: list[str] = []
-                    for log in logs:
-                        tmpl = log.get("template", "")
-                        cnt = int(log.get("count", 0))
-                        rule_id = _is_template_excluded(
-                            exclusion_rules, system_id, instance_role, tmpl, count=cnt,
-                        )
-                        if rule_id is None:
-                            filtered_logs.append(log)
-                        else:
-                            excluded_templates.append(tmpl)
-                    if excluded_templates:
-                        logger.info(
-                            f"[{system_name}/{instance_role}] 예외 처리 템플릿 {len(excluded_templates)}건 스킵"
-                        )
-                    if not filtered_logs:
-                        results["excluded"] += 1
-                        continue
-                    logs = filtered_logs
-
-                # 분석에 포함된 template 목록 + count 매핑 수집 (admin-api 임계값 검증용)
-                analysis_templates = list({log.get("template", "") for log in logs if log.get("template")})
-                analysis_template_counts: dict[str, int] = {}
-                for log in logs:
-                    tmpl = log.get("template")
-                    if tmpl:
-                        # 동일 template이 여러 host에서 발생 시 count 합산
-                        analysis_template_counts[tmpl] = analysis_template_counts.get(tmpl, 0) + int(log.get("count", 0))
-
-                # masked_log는 성공/실패 두 경로 모두에서 필요 → try 진입 전 구성
-                masked_log = mask_sensitive_data(
-                    _format_logs_by_type(_sample_logs_by_type(logs))
+                role_tasks.append(
+                    _analyze_one_role(
+                        sem, system_id, system_name, instance_role, logs,
+                        agent_code, trace_ctx, list(trace_ref_ids), exclusion_rules,
+                    )
                 )
-                try:
-                    analysis = await analyze_with_vector_context(
-                        system_name, instance_role, logs, agent_code,
-                        trace_context=trace_ctx,
-                        trace_tier="5min",
-                    )
-
-                    severity       = analysis.get("severity", "info")
-                    root_cause     = analysis.get("root_cause", "")
-                    recommendation = analysis.get("recommendation", "")
-
-                    await submit_analysis(
-                        system_id=system_id,
-                        instance_role=instance_role,
-                        log_content=masked_log,
-                        analysis_result=analysis,
-                        severity=severity,
-                        root_cause=root_cause,
-                        recommendation=recommendation,
-                        anomaly_type=analysis.get("anomaly_type"),
-                        similarity_score=analysis.get("similarity_score"),
-                        qdrant_point_id=analysis.get("qdrant_point_id"),
-                        has_solution=analysis.get("has_solution"),
-                        similar_incidents=analysis.get("similar_incidents"),
-                        # LLM은 성공했으나 Qdrant 저장만 실패한 경우 사유 기록
-                        error_message=analysis.get("qdrant_store_error"),
-                        referenced_trace_ids=trace_ref_ids or None,
-                        trace_summary_text=trace_ctx or None,
-                        templates=analysis_templates or None,
-                        template_counts=analysis_template_counts or None,
-                    )
-                    results["analyzed"] += 1
-                    results["systems"].append(f"{system_name}/{instance_role}")
-                    logger.info(
-                        f"[{system_name}/{instance_role}] 분석 완료: {severity} "
-                        f"[{analysis.get('anomaly_type', 'unknown')}]"
-                    )
-
-                except Exception as e:
-                    logger.error(f"[{system_name}/{instance_role}] 분석 실패: {e}")
-                    results["errors"] += 1
-                    # 실패 이력을 DB에 저장 (피드백 관리 화면에서 "분석 실패" 뱃지로 노출)
-                    try:
-                        await submit_analysis(
-                            system_id=system_id,
-                            instance_role=instance_role,
-                            log_content=masked_log,
-                            analysis_result={"error": str(e)[:500]},
-                            severity="warning",
-                            root_cause="LLM 분석 실패 — 재시도 필요",
-                            recommendation="",
-                            error_message=f"{type(e).__name__}: {str(e)[:300]}",
-                        )
-                    except Exception as submit_e:
-                        logger.error(
-                            f"[{system_name}/{instance_role}] 분석 실패 레코드 저장도 실패: {submit_e}"
-                        )
 
         except Exception as e:
-            logger.error(f"[{system_name}] 처리 중 오류: {e}")
+            logger.error(f"[{system_name}] 데이터 수집 중 오류: {e}")
             results["errors"] += 1
+
+    # ── LLM 분석 병렬 실행 (Semaphore(10) 동시 상한) ──────────────────────
+    if role_tasks:
+        task_results = await asyncio.gather(*role_tasks, return_exceptions=True)
+        for r in task_results:
+            if isinstance(r, Exception):
+                logger.error(f"분석 태스크 예외: {r}")
+                results["errors"] += 1
+            else:
+                status = r.get("status", "error")
+                results[status] = results.get(status, 0) + 1
+                if status == "analyzed":
+                    results["systems"].append(r["label"])
 
     logger.info(f"로그 분석 완료: {results}")
     return results

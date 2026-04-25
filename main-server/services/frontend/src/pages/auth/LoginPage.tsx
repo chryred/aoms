@@ -18,7 +18,6 @@ const schema = z.object({
 })
 type FormData = z.infer<typeof schema>
 
-
 export function LoginPage() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()

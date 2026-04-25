@@ -55,9 +55,7 @@ export function AppLayout() {
       </div>
 
       {/* Main content */}
-      <div
-        className={cn('flex min-w-0 flex-1 flex-col overflow-hidden', bannerVisible && 'mt-9')}
-      >
+      <div className={cn('flex min-w-0 flex-1 flex-col overflow-hidden', bannerVisible && 'mt-9')}>
         <TopBar />
         <main
           className={cn(

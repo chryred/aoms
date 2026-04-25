@@ -6,7 +6,7 @@ export interface AlertExclusionItem {
   template: string
   reason?: string | null
   max_count_per_window?: number | null
-  expires_at?: string | null   // ISO 8601 UTC
+  expires_at?: string | null // ISO 8601 UTC
 }
 
 export interface AlertExclusionCreate {
@@ -28,7 +28,7 @@ export interface AlertExclusion {
   skip_count: number
   last_skipped_at: string | null
   max_count_per_window: number | null
-  expires_at: string | null   // ISO 8601 UTC
+  expires_at: string | null // ISO 8601 UTC
 }
 
 export interface BulkExcludeResult {
@@ -42,7 +42,7 @@ export interface AlertsBulkExcludeRequest {
   include_instance_role?: boolean
   created_by?: string | null
   max_count_per_window?: number | null
-  expires_at?: string | null   // ISO 8601 UTC
+  expires_at?: string | null // ISO 8601 UTC
 }
 
 export interface AlertExclusionListParams {
@@ -71,9 +71,7 @@ export const alertExclusionsApi = {
 
   /** 예외 규칙 일괄 해제 */
   deactivateExclusions: (body: AlertExclusionDeactivateRequest) =>
-    adminApi
-      .patch('api/v1/alert-exclusions/deactivate', { json: body })
-      .json<BulkExcludeResult>(),
+    adminApi.patch('api/v1/alert-exclusions/deactivate', { json: body }).json<BulkExcludeResult>(),
 
   /** 알림 다건 → 예외 일괄 등록 (alert_history 기반) */
   bulkExcludeAlerts: (body: AlertsBulkExcludeRequest) =>

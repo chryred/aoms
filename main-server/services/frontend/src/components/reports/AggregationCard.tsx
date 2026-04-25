@@ -44,7 +44,7 @@ export function AggregationCard({
           {metricSummary.map(({ key, value }) => (
             <div key={key} className="flex flex-col">
               <span className="text-text-secondary text-xs leading-tight">{key}</span>
-              <span className="text-text-primary tabular-nums text-sm font-semibold leading-tight">
+              <span className="text-text-primary text-sm leading-tight font-semibold tabular-nums">
                 {value}
               </span>
             </div>

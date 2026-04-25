@@ -152,14 +152,30 @@ export default function SimilarSearchPage() {
                       className={cn(
                         'inline-flex items-center gap-1.5 rounded-sm px-3 py-1 text-xs font-medium transition-all',
                         'focus:ring-accent focus:ring-offset-bg-base focus:ring-1 focus:ring-offset-2 focus:outline-none',
-                        s === 'all' && severityFilter === s && 'bg-accent text-accent-contrast shadow-neu-flat',
-                        s === 'all' && severityFilter !== s && 'bg-bg-base text-text-secondary shadow-neu-flat hover:text-text-primary',
-                        s === 'critical' && severityFilter === s && 'bg-critical-bg text-critical-text shadow-neu-flat',
-                        s === 'critical' && severityFilter !== s && 'bg-bg-base text-text-secondary shadow-neu-flat hover:text-critical-text',
-                        s === 'warning' && severityFilter === s && 'bg-warning-bg text-warning-text shadow-neu-flat',
-                        s === 'warning' && severityFilter !== s && 'bg-bg-base text-text-secondary shadow-neu-flat hover:text-warning-text',
-                        s === 'normal' && severityFilter === s && 'bg-normal-bg text-normal-text shadow-neu-flat',
-                        s === 'normal' && severityFilter !== s && 'bg-bg-base text-text-secondary shadow-neu-flat hover:text-normal-text',
+                        s === 'all' &&
+                          severityFilter === s &&
+                          'bg-accent text-accent-contrast shadow-neu-flat',
+                        s === 'all' &&
+                          severityFilter !== s &&
+                          'bg-bg-base text-text-secondary shadow-neu-flat hover:text-text-primary',
+                        s === 'critical' &&
+                          severityFilter === s &&
+                          'bg-critical-bg text-critical-text shadow-neu-flat',
+                        s === 'critical' &&
+                          severityFilter !== s &&
+                          'bg-bg-base text-text-secondary shadow-neu-flat hover:text-critical-text',
+                        s === 'warning' &&
+                          severityFilter === s &&
+                          'bg-warning-bg text-warning-text shadow-neu-flat',
+                        s === 'warning' &&
+                          severityFilter !== s &&
+                          'bg-bg-base text-text-secondary shadow-neu-flat hover:text-warning-text',
+                        s === 'normal' &&
+                          severityFilter === s &&
+                          'bg-normal-bg text-normal-text shadow-neu-flat',
+                        s === 'normal' &&
+                          severityFilter !== s &&
+                          'bg-bg-base text-text-secondary shadow-neu-flat hover:text-normal-text',
                       )}
                     >
                       {SEVERITY_LABELS[s]}

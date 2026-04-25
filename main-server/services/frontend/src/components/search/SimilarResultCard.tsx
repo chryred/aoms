@@ -39,7 +39,11 @@ function isHourly(payload: SimilarSearchResult['payload']): payload is HourlyPat
   return 'hour_bucket' in payload
 }
 
-export function SimilarResultCard({ result, collection, systemDisplayName }: SimilarResultCardProps) {
+export function SimilarResultCard({
+  result,
+  collection,
+  systemDisplayName,
+}: SimilarResultCardProps) {
   const { score, payload } = result
   const displayName = systemDisplayName ?? payload.system_name
   const isHourlyPattern = collection === 'metric_hourly_patterns' && isHourly(payload)
@@ -91,13 +95,13 @@ export function SimilarResultCard({ result, collection, systemDisplayName }: Sim
       )}
 
       {/* LLM summary */}
-      <p className="text-text-primary break-words text-sm leading-relaxed whitespace-pre-wrap">
+      <p className="text-text-primary text-sm leading-relaxed break-words whitespace-pre-wrap">
         {summaryText}
       </p>
 
       {/* llm_prediction (hourly only) */}
       {isHourlyPattern && (payload as HourlyPatternPayload).llm_prediction && (
-        <p className="text-text-secondary mt-2 break-words text-sm leading-relaxed whitespace-pre-wrap italic">
+        <p className="text-text-secondary mt-2 text-sm leading-relaxed break-words whitespace-pre-wrap italic">
           {(payload as HourlyPatternPayload).llm_prediction}
         </p>
       )}

@@ -735,7 +735,7 @@ export function AgentFormModal({ systems, onClose, onCreated }: AgentFormModalPr
                         placeholder={'/server1/JeusServer.log\n/batch/JeusServer.log'}
                         rows={2}
                         disabled={!collectors.log_monitor}
-                        className="border-border bg-bg-base text-text-primary placeholder-text-secondary/50 focus:border-accent focus:ring-accent w-full resize-none rounded-sm border px-2 py-1 text-xs focus:ring-1 focus:outline-none disabled:cursor-not-allowed pointer-events-auto"
+                        className="border-border bg-bg-base text-text-primary placeholder-text-secondary/50 focus:border-accent focus:ring-accent pointer-events-auto w-full resize-none rounded-sm border px-2 py-1 text-xs focus:ring-1 focus:outline-none disabled:cursor-not-allowed"
                       />
                     </div>
                     <div className="flex gap-2">

@@ -99,10 +99,7 @@ export function AlertTable({ alerts, onSelect, selectedIds, onToggleSelect }: Al
               )}
             >
               {onToggleSelect && (
-                <td
-                  className="px-3 py-3"
-                  onClick={(e) => e.stopPropagation()}
-                >
+                <td className="px-3 py-3" onClick={(e) => e.stopPropagation()}>
                   <input
                     type="checkbox"
                     className="accent-accent"

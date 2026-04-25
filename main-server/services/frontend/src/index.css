@@ -198,7 +198,7 @@
   /* 시맨틱: 위험 */
   --t-critical: #dc2626;
   --t-critical-text: #b91c1c;
-  --t-critical-bg: rgba(220, 38, 38, 0.10);
+  --t-critical-bg: rgba(220, 38, 38, 0.1);
   --t-critical-border: rgba(220, 38, 38, 0.25);
   --t-critical-card-bg: rgba(220, 38, 38, 0.05);
 

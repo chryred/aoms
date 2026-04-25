@@ -11,7 +11,9 @@ interface EmptyStateProps {
 export function EmptyState({ icon, title, description, cta }: EmptyStateProps) {
   return (
     <div className="flex flex-col items-center justify-center gap-4 py-16 text-center">
-      <div className="text-text-disabled opacity-60" aria-hidden="true">{icon}</div>
+      <div className="text-text-disabled opacity-60" aria-hidden="true">
+        {icon}
+      </div>
       <div className="max-w-xs">
         <p className="type-heading text-text-primary text-base font-semibold">{title}</p>
         {description && (

@@ -106,7 +106,12 @@ export function SimilarSearchInput({
               >
                 {opt.label}
                 {points !== undefined && (
-                  <span className={cn('tabular-nums', collection === opt.value ? 'opacity-75' : 'opacity-50')}>
+                  <span
+                    className={cn(
+                      'tabular-nums',
+                      collection === opt.value ? 'opacity-75' : 'opacity-50',
+                    )}
+                  >
                     {points.toLocaleString()}
                   </span>
                 )}

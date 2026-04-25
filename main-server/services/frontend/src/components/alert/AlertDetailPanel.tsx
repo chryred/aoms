@@ -67,7 +67,11 @@ function parseDescription(desc: string | null | undefined): ParsedDescription | 
     if (
       obj &&
       typeof obj === 'object' &&
-      ('root_cause' in obj || 'recommendation' in obj || 'anomaly_type' in obj || 'severity' in obj || 'log_content' in obj)
+      ('root_cause' in obj ||
+        'recommendation' in obj ||
+        'anomaly_type' in obj ||
+        'severity' in obj ||
+        'log_content' in obj)
     ) {
       return {
         ...obj,
@@ -250,9 +254,7 @@ export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
             <span className="text-text-secondary text-sm">
               {ALERT_TYPE_LABELS[displayAlert.alert_type] ?? displayAlert.alert_type}
             </span>
-            {displayAlert.error_message && (
-              <NeuBadge variant="critical">LLM 분석 실패</NeuBadge>
-            )}
+            {displayAlert.error_message && <NeuBadge variant="critical">LLM 분석 실패</NeuBadge>}
             {displayAlert.acknowledged && (
               <NeuBadge variant="normal">
                 <CheckCircle className="mr-0.5 h-3 w-3" />
@@ -361,7 +363,7 @@ export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
                 <div>
                   <p className="type-label mb-1.5">원본 로그</p>
                   <div className="bg-bg-base shadow-neu-inset max-h-96 overflow-y-auto rounded-sm p-4">
-                    <pre className="text-text-primary text-xs leading-relaxed break-words whitespace-pre-wrap font-mono">
+                    <pre className="text-text-primary font-mono text-xs leading-relaxed break-words whitespace-pre-wrap">
                       {parsedDesc.log_content}
                     </pre>
                   </div>
@@ -385,30 +387,28 @@ export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
                 </p>
               </div>
             </>
-          ) : (
-            /* 해결방안 — 화면의 시각 앵커. 원인은 상단 타이틀이 이미 보여주므로 중복 제거 */
-            parsedDesc?.recommendation ? (
-              <div className="border-accent rounded-sm border p-4">
-                <div className="mb-2.5 flex items-center gap-2">
-                  <Lightbulb className="text-accent h-5 w-5" aria-hidden="true" />
-                  <p className="text-accent text-lg font-bold tracking-tight">해결방안</p>
-                </div>
-                <p className="text-text-primary text-base leading-relaxed font-medium break-words whitespace-pre-wrap">
-                  {parsedDesc.recommendation}
-                </p>
+          ) : /* 해결방안 — 화면의 시각 앵커. 원인은 상단 타이틀이 이미 보여주므로 중복 제거 */
+          parsedDesc?.recommendation ? (
+            <div className="border-accent rounded-sm border p-4">
+              <div className="mb-2.5 flex items-center gap-2">
+                <Lightbulb className="text-accent h-5 w-5" aria-hidden="true" />
+                <p className="text-accent text-lg font-bold tracking-tight">해결방안</p>
               </div>
-            ) : (
-              !parsedDesc &&
-              displayAlert.description && (
-                <div>
-                  <p className="type-label mb-1.5">상세 내용</p>
-                  <div className="bg-bg-base shadow-neu-inset rounded-sm p-4">
-                    <p className="text-text-primary text-sm leading-relaxed break-words whitespace-pre-wrap">
-                      {displayAlert.description}
-                    </p>
-                  </div>
+              <p className="text-text-primary text-base leading-relaxed font-medium break-words whitespace-pre-wrap">
+                {parsedDesc.recommendation}
+              </p>
+            </div>
+          ) : (
+            !parsedDesc &&
+            displayAlert.description && (
+              <div>
+                <p className="type-label mb-1.5">상세 내용</p>
+                <div className="bg-bg-base shadow-neu-inset rounded-sm p-4">
+                  <p className="text-text-primary text-sm leading-relaxed break-words whitespace-pre-wrap">
+                    {displayAlert.description}
+                  </p>
                 </div>
-              )
+              </div>
             )
           )}
 

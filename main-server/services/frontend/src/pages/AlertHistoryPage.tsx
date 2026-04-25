@@ -56,9 +56,9 @@ export function AlertHistoryPage() {
   const [showExcludeModal, setShowExcludeModal] = useState(false)
   const [excludeReason, setExcludeReason] = useState('')
   const [includeRole, setIncludeRole] = useState(true)
-  const [maxCountInput, setMaxCountInput] = useState('')   // count 임계값 (빈문자열 = 무제한)
+  const [maxCountInput, setMaxCountInput] = useState('') // count 임계값 (빈문자열 = 무제한)
   const [expiryOption, setExpiryOption] = useState<'30' | '7' | '90' | 'custom' | 'never'>('30')
-  const [customExpiryDate, setCustomExpiryDate] = useState('')   // YYYY-MM-DD (KST)
+  const [customExpiryDate, setCustomExpiryDate] = useState('') // YYYY-MM-DD (KST)
   const [isExcluding, setIsExcluding] = useState(false)
   const [excludeResultMsg, setExcludeResultMsg] = useState<string | null>(null)
 
@@ -90,7 +90,8 @@ export function AlertHistoryPage() {
   }
 
   const baseQueryParams = {
-    alert_type: tab === 'all' || tab === 'exclusions' ? undefined : tab === 'resolved' ? 'metric' : tab,
+    alert_type:
+      tab === 'all' || tab === 'exclusions' ? undefined : tab === 'resolved' ? 'metric' : tab,
     resolved: tab === 'metric' ? false : tab === 'resolved' ? true : undefined,
     severity: severity || undefined,
     acknowledged: ackFilter === 'all' ? undefined : ackFilter === 'ack',
@@ -105,7 +106,9 @@ export function AlertHistoryPage() {
     error,
     refetch,
   } = useAlerts(
-    tab === 'exclusions' ? { limit: 0, offset: 0 } : { ...baseQueryParams, limit: PAGE_SIZE, offset }
+    tab === 'exclusions'
+      ? { limit: 0, offset: 0 }
+      : { ...baseQueryParams, limit: PAGE_SIZE, offset },
   )
 
   const { data: countData } = useAlertsCount(tab === 'exclusions' ? {} : baseQueryParams)
@@ -126,7 +129,9 @@ export function AlertHistoryPage() {
   const loadExclusions = useCallback(async () => {
     setExclusionsLoading(true)
     try {
-      const params = systemFilter ? { system_id: Number(systemFilter), active: 'all' as const } : { active: 'all' as const }
+      const params = systemFilter
+        ? { system_id: Number(systemFilter), active: 'all' as const }
+        : { active: 'all' as const }
       const data = await alertExclusionsApi.listExclusions(params)
       setExclusions(data)
     } catch {
@@ -168,16 +173,30 @@ export function AlertHistoryPage() {
     const chips: { label: string; onClear: () => void }[] = []
     if (systemFilter) {
       const sys = systems.find((s) => s.id === Number(systemFilter))
-      chips.push({ label: sys?.display_name ?? '시스템', onClear: () => updateParam('system_id', '') })
+      chips.push({
+        label: sys?.display_name ?? '시스템',
+        onClear: () => updateParam('system_id', ''),
+      })
     }
     if (severity) {
-      const labels: Record<string, string> = { critical: 'Critical', warning: 'Warning', info: 'Info' }
-      chips.push({ label: labels[severity] ?? severity, onClear: () => updateParam('severity', '') })
+      const labels: Record<string, string> = {
+        critical: 'Critical',
+        warning: 'Warning',
+        info: 'Info',
+      }
+      chips.push({
+        label: labels[severity] ?? severity,
+        onClear: () => updateParam('severity', ''),
+      })
     }
     if (ackFilter !== 'all') {
-      chips.push({ label: ackFilter === 'ack' ? '확인됨' : '미확인', onClear: () => updateParam('acknowledged', '') })
+      chips.push({
+        label: ackFilter === 'ack' ? '확인됨' : '미확인',
+        onClear: () => updateParam('acknowledged', ''),
+      })
     }
-    if (dateFrom) chips.push({ label: `${dateFrom}부터`, onClear: () => updateParam('date_from', '') })
+    if (dateFrom)
+      chips.push({ label: `${dateFrom}부터`, onClear: () => updateParam('date_from', '') })
     if (dateTo) chips.push({ label: `${dateTo}까지`, onClear: () => updateParam('date_to', '') })
     return chips
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -207,11 +226,11 @@ export function AlertHistoryPage() {
   }
 
   const selectedLogAnalysisCount = currentAlerts.filter(
-    (a) => selectedIds.has(a.id) && a.alert_type === 'log_analysis'
+    (a) => selectedIds.has(a.id) && a.alert_type === 'log_analysis',
   ).length
 
   const hasNonLogAnalysisSelected = currentAlerts.some(
-    (a) => selectedIds.has(a.id) && a.alert_type !== 'log_analysis'
+    (a) => selectedIds.has(a.id) && a.alert_type !== 'log_analysis',
   )
 
   // 만료 옵션 → ISO UTC 변환
@@ -286,7 +305,10 @@ export function AlertHistoryPage() {
 
   const handleSingleDeactivate = async (id: number) => {
     try {
-      await alertExclusionsApi.deactivateExclusions({ ids: [id], deactivated_by: user?.name ?? null })
+      await alertExclusionsApi.deactivateExclusions({
+        ids: [id],
+        deactivated_by: user?.name ?? null,
+      })
       await loadExclusions()
     } catch {
       /* silent */
@@ -314,7 +336,9 @@ export function AlertHistoryPage() {
 
   const toggleSelectAllExclusions = () => {
     // 활성 + 미만료 규칙만 선택 가능
-    const eligibleIds = exclusions.filter((e) => e.active && !isExclusionExpired(e)).map((e) => e.id)
+    const eligibleIds = exclusions
+      .filter((e) => e.active && !isExclusionExpired(e))
+      .map((e) => e.id)
     if (eligibleIds.length > 0 && eligibleIds.every((id) => selectedExclusionIds.has(id))) {
       setSelectedExclusionIds(new Set())
     } else {
@@ -357,7 +381,9 @@ export function AlertHistoryPage() {
         {TABS.map(({ key, label }, i) => (
           <button
             key={key}
-            ref={(el) => { tabRefs.current[i] = el }}
+            ref={(el) => {
+              tabRefs.current[i] = el
+            }}
             role="tab"
             aria-selected={tab === key}
             onClick={() => handleTabChange(key)}
@@ -421,18 +447,26 @@ export function AlertHistoryPage() {
                         className="accent-accent"
                         checked={
                           exclusions.filter((e) => e.active && !isExclusionExpired(e)).length > 0 &&
-                          exclusions.filter((e) => e.active && !isExclusionExpired(e)).every((e) => selectedExclusionIds.has(e.id))
+                          exclusions
+                            .filter((e) => e.active && !isExclusionExpired(e))
+                            .every((e) => selectedExclusionIds.has(e.id))
                         }
                         onChange={toggleSelectAllExclusions}
                       />
                     </th>
                     <th className="text-text-secondary px-3 py-3 text-left font-medium">시스템</th>
                     <th className="text-text-secondary px-3 py-3 text-left font-medium">Role</th>
-                    <th className="text-text-secondary px-3 py-3 text-left font-medium">Template</th>
+                    <th className="text-text-secondary px-3 py-3 text-left font-medium">
+                      Template
+                    </th>
                     <th className="text-text-secondary px-3 py-3 text-left font-medium">사유</th>
-                    <th className="text-text-secondary px-3 py-3 text-center font-medium">임계값</th>
+                    <th className="text-text-secondary px-3 py-3 text-center font-medium">
+                      임계값
+                    </th>
                     <th className="text-text-secondary px-3 py-3 text-left font-medium">만료</th>
-                    <th className="text-text-secondary px-3 py-3 text-left font-medium">등록일시</th>
+                    <th className="text-text-secondary px-3 py-3 text-left font-medium">
+                      등록일시
+                    </th>
                     <th className="text-text-secondary px-3 py-3 text-center font-medium">Skip</th>
                     <th className="text-text-secondary px-3 py-3 text-left font-medium">상태</th>
                     <th className="w-20 px-3 py-3"></th>
@@ -444,7 +478,10 @@ export function AlertHistoryPage() {
                     const expired = isExclusionExpired(ex)
                     const canDeactivate = ex.active && !expired
                     return (
-                      <tr key={ex.id} className="border-border hover:bg-surface/50 border-b last:border-0">
+                      <tr
+                        key={ex.id}
+                        className="border-border hover:bg-surface/50 border-b last:border-0"
+                      >
                         <td className="px-3 py-2.5">
                           {canDeactivate && (
                             <input
@@ -471,13 +508,17 @@ export function AlertHistoryPage() {
                         </td>
                         <td className="text-text-primary px-3 py-2.5 text-center">
                           {ex.max_count_per_window != null ? (
-                            <span className="font-mono text-xs">{ex.max_count_per_window}건/5분</span>
+                            <span className="font-mono text-xs">
+                              {ex.max_count_per_window}건/5분
+                            </span>
                           ) : (
                             <span className="text-text-disabled text-xs">무제한</span>
                           )}
                         </td>
                         <td className="text-text-secondary px-3 py-2.5 whitespace-nowrap">
-                          {ex.expires_at ? formatKST(ex.expires_at, 'date') : (
+                          {ex.expires_at ? (
+                            formatKST(ex.expires_at, 'date')
+                          ) : (
                             <span className="text-text-disabled">없음</span>
                           )}
                         </td>
@@ -633,11 +674,7 @@ export function AlertHistoryPage() {
                 <Ban className="h-3.5 w-3.5" />
                 선택 예외 처리
               </NeuButton>
-              <NeuButton
-                size="sm"
-                variant="ghost"
-                onClick={() => setSelectedIds(new Set())}
-              >
+              <NeuButton size="sm" variant="ghost" onClick={() => setSelectedIds(new Set())}>
                 선택 취소
               </NeuButton>
             </div>
@@ -671,7 +708,9 @@ export function AlertHistoryPage() {
                 icon={<Bell className="h-10 w-10" />}
                 title={hasActiveFilters ? '조건에 맞는 알림이 없습니다' : '알림 이력이 없습니다'}
                 description={hasActiveFilters ? '필터를 조정하거나 초기화해 보세요' : undefined}
-                cta={hasActiveFilters ? { label: '필터 초기화', onClick: clearAllFilters } : undefined}
+                cta={
+                  hasActiveFilters ? { label: '필터 초기화', onClick: clearAllFilters } : undefined
+                }
               />
             </div>
           ) : (
@@ -754,7 +793,9 @@ export function AlertHistoryPage() {
               이후 동일한 에러 패턴은 알림/인시던트가 생성되지 않습니다.
             </p>
             <div className="mb-4">
-              <label className="text-text-secondary mb-1.5 block text-xs font-medium">사유 (선택)</label>
+              <label className="text-text-secondary mb-1.5 block text-xs font-medium">
+                사유 (선택)
+              </label>
               <NeuInput
                 placeholder="예: 알려진 배치 작업 로그, 무시 가능"
                 value={excludeReason}
@@ -779,7 +820,9 @@ export function AlertHistoryPage() {
             </div>
 
             <div className="mb-4">
-              <label className="text-text-secondary mb-1.5 block text-xs font-medium">자동 만료</label>
+              <label className="text-text-secondary mb-1.5 block text-xs font-medium">
+                자동 만료
+              </label>
               <NeuSelect
                 value={expiryOption}
                 onChange={(e) => setExpiryOption(e.target.value as typeof expiryOption)}
