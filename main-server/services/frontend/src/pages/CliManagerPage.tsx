@@ -1,8 +1,19 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { Plus, Terminal, Trash2, RefreshCw, CheckCircle2, CircleDashed, Lock, LogOut, AlertCircle } from 'lucide-react'
+import {
+  Plus,
+  Terminal,
+  Trash2,
+  RefreshCw,
+  CheckCircle2,
+  CircleDashed,
+  Lock,
+  LogOut,
+  AlertCircle,
+} from 'lucide-react'
 import { NeuButton } from '@/components/neumorphic/NeuButton'
 import { NeuCard } from '@/components/neumorphic/NeuCard'
+import { IconButton } from '@/components/neumorphic/IconButton'
 import { PageHeader } from '@/components/common/PageHeader'
 import { SSHSessionModal } from '@/components/agent/SSHSessionModal'
 import { InstallJobMonitor } from '@/components/agent/InstallJobMonitor'
@@ -47,7 +58,10 @@ async function extractErrorMessage(
       try {
         const data = (await httpErr.response.json()) as { detail?: string }
         return {
-          message: typeof data.detail === 'string' ? data.detail : 'SSH 세션이 만료되었습니다. 다시 등록해 주세요.',
+          message:
+            typeof data.detail === 'string'
+              ? data.detail
+              : 'SSH 세션이 만료되었습니다. 다시 등록해 주세요.',
           clearSsh: true,
         }
       } catch {
@@ -63,7 +77,9 @@ async function extractErrorMessage(
     }
     return { message: httpErr.response.statusText || '서버 오류가 발생했습니다.' }
   }
-  return e instanceof Error ? { message: e.message } : { message: '알 수 없는 오류가 발생했습니다.' }
+  return e instanceof Error
+    ? { message: e.message }
+    : { message: '알 수 없는 오류가 발생했습니다.' }
 }
 
 export function CliManagerPage() {
@@ -78,10 +94,26 @@ export function CliManagerPage() {
   const [deployState, setDeployState] = useState<DeployState | null>(null)
   const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null)
   const [errorModal, setErrorModal] = useState<ErrorModal | null>(null)
+  const errorModalConfirmRef = useRef<HTMLButtonElement>(null)
+  const errorModalTriggerRef = useRef<HTMLElement | null>(null)
 
   const refreshList = useCallback(() => {
     qc.invalidateQueries({ queryKey: ['agents', 'cli'] })
   }, [qc])
+
+  useEffect(() => {
+    if (!errorModal) return
+    errorModalTriggerRef.current = document.activeElement as HTMLElement | null
+    errorModalConfirmRef.current?.focus()
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') setErrorModal(null)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      errorModalTriggerRef.current?.focus?.()
+    }
+  }, [errorModal])
 
   async function handleLogout() {
     if (token) {
@@ -128,7 +160,7 @@ export function CliManagerPage() {
   return (
     <div className="space-y-6 p-6">
       <PageHeader
-        title="Synapse CLI 배포 관리"
+        title="시스템 CLI 배포 관리"
         description="운영 서버에 CLI 바이너리를 배포하고 관리합니다."
         action={
           <div className="flex flex-wrap items-center gap-2">
@@ -141,18 +173,18 @@ export function CliManagerPage() {
                   </span>
                 </div>
                 <NeuButton variant="ghost" size="sm" onClick={handleLogout}>
-                  <LogOut className="h-3.5 w-3.5" />
+                  <LogOut className="h-3.5 w-3.5" aria-hidden="true" />
                   세션 종료
                 </NeuButton>
               </>
             ) : (
               <NeuButton variant="glass" size="sm" onClick={() => setShowSshModal(true)}>
-                <Lock className="h-3.5 w-3.5" />
+                <Lock className="h-3.5 w-3.5" aria-hidden="true" />
                 SSH 세션 등록
               </NeuButton>
             )}
             <NeuButton onClick={() => setShowAddModal(true)}>
-              <Plus className="mr-1.5 h-4 w-4" />
+              <Plus className="mr-1.5 h-4 w-4" aria-hidden="true" />
               서버 등록
             </NeuButton>
           </div>
@@ -163,9 +195,7 @@ export function CliManagerPage() {
       {!sessionActive && (
         <div className="border-warning-border bg-warning-card-bg flex items-center gap-3 rounded-sm border px-4 py-3">
           <Lock className="text-warning h-4 w-4 shrink-0" aria-hidden="true" />
-          <p className="text-warning text-sm">
-            CLI 배포는 SSH 세션 등록 후 사용 가능합니다.
-          </p>
+          <p className="text-warning text-sm">CLI 배포는 SSH 세션 등록 후 사용 가능합니다.</p>
           <NeuButton
             size="sm"
             variant="ghost"
@@ -195,116 +225,129 @@ export function CliManagerPage() {
       <NeuCard>
         <div className="mb-3 flex items-center justify-between">
           <h3 className="text-text-primary text-sm font-semibold">배포 서버 목록</h3>
-          <button
-            onClick={refreshList}
-            className="text-text-secondary hover:text-text-primary focus:ring-accent rounded-sm focus:ring-1 focus:outline-none"
-            title="새로고침"
-          >
-            <RefreshCw className="h-4 w-4" />
-          </button>
+          <IconButton onClick={refreshList} aria-label="목록 새로고침" title="새로고침">
+            <RefreshCw className="h-4 w-4" aria-hidden="true" />
+          </IconButton>
         </div>
 
         {isLoading ? (
           <p className="text-text-secondary py-4 text-center text-sm">로딩 중...</p>
         ) : agents.length === 0 ? (
           <div className="py-8 text-center">
-            <Terminal className="text-text-disabled mx-auto mb-2 h-8 w-8" />
+            <Terminal className="text-text-disabled mx-auto mb-2 h-8 w-8" aria-hidden="true" />
             <p className="text-text-secondary text-sm">등록된 서버가 없습니다.</p>
-            <p className="text-text-disabled mt-1 text-xs">서버 등록 버튼으로 추가하세요.</p>
+            <p className="text-text-secondary mt-1 text-xs">서버 등록 버튼으로 추가하세요.</p>
           </div>
         ) : (
           <div className="divide-border divide-y">
-            {agents.map((agent) => (
-              <div key={agent.id} className="flex items-center gap-4 py-3">
-                {/* 상태 아이콘 */}
-                <div className="shrink-0">
-                  {agent.status === 'installed' || agent.status === 'running' ? (
-                    <CheckCircle2 className="text-normal h-4 w-4" />
-                  ) : (
-                    <CircleDashed className="text-text-disabled h-4 w-4" />
-                  )}
-                </div>
-
-                {/* 서버 정보 */}
-                <div className="min-w-0 flex-1">
-                  <p className="text-text-primary text-sm font-medium">
-                    {agent.host}
-                    {(() => {
-                      const sys = systems.find((s) => s.id === agent.system_id)
-                      return sys ? (
-                        <span className="text-text-secondary ml-2 text-xs font-normal">
-                          {sys.display_name}
-                        </span>
-                      ) : null
-                    })()}
-                  </p>
-                  <p className="text-text-secondary mt-0.5 text-xs">
-                    {agent.install_path || '~/bin/synapse'}
-                    {agent.updated_at && (
-                      <span className="ml-2">
-                        · 최근 업데이트: {formatKST(agent.updated_at, 'date')}
-                      </span>
-                    )}
-                  </p>
-                </div>
-
-                {/* 상태 뱃지 */}
-                <span
-                  className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${
-                    agent.status === 'installed' || agent.status === 'running'
-                      ? 'bg-normal/10 text-normal'
-                      : 'text-text-secondary bg-surface'
-                  }`}
+            {agents.map((agent) => {
+              const isInstalled = agent.status === 'installed' || agent.status === 'running'
+              const sys = systems.find((s) => s.id === agent.system_id)
+              const isDeploying = deployState?.agentId === agent.id
+              const deployTitle = !sessionActive
+                ? 'SSH 세션을 먼저 등록하세요'
+                : isDeploying
+                  ? '배포 진행 중'
+                  : isInstalled
+                    ? `${agent.host}에 재배포`
+                    : `${agent.host}에 배포`
+              const deployLabel = isDeploying ? '배포 중...' : isInstalled ? '재배포' : '배포'
+              return (
+                <div
+                  key={agent.id}
+                  className="flex flex-col gap-3 py-3 sm:flex-row sm:items-center sm:gap-4"
                 >
-                  {agent.status === 'installed' || agent.status === 'running'
-                    ? '설치됨'
-                    : '미설치'}
-                </span>
+                  <div className="flex min-w-0 flex-1 items-center gap-3">
+                    {/* 상태 아이콘 (장식 — 옆 뱃지가 의미 담당) */}
+                    <div className="shrink-0">
+                      {isInstalled ? (
+                        <CheckCircle2 className="text-normal h-4 w-4" aria-hidden="true" />
+                      ) : (
+                        <CircleDashed className="text-text-secondary h-4 w-4" aria-hidden="true" />
+                      )}
+                    </div>
 
-                {/* 액션 버튼 */}
-                <div className="flex shrink-0 gap-2">
-                  {deleteConfirm === agent.id ? (
-                    <>
-                      <NeuButton
-                        variant="ghost"
-                        className="text-critical text-xs"
-                        onClick={() => handleDelete(agent.id)}
-                      >
-                        삭제 확인
-                      </NeuButton>
-                      <NeuButton
-                        variant="ghost"
-                        className="text-xs"
-                        onClick={() => setDeleteConfirm(null)}
-                      >
-                        취소
-                      </NeuButton>
-                    </>
-                  ) : (
-                    <>
-                      <NeuButton
-                        variant="ghost"
-                        className="text-xs"
-                        onClick={() => handleDeploy(agent)}
-                        disabled={!sessionActive || deployState?.agentId === agent.id}
-                        title={!sessionActive ? 'SSH 세션을 먼저 등록하세요' : undefined}
-                      >
-                        {agent.status === 'installed' || agent.status === 'running'
-                          ? '재배포'
-                          : '배포'}
-                      </NeuButton>
-                      <button
-                        onClick={() => setDeleteConfirm(agent.id)}
-                        className="text-text-secondary hover:text-critical focus:ring-accent rounded-sm p-1 focus:ring-1 focus:outline-none"
-                        title="삭제"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    </>
-                  )}
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="text-text-primary truncate text-sm font-medium">
+                          {agent.host}
+                        </p>
+                        {sys ? (
+                          <span className="bg-bg-deep text-text-primary rounded-sm px-1.5 py-0.5 text-xs">
+                            {sys.display_name}
+                            <span className="text-text-secondary ml-1 font-mono">
+                              ({sys.system_name})
+                            </span>
+                          </span>
+                        ) : (
+                          <span className="text-warning bg-warning-bg border-warning-border rounded-sm border px-1.5 py-0.5 text-xs">
+                            시스템 미지정
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-text-secondary mt-0.5 text-xs">
+                        {agent.install_path || '~/bin/synapse'}
+                        {agent.updated_at && (
+                          <span className="ml-2">
+                            · 최근 업데이트: {formatKST(agent.updated_at, 'date')}
+                          </span>
+                        )}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2 sm:shrink-0">
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                        isInstalled ? 'bg-normal/10 text-normal' : 'text-text-secondary bg-surface'
+                      }`}
+                    >
+                      {isInstalled ? '설치됨' : '미설치'}
+                    </span>
+
+                    {deleteConfirm === agent.id ? (
+                      <>
+                        <NeuButton
+                          variant="ghost"
+                          className="text-critical text-xs"
+                          onClick={() => handleDelete(agent.id)}
+                        >
+                          삭제 확인
+                        </NeuButton>
+                        <NeuButton
+                          variant="ghost"
+                          className="text-xs"
+                          onClick={() => setDeleteConfirm(null)}
+                        >
+                          취소
+                        </NeuButton>
+                      </>
+                    ) : (
+                      <>
+                        <NeuButton
+                          variant="ghost"
+                          className="text-xs"
+                          onClick={() => handleDeploy(agent)}
+                          disabled={!sessionActive}
+                          loading={isDeploying}
+                          title={deployTitle}
+                        >
+                          {deployLabel}
+                        </NeuButton>
+                        <IconButton
+                          onClick={() => setDeleteConfirm(agent.id)}
+                          aria-label={`${agent.host} 삭제`}
+                          title="삭제"
+                          tone="critical"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+                        </IconButton>
+                      </>
+                    )}
+                  </div>
                 </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         )}
       </NeuCard>
@@ -322,8 +365,8 @@ export function CliManagerPage() {
             ['새 대화', 'synapse chat --new'],
           ].map(([label, cmd]) => (
             <div key={label} className="flex items-start gap-3">
-              <span className="text-text-secondary w-28 shrink-0 text-xs">{label}</span>
-              <code className="bg-bg-deep text-text-primary rounded-sm px-2 py-0.5 font-mono text-xs">
+              <span className="text-text-secondary min-w-[7rem] shrink-0 text-xs">{label}</span>
+              <code className="bg-bg-deep text-text-primary rounded-sm px-2 py-0.5 font-mono text-xs break-all">
                 {cmd}
               </code>
             </div>
@@ -372,7 +415,7 @@ export function CliManagerPage() {
             </div>
             <p className="text-text-secondary mb-6 text-sm break-words">{errorModal.message}</p>
             <div className="flex justify-end">
-              <NeuButton size="sm" onClick={() => setErrorModal(null)}>
+              <NeuButton ref={errorModalConfirmRef} size="sm" onClick={() => setErrorModal(null)}>
                 확인
               </NeuButton>
             </div>

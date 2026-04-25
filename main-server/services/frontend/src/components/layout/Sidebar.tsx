@@ -235,15 +235,13 @@ export function Sidebar() {
             collapsed={collapsed}
             onNavigate={closeMobileSidebar}
           />
-          {user?.role === 'admin' && (
-            <NavItem
-              to={ROUTES.CLI_MANAGER}
-              icon={<Bot className="h-4 w-4" />}
-              label="CLI 관리"
-              collapsed={collapsed}
-              onNavigate={closeMobileSidebar}
-            />
-          )}
+          <NavItem
+            to={ROUTES.CLI_MANAGER}
+            icon={<Bot className="h-4 w-4" />}
+            label="CLI 관리"
+            collapsed={collapsed}
+            onNavigate={closeMobileSidebar}
+          />
           <NavItem
             to={ROUTES.SYSTEMS}
             icon={<Server className="h-4 w-4" />}

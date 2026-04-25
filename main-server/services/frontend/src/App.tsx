@@ -44,7 +44,7 @@ const LlmAgentConfigPage = lazy(() =>
 )
 const ChatToolsPage = lazy(() => import('@/pages/admin/ChatToolsPage'))
 const CliManagerPage = lazy(() =>
-  import('@/pages/admin/CliManagerPage').then((m) => ({ default: m.CliManagerPage })),
+  import('@/pages/CliManagerPage').then((m) => ({ default: m.CliManagerPage })),
 )
 const ProfilePage = lazy(() =>
   import('@/pages/ProfilePage').then((m) => ({ default: m.ProfilePage })),
@@ -257,6 +257,14 @@ export function App() {
               </Suspense>
             }
           />
+          <Route
+            path="/synapse-cli"
+            element={
+              <Suspense fallback={<LoadingSkeleton shape="table" />}>
+                <CliManagerPage />
+              </Suspense>
+            }
+          />
 
           {/* Admin 전용 */}
           <Route
@@ -287,14 +295,6 @@ export function App() {
               element={
                 <Suspense fallback={<LoadingSkeleton shape="table" />}>
                   <ChatToolsPage />
-                </Suspense>
-              }
-            />
-            <Route
-              path="/admin/synapse-cli"
-              element={
-                <Suspense fallback={<LoadingSkeleton shape="table" />}>
-                  <CliManagerPage />
                 </Suspense>
               }
             />

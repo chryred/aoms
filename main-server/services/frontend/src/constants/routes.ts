@@ -20,7 +20,7 @@ export const ROUTES = {
   GRAFANA: '/grafana-dashboard',
   AGENTS: '/agents',
   INCIDENTS: '/incidents',
-  CLI_MANAGER: '/admin/synapse-cli',
+  CLI_MANAGER: '/synapse-cli',
   systemDetail: (id: number | string) => `/dashboard/${id}`,
   agentDetail: (id: number | string) => `/agents/${id}`,
   incidentDetail: (id: number | string) => `/incidents/${id}`,
