@@ -1,4 +1,4 @@
-import { Plus, X, Bot } from 'lucide-react'
+import { Plus, X, Bot, HelpCircle } from 'lucide-react'
 import { NeuButton } from '@/components/neumorphic/NeuButton'
 import type { System } from '@/types/system'
 
@@ -57,9 +57,19 @@ export function ChatHeader({
       {/* 시스템 필터 행 */}
       {systems.length > 0 && (
         <div className="border-border flex items-center gap-2 border-t px-3 py-1.5">
-          <label htmlFor="chat-system-filter" className="text-text-secondary shrink-0 text-[11px]">
-            검색 범위
-          </label>
+          <span className="text-text-secondary flex shrink-0 items-center gap-1 text-[11px]">
+            <label htmlFor="chat-system-filter" className="cursor-pointer">
+              지식 검색 대상
+            </label>
+            <span
+              className="inline-flex cursor-help"
+              title="선택한 시스템의 과거 장애·문서·정책만 RAG 검색합니다. '전체 시스템'이면 모든 시스템 지식 검색."
+              aria-label="도움말"
+              role="img"
+            >
+              <HelpCircle className="h-3 w-3" />
+            </span>
+          </span>
           <select
             id="chat-system-filter"
             value={filterSystemId ?? ''}

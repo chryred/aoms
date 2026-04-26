@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { User, Bot, Loader2 } from 'lucide-react'
+import { useState, useMemo } from 'react'
+import { User, Bot, Loader2, RotateCw } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { Components } from 'react-markdown'
@@ -76,13 +76,26 @@ function MarkdownContent({ content }: { content: string }) {
   )
 }
 
+const FAILURE_PATTERNS = [
+  '응답 형식을 해석하지 못했습니다',
+  '오류가 발생했습니다',
+  '처리할 수 없습니다',
+]
+
 interface ChatMessageProps {
   message: ChatMessageType
   sessionId: string
+  onRetry?: (messageId: string) => void
 }
 
-export function ChatMessageView({ message, sessionId }: ChatMessageProps) {
+export function ChatMessageView({ message, sessionId, onRetry }: ChatMessageProps) {
   const { role, content, thought, attachments } = message
+
+  const isFailedAssistant = useMemo(() => {
+    if (role !== 'assistant') return false
+    const text = typeof content === 'string' ? content : ''
+    return FAILURE_PATTERNS.some((p) => text.includes(p))
+  }, [role, content])
 
   if (role === 'tool') {
     return (
@@ -131,6 +144,17 @@ export function ChatMessageView({ message, sessionId }: ChatMessageProps) {
           <MarkdownContent content={content} />
         ) : (
           <span className="text-text-primary text-sm">…</span>
+        )}
+        {isFailedAssistant && onRetry && (
+          <button
+            type="button"
+            onClick={() => onRetry(message.id)}
+            className="text-text-secondary hover:bg-hover-subtle hover:text-text-primary mt-2 inline-flex min-h-[44px] items-center gap-1.5 rounded-sm px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-accent"
+            aria-label="이 메시지 재시도"
+          >
+            <RotateCw className="h-3.5 w-3.5" />
+            <span>다시 시도</span>
+          </button>
         )}
       </div>
     </div>

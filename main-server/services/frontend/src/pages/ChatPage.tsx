@@ -1,7 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import toast from 'react-hot-toast'
 import { useQueryClient } from '@tanstack/react-query'
-import { Menu, Plus, MessageSquare } from 'lucide-react'
+import {
+  Menu,
+  Plus,
+  MessageSquare,
+  Server,
+  AlertTriangle,
+  BookOpen,
+  FileSearch,
+  TrendingUp,
+  History,
+} from 'lucide-react'
 import { streamChatMessage } from '@/api/chat'
 import { useChatMessages } from '@/hooks/queries/useChatMessages'
 import { useChatSessions } from '@/hooks/queries/useChatSessions'
@@ -11,13 +21,46 @@ import { useChatStore } from '@/store/chatStore'
 import { useSystems } from '@/hooks/queries/useSystems'
 import { qk } from '@/constants/queryKeys'
 import type { ChatMessage, ChatSession, ChatStreamEvent } from '@/types/chat'
-import { cn } from '@/lib/utils'
+import { cn, formatRelative } from '@/lib/utils'
 import { PageHeader } from '@/components/common/PageHeader'
 import { NeuButton } from '@/components/neumorphic/NeuButton'
 import { ChatComposer } from '@/components/chat/ChatComposer'
 import { ChatHeader } from '@/components/chat/ChatHeader'
 import { ChatMessageView, StreamingAssistantMessage } from '@/components/chat/ChatMessage'
 import { ToolCallCard } from '@/components/chat/ToolCallCard'
+
+const PROMPT_CATEGORIES = [
+  {
+    icon: Server,
+    category: '시스템 상태',
+    prompt: 'CRM 서버 오늘 CPU 사용률 알려줘',
+  },
+  {
+    icon: AlertTriangle,
+    category: '장애 이력',
+    prompt: '지난주 결제 시스템 장애 원인 정리해줘',
+  },
+  {
+    icon: BookOpen,
+    category: '운영 정책',
+    prompt: 'VIP 등급 기준이 뭐야?',
+  },
+  {
+    icon: FileSearch,
+    category: '로그 분석',
+    prompt: '방금 발생한 알림 관련 에러 로그 보여줘',
+  },
+  {
+    icon: TrendingUp,
+    category: '메트릭 추이',
+    prompt: '고객경험 시스템 메모리 사용률 추이',
+  },
+  {
+    icon: History,
+    category: '유사 사례',
+    prompt: '비슷한 장애 이력 검색해줘',
+  },
+] as const
 
 interface StreamingToolState {
   id: string
@@ -203,6 +246,73 @@ export function ChatPage() {
     [sessions, currentSessionId],
   )
 
+  const handleRetry = useCallback(
+    (failedMessageId: string) => {
+      if (!messages || isStreaming) return
+      const failedIdx = messages.findIndex((m) => m.id === failedMessageId)
+      if (failedIdx <= 0) return
+      let userIdx = failedIdx - 1
+      while (userIdx >= 0 && messages[userIdx].role !== 'user') {
+        userIdx--
+      }
+      if (userIdx < 0) return
+      const userContent = messages[userIdx].content
+      if (!userContent.trim()) return
+      handleSend(userContent)
+    },
+    [messages, isStreaming, handleSend],
+  )
+
+  // 키보드 단축키
+  useEffect(() => {
+    const isMac = navigator.userAgent.toUpperCase().includes('MAC')
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const cmdKey = isMac ? e.metaKey : e.ctrlKey
+      const inInput =
+        e.target instanceof HTMLTextAreaElement || e.target instanceof HTMLInputElement
+
+      // Cmd/Ctrl+N — 새 대화 (항상)
+      if (cmdKey && e.key === 'n') {
+        e.preventDefault()
+        handleNewChat()
+        return
+      }
+
+      // Cmd/Ctrl+ArrowUp/Down — 세션 이전/다음 (입력창 외부일 때만)
+      if (cmdKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown') && !inInput && sessions && sessions.length > 0) {
+        e.preventDefault()
+        const currentIdx = sessions.findIndex((s) => s.id === currentSessionId)
+        if (e.key === 'ArrowUp') {
+          const prevIdx = currentIdx > 0 ? currentIdx - 1 : 0
+          setCurrentSessionId(sessions[prevIdx].id)
+        } else {
+          const nextIdx = currentIdx < sessions.length - 1 ? currentIdx + 1 : sessions.length - 1
+          setCurrentSessionId(sessions[nextIdx].id)
+        }
+        return
+      }
+
+      // / — 입력창 포커스 (입력 중 아닐 때)
+      if (e.key === '/' && !inInput && !cmdKey) {
+        e.preventDefault()
+        const textarea = document.querySelector<HTMLTextAreaElement>(
+          'textarea[placeholder="메시지를 입력하세요"]',
+        )
+        textarea?.focus()
+        return
+      }
+
+      // Esc — 모바일 drawer 닫기
+      if (e.key === 'Escape') {
+        setMobileSessionListOpen(false)
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [handleNewChat, sessions, currentSessionId, setCurrentSessionId])
+
   const handleScroll = useCallback(() => {
     const el = scrollRef.current
     if (!el) return
@@ -279,28 +389,41 @@ export function ChatPage() {
             {sessions && sessions.length === 0 && (
               <p className="text-text-disabled px-3 py-4 text-center text-xs">대화 없음</p>
             )}
-            {sessions?.map((session: ChatSession) => (
-              <button
-                key={session.id}
-                type="button"
-                onClick={() => {
-                  setCurrentSessionId(session.id)
-                  setMobileSessionListOpen(false)
-                }}
-                aria-current={session.id === currentSessionId ? 'true' : undefined}
-                className={cn(
-                  'flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm transition-colors',
-                  'min-h-[44px]',
-                  'focus:ring-accent focus:ring-1 focus:outline-none',
-                  session.id === currentSessionId
-                    ? 'bg-accent text-accent-contrast font-medium'
-                    : 'text-text-secondary hover:bg-accent-muted hover:text-text-primary',
-                )}
-              >
-                <MessageSquare className="h-3.5 w-3.5 shrink-0" />
-                <span className="flex-1 truncate">{session.title || '새 대화'}</span>
-              </button>
-            ))}
+            {sessions?.map((session: ChatSession) => {
+              const isActive = session.id === currentSessionId
+              return (
+                <button
+                  key={session.id}
+                  type="button"
+                  onClick={() => {
+                    setCurrentSessionId(session.id)
+                    setMobileSessionListOpen(false)
+                  }}
+                  aria-current={isActive ? 'true' : undefined}
+                  className={cn(
+                    'flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors',
+                    'min-h-[44px]',
+                    'focus:ring-accent focus:ring-1 focus:outline-none',
+                    isActive
+                      ? 'bg-accent text-accent-contrast font-medium'
+                      : 'text-text-secondary hover:bg-accent-muted hover:text-text-primary',
+                  )}
+                >
+                  <MessageSquare className="h-3.5 w-3.5 shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate">{session.title || '새 대화'}</div>
+                    <div
+                      className={cn(
+                        'truncate text-[10px]',
+                        isActive ? 'text-accent-contrast/70' : 'text-text-disabled',
+                      )}
+                    >
+                      {formatRelative(session.updated_at)}
+                    </div>
+                  </div>
+                </button>
+              )
+            })}
           </div>
         </div>
 
@@ -322,13 +445,41 @@ export function ChatPage() {
             className="bg-bg-base flex-1 space-y-3 overflow-y-auto px-3 py-3"
           >
             {messages?.length === 0 && !isStreaming && (
-              <div className="text-text-secondary mt-6 text-center text-sm">
-                <div className="mb-1">무엇이든 물어보세요.</div>
-                <div className="text-[11px]">예) &ldquo;CRM 서버 오늘 CPU 사용률 알려줘&rdquo;</div>
+              <div className="mt-4 px-1">
+                <p className="text-text-primary mb-3 text-center text-sm font-medium">
+                  어떤 도움이 필요하신가요?
+                </p>
+                <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+                  {PROMPT_CATEGORIES.map(({ icon: Icon, category, prompt }) => (
+                    <button
+                      key={category}
+                      type="button"
+                      onClick={() => handleSend(prompt)}
+                      disabled={isStreaming || !currentSessionId}
+                      className={cn(
+                        'border-border rounded-sm border p-3 text-left transition-colors',
+                        'hover:bg-accent-muted hover:border-accent',
+                        'focus:ring-accent focus:ring-1 focus:outline-none',
+                        'disabled:cursor-not-allowed disabled:opacity-40',
+                      )}
+                    >
+                      <div className="text-text-secondary mb-1 flex items-center gap-1.5 text-xs">
+                        <Icon className="h-3.5 w-3.5" />
+                        <span>{category}</span>
+                      </div>
+                      <div className="text-text-primary text-sm">{prompt}</div>
+                    </button>
+                  ))}
+                </div>
+                <p className="text-text-disabled mt-4 hidden text-center text-[11px] lg:block">
+                  {navigator.userAgent.toUpperCase().includes('MAC')
+                    ? '단축키: Cmd+N 새 대화 | Cmd+↑/↓ 세션 이동 | / 입력 포커스'
+                    : '단축키: Ctrl+N 새 대화 | Ctrl+↑/↓ 세션 이동 | / 입력 포커스'}
+                </p>
               </div>
             )}
             {messages?.map((m: ChatMessage) => (
-              <ChatMessageView key={m.id} message={m} sessionId={currentSessionId ?? ''} />
+              <ChatMessageView key={m.id} message={m} sessionId={currentSessionId ?? ''} onRetry={handleRetry} />
             ))}
             {streamingTools.map((t) => (
               <ToolCallCard
