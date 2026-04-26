@@ -1,4 +1,4 @@
-import { Outlet } from 'react-router-dom'
+import { Outlet, useLocation } from 'react-router-dom'
 import { useEffect } from 'react'
 import { Sidebar } from './Sidebar'
 import { TopBar } from './TopBar'
@@ -6,18 +6,19 @@ import { CriticalBanner } from '@/components/common/CriticalBanner'
 import { ChatLauncher } from '@/components/chat/ChatLauncher'
 import { ChatPanel } from '@/components/chat/ChatPanel'
 import { useUiStore } from '@/store/uiStore'
-import { useChatStore } from '@/store/chatStore'
 import { useAlertsCount } from '@/hooks/queries/useAlertsCount'
+import { ROUTES } from '@/constants/routes'
 import { cn } from '@/lib/utils'
 
 export function AppLayout() {
+  const location = useLocation()
+  const isChatPage = location.pathname === ROUTES.CHAT
   const setCriticalCount = useUiStore((s) => s.setCriticalCount)
   const criticalCount = useUiStore((s) => s.criticalCount)
   const bannerSnoozedUntil = useUiStore((s) => s.bannerSnoozedUntil)
   const bannerVisible = criticalCount > 0 && Date.now() >= bannerSnoozedUntil
   const sidebarOpen = useUiStore((s) => s.sidebarOpen)
   const closeMobileSidebar = useUiStore((s) => s.closeMobileSidebar)
-  const chatOpen = useChatStore((s) => s.isOpen)
 
   const { data: criticalCountData } = useAlertsCount({
     severity: 'critical',
@@ -54,22 +55,23 @@ export function AppLayout() {
         <Sidebar />
       </div>
 
-      {/* Main content */}
-      <div className={cn('flex min-w-0 flex-1 flex-col overflow-hidden', bannerVisible && 'mt-9')}>
-        <TopBar />
-        <main
-          className={cn(
-            'flex-1 overscroll-y-contain scroll-smooth p-4 md:p-6',
-            chatOpen ? 'overflow-hidden' : 'overflow-y-scroll',
-          )}
-        >
-          <Outlet />
-        </main>
+      {/* Main content + chat panel row */}
+      <div className={cn('flex min-w-0 flex-1 overflow-hidden', bannerVisible && 'mt-9')}>
+        {/* Main wrapper */}
+        <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+          <TopBar />
+          <main className="flex-1 overflow-y-auto overscroll-y-contain scroll-smooth p-4 md:p-6">
+            <Outlet />
+          </main>
+        </div>
+
+        {/* Chat panel — push layout sibling on desktop, overlay on mobile.
+            /chat 페이지에서는 전용 ChatPage가 렌더되므로 패널 불필요. */}
+        {!isChatPage && <ChatPanel />}
       </div>
 
-      {/* Chatbot floating launcher + sliding panel (all pages) */}
-      <ChatLauncher />
-      <ChatPanel />
+      {/* Chatbot floating launcher (all pages except /chat) */}
+      {!isChatPage && <ChatLauncher />}
     </div>
   )
 }

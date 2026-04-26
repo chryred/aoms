@@ -2,7 +2,7 @@ import { Bot, X } from 'lucide-react'
 import { useChatStore } from '@/store/chatStore'
 import { cn } from '@/lib/utils'
 
-/** 우하단 고정 플로팅 AI 어시스턴트 버튼. */
+/** 우하단 고정 플로팅 AI 어시스턴트 버튼. AppLayout이 /chat 페이지에서 렌더링을 스킵한다. */
 export function ChatLauncher() {
   const isOpen = useChatStore((s) => s.isOpen)
   const toggle = useChatStore((s) => s.toggleOpen)
@@ -27,7 +27,7 @@ export function ChatLauncher() {
           'transition-[transform,box-shadow,background-color] duration-400 ease-in-out',
           'hover:scale-110',
           'active:shadow-neu-inset active:scale-95',
-          'focus:ring-offset-bg-base focus:ring-2 focus:ring-[#FB923C] focus:ring-offset-2 focus:outline-none',
+          'focus:ring-offset-bg-base focus:ring-1 focus:ring-accent focus:ring-offset-2 focus:outline-none',
           'motion-reduce:transition-none',
           isOpen
             ? 'bg-surface shadow-neu-flat hover:shadow-neu-flat-hover'

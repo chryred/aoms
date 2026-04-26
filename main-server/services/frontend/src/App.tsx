@@ -79,6 +79,10 @@ const IncidentDetailPage = lazy(() =>
 const SchedulerRunHistoryPage = lazy(() =>
   import('@/pages/SchedulerRunHistoryPage').then((m) => ({ default: m.SchedulerRunHistoryPage })),
 )
+const KnowledgePage = lazy(() =>
+  import('@/pages/KnowledgePage').then((m) => ({ default: m.KnowledgePage })),
+)
+const ChatPage = lazy(() => import('@/pages/ChatPage').then((m) => ({ default: m.ChatPage })))
 
 export function App() {
   return (
@@ -231,6 +235,22 @@ export function App() {
             element={
               <Suspense fallback={<LoadingSkeleton shape="card" />}>
                 <GrafanaDashboardPage />
+              </Suspense>
+            }
+          />
+          <Route
+            path={ROUTES.KNOWLEDGE}
+            element={
+              <Suspense fallback={<LoadingSkeleton shape="card" count={3} />}>
+                <KnowledgePage />
+              </Suspense>
+            }
+          />
+          <Route
+            path={ROUTES.CHAT}
+            element={
+              <Suspense fallback={<LoadingSkeleton shape="card" count={3} />}>
+                <ChatPage />
               </Suspense>
             }
           />

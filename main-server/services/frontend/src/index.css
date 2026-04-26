@@ -146,6 +146,9 @@
   --t-shadow-neu-inset: inset 2px 2px 5px #111317, inset -2px -2px 5px #2b2f37;
   --t-shadow-neu-pressed: inset 1px 1px 3px #111317, inset -1px -1px 3px #2b2f37;
 
+  /* 사이드 오버레이 그림자 (모바일 ChatPanel 등 좌측 그림자 전용) */
+  --t-shadow-side-overlay: -8px 0 24px rgba(0, 0, 0, 0.4);
+
   /* Glow shadows (뉴모피즘 + semantic 컬러 광채) */
   --t-shadow-glow-critical:
     3px 3px 7px #111317, -3px -3px 7px #2b2f37, 0 0 12px rgba(239, 68, 68, 0.2);
@@ -249,6 +252,9 @@
   --t-shadow-neu-pressed:
     inset 1px 1px 3px rgba(0, 0, 0, 0.08), inset -1px -1px 3px rgba(255, 255, 255, 0.6);
 
+  /* 사이드 오버레이 그림자 (light — 더 부드럽게) */
+  --t-shadow-side-overlay: -8px 0 16px rgba(0, 0, 0, 0.1);
+
   /* Glow shadows (light — 은은하게) */
   --t-shadow-glow-critical:
     3px 3px 8px rgba(0, 0, 0, 0.12), -3px -3px 8px rgba(255, 255, 255, 0.9),
@@ -288,6 +294,7 @@
   --shadow-neu-flat-hover: var(--t-shadow-neu-flat-hover);
   --shadow-neu-inset: var(--t-shadow-neu-inset);
   --shadow-neu-pressed: var(--t-shadow-neu-pressed);
+  --shadow-side-overlay: var(--t-shadow-side-overlay);
 
   /* Semantic glow shadow 토큰 */
   --shadow-glow-critical: var(--t-shadow-glow-critical);

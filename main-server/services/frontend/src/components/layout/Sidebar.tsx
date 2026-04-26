@@ -22,6 +22,7 @@ import {
   Bot,
   Wrench,
   Siren,
+  BookOpen,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useUiStore } from '@/store/uiStore'
@@ -153,6 +154,16 @@ export function Sidebar() {
 
       {/* 내비게이션 */}
       <nav className="flex-1 space-y-4 overflow-y-auto px-2 py-4">
+        <NavGroup label="AI" collapsed={collapsed}>
+          <NavItem
+            to={ROUTES.CHAT}
+            icon={<Bot className="h-4 w-4" />}
+            label="AI 어시스턴트"
+            collapsed={collapsed}
+            onNavigate={closeMobileSidebar}
+          />
+        </NavGroup>
+
         <NavGroup label="운영" collapsed={collapsed}>
           <NavItem
             to={ROUTES.DASHBOARD}
@@ -228,6 +239,13 @@ export function Sidebar() {
         </NavGroup>
 
         <NavGroup label="관리" collapsed={collapsed}>
+          <NavItem
+            to={ROUTES.KNOWLEDGE}
+            icon={<BookOpen className="h-4 w-4" />}
+            label="지식 관리"
+            collapsed={collapsed}
+            onNavigate={closeMobileSidebar}
+          />
           <NavItem
             to={ROUTES.AGENTS}
             icon={<Terminal className="h-4 w-4" />}

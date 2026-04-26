@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import toast from 'react-hot-toast'
 import { useQueryClient } from '@tanstack/react-query'
+import { Menu, Plus, MessageSquare } from 'lucide-react'
 import { streamChatMessage } from '@/api/chat'
 import { useChatMessages } from '@/hooks/queries/useChatMessages'
 import { useChatSessions } from '@/hooks/queries/useChatSessions'
@@ -9,12 +10,14 @@ import { useChatAttachments } from '@/hooks/useChatAttachments'
 import { useChatStore } from '@/store/chatStore'
 import { useSystems } from '@/hooks/queries/useSystems'
 import { qk } from '@/constants/queryKeys'
-import type { ChatMessage, ChatStreamEvent } from '@/types/chat'
+import type { ChatMessage, ChatSession, ChatStreamEvent } from '@/types/chat'
 import { cn } from '@/lib/utils'
-import { ChatComposer } from './ChatComposer'
-import { ChatHeader } from './ChatHeader'
-import { ChatMessageView, StreamingAssistantMessage } from './ChatMessage'
-import { ToolCallCard } from './ToolCallCard'
+import { PageHeader } from '@/components/common/PageHeader'
+import { NeuButton } from '@/components/neumorphic/NeuButton'
+import { ChatComposer } from '@/components/chat/ChatComposer'
+import { ChatHeader } from '@/components/chat/ChatHeader'
+import { ChatMessageView, StreamingAssistantMessage } from '@/components/chat/ChatMessage'
+import { ToolCallCard } from '@/components/chat/ToolCallCard'
 
 interface StreamingToolState {
   id: string
@@ -25,9 +28,7 @@ interface StreamingToolState {
   thought?: string
 }
 
-export function ChatPanel() {
-  const isOpen = useChatStore((s) => s.isOpen)
-  const setOpen = useChatStore((s) => s.setOpen)
+export function ChatPage() {
   const currentSessionId = useChatStore((s) => s.currentSessionId)
   const setCurrentSessionId = useChatStore((s) => s.setCurrentSessionId)
   const filterSystemId = useChatStore((s) => s.filterSystemId)
@@ -36,7 +37,7 @@ export function ChatPanel() {
   const { data: systems = [] } = useSystems()
 
   const qc = useQueryClient()
-  const { data: sessions } = useChatSessions(isOpen)
+  const { data: sessions } = useChatSessions(true)
   const createSession = useCreateChatSession()
   const {
     attachments,
@@ -47,9 +48,8 @@ export function ChatPanel() {
     isUploading,
   } = useChatAttachments(currentSessionId)
 
-  // 세션이 없으면 열 때 자동 생성 또는 최신 세션 복원
+  // 세션이 없으면 자동 생성 또는 최신 세션 복원
   useEffect(() => {
-    if (!isOpen) return
     if (currentSessionId) return
     if (sessions && sessions.length > 0) {
       setCurrentSessionId(sessions[0].id)
@@ -60,10 +60,11 @@ export function ChatPanel() {
         onSuccess: (s) => setCurrentSessionId(s.id),
       })
     }
-  }, [isOpen, currentSessionId, sessions, setCurrentSessionId, createSession])
+  }, [currentSessionId, sessions, setCurrentSessionId, createSession])
 
   const { data: messages } = useChatMessages(currentSessionId)
 
+  const [mobileSessionListOpen, setMobileSessionListOpen] = useState(false)
   const [streamText, setStreamText] = useState('')
   const [streamThought, setStreamThought] = useState<string | undefined>()
   const [streamingTools, setStreamingTools] = useState<StreamingToolState[]>([])
@@ -72,7 +73,6 @@ export function ChatPanel() {
   const scrollRef = useRef<HTMLDivElement>(null)
   const userScrolledUpRef = useRef(false)
 
-  // 스트리밍이 끝나면 message list 재조회로 화면 교체
   const finishStream = useCallback(() => {
     setStreamText('')
     setStreamThought(undefined)
@@ -98,7 +98,6 @@ export function ChatPanel() {
       setStreamThought(undefined)
       setStreamingTools([])
 
-      // optimistic user 메시지는 서버가 user_saved 이벤트로 DB 반영 후 invalidate → 화면 표시되도록 유지
       const controller = new AbortController()
       abortRef.current = controller
       const keys = readyKeys
@@ -175,7 +174,6 @@ export function ChatPanel() {
         break
       }
       case 'final':
-        // finishStream이 finally에서 실행됨. 여기선 빈 처리.
         break
       case 'error': {
         const msg = String((event.data as { message?: string }).message ?? '알 수 없는 오류')
@@ -211,91 +209,157 @@ export function ChatPanel() {
     userScrolledUpRef.current = el.scrollHeight - el.scrollTop - el.clientHeight > 100
   }, [])
 
-  // 새 메시지/스트림 업데이트 시 하단으로 스크롤
   useEffect(() => {
     const el = scrollRef.current
     if (!el) return
-    // 스트리밍 중 사용자가 위로 스크롤했으면 강제 이동 안 함
     if (isStreaming && userScrolledUpRef.current) return
     el.scrollTo({ top: el.scrollHeight, behavior: isStreaming ? 'instant' : 'smooth' })
   }, [messages?.length, streamText, streamingTools.length, isStreaming])
 
-  // 언마운트/패널 닫힘 시 스트림 취소
+  // 언마운트 시 스트림 취소
   useEffect(() => {
-    if (!isOpen) abortRef.current?.abort()
-  }, [isOpen])
-
-  // inert 속성: 닫힌 상태에서 DOM 내부 요소의 키보드 포커스 및 AT 접근 차단 (WCAG 2.1.1)
-  const inertProps = !isOpen ? { inert: '' as const } : {}
+    return () => {
+      abortRef.current?.abort()
+    }
+  }, [])
 
   return (
-    <div
-      {...inertProps}
-      aria-hidden={!isOpen}
-      className={cn(
-        'bg-surface border-border flex flex-col',
+    <div className="flex h-full flex-col">
+      <PageHeader title="AI 어시스턴트" description="운영 지식 검색 및 시스템 현황 질의" />
 
-        // === 모바일 (<lg): fixed overlay 유지 ===
-        'fixed top-0 right-0 z-40 h-screen w-full',
-        'shadow-side-overlay',
-        'transition-transform duration-200 ease-out',
-        isOpen ? 'translate-x-0' : 'translate-x-full',
-
-        // === 데스크탑 (lg+): push layout ===
-        'lg:static lg:top-auto lg:right-auto lg:z-auto',
-        'lg:h-full lg:translate-x-0 lg:shadow-none',
-        'lg:overflow-hidden lg:transition-[width] lg:duration-200',
-        isOpen ? 'lg:w-[420px] lg:border-l' : 'lg:w-0 lg:border-0',
-      )}
-    >
-      <ChatHeader
-        title={currentSession?.title ?? '새 대화'}
-        onNewChat={handleNewChat}
-        onClose={() => setOpen(false)}
-        disabled={isStreaming}
-        systems={systems}
-        filterSystemId={filterSystemId}
-        onFilterSystemChange={setFilterSystemId}
-      />
-
-      <div
-        ref={scrollRef}
-        onScroll={handleScroll}
-        className="bg-bg-base flex-1 space-y-3 overflow-y-auto px-3 py-3"
-      >
-        {messages?.length === 0 && !isStreaming && (
-          <div className="text-text-secondary mt-6 text-center text-sm">
-            <div className="mb-1">무엇이든 물어보세요.</div>
-            <div className="text-[11px]">예) &ldquo;CRM 서버 오늘 CPU 사용률 알려줘&rdquo;</div>
-          </div>
-        )}
-        {messages?.map((m: ChatMessage) => (
-          <ChatMessageView key={m.id} message={m} sessionId={currentSessionId ?? ''} />
-        ))}
-        {streamingTools.map((t) => (
-          <ToolCallCard
-            key={t.id}
-            toolName={t.name}
-            args={t.args}
-            result={t.result}
-            running={t.running}
-            thought={t.thought}
-          />
-        ))}
-        {isStreaming && (streamText || streamThought) && (
-          <StreamingAssistantMessage content={streamText} running={true} thought={streamThought} />
-        )}
+      {/* 모바일 전용 세션 토글 */}
+      <div className="border-border bg-surface mb-2 flex items-center gap-2 rounded-sm border px-3 py-2 lg:hidden">
+        <button
+          type="button"
+          onClick={() => setMobileSessionListOpen(true)}
+          className="text-text-secondary hover:text-text-primary flex min-h-[44px] items-center gap-2 rounded-sm px-2"
+          aria-label="세션 목록 열기"
+        >
+          <Menu className="h-4 w-4" />
+          <span className="text-sm">세션 목록</span>
+        </button>
+        <span className="text-text-secondary text-xs">{sessions?.length ?? 0}개 대화</span>
       </div>
 
-      <ChatComposer
-        disabled={!currentSessionId}
-        streaming={isStreaming}
-        attachments={attachments}
-        uploadingCount={isUploading ? 1 : 0}
-        onAddFiles={addFiles}
-        onRemoveAttachment={removeAttachment}
-        onSend={handleSend}
-      />
+      {/* 모바일 drawer 백드롭 */}
+      {mobileSessionListOpen && (
+        <div
+          className="bg-overlay fixed inset-0 z-20 lg:hidden"
+          onClick={() => setMobileSessionListOpen(false)}
+          aria-hidden="true"
+        />
+      )}
+
+      <div className="flex min-h-0 flex-1 gap-3">
+        {/* 세션 목록 패널 */}
+        <div
+          className={cn(
+            'border-border bg-surface flex shrink-0 flex-col rounded-sm border',
+            // 모바일: fixed overlay drawer
+            'fixed inset-y-0 left-0 z-30 w-72 transition-transform duration-200 ease-out',
+            mobileSessionListOpen ? 'translate-x-0' : '-translate-x-full',
+            // lg+: static sibling
+            'lg:static lg:z-auto lg:w-64 lg:translate-x-0',
+          )}
+        >
+          <div className="border-border border-b px-3 py-2">
+            <NeuButton
+              variant="secondary"
+              size="sm"
+              onClick={handleNewChat}
+              disabled={createSession.isPending}
+              className="w-full"
+            >
+              <Plus className="h-4 w-4" />
+              <span>새 대화</span>
+            </NeuButton>
+          </div>
+
+          <div className="flex-1 overflow-y-auto py-1">
+            {sessions && sessions.length === 0 && (
+              <p className="text-text-disabled px-3 py-4 text-center text-xs">대화 없음</p>
+            )}
+            {sessions?.map((session: ChatSession) => (
+              <button
+                key={session.id}
+                type="button"
+                onClick={() => {
+                  setCurrentSessionId(session.id)
+                  setMobileSessionListOpen(false)
+                }}
+                aria-current={session.id === currentSessionId ? 'true' : undefined}
+                className={cn(
+                  'flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm transition-colors',
+                  'min-h-[44px]',
+                  'focus:ring-accent focus:ring-1 focus:outline-none',
+                  session.id === currentSessionId
+                    ? 'bg-accent text-accent-contrast font-medium'
+                    : 'text-text-secondary hover:bg-accent-muted hover:text-text-primary',
+                )}
+              >
+                <MessageSquare className="h-3.5 w-3.5 shrink-0" />
+                <span className="flex-1 truncate">{session.title || '새 대화'}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* 채팅 영역 */}
+        <div className="border-border bg-surface flex min-w-0 flex-1 flex-col rounded-sm border">
+          <ChatHeader
+            title={currentSession?.title ?? '새 대화'}
+            subtitle={null}
+            onNewChat={handleNewChat}
+            disabled={isStreaming}
+            systems={systems}
+            filterSystemId={filterSystemId}
+            onFilterSystemChange={setFilterSystemId}
+          />
+
+          <div
+            ref={scrollRef}
+            onScroll={handleScroll}
+            className="bg-bg-base flex-1 space-y-3 overflow-y-auto px-3 py-3"
+          >
+            {messages?.length === 0 && !isStreaming && (
+              <div className="text-text-secondary mt-6 text-center text-sm">
+                <div className="mb-1">무엇이든 물어보세요.</div>
+                <div className="text-[11px]">예) &ldquo;CRM 서버 오늘 CPU 사용률 알려줘&rdquo;</div>
+              </div>
+            )}
+            {messages?.map((m: ChatMessage) => (
+              <ChatMessageView key={m.id} message={m} sessionId={currentSessionId ?? ''} />
+            ))}
+            {streamingTools.map((t) => (
+              <ToolCallCard
+                key={t.id}
+                toolName={t.name}
+                args={t.args}
+                result={t.result}
+                running={t.running}
+                thought={t.thought}
+              />
+            ))}
+            {isStreaming && (streamText || streamThought) && (
+              <StreamingAssistantMessage
+                content={streamText}
+                running={true}
+                thought={streamThought}
+              />
+            )}
+          </div>
+
+          <ChatComposer
+            disabled={!currentSessionId}
+            streaming={isStreaming}
+            attachments={attachments}
+            uploadingCount={isUploading ? 1 : 0}
+            onAddFiles={addFiles}
+            onRemoveAttachment={removeAttachment}
+            onSend={handleSend}
+          />
+        </div>
+      </div>
     </div>
   )
 }

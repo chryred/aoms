@@ -153,7 +153,7 @@ export function ChatComposer({
           onClick={handleSend}
           disabled={sendDisabled}
           className={cn(
-            'bg-accent text-accent-contrast shadow-neu-flat flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-sm',
+            'bg-accent text-accent-contrast shadow-neu-flat flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-sm',
             'hover:bg-accent-hover active:shadow-neu-inset',
             'disabled:cursor-not-allowed disabled:opacity-40',
           )}
