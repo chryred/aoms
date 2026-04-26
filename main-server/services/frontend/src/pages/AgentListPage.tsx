@@ -96,6 +96,7 @@ export function AgentListPage() {
     if (!agents) return []
     const q = searchQuery.toLowerCase()
     return agents.filter((a) => {
+      if (a.agent_type === 'cli') return false
       if (q && !a.host.toLowerCase().includes(q)) return false
       if (filterType !== 'all' && a.agent_type !== filterType) return false
       if (healthFilter === 'stale' && liveCollectingMap) {
