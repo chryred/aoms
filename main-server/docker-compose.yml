@@ -2,13 +2,14 @@ services:
   prometheus:
     image: prom/prometheus:v3.10.0
     container_name: synapse-prometheus
+    user: "1036:510"
     ports:
       - "9090:9090"
     volumes:
       - ./configs/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro,z
       - ./configs/prometheus/alert_rules.yml:/etc/prometheus/alert_rules.yml:ro,z
       - ./configs/prometheus/web.yml:/etc/prometheus/web.yml:ro,z   # Basic Auth
-      - prometheus_data:/prometheus:z
+      - ./services/prometheus:/prometheus:z
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--web.config.file=/etc/prometheus/web.yml'                # Basic Auth 활성화
@@ -85,6 +86,7 @@ services:
   postgres:
     image: postgres:16-alpine
     container_name: synapse-postgres
+    user: "1036:510"
     ports:
       - "5432:5432"
     environment:
@@ -93,7 +95,7 @@ services:
       - POSTGRES_PASSWORD=${DB_PASSWORD}
       - PGDATA=/var/lib/postgresql/data/pgdata
     volumes:
-      - postgres_data:/var/lib/postgresql/data:z
+      - ./services/postgres/data:/var/lib/postgresql/data:z
       - ./configs/postgres/init.sql:/docker-entrypoint-initdb.d/01_init.sql:ro,z
       - ./configs/postgres/postgresql.conf:/etc/postgresql/postgresql.conf:ro,z
     command: postgres -c config_file=/etc/postgresql/postgresql.conf
@@ -111,6 +113,7 @@ services:
   admin-api:
     image: synapse-admin-api:1.0       # 사전 빌드 후 load된 이미지
     container_name: synapse-admin-api
+    user: "1036:510"
     ports:
       - "8080:8080"
     environment:
@@ -153,6 +156,7 @@ services:
   log-analyzer:
     image: synapse-log-analyzer:1.0    # 사전 빌드 후 load된 이미지
     container_name: synapse-log-analyzer
+    user: "1036:510"
     ports:
       - "8000:8000"
     volumes:
@@ -187,6 +191,7 @@ services:
   frontend:
     image: synapse-frontend:1.0           # 사전 빌드 후 load된 이미지
     container_name: synapse-frontend
+    user: "1036:510"
     ports:
       - "3001:80"
     mem_limit: 64m
@@ -202,7 +207,7 @@ services:
     command: ["-config.file=/etc/tempo/tempo.yml"]
     volumes:
       - ./configs/tempo/tempo.yml:/etc/tempo/tempo.yml:ro,z
-      - tempo_data:/var/tempo:z
+      - ./services/tempo:/var/tempo:z
     mem_limit: 1g
     cpus: '0.5'
     restart: unless-stopped
@@ -275,11 +280,8 @@ services:
       - synapse-net
 
 volumes:
-  prometheus_data:
   grafana_data:
-  postgres_data:
   n8n_data:
-  tempo_data:
 
 networks:
   synapse-net:

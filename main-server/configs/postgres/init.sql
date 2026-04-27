@@ -1,6 +1,20 @@
 -- Synapse PostgreSQL 초기 스키마
 -- Phase 1 (T1.9)에서 실행: docker exec -i synapse-postgres psql -U synapse -d synapse < init.sql
 
+-- ── 사용자 (인증) ───────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS users (
+    id            SERIAL PRIMARY KEY,
+    email         VARCHAR(200) UNIQUE NOT NULL,
+    password_hash VARCHAR(200) NOT NULL,
+    name          VARCHAR(100) NOT NULL,
+    role          VARCHAR(20)  NOT NULL DEFAULT 'operator',  -- 'admin' | 'operator'
+    is_active     BOOLEAN      NOT NULL DEFAULT TRUE,
+    is_approved   BOOLEAN      NOT NULL DEFAULT FALSE,
+    created_at    TIMESTAMP    NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+
 -- ── 시스템 정보 ────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS systems (
     id              SERIAL PRIMARY KEY,
