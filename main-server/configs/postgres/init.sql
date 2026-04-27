@@ -351,6 +351,22 @@ CREATE TABLE IF NOT EXISTS aggregation_report_history (
 
 CREATE INDEX IF NOT EXISTS idx_report_history_type_time ON aggregation_report_history(report_type, period_start DESC);
 
+-- ── 스케줄러 실행 이력 ────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS scheduler_run_history (
+    id             SERIAL PRIMARY KEY,
+    scheduler_type VARCHAR(20)  NOT NULL,   -- analysis | hourly | daily | weekly | monthly | longperiod | trend
+    started_at     TIMESTAMP    NOT NULL,
+    finished_at    TIMESTAMP    NOT NULL,
+    status         VARCHAR(10)  NOT NULL,   -- ok | error
+    error_count    INTEGER      DEFAULT 0,
+    analyzed_count INTEGER      DEFAULT 0,
+    summary_json   JSONB,
+    error_message  TEXT,
+    created_at     TIMESTAMP    DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_scheduler_run_type_started ON scheduler_run_history(scheduler_type, started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_scheduler_run_started      ON scheduler_run_history(started_at DESC);
+
 -- ── 에이전트 인스턴스 (Phase 6 / Phase 9) ────────────────────────────
 CREATE TABLE IF NOT EXISTS agent_instances (
     id           SERIAL PRIMARY KEY,
@@ -433,8 +449,11 @@ CREATE TABLE IF NOT EXISTS chat_messages (
     tool_name    VARCHAR(100),
     tool_args    JSONB,
     tool_result  JSONB,
-    attachments  JSONB NOT NULL DEFAULT '[]'::jsonb,      -- [{type:'image', key, mime, size, w, h}]
-    created_at   TIMESTAMP DEFAULT NOW()
+    attachments       JSONB NOT NULL DEFAULT '[]'::jsonb,      -- [{type:'image', key, mime, size, w, h}]
+    -- V1 RAG: federated search 품질 추적 (ADR-002)
+    rag_top1_score    FLOAT,                                   -- NULL 허용 — federated search RRF top-1 점수
+    rag_sources_count INTEGER,                                 -- NULL 허용 — 검색 결과 개수
+    created_at        TIMESTAMP DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_chat_messages_session ON chat_messages(session_id, created_at);
 
@@ -503,13 +522,42 @@ INSERT INTO chat_tools (name, display_name, description, input_schema, executor)
      '{"type":"object","properties":{"query":{"type":"string","description":"검색할 내용 (한국어 자연어, 예: 결제서비스 3월 OOM)"},"system_id":{"type":"integer","description":"시스템 ID 필터 (선택)"},"limit":{"type":"integer","default":5}},"required":["query"]}'::jsonb, 'qdrant'),
     ('qdrant_search_hourly_patterns', '시간별 메트릭 패턴 검색',
      'Qdrant Hybrid 검색으로 최근 1시간 단위 시스템 메트릭 집계 패턴을 조회. 사용자가 "오늘 오후 3시 결제 서버 CPU 상태", "아까 DB 메모리 어땠어?", "오전에 로그 에러 급증한 시스템 있었나?" 같이 당일 또는 최근 몇 시간 이내 패턴을 물을 때 사용. 결과는 시간대별 LLM 분석 요약(심각도·추세·예측 포함)을 반환.',
-     '{"type":"object","properties":{"query":{"type":"string","description":"검색할 메트릭 패턴 내용 (한국어 자연어, 예: 결제 서비스 CPU 급증 패턴)"},"system_name":{"type":"string","description":"시스템명 필터 (선택, 예: cxm)"},"limit":{"type":"integer","default":5,"description":"최대 반환 건수 (1-10)"}},"required":["query"]}'::jsonb, 'qdrant')
+     '{"type":"object","properties":{"query":{"type":"string","description":"검색할 메트릭 패턴 내용 (한국어 자연어, 예: 결제 서비스 CPU 급증 패턴)"},"system_name":{"type":"string","description":"시스템명 필터 (선택, 예: cxm)"},"limit":{"type":"integer","default":5,"description":"최대 반환 건수 (1-10)"}},"required":["query"]}'::jsonb, 'qdrant'),
+    ('qdrant_search_knowledge', 'V1 Knowledge 통합 검색',
+     'V1 knowledge 컬렉션(Jira/Confluence/Documents) federated Hybrid+Reranker 검색. 운영 매뉴얼·정책·사내 문서·Jira 티켓 등 knowledge 베이스에서 의미+키워드 통합 검색. system_id 필터로 특정 시스템 지식만 조회 가능.',
+     '{"type":"object","properties":{"query":{"type":"string","description":"검색할 내용 (한국어 자연어, 예: DB 점검 절차)"},"system_id":{"type":"integer","description":"시스템 ID 필터 (선택)"},"system_name":{"type":"string","description":"시스템명 필터 (선택)"},"sources":{"type":"array","items":{"type":"string"},"description":"검색 소스 제한 (선택, 예: [\"jira\",\"confluence\",\"documents\"])"},"limit":{"type":"integer","default":5,"description":"최대 반환 건수 (1-10)"},"rerank":{"type":"boolean","default":true,"description":"Reranker 적용 여부 (기본 true — 정확도 우선)"}},"required":["query"]}'::jsonb, 'qdrant')
 ON CONFLICT (name) DO UPDATE SET
     display_name = EXCLUDED.display_name,
     description  = EXCLUDED.description,
     input_schema = EXCLUDED.input_schema,
     executor     = EXCLUDED.executor,
     updated_at   = NOW();
+
+-- ── V1 Knowledge RAG ────────────────────────────────────────────────────────
+
+-- 사용자 지식 교정 이력 — RAG 품질 개선용 (ADR-002)
+CREATE TABLE IF NOT EXISTS knowledge_corrections (
+    id                SERIAL PRIMARY KEY,
+    source_point_id   VARCHAR(64)  NOT NULL,               -- Qdrant point UUID (또는 문서 ID)
+    source_collection VARCHAR(50)  NOT NULL,               -- 'log_incidents' | 'metric_baselines' | ...
+    question          TEXT,                                -- 사용자가 입력한 질문 원문
+    wrong_answer      TEXT,                                -- 챗봇이 제공한 잘못된 답변
+    correct_answer    TEXT         NOT NULL,               -- 사용자가 제공한 올바른 답변
+    user_id           INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_at        TIMESTAMP    NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_corrections_collection_point ON knowledge_corrections(source_collection, source_point_id);
+CREATE INDEX IF NOT EXISTS idx_corrections_user_created     ON knowledge_corrections(user_id, created_at DESC);
+
+-- 외부 지식 소스 동기화 현황 — V1 knowledge ingestion 파이프라인 (ADR-002)
+CREATE TABLE IF NOT EXISTS knowledge_sync_status (
+    source        VARCHAR(50)  PRIMARY KEY,                -- 'jira' | 'confluence' | 'documents'
+    last_sync_at  TIMESTAMP,                               -- NULL = 아직 동기화 미실행
+    total_synced  INTEGER      NOT NULL DEFAULT 0,
+    last_error    TEXT,                                    -- NULL = 마지막 동기화 성공
+    updated_at    TIMESTAMP    NOT NULL DEFAULT NOW()
+);
 
 -- ── 샘플 데이터 (선택) ────────────────────────────────────────────────
 -- INSERT INTO systems(system_name, display_name, host, os_type, system_type)

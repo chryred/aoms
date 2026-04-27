@@ -55,7 +55,7 @@ export default function ChatToolsPage() {
           title="챗봇 도구 관리"
           description="Executor 자격증명과 도구 활성화를 관리합니다."
         />
-        <LoadingSkeleton lines={8} />
+        <LoadingSkeleton count={8} />
       </>
     )
   }

@@ -13,7 +13,7 @@ import logging
 import os
 from typing import Any, AsyncIterator
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models import ChatMessage, ChatSession, LlmAgentConfig
@@ -86,6 +86,9 @@ def _decision_prompt(tools: list[dict[str, Any]], history: str, user_message: st
   예: "지난달 결제 서비스 상태 요약", "3월에 어떤 장애가 있었나?", "이번 주 DB 서버 이슈"
 - 최근 몇 시간 이내의 시스템 메트릭 패턴·이상 징후를 묻는 질문은 qdrant_search_hourly_patterns 를 사용한다 (1시간 집계 LLM 분석 결과 Hybrid 검색).
   예: "오늘 오후 3시 결제 시스템 CPU 상태", "아까 DB 서버 메모리 어땠어?", "오전에 로그 에러 급증한 시스템 있었나?"
+- 운영 매뉴얼·정책·Jira 티켓·Confluence 문서·사내 지식 관련 질문은 qdrant_search_knowledge 를 사용한다 (V1 knowledge 컬렉션 federated Hybrid+Reranker 검색).
+  예: "배포 절차 어떻게 되나요?", "DB 점검 매뉴얼 알려줘", "이슈 처리 정책 찾아줘", "Confluence에 등록된 장애 대응 가이드"
+  system_id 또는 system_name 필터를 사용하면 해당 시스템 지식만 조회한다.
 - qdrant_* 도구는 admin_search_alert_history 보다 '의미 기반 검색'이 필요한 경우 우선 사용한다. admin_search_alert_history 는 특정 날짜·알림명·시스템으로 이력 정확 조회 시에만 사용한다.
 
 사용 가능한 도구:
@@ -311,6 +314,24 @@ async def run_react_stream(
             tool_args=args if isinstance(args, dict) else {},
             tool_result=result,
         )
+
+        # V1 RAG: qdrant_search_knowledge 결과의 top-1 점수를 직전 user 메시지에 기록
+        if action == "qdrant_search_knowledge" and isinstance(result, dict) and "error" not in result:
+            try:
+                raw_results = result.get("results") or []
+                top1_score: float | None = raw_results[0].get("score") if raw_results else None
+                sources_count: int = result.get("count", len(raw_results))
+                await db.execute(
+                    text(
+                        "UPDATE chat_messages"
+                        " SET rag_top1_score = :score, rag_sources_count = :cnt"
+                        " WHERE id = :uid"
+                    ),
+                    {"score": top1_score, "cnt": sources_count, "uid": user_msg.id},
+                )
+            except Exception as _rag_exc:  # noqa: BLE001
+                logger.debug("rag_top1_score 업데이트 실패 (무시): %s", _rag_exc)
+
         await db.commit()
         yield {
             "type": "tool_result",

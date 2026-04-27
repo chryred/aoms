@@ -155,6 +155,10 @@ services:
     container_name: synapse-log-analyzer
     ports:
       - "8000:8000"
+    volumes:
+      - /opt/synapse/models/dense-models:/app/dense-models:ro,z
+      - /opt/synapse/models/fastembed-models:/app/fastembed-models:ro,z
+      - /opt/synapse/models/reranker-models:/app/reranker-models:ro,z
     environment:
       - PROMETHEUS_URL=http://prometheus:9090
       - ADMIN_API_URL=http://admin-api:8080

@@ -9,10 +9,14 @@ Synapse Log Analyzer — FastAPI 앱
   - _monthly_agg_scheduler()  : 매월 1일 08:00 monthly 리포트 (WF9)
   - _longperiod_agg_scheduler(): 매월 1일 09:00 longperiod 리포트 (WF10)
   - _trend_agg_scheduler()    : 4시간마다 trend 이상 알림 (WF11)
+  - _jira_sync_scheduler()    : 매일 04:00 KST Jira 증분 동기화 (V1 Knowledge)
+  - _confluence_sync_scheduler(): 매일 04:30 KST Confluence 증분 동기화 (V1 Knowledge)
 
 수동 트리거 엔드포인트:
   - POST /analyze/trigger      : 로그 분석 즉시 실행
   - POST /aggregation/*/trigger: 집계 즉시 실행 (관리/테스트용)
+  - POST /knowledge/sync/jira/trigger    : Jira 동기화 즉시 실행
+  - POST /knowledge/sync/confluence/trigger: Confluence 동기화 즉시 실행
   - GET  /analyze/status       : 마지막 실행 결과 조회
   - GET  /health               : 헬스체크
 """
@@ -31,6 +35,7 @@ import analyzer
 import vector_client
 import aggregation_vector_client
 import aggregation_processor
+import knowledge_vector_client
 
 logging.basicConfig(
     level=logging.INFO,
@@ -40,6 +45,15 @@ logger = logging.getLogger(__name__)
 
 ANALYSIS_INTERVAL = int(os.getenv("ANALYSIS_INTERVAL_SECONDS", "300"))
 ADMIN_API_URL = os.getenv("ADMIN_API_URL", "http://admin-api:8080")
+
+# V1 Knowledge 동기화 환경변수 (미설정 시 스케줄러 비활성화)
+JIRA_URL           = os.getenv("JIRA_URL")
+JIRA_TOKEN         = os.getenv("JIRA_TOKEN")
+JIRA_PROJECTS      = os.getenv("JIRA_PROJECTS")   # 콤마 구분 "PROJ1,PROJ2"
+CONFLUENCE_URL     = os.getenv("CONFLUENCE_URL")
+CONFLUENCE_TOKEN   = os.getenv("CONFLUENCE_TOKEN")
+CONFLUENCE_SPACES  = os.getenv("CONFLUENCE_SPACES")  # 콤마 구분 "DEV,OPS"
+KNOWLEDGE_SYNC_RATE_LIMIT = int(os.getenv("KNOWLEDGE_SYNC_RATE_LIMIT", "5"))  # req/sec
 
 _KST = timezone(timedelta(hours=9))  # 집계 스케줄 기준 타임존
 
@@ -190,6 +204,253 @@ async def _longperiod_agg_scheduler() -> None:
         asyncio.create_task(_run_agg_task("longperiod", aggregation_processor.run_longperiod_report))
 
 
+# ── V1 Knowledge 동기화 스케줄러 ─────────────────────────────────────────────
+
+async def _jira_sync_run() -> dict:
+    """Jira 증분 동기화 실행. 결과 요약 dict 반환."""
+    if not (JIRA_URL and JIRA_TOKEN and JIRA_PROJECTS):
+        logger.info("Jira 동기화 환경변수 미설정 (JIRA_URL/JIRA_TOKEN/JIRA_PROJECTS) — 건너뜀")
+        return {"skipped": True, "reason": "env not configured"}
+
+    projects = [p.strip() for p in JIRA_PROJECTS.split(",") if p.strip()]
+    synced = 0
+    errors = 0
+
+    # admin-api에서 last_sync_at 조회
+    last_sync_at: str | None = None
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(
+                f"{ADMIN_API_URL}/api/v1/knowledge/sync-status",
+                params={"source": "jira"},
+            )
+            if resp.status_code == 200:
+                last_sync_at = resp.json().get("last_sync_at")
+    except Exception as exc:
+        logger.warning("Jira last_sync_at 조회 실패: %s → 전체 동기화 진행", exc)
+
+    # JQL 구성: updated >= last_sync 또는 전체
+    jql_date = f" AND updated >= \"{last_sync_at[:10]}\"" if last_sync_at else ""
+
+    rate_sem = asyncio.Semaphore(1)  # rate limit 제어 (KNOWLEDGE_SYNC_RATE_LIMIT req/sec)
+    interval = 1.0 / max(KNOWLEDGE_SYNC_RATE_LIMIT, 1)
+
+    async with httpx.AsyncClient(
+        timeout=30.0,
+        headers={
+            "Authorization": f"Bearer {JIRA_TOKEN}",
+            "Accept":        "application/json",
+        },
+    ) as jira_client:
+        for project in projects:
+            jql = f"project = {project}{jql_date} ORDER BY updated ASC"
+            start_at = 0
+            max_results = 50
+
+            while True:
+                try:
+                    resp = await jira_client.get(
+                        f"{JIRA_URL}/rest/api/2/search",
+                        params={"jql": jql, "startAt": start_at, "maxResults": max_results,
+                                "fields": "summary,description,status,comment"},
+                    )
+                    resp.raise_for_status()
+                    data = resp.json()
+                except Exception as exc:
+                    logger.warning("Jira 이슈 조회 실패 [project=%s, start=%d]: %s", project, start_at, exc)
+                    errors += 1
+                    break
+
+                issues = data.get("issues", [])
+                if not issues:
+                    break
+
+                for issue in issues:
+                    fields = issue.get("fields", {})
+                    comments_raw = fields.get("comment", {}).get("comments", [])
+                    comments = [c.get("body", "") for c in comments_raw[:10] if c.get("body")]
+
+                    async with rate_sem:
+                        try:
+                            await knowledge_vector_client.upsert_jira_issue(
+                                project=project,
+                                issue_id=issue["id"],
+                                title=fields.get("summary", ""),
+                                description=fields.get("description") or "",
+                                status=fields.get("status", {}).get("name", ""),
+                                comments=comments,
+                            )
+                            synced += 1
+                        except Exception as exc:
+                            logger.warning("Jira upsert 실패 [%s]: %s", issue.get("key"), exc)
+                            errors += 1
+                        await asyncio.sleep(interval)
+
+                total = data.get("total", 0)
+                start_at += len(issues)
+                if start_at >= total:
+                    break
+
+    # admin-api에 sync-status 업데이트
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            await client.post(
+                f"{ADMIN_API_URL}/api/v1/knowledge/sync-status",
+                json={
+                    "source":       "jira",
+                    "last_sync_at": datetime.now(timezone.utc).isoformat(),
+                    "synced_count": synced,
+                },
+            )
+    except Exception as exc:
+        logger.warning("Jira sync-status 업데이트 실패: %s", exc)
+
+    logger.info("Jira 동기화 완료: synced=%d, errors=%d", synced, errors)
+    return {"synced": synced, "errors": errors}
+
+
+async def _jira_sync_scheduler() -> None:
+    """매일 04:00 KST에 Jira 증분 동기화 실행."""
+    await asyncio.sleep(30)
+    while True:
+        await asyncio.sleep(_seconds_until_next(4, 0))
+        try:
+            await _jira_sync_run()
+        except Exception as exc:
+            logger.error("Jira 동기화 스케줄러 예외: %s", exc)
+
+
+async def _confluence_sync_run() -> dict:
+    """Confluence 증분 동기화 실행. 결과 요약 dict 반환."""
+    if not (CONFLUENCE_URL and CONFLUENCE_TOKEN and CONFLUENCE_SPACES):
+        logger.info("Confluence 환경변수 미설정 (CONFLUENCE_URL/CONFLUENCE_TOKEN/CONFLUENCE_SPACES) — 건너뜀")
+        return {"skipped": True, "reason": "env not configured"}
+
+    import chunking
+
+    spaces = [s.strip() for s in CONFLUENCE_SPACES.split(",") if s.strip()]
+    synced_pages = 0
+    synced_chunks = 0
+    errors = 0
+
+    # admin-api에서 last_sync_at 조회
+    last_sync_at: str | None = None
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(
+                f"{ADMIN_API_URL}/api/v1/knowledge/sync-status",
+                params={"source": "confluence"},
+            )
+            if resp.status_code == 200:
+                last_sync_at = resp.json().get("last_sync_at")
+    except Exception as exc:
+        logger.warning("Confluence last_sync_at 조회 실패: %s → 전체 동기화 진행", exc)
+
+    rate_sem = asyncio.Semaphore(1)
+    interval = 1.0 / max(KNOWLEDGE_SYNC_RATE_LIMIT, 1)
+
+    auth_header = f"Bearer {CONFLUENCE_TOKEN}"
+
+    async with httpx.AsyncClient(
+        timeout=30.0,
+        headers={"Authorization": auth_header, "Accept": "application/json"},
+    ) as conf_client:
+        for space_key in spaces:
+            start = 0
+            limit_per_page = 25
+            cql_date = f" AND lastModified >= \"{last_sync_at[:10]}\"" if last_sync_at else ""
+            cql = f"space = {space_key} AND type = page{cql_date} ORDER BY lastModified ASC"
+
+            while True:
+                try:
+                    resp = await conf_client.get(
+                        f"{CONFLUENCE_URL}/rest/api/content/search",
+                        params={
+                            "cql":    cql,
+                            "start":  start,
+                            "limit":  limit_per_page,
+                            "expand": "body.storage,space,version",
+                        },
+                    )
+                    resp.raise_for_status()
+                    data = resp.json()
+                except Exception as exc:
+                    logger.warning("Confluence 페이지 조회 실패 [space=%s, start=%d]: %s", space_key, start, exc)
+                    errors += 1
+                    break
+
+                results = data.get("results", [])
+                if not results:
+                    break
+
+                for page in results:
+                    page_id = page["id"]
+                    page_title = page.get("title", "")
+                    html_content = page.get("body", {}).get("storage", {}).get("value", "") or ""
+                    page_url = f"{CONFLUENCE_URL}/pages/{page_id}"
+
+                    try:
+                        chunks = chunking.chunk_confluence_page(
+                            content=html_content,
+                            page_id=page_id,
+                            page_title=page_title,
+                            space=space_key,
+                        )
+                    except Exception as exc:
+                        logger.warning("Confluence 청킹 실패 [page_id=%s]: %s", page_id, exc)
+                        errors += 1
+                        continue
+
+                    async with rate_sem:
+                        try:
+                            n = await knowledge_vector_client.upsert_confluence_chunks(
+                                page_id=page_id,
+                                page_title=page_title,
+                                space=space_key,
+                                chunks=chunks,
+                                url=page_url,
+                            )
+                            synced_pages += 1
+                            synced_chunks += n
+                        except Exception as exc:
+                            logger.warning("Confluence upsert 실패 [page_id=%s]: %s", page_id, exc)
+                            errors += 1
+                        await asyncio.sleep(interval)
+
+                start += len(results)
+                if len(results) < limit_per_page:
+                    break
+
+    # admin-api에 sync-status 업데이트
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            await client.post(
+                f"{ADMIN_API_URL}/api/v1/knowledge/sync-status",
+                json={
+                    "source":        "confluence",
+                    "last_sync_at":  datetime.now(timezone.utc).isoformat(),
+                    "synced_count":  synced_pages,
+                    "synced_chunks": synced_chunks,
+                },
+            )
+    except Exception as exc:
+        logger.warning("Confluence sync-status 업데이트 실패: %s", exc)
+
+    logger.info("Confluence 동기화 완료: pages=%d, chunks=%d, errors=%d", synced_pages, synced_chunks, errors)
+    return {"synced_pages": synced_pages, "synced_chunks": synced_chunks, "errors": errors}
+
+
+async def _confluence_sync_scheduler() -> None:
+    """매일 04:30 KST에 Confluence 증분 동기화 실행."""
+    await asyncio.sleep(30)
+    while True:
+        await asyncio.sleep(_seconds_until_next(4, 30))
+        try:
+            await _confluence_sync_run()
+        except Exception as exc:
+            logger.error("Confluence 동기화 스케줄러 예외: %s", exc)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # ADR-011: log_incidents / metric_baselines 는 Hybrid (Dense+Sparse) 스키마
@@ -199,6 +460,12 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning("컬렉션 초기화 실패 %s — 분석 중 재시도됨: %s", col, e)
 
+    # V1 Knowledge 컬렉션 (3종) 보장
+    try:
+        await knowledge_vector_client.ensure_knowledge_collections()
+    except Exception as e:
+        logger.warning("Knowledge 컬렉션 초기화 실패 — 동기화 중 재시도됨: %s", e)
+
     tasks = [
         asyncio.create_task(_scheduler()),
         asyncio.create_task(_hourly_agg_scheduler()),
@@ -207,6 +474,8 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(_weekly_agg_scheduler()),
         asyncio.create_task(_monthly_agg_scheduler()),
         asyncio.create_task(_longperiod_agg_scheduler()),
+        asyncio.create_task(_jira_sync_scheduler()),
+        asyncio.create_task(_confluence_sync_scheduler()),
     ]
     yield
     for t in tasks:
@@ -745,3 +1014,152 @@ async def store_agg_summary(req: StoreAggSummaryRequest):
         pg_row_id=req.pg_row_id,
     )
     return {"point_id": point_id}
+
+
+# ── V1 Knowledge: 검색 / 문서 임베딩 / 운영자 노트 / 피드백 ──────────────────
+
+
+class KnowledgeSearchRequest(BaseModel):
+    query:        str
+    system_id:    int | None = None
+    system_name:  str | None = None
+    sources:      list[str] | None = None   # ["jira","confluence","documents"]
+    limit:        int = 10
+    rerank:       bool = False
+    rerank_top_k: int = 10
+
+
+@app.post("/knowledge/search")
+async def knowledge_search(req: KnowledgeSearchRequest):
+    """
+    V1 Knowledge 3종 컬렉션 federated 검색.
+    jira / confluence / documents 에서 병렬 Hybrid 검색 → 2차 RRF 병합
+    → corrected 보너스 → (옵션) reranker.
+
+    admin-api chat_tools 또는 프론트엔드에서 호출.
+    """
+    try:
+        result = await knowledge_vector_client.federated_search(
+            req.query,
+            system_id=req.system_id,
+            system_name=req.system_name,
+            sources=req.sources,
+            limit=req.limit,
+            rerank=req.rerank,
+            rerank_top_k=req.rerank_top_k,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Knowledge 검색 실패: {exc}")
+    return result
+
+
+class EmbedDocumentRequest(BaseModel):
+    file_path: str
+    doc_type:  str        # docx / pdf / xlsx / pptx
+    system_id: int
+    tags:      list[str] | None = None
+
+
+@app.post("/embed/document")
+async def embed_document(req: EmbedDocumentRequest):
+    """
+    admin-api 문서 업로드 → 청킹 → 임베딩 → knowledge_documents 저장.
+    {point_count, file_name} 반환.
+    """
+    import chunking
+
+    doc_type = req.doc_type.lower()
+    chunkers = {
+        "docx": lambda: chunking.chunk_docx(req.file_path),
+        "pdf":  lambda: chunking.chunk_pdf(req.file_path),
+        "xlsx": lambda: chunking.chunk_xlsx(req.file_path),
+        "pptx": lambda: chunking.chunk_pptx(req.file_path),
+    }
+    if doc_type not in chunkers:
+        raise HTTPException(
+            status_code=400,
+            detail=f"지원하지 않는 doc_type: {doc_type}. 지원: {list(chunkers.keys())}",
+        )
+
+    try:
+        chunks = chunkers[doc_type]()
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=f"문서 청킹 실패: {exc}")
+
+    if not chunks:
+        return {"point_count": 0, "file_name": req.file_path}
+
+    import os
+    file_name = os.path.basename(req.file_path)
+
+    try:
+        point_count = await knowledge_vector_client.upsert_document_chunks(
+            file_name=file_name,
+            doc_type=doc_type,
+            system_id=req.system_id,
+            chunks=chunks,
+            tags=req.tags,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"문서 임베딩 저장 실패: {exc}")
+
+    return {"point_count": point_count, "file_name": file_name}
+
+
+class OperatorNoteRequest(BaseModel):
+    question:         str
+    answer:           str
+    system_id:        int
+    source_reference: str | None = None
+    tags:             list[str] | None = None
+    created_by:       str | None = None
+
+
+@app.post("/knowledge/operator-note")
+async def add_operator_note(req: OperatorNoteRequest):
+    """운영자 노트(Q&A) 등록 → knowledge_documents(doc_type=operator_note) 저장."""
+    try:
+        point_id = await knowledge_vector_client.upsert_operator_note(
+            question=req.question,
+            answer=req.answer,
+            system_id=req.system_id,
+            source_reference=req.source_reference,
+            tags=req.tags,
+            created_by=req.created_by,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"운영자 노트 저장 실패: {exc}")
+    return {"point_id": point_id}
+
+
+class CorrectionRequest(BaseModel):
+    point_id:        int
+    collection:      str
+    correction_text: str
+
+
+@app.post("/knowledge/correction")
+async def apply_correction_endpoint(req: CorrectionRequest):
+    """검색 결과 피드백 적용 — corrected=True + correction_text Qdrant 저장."""
+    ok = await knowledge_vector_client.apply_correction(
+        point_id=req.point_id,
+        collection=req.collection,
+        correction_text=req.correction_text,
+    )
+    return {"ok": ok}
+
+
+# ── V1 Knowledge: 동기화 수동 트리거 ──────────────────────────────────────────
+
+@app.post("/knowledge/sync/jira/trigger")
+async def trigger_jira_sync():
+    """Jira 동기화 즉시 실행 (관리/테스트용)."""
+    asyncio.create_task(_jira_sync_run())
+    return {"status": "triggered", "source": "jira"}
+
+
+@app.post("/knowledge/sync/confluence/trigger")
+async def trigger_confluence_sync():
+    """Confluence 동기화 즉시 실행 (관리/테스트용)."""
+    asyncio.create_task(_confluence_sync_run())
+    return {"status": "triggered", "source": "confluence"}

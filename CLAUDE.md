@@ -122,9 +122,14 @@ make test-api        # 단위 테스트 (SQLite in-memory)
   - KST 날짜피커 입력을 백엔드에 보낼 때는 `kstDateToUtcStart()` / `kstDateToUtcEnd()` 사용
 - 자세한 내용은 `main-server/services/frontend/CLAUDE.md` "타임존 규칙" 섹션 참고.
 
-### [DB / 마이그레이션] 테이블 자동 생성 의존 금지
-- `main.py` lifespan의 `create_all()`은 개발 편의용이다. 운영 스키마 변경은 직접 SQL 또는 Alembic을 사용한다.
-- 새 컬럼/테이블 추가 시 **3중 동기화** 필수: `models.py` + `init.sql` + `migrations/*.sql` (ADR-002 참고).
+### [DB / 마이그레이션] 스키마 단일 관리 — postgres/init.sql 기준
+
+- **정식 스키마 파일**: `main-server/configs/postgres/init.sql` — 이 파일이 유일한 진실의 원천.
+  - 신규 테이블·컬럼 추가 시 이 파일에 직접 반영 (CREATE TABLE / ALTER TABLE 모두 포함)
+- **향후 마이그레이션**: `main-server/configs/postgres/migrations/` 에 날짜 prefix 파일로 추가 (예: `20260501_add_xxx.sql`)
+  - 스키마 변경 migration은 이 폴더로 통일. **다른 위치(admin-api/migrations 등)에 생성 금지**
+- **3중 동기화** 필수: `models.py` (SQLAlchemy ORM) + `postgres/init.sql` + `postgres/migrations/*.sql`
+- `main.py` lifespan의 `create_all()`은 개발 편의용이다. 운영 스키마 변경은 직접 SQL로 적용한다.
 
 ### [Frontend / React] 디자인 시스템 일탈 금지
 - 뉴모피즘 디자인 시스템(`design-system.md` 또는 기존 컴포넌트 참고)을 벗어난 스타일을 임의로 추가하지 않는다.

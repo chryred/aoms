@@ -526,17 +526,52 @@ class ChatMessage(Base):
     """세션 내 메시지. role ∈ user|assistant|tool."""
     __tablename__ = "chat_messages"
 
-    id          = Column(String(36), primary_key=True, default=_uuid_str)
-    session_id  = Column(String(36), ForeignKey("chat_sessions.id", ondelete="CASCADE"), nullable=False)
-    role        = Column(String(20), nullable=False)
-    content     = Column(Text, nullable=False, default="")
-    thought     = Column(Text)
-    tool_name   = Column(String(100))
-    tool_args   = Column(JSONB)
-    tool_result = Column(JSONB)
-    attachments = Column(JSONB, nullable=False, default=list)   # [{type,key,mime,size,w,h}]
-    created_at  = Column(DateTime, default=func.now())
+    id                = Column(String(36), primary_key=True, default=_uuid_str)
+    session_id        = Column(String(36), ForeignKey("chat_sessions.id", ondelete="CASCADE"), nullable=False)
+    role              = Column(String(20), nullable=False)
+    content           = Column(Text, nullable=False, default="")
+    thought           = Column(Text)
+    tool_name         = Column(String(100))
+    tool_args         = Column(JSONB)
+    tool_result       = Column(JSONB)
+    attachments       = Column(JSONB, nullable=False, default=list)   # [{type,key,mime,size,w,h}]
+    # V1 RAG: federated search 품질 추적 (ADR-002)
+    rag_top1_score    = Column(Float)          # NULL 허용 — federated search RRF top-1 점수
+    rag_sources_count = Column(Integer)        # NULL 허용 — 검색 결과 개수
+    created_at        = Column(DateTime, default=func.now())
 
     __table_args__ = (
         Index("idx_chat_messages_session", "session_id", "created_at"),
     )
+
+
+# ── V1 Knowledge RAG ──────────────────────────────────────────────────────────
+
+class KnowledgeCorrection(Base):
+    """사용자가 챗봇 응답에 대해 등록한 지식 교정 이력 — RAG 품질 개선용 (ADR-002)"""
+    __tablename__ = "knowledge_corrections"
+
+    id                 = Column(Integer, primary_key=True)
+    source_point_id    = Column(String(64), nullable=False)    # Qdrant point UUID (또는 문서 ID)
+    source_collection  = Column(String(50), nullable=False)    # 'log_incidents' | 'metric_baselines' | ...
+    question           = Column(Text)                          # 사용자가 입력한 질문 원문
+    wrong_answer       = Column(Text)                          # 챗봇이 제공한 잘못된 답변
+    correct_answer     = Column(Text, nullable=False)          # 사용자가 제공한 올바른 답변
+    user_id            = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at         = Column(DateTime, nullable=False, default=func.now())
+
+    __table_args__ = (
+        Index("idx_corrections_collection_point", "source_collection", "source_point_id"),
+        Index("idx_corrections_user_created", "user_id", "created_at"),
+    )
+
+
+class KnowledgeSyncStatus(Base):
+    """외부 지식 소스(Jira/Confluence/문서) 동기화 현황 — V1 knowledge ingestion 파이프라인 (ADR-002)"""
+    __tablename__ = "knowledge_sync_status"
+
+    source        = Column(String(50), primary_key=True)   # 'jira' | 'confluence' | 'documents'
+    last_sync_at  = Column(DateTime)                        # NULL = 아직 동기화 미실행
+    total_synced  = Column(Integer, nullable=False, default=0)
+    last_error    = Column(Text)                            # NULL = 마지막 동기화 성공
+    updated_at    = Column(DateTime, nullable=False, default=func.now())

@@ -110,7 +110,7 @@ export function SchedulerRunHistoryPage() {
                 return (
                   <tr
                     key={r.id}
-                    className={`border-border border-b last:border-0 hover:bg-[rgba(0,212,255,0.04)] ${r.status === 'error' ? 'border-l-2 border-l-critical' : 'border-l-2 border-l-transparent'}`}
+                    className={`border-border border-b last:border-0 hover:bg-[rgba(0,212,255,0.04)] ${r.status === 'error' ? 'border-l-critical border-l-2' : 'border-l-2 border-l-transparent'}`}
                   >
                     <td className="px-4 py-3">
                       <span className="text-text-primary text-sm font-medium">
@@ -125,7 +125,7 @@ export function SchedulerRunHistoryPage() {
                     <td className="text-text-secondary px-4 py-3 whitespace-nowrap">
                       {formatRelative(r.started_at)}
                       <span className="text-text-disabled ml-1 text-xs">
-                        {formatKST(r.started_at, 'time')}
+                        {formatKST(r.started_at, 'HH:mm')}
                       </span>
                     </td>
                     <td className="text-text-secondary px-4 py-3">{dur}</td>

@@ -35,7 +35,7 @@ import type { AlertHistory } from '@/types/alert'
 const STATUS_LABELS: Record<string, string> = {
   open: '신규',
   acknowledged: '확인됨',
-  investigating: '조사 중',
+  investigating: '원인파악 중',
   resolved: '해결됨',
   closed: '종료',
 }

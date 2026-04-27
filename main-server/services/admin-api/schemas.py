@@ -790,6 +790,9 @@ class ChatMessageOut(BaseModel):
     tool_args: Optional[dict] = None
     tool_result: Optional[dict] = None
     attachments: list[dict] = []
+    # V1 RAG: federated search 품질 추적
+    rag_top1_score: Optional[float] = None
+    rag_sources_count: Optional[int] = None
     created_at: UtcDatetime
 
     model_config = {"from_attributes": True}
@@ -798,3 +801,36 @@ class ChatMessageOut(BaseModel):
 class ChatSendIn(BaseModel):
     content: str
     attachment_keys: list[str] = []
+
+
+# ── V1 Knowledge RAG ─────────────────────────────────────────────────────────
+
+class KnowledgeCorrectionCreate(BaseModel):
+    source_point_id:   str
+    source_collection: str
+    question:          Optional[str] = None
+    wrong_answer:      Optional[str] = None
+    correct_answer:    str
+
+
+class KnowledgeCorrectionOut(BaseModel):
+    id:                int
+    source_point_id:   str
+    source_collection: str
+    question:          Optional[str]
+    wrong_answer:      Optional[str]
+    correct_answer:    str
+    user_id:           Optional[int]
+    created_at:        UtcDatetime
+
+    model_config = {"from_attributes": True}
+
+
+class KnowledgeSyncStatusOut(BaseModel):
+    source:        str
+    last_sync_at:  Optional[UtcDatetime]
+    total_synced:  int
+    last_error:    Optional[str]
+    updated_at:    UtcDatetime
+
+    model_config = {"from_attributes": True}

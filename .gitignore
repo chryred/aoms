@@ -22,3 +22,4 @@ main-server/artifacts/otel/*.jar
 !main-server/services/frontend/public/**/*.png
 ems-mcp/
 .gstack/
+*.tar.gz

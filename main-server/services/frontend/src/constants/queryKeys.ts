@@ -2,6 +2,7 @@ import type { AlertCountParams, AlertFilterParams, FeedbackSearchParams } from '
 import type { HourlyParams } from '@/api/aggregations'
 import type { PeriodType } from '@/types/aggregation'
 import type { ReportType } from '@/types/report'
+import type { OperatorNoteListParams, FeedbackListParams } from '@/api/knowledge'
 
 export const qk = {
   systems: () => ['systems'] as const,
@@ -50,5 +51,14 @@ export const qk = {
     messages: (sessionId: string) => ['chat', 'messages', sessionId] as const,
     tools: () => ['chat', 'tools'] as const,
     executorConfigs: () => ['chat', 'executor-configs'] as const,
+  },
+
+  knowledge: {
+    notes: (params?: OperatorNoteListParams) => ['knowledge', 'notes', params] as const,
+    corrections: (params?: FeedbackListParams) => ['knowledge', 'corrections', params] as const,
+    frequentQuestions: (days: number, threshold: number) =>
+      ['knowledge', 'frequent-questions', days, threshold] as const,
+    syncStatus: (source?: string) => ['knowledge', 'sync-status', source] as const,
+    uploadStatus: (jobId: string) => ['knowledge', 'upload', jobId] as const,
   },
 }

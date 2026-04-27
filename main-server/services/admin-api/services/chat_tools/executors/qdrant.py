@@ -206,6 +206,61 @@ async def _search_hourly_patterns(
     }
 
 
+async def _search_knowledge(
+    db: AsyncSession, args: dict[str, Any]
+) -> dict[str, Any]:
+    """V1 knowledge 컬렉션(Jira/Confluence/Documents) federated Hybrid+Reranker 검색.
+    log-analyzer POST /knowledge/search 호출.
+    """
+    query = (args.get("query") or "").strip()
+    if not query:
+        return {"error": "query 파라미터 필요"}
+
+    system_id  = args.get("system_id")
+    system_name = args.get("system_name")
+    sources    = args.get("sources")
+    limit      = min(int(args.get("limit", 5)), 10)
+    rerank     = bool(args.get("rerank", True))
+    base       = await _base_url(db)
+
+    payload: dict[str, Any] = {"query": query, "limit": limit, "rerank": rerank}
+    if system_id is not None:
+        payload["system_id"] = int(system_id)
+    if system_name:
+        payload["system_name"] = system_name
+    if sources:
+        payload["sources"] = sources
+
+    try:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            resp = await client.post(f"{base}/knowledge/search", json=payload)
+            if resp.status_code >= 400:
+                return {
+                    "error": f"log-analyzer {resp.status_code}: {resp.text[:200]}",
+                    "query": query,
+                }
+            data = resp.json()
+    except Exception as e:
+        return {"error": f"knowledge 검색 실패: {str(e)[:200]}", "query": query}
+
+    results = data.get("results") or []
+    return {
+        "query":    query,
+        "count":    len(results),
+        "results":  [
+            {
+                "source":     r.get("source"),
+                "title":      (r.get("title") or "")[:200],
+                "content":    (r.get("content") or r.get("text") or "")[:500],
+                "score":      r.get("score"),
+                "system_id":  r.get("system_id"),
+                "tags":       r.get("tags"),
+            }
+            for r in results
+        ],
+    }
+
+
 async def execute(db: AsyncSession, name: str, args: dict[str, Any]) -> dict[str, Any]:
     """도구 디스패처."""
     try:
@@ -215,6 +270,8 @@ async def execute(db: AsyncSession, name: str, args: dict[str, Any]) -> dict[str
             return await _search_aggregation_summary(db, args)
         if name == "qdrant_search_hourly_patterns":
             return await _search_hourly_patterns(db, args)
+        if name == "qdrant_search_knowledge":
+            return await _search_knowledge(db, args)
         return {"error": f"unknown qdrant tool: {name}"}
     except Exception as e:
         return {"error": f"qdrant 도구 실패: {str(e)[:200]}"}

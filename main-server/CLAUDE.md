@@ -58,6 +58,31 @@ make test-api        # 단위 테스트 (인프라 불필요)
 
 ---
 
+## DB 스키마 관리 규칙
+
+**스키마 단일 진실의 원천**: `configs/postgres/init.sql`
+
+```
+configs/postgres/
+├── init.sql          ← 유일한 정식 스키마 (전체 CREATE TABLE 포함)
+└── migrations/       ← 기존 운영 DB 대상 점진적 변경 SQL
+    └── YYYYMMDD_xxx.sql
+```
+
+### 스키마 변경 시 필수 3중 동기화
+1. `services/admin-api/models.py` — SQLAlchemy ORM 모델
+2. `configs/postgres/init.sql` — 완성형 스키마 (신규 설치용)
+3. `configs/postgres/migrations/YYYYMMDD_xxx.sql` — 기존 운영 DB용 ALTER TABLE
+
+> `services/admin-api/migrations/` 폴더는 폐기됨. 향후 마이그레이션은 반드시 `configs/postgres/migrations/`에 생성.
+
+### 운영 DB 초기화
+```bash
+docker exec -i synapse-postgres psql -U synapse -d synapse < configs/postgres/init.sql
+```
+
+---
+
 ## Qdrant 컬렉션 구조 (ADR-011 Hybrid)
 
 | 컬렉션 | 저장 주체 | 벡터 구성 | 내용 |
@@ -89,44 +114,40 @@ make test-api        # 단위 테스트 (인프라 불필요)
 ## 폐쇄망 FastEmbed 모델 배포 (ADR-011)
 
 Ollama는 ADR-011로 제거됨. 임베딩은 log-analyzer 컨테이너 내 FastEmbed ONNX가 담당.
-**모델 ONNX는 Docker 이미지에 번들됨** — 폐쇄망 서버에 별도 스테이징 불필요.
+**모델은 이미지에서 분리되어 서버 볼륨(`/opt/synapse/models`)으로 마운트됨** — 코드 배포 시 ~500MB만 전송, 모델(~4.6GB)은 최초 1회만 배포.
 
-### 빌드 (인터넷 환경에서 1회)
+### 최초 모델 배포 (인터넷 환경 빌드 서버에서 1회)
 
 ```bash
-make build-analyzer
-# 내부 동작:
-#   docker build -t aoms-log-analyzer:1.0 main-server/services/log-analyzer/
-#   - onnxruntime, transformers, sentencepiece, fastembed 설치
-#   - BAAI/bge-m3 ONNX (~2.1GB model.onnx_data + 0.7MB model.onnx) HuggingFace에서 다운로드 → /app/dense-models
-#   - Qdrant/bm25 BM25 (~50MB) → /app/fastembed-models
-# 결과 이미지 크기: ~3GB (기존 ~200MB + bge-m3 ~2.1GB + 런타임)
+# 1. 모델 전용 tar.gz 추출
+./build-images.sh export-models
+# → main-server/synapse-models.tar.gz 생성 (~1.5GB compressed)
+
+# 2. 서버로 전송 및 압축 해제
+scp main-server/synapse-models.tar.gz user@server-a:/tmp/
+ssh user@server-a "mkdir -p /opt/synapse/models && \
+  pigz -d -c /tmp/synapse-models.tar.gz | tar -xf - -C /opt/synapse/models"
+# 결과: /opt/synapse/models/{dense-models,fastembed-models,reranker-models}/
 ```
 
-> 회사 망에서 HuggingFace 직접 접근이 막혀 있으면 빌드 환경에서 `HF_ENDPOINT=https://hf-mirror.com` 환경변수를 설정하고 `make build-analyzer`.
+> HuggingFace 직접 접근이 막혀 있으면 `HF_ENDPOINT=https://hf-mirror.com` 환경변수 설정 후 export.
 
-### 폐쇄망 배포
+### 일반 코드 배포 (이후 매번)
 
 ```bash
-# 1. 이미지를 tar로 저장 (MacBook 또는 빌드 서버에서)
-docker save aoms-log-analyzer:1.0 | gzip > log-analyzer-1.0.tar.gz
+# 1. 이미지 빌드 및 저장 (~500MB)
+./build-images.sh
 
-# 2. 폐쇄망 서버로 전송 후 로드
-scp log-analyzer-1.0.tar.gz user@server:/tmp/
-ssh user@server "gunzip -c /tmp/log-analyzer-1.0.tar.gz | docker load"
+# 2. 서버로 전송 후 로드
+scp main-server/synapse-log-analyzer-1.0.tar.gz user@server-a:/tmp/
+ssh user@server-a "pigz -d -c /tmp/synapse-log-analyzer-1.0.tar.gz | docker load"
 
-# 3. docker-compose up (볼륨 마운트 없음 — 이미지 내 /app/fastembed-models 사용)
+# 3. 재시작 (볼륨은 그대로 유지)
 docker compose up -d log-analyzer
-
-# 4. 로그 확인
-docker logs synapse-log-analyzer | grep FastEmbed
-# "FastEmbed dense 모델 준비 완료", "FastEmbed sparse 모델 준비 완료"
 ```
 
-### 모델 변경 시 (옵션)
+### 모델 변경 시
 
-`paraphrase-multilingual`로 회귀하거나 다른 FastEmbed 지원 모델로 바꾸려면:
-1. `Dockerfile`의 모델 pre-download 라인 수정
-2. `DENSE_EMBED_MODEL` 환경변수 변경
+1. `Dockerfile`의 `model-downloader` 스테이지 수정
+2. `./build-images.sh export-models` 재실행 후 서버 재배포
 3. 차원 변경되면 Qdrant 컬렉션 재생성 필수
-4. 이미지 재빌드 후 재배포

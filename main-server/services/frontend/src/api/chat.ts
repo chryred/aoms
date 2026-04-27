@@ -28,6 +28,7 @@ export const chatApi = {
 /**
  * SSE 스트리밍 전송. ky 대신 fetch + ReadableStream으로 구현해 토큰 단위로 처리.
  * AbortController로 취소 가능.
+ * @param systemId - RAG 검색 필터용 시스템 ID (null이면 전체 시스템 검색)
  */
 export async function streamChatMessage(
   sessionId: string,
@@ -35,6 +36,7 @@ export async function streamChatMessage(
   attachmentKeys: string[],
   onEvent: (event: ChatStreamEvent) => void,
   signal?: AbortSignal,
+  systemId?: number | null,
 ): Promise<void> {
   const base = (import.meta.env.VITE_ADMIN_API_URL as string | undefined) ?? ''
   const token = useAuthStore.getState().token
@@ -46,7 +48,11 @@ export async function streamChatMessage(
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
       Accept: 'text/event-stream',
     },
-    body: JSON.stringify({ content, attachment_keys: attachmentKeys }),
+    body: JSON.stringify({
+      content,
+      attachment_keys: attachmentKeys,
+      ...(systemId != null ? { system_id: systemId } : {}),
+    }),
     signal,
   })
   if (!resp.ok || !resp.body) {

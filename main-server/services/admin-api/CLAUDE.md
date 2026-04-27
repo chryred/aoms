@@ -85,7 +85,9 @@ admin-api/
 | `chat_tools` | ReAct 챗봇이 호출할 수 있는 도구 레지스트리. `executor` (ems/admin/log_analyzer/qdrant), `is_enabled`, `input_schema` JSON Schema (Phase Chat, ADR-011 qdrant 추가) |
 | `chat_executor_configs` | Executor별 자격증명/설정. `config` JSONB (secret 필드는 Fernet 암호문), `config_schema` 폼 렌더 메타 (Phase Chat) |
 | `chat_sessions` | 사용자 챗봇 세션. UUID PK, `user_id` FK (Phase Chat) |
-| `chat_messages` | 세션 내 메시지. role: user/assistant/tool, `attachments` JSONB (Phase Chat) |
+| `chat_messages` | 세션 내 메시지. role: user/assistant/tool, `attachments` JSONB (Phase Chat). V1: `rag_top1_score` (Float), `rag_sources_count` (Integer) — knowledge 검색 품질 추적 |
+| `knowledge_corrections` | 사용자 오답 교정 이력 — `source_point_id`, `source_collection`, `correct_answer` (V1 RAG) |
+| `knowledge_sync_status` | 외부 지식 소스(Jira/Confluence/Documents) 동기화 현황. source가 PK (V1 RAG) |
 | `scheduler_run_history` | log-analyzer 스케줄러 실행 이력. `scheduler_type`(analysis/hourly/daily/weekly/monthly/longperiod/trend), `status`(ok/error), `error_count`, `analyzed_count`, `summary_json`, `error_message` |
 
 ## API 엔드포인트
@@ -276,6 +278,20 @@ docker exec -it aoms-admin-api \
 
 **Teams 카드 연동**: `notification.py`의 `send_metric_alert`/`send_log_analysis_alert`에 `incident_id` 전달 → 카드에 **"인시던트 보기"** 버튼 추가 (URL: `{FRONTEND_EXTERNAL_URL}/incidents/{id}`)
 
+### Knowledge 관리 `/api/v1/knowledge` (V1 RAG)
+- `POST /upload` — 문서 파일(pdf/docx/xlsx/pptx) 업로드 → log-analyzer /embed/document 비동기 호출 → job_id 반환 (202)
+  - 저장 경로: `{KNOWLEDGE_DOCS_DIR}/{system_id}/{filename}` (기본: `/app/synapse/knowledge-docs`)
+- `GET /upload/{job_id}/status` — 업로드 Job 상태 폴링
+- `POST /operator-note` — 운영자 Q&A 노트 등록 → log-analyzer /knowledge/operator-note 호출 → point_id 반환
+- `PATCH /operator-note/{point_id}` — 운영자 노트 수정
+- `DELETE /operator-note/{point_id}` — 운영자 노트 삭제
+- `POST /feedback` — 오답 교정 피드백 — `knowledge_corrections` INSERT + log-analyzer /knowledge/correction 호출 (best-effort)
+- `GET /questions/frequent` — 최근 N일 사용자 질문 집계·클러스터링 (cosine 유사도 0.85, 5분 캐시)
+- `GET /sync-status` — knowledge_sync_status 조회 (source 필터 지원)
+- `POST /sync-status` — log-analyzer 스케줄러가 호출 (last_sync_at, total_synced UPSERT)
+
+모든 엔드포인트 `Depends(get_current_user)` 인증 필요.
+
 ### ReAct 챗봇 `/api/v1/chat*` (Phase Chat)
 - **세션**
   - `POST /api/v1/chat/sessions` — 세션 생성
@@ -302,7 +318,8 @@ docker exec -it aoms-admin-api \
   - `ems`: ems-mcp 9개 (Polestar 서버 모니터링). 자격증명은 `chat_executor_configs.ems` 에서 로드 (60s TTL 캐시)
   - `admin`: `admin_list_systems` / `admin_search_alert_history` / `admin_list_contacts` (DB 직접 조회)
   - `log_analyzer`: 최근 LLM 로그 분석 조회 + log-analyzer HTTP 프록시
-  - `qdrant` (ADR-011 RAG): `qdrant_search_incident_knowledge` (log_incidents + metric_baselines Hybrid 검색) / `qdrant_search_aggregation_summary` (aggregation_summaries Hybrid 검색). 구현은 `services/chat_tools/executors/qdrant.py`가 log-analyzer `/incident/search`와 `/aggregation/search`를 호출. `chat_agent.py._decision_prompt()` 에 사용 트리거 가이드 포함
+  - `qdrant` (ADR-011 RAG): `qdrant_search_incident_knowledge` (log_incidents + metric_baselines Hybrid 검색) / `qdrant_search_aggregation_summary` (aggregation_summaries Hybrid 검색) / `qdrant_search_knowledge` (V1 knowledge federated 검색 — log-analyzer `/knowledge/search` 호출). 구현은 `services/chat_tools/executors/qdrant.py`. `chat_agent.py._decision_prompt()` 에 사용 트리거 가이드 포함
+  - `qdrant_search_knowledge` 도구 결과에서 `rag_top1_score`, `rag_sources_count`를 추출해 직전 user 메시지의 `chat_messages` 컬럼에 UPDATE (`chat_agent.py run_react_stream` 내 score 캡처 로직)
 
 ### 예방적 패턴 감지
 - `MetricHourlyAggregation.llm_prediction` 필드가 있는 최근 8시간 집계 항목을 조회
@@ -369,6 +386,7 @@ log-analyzer → POST /api/v1/analysis
 | `CHAT_ATTACHMENT_MAX_MB` | `10` | 첨부 이미지 단일 최대 크기(MB) |
 | `CHAT_MAX_ITERS` | `5` | ReAct 오케스트레이터 도구 호출 반복 한도 |
 | `CHAT_HISTORY_WINDOW` | `20` | LLM 프롬프트에 주입할 최근 메시지 N턴 |
+| `KNOWLEDGE_DOCS_DIR` | `/app/synapse/knowledge-docs` | 업로드된 문서 저장 루트 디렉터리 (V1 RAG) |
 
 ## DB 초기화
 
