@@ -115,6 +115,59 @@ def _final_prompt(history: str) -> str:
 최종 한국어 답변:"""
 
 
+# ── 현업(help_inquiry) 전용 프롬프트 ────────────────────────────────────────
+
+_HELP_ALLOWED_TOOLS = {"qdrant_search_knowledge", "qdrant_search_aggregation_summary"}
+
+
+def _help_decision_prompt(
+    tools: list[dict[str, Any]],
+    history: str,
+    user_message: str,
+    system_id: int | None,
+) -> str:
+    tools_json = json.dumps(tools, ensure_ascii=False)
+    system_hint = (
+        f"- 질문은 system_id={system_id} 시스템 관련 지식으로 우선 검색한다.\n"
+        if system_id else ""
+    )
+    return f"""역할: 당신은 백화점 현업 직원을 지원하는 운영 지식 안내 어시스턴트입니다.
+비기술 사용자에게 운영 매뉴얼·정책·절차를 쉬운 말로 안내합니다.
+
+출력 규약 (단일 JSON 객체만 반환, 코드펜스/설명 금지):
+  도구 호출: {{"thought":"...","action":"<tool_name>","args":{{ ... }}}}
+  최종 응답: {{"thought":"...","final_answer_ready":true}}
+
+- 도구가 필요 없으면 바로 final_answer_ready=true 반환.
+- 운영 매뉴얼·정책·절차·Jira·Confluence 관련 질문은 qdrant_search_knowledge를 사용한다.
+- 특정 기간의 시스템 요약·이슈는 qdrant_search_aggregation_summary를 사용한다.
+- 전문 용어가 나오면 반드시 괄호 안에 쉬운 표현을 덧붙인다.
+{system_hint}
+사용 가능한 도구:
+{tools_json}
+
+대화 이력:
+{history}
+
+사용자 새 메시지: {user_message}
+
+JSON:"""
+
+
+def _help_final_prompt(history: str) -> str:
+    return f"""역할: 당신은 백화점 현업 직원을 지원하는 운영 지식 안내 어시스턴트입니다.
+지금까지 수집된 정보를 바탕으로 현업 직원이 이해할 수 있게 한국어로 답변하세요.
+- 단계별로 쉽게 설명한다.
+- 전문 용어는 반드시 풀어서 설명한다 (예: "타임아웃(응답 시간 초과)").
+- 과장/추측 금지. 정보가 없으면 "담당자에게 문의해 주세요"로 안내.
+- 마크다운 사용 가능.
+
+대화 이력 및 관측 결과:
+{history}
+
+최종 한국어 답변:"""
+
+
 async def _append_message(
     db: AsyncSession,
     *,
@@ -219,10 +272,19 @@ async def run_react_stream(
         )
         messages = list(reversed(messages))
 
-        tools = await list_enabled_tools(db)
+        all_tools = await list_enabled_tools(db)
+        # help_inquiry 세션: RAG 도구만 허용
+        if session.area_code == "help_inquiry":
+            tools = [t for t in all_tools if t["name"] in _HELP_ALLOWED_TOOLS]
+        else:
+            tools = all_tools
         history_msgs = [m for m in messages if m.id != user_msg.id]
         history = _history_lines(history_msgs)
-        prompt = _decision_prompt(tools, history, user_message)
+        if session.area_code == "help_inquiry":
+            system_id = getattr(session, "visitor_system_id", None)
+            prompt = _help_decision_prompt(tools, history, user_message, system_id)
+        else:
+            prompt = _decision_prompt(tools, history, user_message)
 
         try:
             raw = await call_llm_text(prompt, max_tokens=10000, agent_code=agent_code)
@@ -262,7 +324,10 @@ async def run_react_stream(
         if parsed.get("final_answer_ready") or parsed.get("final_answer"):
             # 토큰 스트리밍
             history_full = _history_lines(messages)
-            final_prompt = _final_prompt(history_full)
+            if session.area_code == "help_inquiry":
+                final_prompt = _help_final_prompt(history_full)
+            else:
+                final_prompt = _final_prompt(history_full)
             acc_text = ""
             try:
                 async for chunk in call_llm_stream(final_prompt, agent_code=agent_code):

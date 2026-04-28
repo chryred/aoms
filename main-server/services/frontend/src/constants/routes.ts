@@ -24,6 +24,7 @@ export const ROUTES = {
   SCHEDULER_RUNS: '/admin/scheduler-runs',
   KNOWLEDGE: '/knowledge',
   CHAT: '/chat',
+  CHAT_GUEST: '/chat/guest',
   systemDetail: (id: number | string) => `/dashboard/${id}`,
   agentDetail: (id: number | string) => `/agents/${id}`,
   incidentDetail: (id: number | string) => `/incidents/${id}`,

@@ -292,6 +292,19 @@ docker exec -it aoms-admin-api \
 
 모든 엔드포인트 `Depends(get_current_user)` 인증 필요.
 
+### 게스트 채팅 `/api/v1/help` (V2)
+인증 없이 현업 담당자가 RAG 챗봇을 사용할 수 있는 공개 엔드포인트.
+모든 세션은 `area_code='help_inquiry'`로 생성되며, `chat_agent.py`에서 RAG 도구만 허용.
+
+- `POST /api/v1/help/sessions` — 게스트 세션 생성 (사번 필수, user_id=NULL)
+- `POST /api/v1/help/sessions/{id}/messages` — SSE 스트리밍 (area_code 검증 후 run_react_stream)
+- `GET /api/v1/help/systems` — 시스템 카드 목록 (status='active')
+- `GET /api/v1/help/questions/frequent` — 자주 묻는 질문 (help_inquiry 세션 기준)
+- `POST /api/v1/help/sessions/{id}/escalate` — incidents 생성 (source='help_inquiry')
+
+`chat_agent.py` 분기: `area_code='help_inquiry'` → `_HELP_ALLOWED_TOOLS` 필터 + `_help_decision_prompt()`
+DB 변경: `chat_sessions.user_id` nullable, `visitor_employee_id/email/system_id` 컬럼 추가, `incidents.source` 추가
+
 ### ReAct 챗봇 `/api/v1/chat*` (Phase Chat)
 - **세션**
   - `POST /api/v1/chat/sessions` — 세션 생성

@@ -105,6 +105,7 @@ CREATE TABLE IF NOT EXISTS incidents (
     postmortem      TEXT,
     alert_count     INTEGER DEFAULT 1,
     recurrence_of   INTEGER REFERENCES incidents(id) ON DELETE SET NULL,
+    source          VARCHAR(50)  DEFAULT NULL,                      -- NULL=alert/analysis 자동생성, 'help_inquiry'=현업 에스컬레이션
     created_at      TIMESTAMP DEFAULT NOW(),
     updated_at      TIMESTAMP DEFAULT NOW()
 );
@@ -444,14 +445,18 @@ CREATE TABLE IF NOT EXISTS chat_executor_configs (
 
 -- 챗봇 세션
 CREATE TABLE IF NOT EXISTS chat_sessions (
-    id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    title       VARCHAR(200) NOT NULL DEFAULT '새 대화',
-    area_code   VARCHAR(50)  NOT NULL DEFAULT 'chat_assistant',
-    created_at  TIMESTAMP DEFAULT NOW(),
-    updated_at  TIMESTAMP DEFAULT NOW()
+    id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id              INTEGER REFERENCES users(id) ON DELETE CASCADE,  -- NULL=게스트 세션
+    title                VARCHAR(200) NOT NULL DEFAULT '새 대화',
+    area_code            VARCHAR(50)  NOT NULL DEFAULT 'chat_assistant',
+    visitor_employee_id  VARCHAR(100),                                     -- 게스트 사번 (감사용)
+    visitor_email        VARCHAR(200),                                     -- 게스트 이메일 (선택)
+    visitor_system_id    INTEGER REFERENCES systems(id) ON DELETE SET NULL, -- 게스트 선택 시스템
+    created_at           TIMESTAMP DEFAULT NOW(),
+    updated_at           TIMESTAMP DEFAULT NOW()
 );
-CREATE INDEX IF NOT EXISTS idx_chat_sessions_user ON chat_sessions(user_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_chat_sessions_user    ON chat_sessions(user_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_chat_sessions_visitor ON chat_sessions(visitor_employee_id) WHERE visitor_employee_id IS NOT NULL;
 
 -- 챗봇 메시지
 CREATE TABLE IF NOT EXISTS chat_messages (

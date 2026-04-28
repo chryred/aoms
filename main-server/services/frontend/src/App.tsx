@@ -83,6 +83,9 @@ const KnowledgePage = lazy(() =>
   import('@/pages/KnowledgePage').then((m) => ({ default: m.KnowledgePage })),
 )
 const ChatPage = lazy(() => import('@/pages/ChatPage').then((m) => ({ default: m.ChatPage })))
+const GuestEntryPage = lazy(() =>
+  import('@/pages/GuestEntryPage').then((m) => ({ default: m.GuestEntryPage })),
+)
 
 export function App() {
   return (
@@ -100,6 +103,16 @@ export function App() {
             }
           />
         </Route>
+
+        {/* 게스트 채팅 — 로그인 불필요 */}
+        <Route
+          path={ROUTES.CHAT_GUEST}
+          element={
+            <Suspense fallback={<LoadingSkeleton shape="card" />}>
+              <GuestEntryPage />
+            </Suspense>
+          }
+        />
 
         {/* Teams 팝업용 단독 페이지 (사이드바/TopBar 없이 AuthGuard만) */}
         <Route

@@ -1,4 +1,11 @@
-import { useCallback, useRef, useState, type ClipboardEvent, type KeyboardEvent } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ClipboardEvent,
+  type KeyboardEvent,
+} from 'react'
 import { Loader2, Paperclip, Send, Sparkles, X } from 'lucide-react'
 import type { ComposerAttachment } from '@/hooks/useChatAttachments'
 import { cn } from '@/lib/utils'
@@ -11,6 +18,8 @@ interface ChatComposerProps {
   onAddFiles: (files: FileList | File[]) => void
   onRemoveAttachment: (localId: string) => void
   onSend: (content: string) => void
+  showAttach?: boolean
+  prefillValue?: string
 }
 
 export function ChatComposer({
@@ -21,9 +30,15 @@ export function ChatComposer({
   onAddFiles,
   onRemoveAttachment,
   onSend,
+  showAttach = true,
+  prefillValue,
 }: ChatComposerProps) {
-  const [value, setValue] = useState('')
+  const [value, setValue] = useState(prefillValue ?? '')
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    if (prefillValue !== undefined) setValue(prefillValue)
+  }, [prefillValue])
 
   const handleSend = useCallback(() => {
     const text = value.trim()
@@ -97,25 +112,27 @@ export function ChatComposer({
       )}
 
       <div className="flex items-end gap-2 px-3 py-2">
-        <div className="flex items-center gap-1">
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            className="text-text-secondary hover:bg-hover-subtle hover:text-text-primary rounded-sm p-1.5"
-            title="이미지 첨부"
-            disabled={disabled}
-          >
-            <Paperclip className="h-4 w-4" />
-          </button>
-          <button
-            type="button"
-            className="text-text-secondary hover:bg-hover-subtle cursor-not-allowed rounded-sm p-1.5 opacity-60"
-            title="Skills (곧 지원 예정)"
-            disabled
-          >
-            <Sparkles className="h-4 w-4" />
-          </button>
-        </div>
+        {showAttach && (
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="text-text-secondary hover:bg-hover-subtle hover:text-text-primary rounded-sm p-1.5"
+              title="이미지 첨부"
+              disabled={disabled}
+            >
+              <Paperclip className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              className="text-text-secondary hover:bg-hover-subtle cursor-not-allowed rounded-sm p-1.5 opacity-60"
+              title="Skills (곧 지원 예정)"
+              disabled
+            >
+              <Sparkles className="h-4 w-4" />
+            </button>
+          </div>
+        )}
 
         <input
           ref={fileInputRef}

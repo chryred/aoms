@@ -100,6 +100,7 @@ class Incident(Base):
     postmortem      = Column(Text)
     alert_count     = Column(Integer, default=1)
     recurrence_of   = Column(Integer, ForeignKey("incidents.id", ondelete="SET NULL"), nullable=True)
+    source          = Column(String(50), nullable=True)  # NULL=alert/analysis, 'help_inquiry'=현업 에스컬레이션
     created_at      = Column(DateTime, default=func.now())
     updated_at      = Column(DateTime, default=func.now(), onupdate=func.now())
 
@@ -507,18 +508,22 @@ class ChatExecutorConfig(Base):
 
 
 class ChatSession(Base):
-    """사용자 챗봇 세션. 닫아도 대화 유지."""
+    """사용자 챗봇 세션. 닫아도 대화 유지. user_id=NULL 이면 게스트 세션."""
     __tablename__ = "chat_sessions"
 
-    id         = Column(String(36), primary_key=True, default=_uuid_str)
-    user_id    = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    title      = Column(String(200), nullable=False, default="새 대화")
-    area_code  = Column(String(50), nullable=False, default="chat_assistant")
-    created_at = Column(DateTime, default=func.now())
-    updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
+    id                  = Column(String(36), primary_key=True, default=_uuid_str)
+    user_id             = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True)
+    title               = Column(String(200), nullable=False, default="새 대화")
+    area_code           = Column(String(50), nullable=False, default="chat_assistant")
+    visitor_employee_id = Column(String(100), nullable=True)   # 게스트 사번 (감사용)
+    visitor_email       = Column(String(200), nullable=True)   # 게스트 이메일 (선택)
+    visitor_system_id   = Column(Integer, ForeignKey("systems.id", ondelete="SET NULL"), nullable=True)
+    created_at          = Column(DateTime, default=func.now())
+    updated_at          = Column(DateTime, default=func.now(), onupdate=func.now())
 
     __table_args__ = (
         Index("idx_chat_sessions_user", "user_id", "updated_at"),
+        Index("idx_chat_sessions_visitor", "visitor_employee_id"),
     )
 
 

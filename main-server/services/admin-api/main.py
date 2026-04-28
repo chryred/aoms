@@ -17,6 +17,7 @@ from routes import alert_exclusions as alert_exclusions_router
 from routes import llm_query as llm_query_router
 from routes import scheduler_runs as scheduler_runs_router
 from routes import knowledge as knowledge_router
+from routes import help as help_router
 from services.ssh_session import run_cleanup_loop
 from services.prometheus_analyzer import run_prometheus_analyzer_loop
 from services.db_collector import db_collection_loop
@@ -92,6 +93,7 @@ app.include_router(alert_exclusions_router.router)
 app.include_router(llm_query_router.router)
 app.include_router(scheduler_runs_router.router)
 app.include_router(knowledge_router.router)
+app.include_router(help_router.router)
 
 
 @app.get("/health")
