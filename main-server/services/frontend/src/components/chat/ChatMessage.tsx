@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react'
-import { User, Bot, Loader2, RotateCw } from 'lucide-react'
+import { User, Loader2, RotateCw } from 'lucide-react'
+import { SynapMini } from '@/components/mascot'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { Components } from 'react-markdown'
@@ -136,7 +137,7 @@ export function ChatMessageView({ message, sessionId, onRetry }: ChatMessageProp
     <div className="animate-fade-in-up-subtle flex">
       <div className="bg-surface shadow-neu-flat flex max-w-[95%] flex-col gap-2 rounded-sm px-3 py-2 text-sm">
         <div className="text-text-secondary flex items-center gap-1 text-[11px]">
-          <Bot className="text-accent h-3 w-3" />
+          <SynapMini size={12} />
           <span>어시스턴트</span>
         </div>
         {thought && <ThoughtToggle thought={thought} />}
@@ -219,14 +220,19 @@ export function StreamingAssistantMessage({
     <div className="animate-fade-in-up-subtle flex">
       <div className="bg-surface shadow-neu-flat flex max-w-[95%] flex-col gap-2 rounded-sm px-3 py-2 text-sm">
         <div className="text-text-secondary flex items-center gap-1 text-[11px]">
-          <Bot className="text-accent h-3 w-3" />
+          <SynapMini size={12} />
           <span>어시스턴트</span>
           {running && <Loader2 className="h-3 w-3 animate-spin" />}
         </div>
         {thought && <div className="text-text-secondary text-xs italic">💭 {thought}</div>}
         <div className="break-words">
           {content && <MarkdownContent content={content} />}
-          {running && <span className="text-text-primary animate-pulse text-sm">▋</span>}
+          {running && !content && !thought && (
+            <span className="text-text-secondary animate-pulse text-sm italic">생각 중...</span>
+          )}
+          {running && (content || thought) && (
+            <span className="text-text-primary animate-pulse text-sm">▋</span>
+          )}
         </div>
       </div>
     </div>

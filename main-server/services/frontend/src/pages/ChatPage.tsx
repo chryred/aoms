@@ -113,8 +113,15 @@ export function ChatPage() {
   const [streamingTools, setStreamingTools] = useState<StreamingToolState[]>([])
   const [isStreaming, setIsStreaming] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
+  const lastSentContentRef = useRef<string>('')
+  const isStreamingRef = useRef(false)
+  const [restoreValue, setRestoreValue] = useState<{ content: string; nonce: number } | undefined>()
   const scrollRef = useRef<HTMLDivElement>(null)
   const userScrolledUpRef = useRef(false)
+
+  useEffect(() => {
+    isStreamingRef.current = isStreaming
+  }, [isStreaming])
 
   const finishStream = useCallback(() => {
     setStreamText('')
@@ -136,6 +143,7 @@ export function ChatPage() {
         return
       }
       if (isStreaming) return
+      lastSentContentRef.current = content
       setIsStreaming(true)
       setStreamText('')
       setStreamThought(undefined)
@@ -159,7 +167,9 @@ export function ChatPage() {
         )
       } catch (err) {
         console.error(err)
-        toast.error('채팅 중 오류가 발생했습니다.')
+        if (!(err instanceof Error && err.name === 'AbortError')) {
+          toast.error('채팅 중 오류가 발생했습니다.')
+        }
       } finally {
         finishStream()
       }
@@ -309,9 +319,14 @@ export function ChatPage() {
         return
       }
 
-      // Esc — 모바일 drawer 닫기
+      // Esc — 스트리밍 중이면 중단 + 복원, 아니면 모바일 drawer 닫기
       if (e.key === 'Escape') {
-        setMobileSessionListOpen(false)
+        if (isStreamingRef.current) {
+          abortRef.current?.abort()
+          setRestoreValue({ content: lastSentContentRef.current, nonce: Date.now() })
+        } else {
+          setMobileSessionListOpen(false)
+        }
       }
     }
 
@@ -502,7 +517,7 @@ export function ChatPage() {
                 thought={t.thought}
               />
             ))}
-            {isStreaming && (streamText || streamThought) && (
+            {isStreaming && (
               <StreamingAssistantMessage
                 content={streamText}
                 running={true}
@@ -519,6 +534,7 @@ export function ChatPage() {
             onAddFiles={addFiles}
             onRemoveAttachment={removeAttachment}
             onSend={handleSend}
+            prefillValue={restoreValue}
           />
         </div>
       </div>

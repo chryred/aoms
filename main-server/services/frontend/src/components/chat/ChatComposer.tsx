@@ -8,6 +8,7 @@ import {
 } from 'react'
 import { Loader2, Paperclip, Send, Sparkles, X } from 'lucide-react'
 import type { ComposerAttachment } from '@/hooks/useChatAttachments'
+import { useChatStore } from '@/store/chatStore'
 import { cn } from '@/lib/utils'
 
 interface ChatComposerProps {
@@ -19,7 +20,7 @@ interface ChatComposerProps {
   onRemoveAttachment: (localId: string) => void
   onSend: (content: string) => void
   showAttach?: boolean
-  prefillValue?: string
+  prefillValue?: { content: string; nonce: number }
 }
 
 export function ChatComposer({
@@ -34,10 +35,11 @@ export function ChatComposer({
   prefillValue,
 }: ChatComposerProps) {
   const [value, setValue] = useState(prefillValue ?? '')
+  const setInputFocused = useChatStore((s) => s.setInputFocused)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
-    if (prefillValue !== undefined) setValue(prefillValue)
+    if (prefillValue) setValue(prefillValue.content)
   }, [prefillValue])
 
   const handleSend = useCallback(() => {
@@ -153,6 +155,8 @@ export function ChatComposer({
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
+          onFocus={() => setInputFocused(true)}
+          onBlur={() => setInputFocused(false)}
           placeholder={streaming ? '답변 생성 중…' : '메시지를 입력하세요'}
           disabled={disabled}
           rows={1}

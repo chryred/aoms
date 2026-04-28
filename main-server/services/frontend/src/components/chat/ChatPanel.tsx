@@ -66,6 +66,8 @@ export function ChatPanel() {
   const setCurrentSessionId = useChatStore((s) => s.setCurrentSessionId)
   const filterSystemId = useChatStore((s) => s.filterSystemId)
   const setFilterSystemId = useChatStore((s) => s.setFilterSystemId)
+  const setThinking = useChatStore((s) => s.setThinking)
+  const resetUnread = useChatStore((s) => s.resetUnread)
 
   const { data: systems = [] } = useSystems()
 
@@ -103,8 +105,25 @@ export function ChatPanel() {
   const [streamingTools, setStreamingTools] = useState<StreamingToolState[]>([])
   const [isStreaming, setIsStreaming] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
+  const lastSentContentRef = useRef<string>('')
+  const isStreamingRef = useRef(false)
+  const [restoreValue, setRestoreValue] = useState<{ content: string; nonce: number } | undefined>()
   const scrollRef = useRef<HTMLDivElement>(null)
   const userScrolledUpRef = useRef(false)
+
+  useEffect(() => {
+    isStreamingRef.current = isStreaming
+  }, [isStreaming])
+
+  // 스트리밍 상태 → 마스코트 thinking 동기화
+  useEffect(() => {
+    setThinking(isStreaming)
+  }, [isStreaming, setThinking])
+
+  // 패널 열릴 때 미읽은 카운트 초기화
+  useEffect(() => {
+    if (isOpen) resetUnread()
+  }, [isOpen, resetUnread])
 
   // 스트리밍이 끝나면 message list 재조회로 화면 교체
   const finishStream = useCallback(() => {
@@ -127,6 +146,7 @@ export function ChatPanel() {
         return
       }
       if (isStreaming) return
+      lastSentContentRef.current = content
       setIsStreaming(true)
       setStreamText('')
       setStreamThought(undefined)
@@ -151,7 +171,9 @@ export function ChatPanel() {
         )
       } catch (err) {
         console.error(err)
-        toast.error('채팅 중 오류가 발생했습니다.')
+        if (!(err instanceof Error && err.name === 'AbortError')) {
+          toast.error('채팅 중 오류가 발생했습니다.')
+        }
       } finally {
         finishStream()
       }
@@ -284,9 +306,14 @@ export function ChatPanel() {
         return
       }
 
-      // Esc — 패널 닫기
+      // Esc — 스트리밍 중이면 중단 + 복원, 아니면 패널 닫기
       if (e.key === 'Escape') {
-        setOpen(false)
+        if (isStreamingRef.current) {
+          abortRef.current?.abort()
+          setRestoreValue({ content: lastSentContentRef.current, nonce: Date.now() })
+        } else {
+          setOpen(false)
+        }
       }
     }
 
@@ -399,7 +426,7 @@ export function ChatPanel() {
             thought={t.thought}
           />
         ))}
-        {isStreaming && (streamText || streamThought) && (
+        {isStreaming && (
           <StreamingAssistantMessage content={streamText} running={true} thought={streamThought} />
         )}
       </div>
@@ -412,6 +439,7 @@ export function ChatPanel() {
         onAddFiles={addFiles}
         onRemoveAttachment={removeAttachment}
         onSend={handleSend}
+        prefillValue={restoreValue}
       />
     </div>
   )

@@ -1,5 +1,7 @@
-import { Plus, X, Bot, HelpCircle } from 'lucide-react'
+import { Plus, X, HelpCircle } from 'lucide-react'
 import { NeuButton } from '@/components/neumorphic/NeuButton'
+import { Synap } from '@/components/mascot'
+import { useSynapState } from '@/store/chatStore'
 import type { System } from '@/types/system'
 
 interface ChatHeaderProps {
@@ -26,12 +28,15 @@ export function ChatHeader({
   onFilterSystemChange,
 }: ChatHeaderProps) {
   const effectiveSubtitle = subtitle === null ? null : (subtitle ?? 'Synapse-V 어시스턴트')
+  const synapState = useSynapState()
 
   return (
     <div className="border-border bg-surface flex flex-col border-b">
       {/* 상단 행: 아이콘, 제목, 버튼 */}
       <div className="flex items-center gap-2 px-3 py-2">
-        <Bot className="text-accent h-5 w-5 shrink-0" />
+        <span className="text-text-primary shrink-0">
+          <Synap size={22} state={synapState} />
+        </span>
         <div className="min-w-0 flex-1">
           <div className="truncate text-sm font-semibold">{title}</div>
           {effectiveSubtitle && (
