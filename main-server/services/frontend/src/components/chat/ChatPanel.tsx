@@ -1,14 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import toast from 'react-hot-toast'
 import { useQueryClient } from '@tanstack/react-query'
-import {
-  Server,
-  AlertTriangle,
-  BookOpen,
-  FileSearch,
-  TrendingUp,
-  History,
-} from 'lucide-react'
+import { Server, AlertTriangle, BookOpen, FileSearch, TrendingUp, History } from 'lucide-react'
 import { streamChatMessage } from '@/api/chat'
 import { useChatMessages } from '@/hooks/queries/useChatMessages'
 import { useChatSessions } from '@/hooks/queries/useChatSessions'
@@ -389,7 +382,12 @@ export function ChatPanel() {
           </div>
         )}
         {messages?.map((m: ChatMessage) => (
-          <ChatMessageView key={m.id} message={m} sessionId={currentSessionId ?? ''} onRetry={handleRetry} />
+          <ChatMessageView
+            key={m.id}
+            message={m}
+            sessionId={currentSessionId ?? ''}
+            onRetry={handleRetry}
+          />
         ))}
         {streamingTools.map((t) => (
           <ToolCallCard

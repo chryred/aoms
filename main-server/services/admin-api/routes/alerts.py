@@ -272,7 +272,7 @@ async def receive_alertmanager(
                     incident_id=history.incident_id,
                 )
             except Exception as exc:
-                logger.warning("Teams 메트릭 알림 발송 실패: %s", exc)
+                logger.warning("Teams 메트릭 알림 발송 실패: %r", exc, exc_info=True)
 
         # 쿨다운 기록
         if system_id:

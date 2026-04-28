@@ -27,7 +27,7 @@ export function ChatLauncher() {
           'transition-[transform,box-shadow,background-color] duration-400 ease-in-out',
           'hover:scale-110',
           'active:shadow-neu-inset active:scale-95',
-          'focus:ring-offset-bg-base focus:ring-1 focus:ring-accent focus:ring-offset-2 focus:outline-none',
+          'focus:ring-offset-bg-base focus:ring-accent focus:ring-1 focus:ring-offset-2 focus:outline-none',
           'motion-reduce:transition-none',
           isOpen
             ? 'bg-surface shadow-neu-flat hover:shadow-neu-flat-hover'

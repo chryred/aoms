@@ -7,13 +7,19 @@ from typing import Optional
 
 from .llm_client import LLM_TYPE as _LLM_TYPE
 
-# macOS/Linux 시스템 CA 번들 — httpx 기본 certifi 대신 사용
+# CA 번들 우선순위: 환경변수 SSL_CERT_FILE → RHEL/CentOS 시스템 CA → certifi 기본값
 _SSL_CAFILE = os.getenv("SSL_CERT_FILE", None)
 if _SSL_CAFILE is None:
-    _homebrew_ca = "/opt/homebrew/etc/openssl@3/cert.pem"
-    _SSL_CAFILE = _homebrew_ca if os.path.exists(_homebrew_ca) else None
+    for _candidate in (
+        "/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem",  # RHEL/CentOS
+        "/etc/ssl/certs/ca-certificates.crt",                  # Debian/Ubuntu
+        "/opt/homebrew/etc/openssl@3/cert.pem",                # macOS Homebrew
+    ):
+        if os.path.exists(_candidate):
+            _SSL_CAFILE = _candidate
+            break
 
-# httpx verify= 파라미터: CA 파일 경로(str) 또는 True(기본값)
+# httpx verify= 파라미터: CA 파일 경로(str) 또는 True(certifi 기본값)
 _SSL_CONTEXT = _SSL_CAFILE if _SSL_CAFILE else True
 
 # 피드백 React 페이지 URL — Teams 카드 버튼이 이 주소로 연결됨 (브라우저에서 열려야 하므로 외부 접근 가능한 주소)

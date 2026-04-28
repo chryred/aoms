@@ -34,7 +34,7 @@ import httpx
 logger = logging.getLogger(__name__)
 
 QDRANT_URL        = os.getenv("QDRANT_URL", "http://server-b:6333")
-# Dense: onnxruntime + transformers 토크나이저로 BAAI/bge-m3 ONNX 직접 로드
+# Dense: onnxruntime + tokenizers.Tokenizer 로 BAAI/bge-m3 ONNX 직접 로드
 DENSE_MODEL_NAME  = os.getenv("DENSE_EMBED_MODEL", "BAAI/bge-m3")
 DENSE_ONNX_FILE   = os.getenv("DENSE_ONNX_FILE",   "onnx/model.onnx")
 # 캐시 경로: 미지정 시 huggingface_hub/fastembed 기본 경로(~/.cache/huggingface, ~/.cache/fastembed) 사용.
@@ -59,7 +59,8 @@ ANOMALY_STYLES = {
 
 
 # ── 임베딩 모델 싱글턴 (lazy-load, HF_HUB_OFFLINE=1 환경 호환) ─────────────────
-#   Dense : onnxruntime InferenceSession + transformers AutoTokenizer (bge-m3)
+#   Dense : onnxruntime InferenceSession + tokenizers.Tokenizer (bge-m3)
+#           transformers 대신 tokenizers(Rust) 직접 사용 — PyTorch 불필요
 #           모델 ONNX가 출력 `sentence_embedding`을 내장 (CLS pooling + normalize).
 #   Sparse: fastembed SparseTextEmbedding (Qdrant/bm25)
 
@@ -95,7 +96,7 @@ def _get_dense_session():
     global _dense_session, _dense_tokenizer, _dense_input_names
     if _dense_session is None:
         import onnxruntime as ort
-        from transformers import AutoTokenizer
+        from tokenizers import Tokenizer  # PyTorch 불필요 — Rust 기반 tokenizers 직접 사용
 
         logger.info("Dense 모델 로딩: %s (onnxruntime 직접 호출)", DENSE_MODEL_NAME)
         model_dir = _resolve_dense_model_dir()
@@ -109,7 +110,10 @@ def _get_dense_session():
         )
         _dense_input_names = {i.name for i in _dense_session.get_inputs()}
 
-        _dense_tokenizer = AutoTokenizer.from_pretrained(model_dir)
+        raw_tok = Tokenizer.from_file(os.path.join(model_dir, "tokenizer.json"))
+        raw_tok.enable_padding()
+        raw_tok.enable_truncation(max_length=8192)
+        _dense_tokenizer = raw_tok
         logger.info("Dense 모델 준비 완료 (outputs=%s)",
                     [o.name for o in _dense_session.get_outputs()])
     return _dense_session, _dense_tokenizer, _dense_input_names
@@ -165,14 +169,14 @@ def _embed_dense_sync(text: str) -> list[float]:
     import numpy as np
     truncated = text[:_EMBED_MAX_CHARS]
     sess, tok, input_names = _get_dense_session()
-    enc = tok(
-        truncated,
-        return_tensors="np",
-        padding=True,
-        truncation=True,
-        max_length=8192,  # bge-m3 모델 최대값. 실질적 길이 제어는 _EMBED_MAX_CHARS(3000자)가 담당.
-    )
-    feed = {k: v for k, v in enc.items() if k in input_names}
+    encoding = tok.encode(truncated)
+    feed: dict = {}
+    if "input_ids" in input_names:
+        feed["input_ids"] = np.array([encoding.ids], dtype=np.int64)
+    if "attention_mask" in input_names:
+        feed["attention_mask"] = np.array([encoding.attention_mask], dtype=np.int64)
+    if "token_type_ids" in input_names:
+        feed["token_type_ids"] = np.array([encoding.type_ids], dtype=np.int64)
     outputs = sess.run(None, feed)
     output_names = [o.name for o in sess.get_outputs()]
     if "sentence_embedding" in output_names:

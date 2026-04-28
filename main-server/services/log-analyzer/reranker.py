@@ -75,7 +75,7 @@ def _get_reranker_session():
     global _reranker_session, _reranker_tokenizer, _reranker_input_names, _reranker_output_name
     if _reranker_session is None:
         import onnxruntime as ort
-        from transformers import AutoTokenizer
+        from tokenizers import Tokenizer  # PyTorch 불필요 — Rust 기반 tokenizers 직접 사용
 
         logger.info("Reranker 모델 로딩: %s (onnxruntime 직접 호출)", RERANKER_MODEL)
         model_dir = _resolve_reranker_model_dir()
@@ -92,7 +92,10 @@ def _get_reranker_session():
         # cross-encoder 출력은 일반적으로 "logits" — 첫 출력을 사용
         _reranker_output_name = output_names[0]
 
-        _reranker_tokenizer = AutoTokenizer.from_pretrained(model_dir)
+        raw_tok = Tokenizer.from_file(os.path.join(model_dir, "tokenizer.json"))
+        raw_tok.enable_padding()
+        raw_tok.enable_truncation(max_length=RERANKER_MAX_LENGTH)
+        _reranker_tokenizer = raw_tok
         logger.info(
             "bge-reranker-v2-m3 ONNX 로드 완료 (FP32, ~2.3GB) — outputs=%s",
             output_names,
@@ -117,21 +120,23 @@ def _rerank_sync(
     if not docs:
         return []
 
+    import numpy as np
+
     sess, tok, input_names, output_name = _get_reranker_session()
 
-    # cross-encoder pair encoding: 첫 인자 = query 반복, 두번째 = docs
+    # cross-encoder pair encoding: (query, doc) 쌍을 배치로 인코딩
     truncated_docs = [d[:_RERANK_MAX_CHARS] for d in docs]
-    queries = [query[:_RERANK_MAX_CHARS]] * len(truncated_docs)
+    q_truncated = query[:_RERANK_MAX_CHARS]
+    pairs = [(q_truncated, doc) for doc in truncated_docs]
+    encodings = tok.encode_batch(pairs)
 
-    enc = tok(
-        queries,
-        truncated_docs,
-        return_tensors="np",
-        padding=True,
-        truncation=True,
-        max_length=max_length,
-    )
-    feed = {k: v for k, v in enc.items() if k in input_names}
+    feed: dict = {}
+    if "input_ids" in input_names:
+        feed["input_ids"] = np.array([e.ids for e in encodings], dtype=np.int64)
+    if "attention_mask" in input_names:
+        feed["attention_mask"] = np.array([e.attention_mask for e in encodings], dtype=np.int64)
+    if "token_type_ids" in input_names:
+        feed["token_type_ids"] = np.array([e.type_ids for e in encodings], dtype=np.int64)
     outputs = sess.run([output_name], feed)
     logits = outputs[0]
     # logits shape: (batch, 1) 또는 (batch,)

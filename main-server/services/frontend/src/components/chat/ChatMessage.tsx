@@ -149,7 +149,7 @@ export function ChatMessageView({ message, sessionId, onRetry }: ChatMessageProp
           <button
             type="button"
             onClick={() => onRetry(message.id)}
-            className="text-text-secondary hover:bg-hover-subtle hover:text-text-primary mt-2 inline-flex min-h-[44px] items-center gap-1.5 rounded-sm px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-accent"
+            className="text-text-secondary hover:bg-hover-subtle hover:text-text-primary focus:ring-accent mt-2 inline-flex min-h-[44px] items-center gap-1.5 rounded-sm px-2 py-1 text-xs focus:ring-1 focus:outline-none"
             aria-label="이 메시지 재시도"
           >
             <RotateCw className="h-3.5 w-3.5" />

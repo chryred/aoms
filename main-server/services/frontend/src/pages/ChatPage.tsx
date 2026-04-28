@@ -280,7 +280,13 @@ export function ChatPage() {
       }
 
       // Cmd/Ctrl+ArrowUp/Down — 세션 이전/다음 (입력창 외부일 때만)
-      if (cmdKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown') && !inInput && sessions && sessions.length > 0) {
+      if (
+        cmdKey &&
+        (e.key === 'ArrowUp' || e.key === 'ArrowDown') &&
+        !inInput &&
+        sessions &&
+        sessions.length > 0
+      ) {
         e.preventDefault()
         const currentIdx = sessions.findIndex((s) => s.id === currentSessionId)
         if (e.key === 'ArrowUp') {
@@ -479,7 +485,12 @@ export function ChatPage() {
               </div>
             )}
             {messages?.map((m: ChatMessage) => (
-              <ChatMessageView key={m.id} message={m} sessionId={currentSessionId ?? ''} onRetry={handleRetry} />
+              <ChatMessageView
+                key={m.id}
+                message={m}
+                sessionId={currentSessionId ?? ''}
+                onRetry={handleRetry}
+              />
             ))}
             {streamingTools.map((t) => (
               <ToolCallCard

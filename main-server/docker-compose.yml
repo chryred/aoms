@@ -191,7 +191,6 @@ services:
   frontend:
     image: synapse-frontend:1.0           # 사전 빌드 후 load된 이미지
     container_name: synapse-frontend
-    user: "1036:510"
     ports:
       - "3001:80"
     mem_limit: 64m
