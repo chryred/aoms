@@ -1,3 +1,4 @@
+import { useRef, useEffect, useState } from 'react'
 import { cn } from '@/lib/utils'
 import type { ReportType } from '@/types/report'
 
@@ -18,23 +19,55 @@ const PERIOD_LABELS: Record<ReportType, string> = {
 const PERIODS: ReportType[] = ['daily', 'weekly', 'monthly', 'quarterly', 'half_year', 'annual']
 
 export function PeriodToggle({ value, onChange }: PeriodToggleProps) {
+  const tabRefs = useRef<(HTMLButtonElement | null)[]>([])
+  const [indicator, setIndicator] = useState({ left: 0, width: 0, ready: false })
+
+  useEffect(() => {
+    const idx = PERIODS.indexOf(value)
+    const btn = tabRefs.current[idx]
+    if (!btn) return
+    const { offsetLeft: left, offsetWidth: width } = btn
+    setIndicator((prev) => ({ left, width, ready: prev.ready }))
+    if (!indicator.ready) {
+      requestAnimationFrame(() => setIndicator({ left, width, ready: true }))
+    }
+  }, [value, indicator.ready])
+
   return (
     <div
       role="group"
       aria-label="집계 기간 선택"
-      className="bg-bg-base shadow-neu-pressed flex flex-wrap gap-1 rounded-sm p-1.5"
+      className="bg-bg-base shadow-neu-pressed relative flex gap-1 rounded-sm p-1"
     >
-      {PERIODS.map((period) => (
+      <span
+        aria-hidden="true"
+        className="shadow-neu-flat bg-accent pointer-events-none absolute rounded-sm"
+        style={{
+          top: 4,
+          bottom: 4,
+          left: indicator.left,
+          width: indicator.width,
+          opacity: indicator.ready ? 1 : 0,
+          transition: indicator.ready
+            ? 'left 0.22s cubic-bezier(0.25, 1, 0.5, 1), width 0.22s cubic-bezier(0.25, 1, 0.5, 1), opacity 0.12s ease'
+            : 'none',
+        }}
+      />
+      {PERIODS.map((period, i) => (
         <button
           key={period}
+          ref={(el) => {
+            tabRefs.current[i] = el
+          }}
           onClick={() => onChange(period)}
           aria-pressed={value === period}
           className={cn(
-            'px-3 py-3 text-sm font-medium transition-all',
-            'focus:ring-accent focus:ring-offset-bg-base focus:ring-1 focus:ring-offset-1 focus:outline-none',
+            'relative z-10 rounded-sm px-4 py-2.5 text-sm font-medium',
+            'focus:ring-accent focus:ring-offset-bg-base focus:ring-1 focus:outline-none',
+            'transition-colors duration-150',
             value === period
-              ? 'border-accent bg-accent text-accent-contrast shadow-neu-pressed rounded-t-[2px] rounded-b-none border-b-2 font-semibold'
-              : 'text-text-secondary hover:bg-hover-subtle hover:text-text-primary hover:ring-accent-muted rounded-[2px] hover:ring-1',
+              ? 'text-accent-contrast font-semibold'
+              : 'text-text-secondary hover:text-text-primary',
           )}
         >
           {PERIOD_LABELS[period]}

@@ -1,4 +1,4 @@
-import { useCallback, useState, useMemo } from 'react'
+import { useCallback, useState, useMemo, useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { AlertTriangle, ChevronUp, ChevronDown, ChevronRight, RefreshCw } from 'lucide-react'
 import { useIncidents } from '@/hooks/queries/useIncidents'
@@ -88,6 +88,20 @@ export function IncidentListPage() {
     refetch,
   } = useIncidents(statusFilter !== 'all' ? { status: statusFilter, limit: 100 } : { limit: 100 })
 
+  const tabRefs = useRef<(HTMLButtonElement | null)[]>([])
+  const [indicator, setIndicator] = useState({ left: 0, width: 0, ready: false })
+
+  useEffect(() => {
+    const idx = STATUS_TABS.findIndex((t) => t.key === statusFilter)
+    const btn = tabRefs.current[idx]
+    if (!btn) return
+    const { offsetLeft: left, offsetWidth: width } = btn
+    setIndicator((prev) => ({ left, width, ready: prev.ready }))
+    if (!indicator.ready) {
+      requestAnimationFrame(() => setIndicator({ left, width, ready: true }))
+    }
+  }, [statusFilter, indicator.ready])
+
   const [isRefreshing, setIsRefreshing] = useState(false)
   const handleRefresh = useCallback(async () => {
     setIsRefreshing(true)
@@ -155,22 +169,47 @@ export function IncidentListPage() {
       />
 
       {/* 상태 탭 */}
-      <NeuCard className="overflow-x-auto">
-        <div role="tablist" aria-label="인시던트 상태 필터" className="flex gap-1">
-          {STATUS_TABS.map((tab) => (
-            <NeuButton
-              key={tab.key}
-              size="sm"
-              variant={statusFilter === tab.key ? 'primary' : 'ghost'}
-              role="tab"
-              aria-selected={statusFilter === tab.key}
-              onClick={() => setStatusFilter(tab.key)}
-            >
-              {tab.label}
-            </NeuButton>
-          ))}
-        </div>
-      </NeuCard>
+      <div
+        role="tablist"
+        aria-label="인시던트 상태 필터"
+        className="bg-bg-base shadow-neu-pressed relative flex w-fit max-w-full gap-1 overflow-x-auto rounded-sm p-1"
+      >
+        <span
+          aria-hidden="true"
+          className="shadow-neu-flat bg-accent pointer-events-none absolute rounded-sm"
+          style={{
+            top: 4,
+            bottom: 4,
+            left: indicator.left,
+            width: indicator.width,
+            opacity: indicator.ready ? 1 : 0,
+            transition: indicator.ready
+              ? 'left 0.22s cubic-bezier(0.25, 1, 0.5, 1), width 0.22s cubic-bezier(0.25, 1, 0.5, 1), opacity 0.12s ease'
+              : 'none',
+          }}
+        />
+        {STATUS_TABS.map((tab, i) => (
+          <button
+            key={tab.key}
+            ref={(el) => {
+              tabRefs.current[i] = el
+            }}
+            role="tab"
+            aria-selected={statusFilter === tab.key}
+            onClick={() => setStatusFilter(tab.key)}
+            className={cn(
+              'relative z-10 rounded-sm px-4 py-2.5 text-sm font-medium',
+              'focus:ring-accent focus:ring-offset-bg-base focus:ring-1 focus:outline-none',
+              'transition-colors duration-150',
+              statusFilter === tab.key
+                ? 'text-accent-contrast font-semibold'
+                : 'text-text-secondary hover:text-text-primary',
+            )}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
 
       {isLoading && <LoadingSkeleton shape="table" count={6} />}
       {isError && <ErrorCard message="인시던트 목록을 불러오지 못했습니다" />}

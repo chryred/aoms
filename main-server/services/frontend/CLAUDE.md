@@ -301,9 +301,11 @@ const normalized = !utcDate.endsWith('Z') && !/[+-]\d{2}:?\d{2}$/.test(utcDate)
 
 ### PeriodToggle (`src/components/reports/PeriodToggle.tsx`)
 
-- 컨테이너: `rounded-sm p-1.5` (뉴모피즘 inset shadow)
-- 비활성 버튼: `rounded-[2px]`, hover 시 `ring-1 ring-accent-muted`
-- 활성 버튼: `bg-accent text-accent-contrast` + `border-b-2 border-accent`
+- AlertHistoryPage / KnowledgePage / IncidentListPage와 동일한 슬라이딩 filled 인디케이터 패턴 사용
+- 컨테이너: `bg-bg-base shadow-neu-pressed relative rounded-sm p-1`
+- 슬라이딩 인디케이터: `bg-accent shadow-neu-flat absolute rounded-sm` (JS `offsetLeft/offsetWidth` 기반 위치)
+- 활성 버튼: `text-accent-contrast font-semibold`
+- 비활성 버튼: `text-text-secondary hover:text-text-primary`
 
 ### Sidebar
 
