@@ -48,7 +48,7 @@ export function GuestEntryPage() {
   const [streamThought, setStreamThought] = useState<string | undefined>()
   const [streamingTools, setStreamingTools] = useState<StreamingToolState[]>([])
   const [isStreaming, setIsStreaming] = useState(false)
-  const [prefill, setPrefill] = useState<string | undefined>()
+  const [prefill, setPrefill] = useState<{ content: string; nonce: number } | undefined>()
 
   // 자주 묻는 질문
   const [frequentQuestions, setFrequentQuestions] = useState<string[]>([])
@@ -286,7 +286,7 @@ export function GuestEntryPage() {
                     <button
                       key={q}
                       type="button"
-                      onClick={() => setPrefill(q)}
+                      onClick={() => setPrefill({ content: q, nonce: Date.now() })}
                       className={cn(
                         'border-border text-text-secondary rounded-sm border px-2.5 py-1.5 text-xs',
                         'hover:border-accent hover:text-text-primary transition-colors',

@@ -12,7 +12,7 @@ export function ChatLauncher() {
 
   return (
     <div className="fixed right-12 bottom-15 z-50 h-12 w-12">
-      {!isOpen && <span aria-hidden className="animate-chat-pulse absolute inset-0 rounded-full" />}
+      {!isOpen && <span aria-hidden className="animate-chat-pulse pointer-events-none absolute inset-0 rounded-full" />}
       {!isOpen && unread > 0 && (
         <span
           aria-label={`미읽은 메시지 ${unread}개`}

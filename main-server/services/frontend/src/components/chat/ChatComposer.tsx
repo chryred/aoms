@@ -34,7 +34,7 @@ export function ChatComposer({
   showAttach = true,
   prefillValue,
 }: ChatComposerProps) {
-  const [value, setValue] = useState(prefillValue ?? '')
+  const [value, setValue] = useState(prefillValue?.content ?? '')
   const setInputFocused = useChatStore((s) => s.setInputFocused)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
