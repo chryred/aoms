@@ -425,6 +425,68 @@ async def apply_correction(
         return False
 
 
+async def scroll_operator_notes(
+    system_id: int | None = None,
+    limit: int = 20,
+    offset: int = 0,
+) -> dict:
+    """knowledge_documents 컬렉션에서 operator_note 포인트 목록 조회 (Qdrant scroll).
+
+    반환: {"items": [...], "total": N}
+    """
+    must_conditions: list[dict] = [
+        {"key": "doc_type", "match": {"value": "operator_note"}}
+    ]
+    if system_id is not None:
+        must_conditions.append({"key": "system_id", "match": {"value": system_id}})
+
+    filter_body: dict = {"must": must_conditions}
+
+    # 전체 건수 조회 (count API)
+    try:
+        count_resp = await _qdrant_http.post(
+            f"{QDRANT_URL}/collections/{DOCUMENTS_COLLECTION}/points/count",
+            json={"filter": filter_body, "exact": False},
+        )
+        count_resp.raise_for_status()
+        total = count_resp.json().get("result", {}).get("count", 0)
+    except Exception as exc:
+        logger.warning("operator_note count 실패: %s", exc)
+        total = 0
+
+    # scroll 조회 (offset 기반 페이지네이션)
+    items: list[dict] = []
+    try:
+        scroll_resp = await _qdrant_http.post(
+            f"{QDRANT_URL}/collections/{DOCUMENTS_COLLECTION}/points/scroll",
+            json={
+                "filter": filter_body,
+                "limit": limit,
+                "offset": offset,
+                "with_payload": True,
+                "with_vector": False,
+                "order_by": {"key": "stored_at", "direction": "desc"},
+            },
+        )
+        scroll_resp.raise_for_status()
+        points = scroll_resp.json().get("result", {}).get("points", [])
+        for p in points:
+            payload = p.get("payload", {})
+            items.append({
+                "point_id": str(p["id"]),
+                "question": payload.get("question", ""),
+                "answer": payload.get("answer", ""),
+                "system_id": payload.get("system_id"),
+                "tags": payload.get("tags", []),
+                "source_reference": payload.get("source_reference"),
+                "created_at": payload.get("stored_at"),
+            })
+    except Exception as exc:
+        logger.warning("operator_note scroll 실패: %s", exc)
+
+    return {"items": items, "total": total}
+
+
 async def update_operator_note(*, point_id: int, **fields) -> bool:
     """운영자 노트 페이로드 부분 업데이트."""
     if not fields:

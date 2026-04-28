@@ -1115,6 +1115,20 @@ class OperatorNoteRequest(BaseModel):
     created_by:       str | None = None
 
 
+@app.get("/knowledge/operator-notes")
+async def list_operator_notes(
+    system_id: int | None = None,
+    limit: int = 20,
+    offset: int = 0,
+):
+    """운영자 노트 목록 조회 (Qdrant scroll, doc_type=operator_note)."""
+    return await knowledge_vector_client.scroll_operator_notes(
+        system_id=system_id,
+        limit=min(limit, 100),
+        offset=offset,
+    )
+
+
 @app.post("/knowledge/operator-note")
 async def add_operator_note(req: OperatorNoteRequest):
     """운영자 노트(Q&A) 등록 → knowledge_documents(doc_type=operator_note) 저장."""

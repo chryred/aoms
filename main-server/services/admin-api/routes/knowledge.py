@@ -439,3 +439,301 @@ async def update_sync_status(
 
     await db.commit()
     return {"source": body.source, "updated": True}
+
+
+# ── 프론트엔드 URL 규칙 맞춤 라우트 (/notes, /corrections, /frequent-questions, /sync/*, /documents) ──
+
+# 운영자 노트 CRUD (/notes 경로)
+
+@router.get("/notes")
+async def list_notes(
+    system_id: int | None = None,
+    limit: int = 20,
+    offset: int = 0,
+    _user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    """운영자 노트 목록 (log-analyzer Qdrant scroll 프록시)."""
+    return await knowledge_service.call_list_operator_notes(
+        system_id=system_id,
+        limit=min(limit, 100),
+        offset=offset,
+    )
+
+
+@router.post("/notes", status_code=201)
+async def create_note(
+    body: OperatorNoteCreate,
+    _user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    """운영자 노트 생성."""
+    point_id = await knowledge_service.call_operator_note(
+        question=body.question,
+        answer=body.answer,
+        system_id=body.system_id,
+        source_reference=body.source_reference,
+        tags=body.tags,
+    )
+    return {
+        "point_id": str(point_id) if point_id is not None else None,
+        "question": body.question,
+        "answer": body.answer,
+        "system_id": body.system_id,
+        "tags": body.tags or [],
+        "source_reference": body.source_reference,
+        "stored": point_id is not None,
+    }
+
+
+@router.patch("/notes/{point_id}")
+async def update_note(
+    point_id: str,
+    body: OperatorNoteUpdate,
+    _user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    """운영자 노트 수정."""
+    ok = await knowledge_service.call_update_operator_note(
+        point_id=point_id,
+        question=body.question,
+        answer=body.answer,
+        source_reference=body.source_reference,
+        tags=body.tags,
+    )
+    if not ok:
+        raise HTTPException(status_code=502, detail="log-analyzer 노트 수정 실패")
+    return {"point_id": point_id, "updated": True}
+
+
+@router.delete("/notes/{point_id}")
+async def delete_note(
+    point_id: str,
+    _user: User = Depends(get_current_user),
+) -> Response:
+    """운영자 노트 삭제."""
+    ok = await knowledge_service.call_delete_operator_note(point_id)
+    if not ok:
+        raise HTTPException(status_code=502, detail="log-analyzer 노트 삭제 실패")
+    return Response(status_code=204)
+
+
+# 교정 이력 목록 (/corrections 경로)
+
+@router.get("/corrections")
+async def list_corrections(
+    q: str | None = None,
+    limit: int = 20,
+    offset: int = 0,
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    """knowledge_corrections 목록 조회 (q: question/correct_answer ILIKE 검색)."""
+    from sqlalchemy import func, or_
+
+    stmt = select(KnowledgeCorrection)
+    if q:
+        like = f"%{q}%"
+        stmt = stmt.where(
+            or_(
+                KnowledgeCorrection.question.ilike(like),
+                KnowledgeCorrection.correct_answer.ilike(like),
+            )
+        )
+    count_stmt = select(func.count()).select_from(stmt.subquery())
+    total: int = (await db.execute(count_stmt)).scalar_one()
+
+    stmt = stmt.order_by(KnowledgeCorrection.created_at.desc()).limit(limit).offset(offset)
+    rows = (await db.execute(stmt)).scalars().all()
+
+    items = [
+        {
+            "id": r.id,
+            "source_point_id": r.source_point_id,
+            "source_collection": r.source_collection,
+            "question": r.question,
+            "correct_answer": r.correct_answer,
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+        }
+        for r in rows
+    ]
+    return {"items": items, "total": total}
+
+
+# 빈도 질문 (/frequent-questions 경로 — FrequentQuestion[] 배열로 변환)
+
+@router.get("/frequent-questions")
+async def list_frequent_questions_v2(
+    days: int = 7,
+    threshold: int = 3,
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
+) -> list[dict[str, Any]]:
+    """최근 N일 질문 클러스터를 FrequentQuestion[] 배열로 반환.
+
+    threshold 파라미터: 최소 발생 횟수 (클러스터 count >= threshold 필터).
+    """
+    cache_key = f"{days}:fq"
+    now = time.monotonic()
+    cached = _FREQ_CACHE_DATA.get(cache_key)
+    if cached and (now - cached["ts"]) < _FREQ_CACHE_TTL:
+        clusters = cached["data"].get("clusters", [])
+    else:
+        # /questions/frequent 내부 로직과 동일하게 DB 조회 후 클러스터링
+        from datetime import timedelta
+
+        sql = text("""
+            SELECT cm.id, cm.content, cm.rag_top1_score, cm.created_at
+            FROM chat_messages cm
+            WHERE cm.role = 'user'
+              AND cm.content != ''
+              AND cm.created_at >= :since
+            ORDER BY cm.created_at DESC
+            LIMIT :limit
+        """)
+        since = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=days)
+        rows = (await db.execute(sql, {"since": since, "limit": 250})).fetchall()
+
+        if not rows:
+            return []
+
+        items: list[dict[str, Any]] = []
+        for row in rows[:50]:
+            content = row.content or ""
+            emb = await knowledge_service.call_embed_text(content)
+            items.append({
+                "id": row.id,
+                "content": content,
+                "rag_top1_score": row.rag_top1_score,
+                "created_at": row.created_at.isoformat() if row.created_at else None,
+                "embedding": emb,
+            })
+
+        clusters_raw = knowledge_service.cluster_questions_by_cosine(items, threshold=0.85)
+        clusters = []
+        for cluster in clusters_raw:
+            scores = [c["rag_top1_score"] for c in cluster if c["rag_top1_score"] is not None]
+            avg_score = sum(scores) / len(scores) if scores else None
+            clusters.append({
+                "representative": cluster[0]["content"],
+                "count": len(cluster),
+                "avg_rag_score": round(avg_score, 4) if avg_score is not None else None,
+                "questions": [
+                    {"content": c["content"], "created_at": c["created_at"]}
+                    for c in cluster
+                ],
+            })
+        clusters.sort(key=lambda c: c["count"], reverse=True)
+        _FREQ_CACHE_DATA[cache_key] = {"ts": now, "data": {"clusters": clusters}}
+
+    result = []
+    for c in clusters:
+        if c["count"] < threshold:
+            continue
+        dates = [q["created_at"] for q in c.get("questions", []) if q.get("created_at")]
+        last_asked = max(dates) if dates else None
+        result.append({
+            "representative_query": c["representative"],
+            "similar_queries": [q["content"] for q in c.get("questions", [])[1:]],
+            "occurrence_count": c["count"],
+            "avg_top1_score": c.get("avg_rag_score"),
+            "last_asked": last_asked,
+            "category": None,
+        })
+    return result
+
+
+# 동기화 (/sync/* 경로)
+
+@router.get("/sync/status")
+async def get_sync_status_v2(
+    source: str | None = None,
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
+) -> list[dict[str, Any]]:
+    """동기화 상태 조회 (/sync-status 별칭)."""
+    stmt = select(KnowledgeSyncStatus)
+    if source:
+        stmt = stmt.where(KnowledgeSyncStatus.source == source)
+    rows = (await db.execute(stmt)).scalars().all()
+    return [
+        {
+            "source": r.source,
+            "last_sync_at": r.last_sync_at.isoformat() if r.last_sync_at else None,
+            "total_synced": r.total_synced,
+            "last_error": r.last_error,
+            "updated_at": r.updated_at.isoformat() if r.updated_at else None,
+        }
+        for r in rows
+    ]
+
+
+@router.post("/sync/{source}")
+async def trigger_sync(
+    source: str,
+    _user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Jira/Confluence 동기화 즉시 트리거 (log-analyzer 프록시)."""
+    if source not in ("jira", "confluence"):
+        raise HTTPException(status_code=400, detail="source는 jira 또는 confluence여야 합니다")
+    result = await knowledge_service.call_trigger_sync(source)
+    return result
+
+
+# 문서 업로드 (/documents 경로)
+
+@router.post("/documents", status_code=202)
+async def upload_document_v2(
+    background_tasks: BackgroundTasks,
+    file: UploadFile,
+    system_id: int = Form(...),
+    tags: str | None = Form(None),
+    _user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    """문서 업로드 (/upload 별칭)."""
+    if file.content_type not in _ALLOWED_MIMES:
+        raise HTTPException(
+            status_code=415,
+            detail=f"지원하지 않는 파일 형식: {file.content_type}. 지원: pdf, docx, xlsx, pptx",
+        )
+
+    tag_list = [t.strip() for t in (tags or "").split(",") if t.strip()]
+
+    dest_dir = os.path.join(_DOCS_ROOT, str(system_id))
+    os.makedirs(dest_dir, exist_ok=True)
+    safe_name = os.path.basename(file.filename or "upload")
+    dest_path = os.path.join(dest_dir, safe_name)
+
+    content = await file.read()
+    with open(dest_path, "wb") as f:
+        f.write(content)
+
+    _mime_to_doc = {
+        "application/pdf": "pdf",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation": "pptx",
+    }
+    doc_type = _mime_to_doc.get(file.content_type or "", "unknown")
+
+    job_id = str(uuid.uuid4())
+    _jobs[job_id] = {
+        "job_id": job_id,
+        "status": "queued",
+        "file_name": safe_name,
+        "system_id": system_id,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    background_tasks.add_task(
+        _embed_document_background, job_id, dest_path, doc_type, system_id, tag_list
+    )
+    return {"job_id": job_id, "status": "queued", "file_name": safe_name}
+
+
+@router.get("/documents/{job_id}")
+async def get_upload_status_v2(
+    job_id: str,
+    _user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    """문서 업로드 Job 상태 조회 (/upload/{job_id}/status 별칭)."""
+    job = _jobs.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job을 찾을 수 없습니다.")
+    return job

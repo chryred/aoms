@@ -80,6 +80,31 @@ async def call_operator_note(
         return None
 
 
+async def call_list_operator_notes(
+    system_id: int | None = None,
+    limit: int = 20,
+    offset: int = 0,
+) -> dict[str, Any]:
+    """log-analyzer GET /knowledge/operator-notes 호출 → 목록 반환.
+
+    실패 시 빈 목록 반환 (best-effort).
+    """
+    base = LOG_ANALYZER_URL.rstrip("/")
+    params: dict[str, Any] = {"limit": limit, "offset": offset}
+    if system_id is not None:
+        params["system_id"] = system_id
+    try:
+        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+            resp = await client.get(f"{base}/knowledge/operator-notes", params=params)
+            if resp.status_code >= 400:
+                logger.warning("operator-notes list %s: %s", resp.status_code, resp.text[:200])
+                return {"items": [], "total": 0}
+            return resp.json()
+    except Exception as exc:
+        logger.warning("operator-notes list 호출 실패: %s", exc)
+        return {"items": [], "total": 0}
+
+
 async def call_update_operator_note(
     point_id: str,
     question: str,
@@ -116,6 +141,21 @@ async def call_delete_operator_note(point_id: str) -> bool:
     except Exception as exc:
         logger.warning("operator-note DELETE 호출 실패: %s", exc)
         return False
+
+
+async def call_trigger_sync(source: str) -> dict[str, Any]:
+    """log-analyzer POST /knowledge/sync/{source}/trigger 호출."""
+    base = LOG_ANALYZER_URL.rstrip("/")
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(f"{base}/knowledge/sync/{source}/trigger")
+            if resp.status_code >= 400:
+                logger.warning("sync trigger %s %s: %s", source, resp.status_code, resp.text[:200])
+                return {"queued": False}
+            return {"queued": True}
+    except Exception as exc:
+        logger.warning("sync trigger 호출 실패: %s", exc)
+        return {"queued": False}
 
 
 async def call_correction(
