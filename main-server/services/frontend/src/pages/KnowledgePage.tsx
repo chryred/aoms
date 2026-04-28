@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { BookOpen, Upload, RefreshCw, TrendingUp, Tag, ThumbsDown } from 'lucide-react'
 import { PageHeader } from '@/components/common/PageHeader'
@@ -30,6 +30,21 @@ export function KnowledgePage() {
   // 자주 묻는 질문 → 운영자 노트 추가 크로스탭 흐름 상태
   const [addNoteFromQuestion, setAddNoteFromQuestion] = useState<string | undefined>()
 
+  // 슬라이딩 탭 인디케이터
+  const tabRefs = useRef<(HTMLButtonElement | null)[]>([])
+  const [indicator, setIndicator] = useState({ left: 0, width: 0, ready: false })
+
+  useEffect(() => {
+    const idx = TABS.findIndex((t) => t.key === activeTab)
+    const btn = tabRefs.current[idx]
+    if (!btn) return
+    const { offsetLeft: left, offsetWidth: width } = btn
+    setIndicator((prev) => ({ left, width, ready: prev.ready }))
+    if (!indicator.ready) {
+      requestAnimationFrame(() => setIndicator({ left, width, ready: true }))
+    }
+  }, [activeTab, indicator.ready])
+
   const setTab = (tab: KnowledgeTab) => {
     const params = new URLSearchParams(searchParams)
     params.set('tab', tab)
@@ -59,31 +74,50 @@ export function KnowledgePage() {
       />
 
       {/* 탭 내비게이션 */}
-      <div className="border-border mb-6 border-b">
-        <nav className="flex gap-0.5 overflow-x-auto" role="tablist" aria-label="지식 관리 탭">
-          {TABS.map((tab) => (
-            <button
-              key={tab.key}
-              role="tab"
-              aria-selected={activeTab === tab.key}
-              aria-controls={`tabpanel-${tab.key}`}
-              id={`tab-${tab.key}`}
-              type="button"
-              onClick={() => setTab(tab.key)}
-              className={cn(
-                'flex items-center gap-2 border-b-2 px-4 py-2.5 text-sm font-medium whitespace-nowrap',
-                'transition-[color,border-color] duration-150',
-                'focus:ring-accent focus:ring-1 focus:outline-none',
-                activeTab === tab.key
-                  ? 'border-accent text-accent'
-                  : 'text-text-secondary hover:text-text-primary hover:border-border border-transparent',
-              )}
-            >
-              <span aria-hidden="true">{tab.icon}</span>
-              {tab.label}
-            </button>
-          ))}
-        </nav>
+      <div
+        role="tablist"
+        aria-label="지식 관리 탭"
+        className="bg-bg-base shadow-neu-pressed relative mb-4 flex w-fit max-w-full gap-1 overflow-x-auto rounded-sm p-1"
+      >
+        <span
+          aria-hidden="true"
+          className="shadow-neu-flat bg-accent pointer-events-none absolute rounded-sm"
+          style={{
+            top: 4,
+            bottom: 4,
+            left: indicator.left,
+            width: indicator.width,
+            opacity: indicator.ready ? 1 : 0,
+            transition: indicator.ready
+              ? 'left 0.22s cubic-bezier(0.25, 1, 0.5, 1), width 0.22s cubic-bezier(0.25, 1, 0.5, 1), opacity 0.12s ease'
+              : 'none',
+          }}
+        />
+        {TABS.map((tab, i) => (
+          <button
+            key={tab.key}
+            ref={(el) => {
+              tabRefs.current[i] = el
+            }}
+            role="tab"
+            aria-selected={activeTab === tab.key}
+            aria-controls={`tabpanel-${tab.key}`}
+            id={`tab-${tab.key}`}
+            type="button"
+            onClick={() => setTab(tab.key)}
+            className={cn(
+              'relative z-10 flex items-center gap-2 rounded-sm px-4 py-2.5 text-sm font-medium whitespace-nowrap',
+              'focus:ring-accent focus:ring-offset-bg-base focus:ring-1 focus:outline-none',
+              'transition-colors duration-150',
+              activeTab === tab.key
+                ? 'text-accent-contrast font-semibold'
+                : 'text-text-secondary hover:text-text-primary',
+            )}
+          >
+            <span aria-hidden="true">{tab.icon}</span>
+            {tab.label}
+          </button>
+        ))}
       </div>
 
       {/* 탭 컨텐츠 */}
