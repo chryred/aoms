@@ -97,6 +97,43 @@ export function GuestEntryPage() {
 
   useEffect(() => () => abortRef.current?.abort(), [])
 
+  /**
+   * phase 전환을 브라우저 history와 동기화.
+   * - 뒤로가기 시 popstate 이벤트로 이전 phase로 복원
+   * - visitor_form으로 돌아가면 세션 상태 모두 초기화 (의도적 새 시작)
+   * - 첫 마운트 시 visitor_form을 history baseline으로 기록
+   */
+  const goToPhase = useCallback((next: Phase) => {
+    window.history.pushState({ phase: next }, '', window.location.pathname)
+    setPhase(next)
+  }, [])
+
+  useEffect(() => {
+    // 첫 마운트 baseline — replaceState로 현재 entry에 phase 정보만 기록 (새 entry 생성 X)
+    if (!window.history.state?.phase) {
+      window.history.replaceState({ phase: 'visitor_form' }, '', window.location.pathname)
+    }
+
+    const handlePopState = (e: PopStateEvent) => {
+      const restored = (e.state?.phase as Phase | undefined) ?? 'visitor_form'
+      setPhase(restored)
+      if (restored === 'visitor_form') {
+        // 폼으로 돌아가면 깨끗한 시작 — 진행 중 SSE 취소 + 상태 초기화
+        abortRef.current?.abort()
+        setSession(null)
+        setMessages([])
+        setStreamText('')
+        setStreamThought(undefined)
+        setStreamingTools([])
+        setCachedSessions([])
+        setSelectedSystemIds([])
+        setIncidentId(null)
+      }
+    }
+    window.addEventListener('popstate', handlePopState)
+    return () => window.removeEventListener('popstate', handlePopState)
+  }, [])
+
   const finishStream = useCallback(() => {
     setStreamText('')
     setStreamThought(undefined)
@@ -228,10 +265,10 @@ export function GuestEntryPage() {
     if (cache && cache.visitor_employee_id === s.employee_id && cache.sessions.length > 0) {
       setCachedSessions(cache.sessions)
       setSession(s)
-      setPhase('recent_sessions')
+      goToPhase('recent_sessions')
     } else {
       setSession(s)
-      setPhase('system_select')
+      goToPhase('system_select')
     }
   }
 
@@ -248,32 +285,32 @@ export function GuestEntryPage() {
           system_id: meta?.system_ids?.[0] ?? null,
         })
         setSelectedSystemIds(meta?.system_ids ?? [])
-        setPhase('chat')
+        goToPhase('chat')
       } catch {
         toast.error('이전 대화를 불러오지 못했습니다.')
       }
     },
-    [session, cachedSessions],
+    [session, cachedSessions, goToPhase],
   )
 
   const handleStartNew = () => {
-    setPhase('system_select')
+    goToPhase('system_select')
   }
 
   const handleWipeAll = () => {
     wipeCache()
     setCachedSessions([])
-    setPhase('system_select')
+    goToPhase('system_select')
   }
 
   const handleSystemSelected = (systemIds: number[]) => {
     setSelectedSystemIds(systemIds)
-    setPhase('chat')
+    goToPhase('chat')
   }
 
   const handleEscalated = (id: number) => {
     setIncidentId(id)
-    setPhase('escalated')
+    goToPhase('escalated')
   }
 
   if (phase === 'visitor_form') {
@@ -313,8 +350,8 @@ export function GuestEntryPage() {
           size="sm"
           className="mt-6"
           onClick={() => {
-            setPhase('chat')
             setIncidentId(null)
+            goToPhase('chat')
           }}
         >
           채팅으로 돌아가기
