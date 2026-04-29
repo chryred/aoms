@@ -618,3 +618,22 @@ class OAuthAuthorizationCode(Base):
     __table_args__ = (
         Index("idx_oauth_codes_expires", "expires_at"),
     )
+
+
+class OAuthRefreshToken(Base):
+    """OIDC Refresh Token — Rotation + Reuse Detection"""
+    __tablename__ = "oauth_refresh_tokens"
+
+    token       = Column(String(200), primary_key=True)
+    client_id   = Column(String(100), nullable=False)
+    user_id     = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    scope       = Column(Text, nullable=False, default="openid profile email")
+    expires_at  = Column(DateTime, nullable=False)
+    revoked     = Column(Boolean, nullable=False, default=False)
+    replaced_by = Column(String(200))
+    created_at  = Column(DateTime, nullable=False, default=func.now())
+
+    __table_args__ = (
+        Index("idx_oauth_rt_user_client", "user_id", "client_id"),
+        Index("idx_oauth_rt_expires", "expires_at"),
+    )

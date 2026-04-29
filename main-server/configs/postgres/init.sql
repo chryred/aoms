@@ -612,6 +612,21 @@ CREATE TABLE IF NOT EXISTS oauth_authorization_codes (
 
 CREATE INDEX IF NOT EXISTS idx_oauth_codes_expires ON oauth_authorization_codes(expires_at);
 
+-- OIDC Refresh Token — Rotation + Reuse Detection
+CREATE TABLE IF NOT EXISTS oauth_refresh_tokens (
+    token        VARCHAR(200) PRIMARY KEY,
+    client_id    VARCHAR(100) NOT NULL,
+    user_id      INTEGER      NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    scope        TEXT         NOT NULL DEFAULT 'openid profile email',
+    expires_at   TIMESTAMP    NOT NULL,
+    revoked      BOOLEAN      NOT NULL DEFAULT FALSE,
+    replaced_by  VARCHAR(200),                        -- Rotation: 교체된 새 토큰
+    created_at   TIMESTAMP    NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_oauth_rt_user_client ON oauth_refresh_tokens(user_id, client_id);
+CREATE INDEX IF NOT EXISTS idx_oauth_rt_expires ON oauth_refresh_tokens(expires_at);
+
 -- ── 샘플 데이터 (선택) ────────────────────────────────────────────────
 -- INSERT INTO systems(system_name, display_name, host, os_type, system_type)
 -- VALUES ('customer-experience', '고객 경험 시스템', 'cx-was01', 'linux', 'was');

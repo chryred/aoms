@@ -16,16 +16,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from auth import (
     ALGORITHM,
     OAUTH_ISSUER,
+    OAUTH_REFRESH_TOKEN_EXPIRE_DAYS,
     SECRET_KEY,
     create_id_token,
     create_oauth_access_token,
+    create_oauth_refresh_token,
     get_jwks,
     get_password_hash,
     require_admin,
     verify_password,
 )
 from database import get_db
-from models import OAuthAuthorizationCode, OAuthClient, User
+from models import OAuthAuthorizationCode, OAuthClient, OAuthRefreshToken, User
 
 router = APIRouter(tags=["OAuth / OIDC"])
 
@@ -43,6 +45,7 @@ async def openid_configuration():
         "userinfo_endpoint": f"{OAUTH_ISSUER}/oauth/userinfo",
         "jwks_uri": f"{OAUTH_ISSUER}/oauth/jwks",
         "response_types_supported": ["code"],
+        "grant_types_supported": ["authorization_code", "refresh_token"],
         "subject_types_supported": ["public"],
         "id_token_signing_alg_values_supported": ["RS256"],
         "scopes_supported": ["openid", "profile", "email"],
@@ -142,21 +145,38 @@ async def authorize_login(body: AuthorizeRequest, db: AsyncSession = Depends(get
 @router.post("/oauth/token")
 async def token(
     grant_type: str = Form(...),
-    code: str = Form(...),
     client_id: str = Form(...),
     client_secret: str = Form(...),
-    redirect_uri: str = Form(...),
+    code: Optional[str] = Form(None),
+    redirect_uri: Optional[str] = Form(None),
+    refresh_token: Optional[str] = Form(None),
     db: AsyncSession = Depends(get_db),
 ):
-    """Authorization Code → access_token + id_token 교환.
-    타시스템 백엔드에서 서버-to-서버로 호출한다."""
-    if grant_type != "authorization_code":
-        raise HTTPException(status_code=400, detail="grant_type=authorization_code 만 지원합니다")
-
+    """토큰 엔드포인트.
+    - grant_type=authorization_code : code → access_token + id_token + refresh_token
+    - grant_type=refresh_token       : refresh_token → 새 access_token + 새 refresh_token (Rotation)
+    """
     client = await _get_active_client(db, client_id)
     if not verify_password(client_secret, client.client_secret):
         raise HTTPException(status_code=401, detail="client_secret이 올바르지 않습니다")
 
+    if grant_type == "authorization_code":
+        if not code or not redirect_uri:
+            raise HTTPException(status_code=400, detail="code와 redirect_uri가 필요합니다")
+        return await _token_from_code(db, client_id, code, redirect_uri)
+
+    if grant_type == "refresh_token":
+        if not refresh_token:
+            raise HTTPException(status_code=400, detail="refresh_token이 필요합니다")
+        return await _token_from_refresh(db, client_id, refresh_token)
+
+    raise HTTPException(status_code=400, detail="지원하지 않는 grant_type입니다")
+
+
+async def _token_from_code(
+    db: AsyncSession, client_id: str, code: str, redirect_uri: str
+) -> dict:
+    """authorization_code grant — code를 토큰으로 교환."""
     auth_code = await db.get(OAuthAuthorizationCode, code)
     if not auth_code:
         raise HTTPException(status_code=400, detail="유효하지 않은 code입니다")
@@ -170,21 +190,78 @@ async def token(
         raise HTTPException(status_code=400, detail="code가 만료되었습니다")
 
     auth_code.used = True
-    await db.commit()
 
     user = await db.get(User, auth_code.user_id)
     if not user or not user.is_active or not user.is_approved:
         raise HTTPException(status_code=401, detail="사용자를 찾을 수 없거나 비활성 상태입니다")
 
-    id_token = create_id_token(user, client_id, nonce=auth_code.nonce)
-    access_token = create_oauth_access_token(user, client_id)
+    id_token_str = create_id_token(user, client_id, nonce=auth_code.nonce)
+    access_token_str = create_oauth_access_token(user, client_id)
+    rt_token, rt_expires = _make_refresh_token_record(client_id, user.id, auth_code.scope)
+    db.add(rt_token)
+    await db.commit()
 
     return {
-        "access_token": access_token,
-        "id_token": id_token,
+        "access_token": access_token_str,
+        "id_token": id_token_str,
         "token_type": "Bearer",
         "expires_in": 3600,
+        "refresh_token": rt_token.token,
+        "refresh_token_expires_in": OAUTH_REFRESH_TOKEN_EXPIRE_DAYS * 86400,
         "scope": auth_code.scope,
+    }
+
+
+async def _token_from_refresh(
+    db: AsyncSession, client_id: str, refresh_token_value: str
+) -> dict:
+    """refresh_token grant — Rotation + Reuse Detection."""
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    rt = await db.get(OAuthRefreshToken, refresh_token_value)
+    if not rt:
+        raise HTTPException(status_code=401, detail="유효하지 않은 refresh_token입니다")
+    if rt.client_id != client_id:
+        raise HTTPException(status_code=401, detail="refresh_token이 해당 client에 속하지 않습니다")
+
+    # Reuse Detection: 이미 폐기된 토큰 재사용 → 탈취 의심 → 전체 세션 무효화
+    if rt.revoked:
+        revoke_result = await db.execute(
+            select(OAuthRefreshToken)
+            .where(OAuthRefreshToken.user_id == rt.user_id)
+            .where(OAuthRefreshToken.client_id == client_id)
+            .where(OAuthRefreshToken.revoked.is_(False))
+        )
+        for active_rt in revoke_result.scalars().all():
+            active_rt.revoked = True
+        await db.commit()
+        raise HTTPException(
+            status_code=401,
+            detail="토큰이 재사용되었습니다. 보안을 위해 재로그인이 필요합니다",
+        )
+
+    if now > rt.expires_at:
+        raise HTTPException(status_code=401, detail="refresh_token이 만료되었습니다")
+
+    user = await db.get(User, rt.user_id)
+    if not user or not user.is_active or not user.is_approved:
+        raise HTTPException(status_code=401, detail="사용자를 찾을 수 없거나 비활성 상태입니다")
+
+    # Rotation: 기존 토큰 폐기 + 새 토큰 발급
+    new_rt, _ = _make_refresh_token_record(client_id, user.id, rt.scope)
+    rt.revoked = True
+    rt.replaced_by = new_rt.token
+    db.add(new_rt)
+
+    access_token_str = create_oauth_access_token(user, client_id)
+    await db.commit()
+
+    return {
+        "access_token": access_token_str,
+        "token_type": "Bearer",
+        "expires_in": 3600,
+        "refresh_token": new_rt.token,
+        "refresh_token_expires_in": OAUTH_REFRESH_TOKEN_EXPIRE_DAYS * 86400,
     }
 
 
@@ -290,6 +367,23 @@ async def deactivate_client(
 
 
 # ── 내부 헬퍼 ───────────────────────────────────────────────────────────────
+
+
+def _make_refresh_token_record(
+    client_id: str, user_id: int, scope: str
+) -> tuple["OAuthRefreshToken", datetime]:
+    """새 OAuthRefreshToken 인스턴스와 만료 시각을 반환 (DB add는 호출자가 수행)."""
+    token_value = create_oauth_refresh_token()
+    expires_at = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(
+        days=OAUTH_REFRESH_TOKEN_EXPIRE_DAYS
+    )
+    return OAuthRefreshToken(
+        token=token_value,
+        client_id=client_id,
+        user_id=user_id,
+        scope=scope,
+        expires_at=expires_at,
+    ), expires_at
 
 
 async def _get_active_client(db: AsyncSession, client_id: str) -> OAuthClient:

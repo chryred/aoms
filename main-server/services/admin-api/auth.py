@@ -1,5 +1,6 @@
 import base64
 import os
+import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -28,6 +29,7 @@ REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "7"))
 # ── OIDC IdP 설정 (ADR-014) ─────────────────────────────────────────────────
 OAUTH_ISSUER = os.getenv("OAUTH_ISSUER", "http://localhost:8080")
 OAUTH_ID_TOKEN_EXPIRE_MINUTES = 60
+OAUTH_REFRESH_TOKEN_EXPIRE_DAYS = 1
 
 _pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -188,6 +190,11 @@ def create_id_token(user: User, client_id: str, nonce: Optional[str] = None) -> 
     if nonce:
         payload["nonce"] = nonce
     return jwt.encode(payload, private_key, algorithm="RS256")
+
+
+def create_oauth_refresh_token() -> str:
+    """opaque 랜덤 Refresh Token (JWT 아님 — DB 조회로 검증)."""
+    return secrets.token_urlsafe(48)
 
 
 def create_oauth_access_token(user: User, client_id: str) -> str:
