@@ -17,6 +17,7 @@ from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models import ChatMessage, ChatSession, LlmAgentConfig
+from schemas import ScreenContext
 from services.chat_tools.registry import list_enabled_tools, run_tool
 from services.llm_client import call_llm_stream, call_llm_text
 
@@ -61,8 +62,36 @@ async def _get_agent_code(db: AsyncSession, area_code: str) -> str:
     return (row.agent_code if row and row.is_active else "") or ""
 
 
-def _decision_prompt(tools: list[dict[str, Any]], history: str, user_message: str) -> str:
+def _format_screen_context_line(ctx: ScreenContext | None) -> str | None:
+    """ScreenContext를 LLM 프롬프트용 한 줄 메타 문자열로 변환.
+
+    반환 예: "[현재 사용자 화면: 운영 대시보드 / 시스템: A1 / 인시던트: inc-123]"
+    모든 필드가 비어 있으면 None 반환.
+    """
+    if ctx is None:
+        return None
+    parts: list[str] = []
+    screen_val = ctx.screen_label or ctx.screen
+    if screen_val:
+        parts.append(screen_val)
+    if ctx.system_id:
+        parts.append(f"시스템: {ctx.system_id}")
+    if ctx.incident_id:
+        parts.append(f"인시던트: {ctx.incident_id}")
+    if not parts:
+        return None
+    return "[현재 사용자 화면: " + " / ".join(parts) + "]"
+
+
+def _decision_prompt(
+    tools: list[dict[str, Any]],
+    history: str,
+    user_message: str,
+    screen_context: ScreenContext | None = None,
+) -> str:
     tools_json = json.dumps(tools, ensure_ascii=False)
+    ctx_line = _format_screen_context_line(screen_context)
+    ctx_block = f"사용자 화면 컨텍스트: {ctx_line}\n" if ctx_line else ""
     return f"""역할: 당신은 Synapse-V 운영 어시스턴트입니다. 사용자 질문을 해결하기 위해
 아래 도구를 사용할 수 있습니다.
 
@@ -97,7 +126,7 @@ def _decision_prompt(tools: list[dict[str, Any]], history: str, user_message: st
 대화 이력:
 {history}
 
-사용자 새 메시지: {user_message}
+{ctx_block}사용자 새 메시지: {user_message}
 
 JSON:"""
 
@@ -125,12 +154,15 @@ def _help_decision_prompt(
     history: str,
     user_message: str,
     system_id: int | None,
+    screen_context: ScreenContext | None = None,
 ) -> str:
     tools_json = json.dumps(tools, ensure_ascii=False)
     system_hint = (
         f"- 질문은 system_id={system_id} 시스템 관련 지식으로 우선 검색한다.\n"
         if system_id else ""
     )
+    ctx_line = _format_screen_context_line(screen_context)
+    ctx_block = f"사용자 화면 컨텍스트: {ctx_line}\n" if ctx_line else ""
     return f"""역할: 당신은 백화점 현업 직원을 지원하는 운영 지식 안내 어시스턴트입니다.
 비기술 사용자에게 운영 매뉴얼·정책·절차를 쉬운 말로 안내합니다.
 
@@ -149,7 +181,7 @@ def _help_decision_prompt(
 대화 이력:
 {history}
 
-사용자 새 메시지: {user_message}
+{ctx_block}사용자 새 메시지: {user_message}
 
 JSON:"""
 
@@ -235,6 +267,7 @@ async def run_react_stream(
     user_message: str,
     *,
     attachments: list | None = None,
+    screen_context: ScreenContext | None = None,
 ) -> AsyncIterator[dict[str, Any]]:
     """SSE 이벤트 async iterator. 각 dict는 `{type, data}` 구조."""
 
@@ -282,9 +315,9 @@ async def run_react_stream(
         history = _history_lines(history_msgs)
         if session.area_code == "help_inquiry":
             system_id = getattr(session, "visitor_system_id", None)
-            prompt = _help_decision_prompt(tools, history, user_message, system_id)
+            prompt = _help_decision_prompt(tools, history, user_message, system_id, screen_context)
         else:
-            prompt = _decision_prompt(tools, history, user_message)
+            prompt = _decision_prompt(tools, history, user_message, screen_context)
 
         try:
             raw = await call_llm_text(prompt, max_tokens=10000, agent_code=agent_code)

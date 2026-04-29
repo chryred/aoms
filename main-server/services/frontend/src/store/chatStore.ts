@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import type { SynapStateType } from '@/components/mascot'
+import type { ScreenContext } from '@/types/chat'
 
 // Module-level timer — keeps NodeJS.Timeout out of Zustand state
 let alertTimer: ReturnType<typeof setTimeout> | null = null
@@ -17,6 +18,8 @@ interface ChatStoreState {
   thinking: boolean
   inputFocused: boolean
   alertActive: boolean
+  /** ChatLauncher가 열릴 때 현재 화면 컨텍스트를 1회용으로 저장. localStorage에서 제외. */
+  pendingScreenContext: ScreenContext | null
 
   // actions
   toggleOpen: () => void
@@ -29,6 +32,9 @@ interface ChatStoreState {
   receiveCritical: () => void
   incrementUnread: () => void
   resetUnread: () => void
+  setPendingScreenContext: (ctx: ScreenContext) => void
+  /** 읽고 null로 초기화 (1회 소비) */
+  consumePendingScreenContext: () => ScreenContext | null
 }
 
 export const useChatStore = create<ChatStoreState>()(
@@ -41,6 +47,7 @@ export const useChatStore = create<ChatStoreState>()(
       thinking: false,
       inputFocused: false,
       alertActive: false,
+      pendingScreenContext: null,
 
       toggleOpen: () => set((state) => ({ isOpen: !state.isOpen })),
       setOpen: (open) => set({ isOpen: open }),
@@ -58,6 +65,15 @@ export const useChatStore = create<ChatStoreState>()(
       },
       incrementUnread: () => set((s) => ({ unread: s.unread + 1 })),
       resetUnread: () => set({ unread: 0 }),
+      setPendingScreenContext: (ctx) => set({ pendingScreenContext: ctx }),
+      consumePendingScreenContext: () => {
+        let ctx: ScreenContext | null = null
+        set((s) => {
+          ctx = s.pendingScreenContext
+          return { pendingScreenContext: null }
+        })
+        return ctx
+      },
     }),
     {
       name: 'chat-ui-state',

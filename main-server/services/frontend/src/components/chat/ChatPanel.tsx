@@ -10,8 +10,9 @@ import { useChatAttachments } from '@/hooks/useChatAttachments'
 import { useChatStore } from '@/store/chatStore'
 import { useSystems } from '@/hooks/queries/useSystems'
 import { qk } from '@/constants/queryKeys'
-import type { ChatMessage, ChatStreamEvent } from '@/types/chat'
+import type { ChatMessage, ChatStreamEvent, ScreenContext } from '@/types/chat'
 import { cn } from '@/lib/utils'
+import { SCREEN_PROMPTS } from '@/config/chatPrompts'
 import { ChatComposer } from './ChatComposer'
 import { ChatHeader } from './ChatHeader'
 import { ChatMessageView, StreamingAssistantMessage } from './ChatMessage'
@@ -68,6 +69,10 @@ export function ChatPanel() {
   const setFilterSystemId = useChatStore((s) => s.setFilterSystemId)
   const setThinking = useChatStore((s) => s.setThinking)
   const resetUnread = useChatStore((s) => s.resetUnread)
+  const consumePendingScreenContext = useChatStore((s) => s.consumePendingScreenContext)
+
+  // 패널이 열릴 때 1회 소비하여 로컬 state에 보관
+  const [latestScreenContext, setLatestScreenContext] = useState<ScreenContext | null>(null)
 
   const { data: systems = [] } = useSystems()
 
@@ -120,10 +125,14 @@ export function ChatPanel() {
     setThinking(isStreaming)
   }, [isStreaming, setThinking])
 
-  // 패널 열릴 때 미읽은 카운트 초기화
+  // 패널 열릴 때 미읽은 카운트 초기화 + 컨텍스트 1회 소비
   useEffect(() => {
-    if (isOpen) resetUnread()
-  }, [isOpen, resetUnread])
+    if (isOpen) {
+      resetUnread()
+      const ctx = consumePendingScreenContext()
+      if (ctx) setLatestScreenContext(ctx)
+    }
+  }, [isOpen, resetUnread, consumePendingScreenContext])
 
   // 스트리밍이 끝나면 message list 재조회로 화면 교체
   const finishStream = useCallback(() => {
@@ -168,6 +177,7 @@ export function ChatPanel() {
           },
           controller.signal,
           filterSystemId,
+          latestScreenContext,
         )
       } catch (err) {
         console.error(err)
@@ -178,7 +188,15 @@ export function ChatPanel() {
         finishStream()
       }
     },
-    [currentSessionId, isStreaming, readyKeys, clearAttachments, finishStream, filterSystemId],
+    [
+      currentSessionId,
+      isStreaming,
+      readyKeys,
+      clearAttachments,
+      finishStream,
+      filterSystemId,
+      latestScreenContext,
+    ],
   )
 
   const handleEvent = (event: ChatStreamEvent) => {
@@ -384,6 +402,36 @@ export function ChatPanel() {
             <p className="text-text-primary mb-3 text-center text-sm font-medium">
               어떤 도움이 필요하신가요?
             </p>
+
+            {/* 화면별 quick prompt chips */}
+            {latestScreenContext?.screen && SCREEN_PROMPTS[latestScreenContext.screen] && (
+              <div className="mb-3">
+                {latestScreenContext.screen_label && (
+                  <p className="text-text-secondary mb-1.5 text-[11px]">
+                    현재 화면: {latestScreenContext.screen_label}
+                  </p>
+                )}
+                <div className="flex flex-wrap gap-1.5">
+                  {SCREEN_PROMPTS[latestScreenContext.screen].map((chip) => (
+                    <button
+                      key={chip}
+                      type="button"
+                      onClick={() => setRestoreValue({ content: chip, nonce: Date.now() })}
+                      disabled={isStreaming || !currentSessionId}
+                      className={cn(
+                        'border-border rounded-sm border px-2.5 py-1 text-left text-xs transition-colors',
+                        'text-text-secondary hover:bg-accent-muted hover:border-accent hover:text-text-primary',
+                        'focus:ring-accent focus:ring-1 focus:outline-none',
+                        'disabled:cursor-not-allowed disabled:opacity-40',
+                      )}
+                    >
+                      {chip}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div className="grid grid-cols-1 gap-2">
               {PROMPT_CATEGORIES.map(({ icon: Icon, category, prompt }) => (
                 <button

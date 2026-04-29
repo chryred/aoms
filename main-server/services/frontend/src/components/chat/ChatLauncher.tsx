@@ -2,17 +2,37 @@ import { X } from 'lucide-react'
 import { useChatStore, useSynapState } from '@/store/chatStore'
 import { Synap } from '@/components/mascot'
 import { cn } from '@/lib/utils'
+import { useScreenContext } from '@/hooks/useScreenContext'
 
 /** 우하단 고정 플로팅 AI 어시스턴트 버튼. AppLayout이 /chat 페이지에서 렌더링을 스킵한다. */
 export function ChatLauncher() {
   const isOpen = useChatStore((s) => s.isOpen)
-  const toggle = useChatStore((s) => s.toggleOpen)
+  const setOpen = useChatStore((s) => s.setOpen)
+  const setPendingScreenContext = useChatStore((s) => s.setPendingScreenContext)
   const unread = useChatStore((s) => s.unread)
   const synapState = useSynapState()
+  const screenContext = useScreenContext()
+
+  const handleClick = () => {
+    if (!isOpen) {
+      // false→true 전환 시에만 현재 화면 컨텍스트 캡처
+      const hasContext =
+        screenContext.screen ?? screenContext.system_id ?? screenContext.incident_id
+      if (hasContext) {
+        setPendingScreenContext(screenContext)
+      }
+    }
+    setOpen(!isOpen)
+  }
 
   return (
     <div className="fixed right-12 bottom-15 z-50 h-12 w-12">
-      {!isOpen && <span aria-hidden className="animate-chat-pulse pointer-events-none absolute inset-0 rounded-full" />}
+      {!isOpen && (
+        <span
+          aria-hidden
+          className="animate-chat-pulse pointer-events-none absolute inset-0 rounded-full"
+        />
+      )}
       {!isOpen && unread > 0 && (
         <span
           aria-label={`미읽은 메시지 ${unread}개`}
@@ -26,7 +46,7 @@ export function ChatLauncher() {
         aria-label={isOpen ? 'AI 어시스턴트 닫기' : 'AI 어시스턴트 열기'}
         aria-expanded={isOpen}
         title="AI 어시스턴트"
-        onClick={toggle}
+        onClick={handleClick}
         className={cn(
           'flex h-12 w-12 items-center justify-center rounded-full',
           'transition-[transform,box-shadow,background-color] duration-400 ease-in-out',

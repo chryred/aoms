@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import toast from 'react-hot-toast'
 import { useParams, useNavigate } from 'react-router-dom'
+import { useRegisterScreenContext } from '@/store/chatContextStore'
 import {
   ArrowLeft,
   AlertTriangle,
@@ -103,6 +104,8 @@ export function IncidentDetailPage() {
   const { id } = useParams<{ id: string }>()
   const incidentId = Number(id)
   const navigate = useNavigate()
+
+  useRegisterScreenContext({ incident_id: id })
 
   const { data: incident, isLoading, isError } = useIncident(incidentId)
   const updateMut = useUpdateIncident(incidentId)

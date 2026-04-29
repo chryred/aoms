@@ -138,7 +138,7 @@ make test-api        # 단위 테스트 (SQLite in-memory)
 ### [Frontend / React] UI 변경 후 별도 subagent로 시각적 검증 필수
 
 프론트엔드 컴포넌트·페이지를 수정한 뒤, 구현한 Claude 자신이 직접 검증하지 않는다.
-반드시 **`Agent` 툴로 별도 subagent 2개를 병렬 spawn하여** QA를 위임한다.
+반드시 **`Agent` 툴로 별도 subagent + model sonnet 2개를 병렬 spawn하여** QA를 위임한다.
 
 **트리거 조건** (아래 중 하나라도 해당하면 실행):
 - 새 컴포넌트·페이지 추가

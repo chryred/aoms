@@ -20,8 +20,9 @@ import { useChatAttachments } from '@/hooks/useChatAttachments'
 import { useChatStore } from '@/store/chatStore'
 import { useSystems } from '@/hooks/queries/useSystems'
 import { qk } from '@/constants/queryKeys'
-import type { ChatMessage, ChatSession, ChatStreamEvent } from '@/types/chat'
+import type { ChatMessage, ChatSession, ChatStreamEvent, ScreenContext } from '@/types/chat'
 import { cn, formatRelative } from '@/lib/utils'
+import { SCREEN_PROMPTS } from '@/config/chatPrompts'
 import { PageHeader } from '@/components/common/PageHeader'
 import { NeuButton } from '@/components/neumorphic/NeuButton'
 import { ChatComposer } from '@/components/chat/ChatComposer'
@@ -76,6 +77,17 @@ export function ChatPage() {
   const setCurrentSessionId = useChatStore((s) => s.setCurrentSessionId)
   const filterSystemId = useChatStore((s) => s.filterSystemId)
   const setFilterSystemId = useChatStore((s) => s.setFilterSystemId)
+  const consumePendingScreenContext = useChatStore((s) => s.consumePendingScreenContext)
+
+  // 진입 시 1회 소비하여 로컬 state에 보관
+  const [latestScreenContext, setLatestScreenContext] = useState<ScreenContext | null>(null)
+
+  useEffect(() => {
+    const ctx = consumePendingScreenContext()
+    if (ctx) setLatestScreenContext(ctx)
+    // consumePendingScreenContext는 안정된 함수 참조이므로 의존성에 포함
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const { data: systems = [] } = useSystems()
 
@@ -164,6 +176,7 @@ export function ChatPage() {
           },
           controller.signal,
           filterSystemId,
+          latestScreenContext,
         )
       } catch (err) {
         console.error(err)
@@ -174,7 +187,15 @@ export function ChatPage() {
         finishStream()
       }
     },
-    [currentSessionId, isStreaming, readyKeys, clearAttachments, finishStream, filterSystemId],
+    [
+      currentSessionId,
+      isStreaming,
+      readyKeys,
+      clearAttachments,
+      finishStream,
+      filterSystemId,
+      latestScreenContext,
+    ],
   )
 
   const handleEvent = (event: ChatStreamEvent) => {
@@ -470,6 +491,36 @@ export function ChatPage() {
                 <p className="text-text-primary mb-3 text-center text-sm font-medium">
                   어떤 도움이 필요하신가요?
                 </p>
+
+                {/* 화면별 quick prompt chips */}
+                {latestScreenContext?.screen && SCREEN_PROMPTS[latestScreenContext.screen] && (
+                  <div className="mb-3">
+                    {latestScreenContext.screen_label && (
+                      <p className="text-text-secondary mb-1.5 text-[11px]">
+                        현재 화면: {latestScreenContext.screen_label}
+                      </p>
+                    )}
+                    <div className="flex flex-wrap gap-1.5">
+                      {SCREEN_PROMPTS[latestScreenContext.screen].map((chip) => (
+                        <button
+                          key={chip}
+                          type="button"
+                          onClick={() => setRestoreValue({ content: chip, nonce: Date.now() })}
+                          disabled={isStreaming || !currentSessionId}
+                          className={cn(
+                            'border-border rounded-sm border px-2.5 py-1 text-left text-xs transition-colors',
+                            'text-text-secondary hover:bg-accent-muted hover:border-accent hover:text-text-primary',
+                            'focus:ring-accent focus:ring-1 focus:outline-none',
+                            'disabled:cursor-not-allowed disabled:opacity-40',
+                          )}
+                        >
+                          {chip}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
                   {PROMPT_CATEGORIES.map(({ icon: Icon, category, prompt }) => (
                     <button

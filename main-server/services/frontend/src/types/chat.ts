@@ -1,5 +1,12 @@
 export type ChatRole = 'user' | 'assistant' | 'tool'
 
+export interface ScreenContext {
+  screen?: string
+  screen_label?: string
+  system_id?: string
+  incident_id?: string
+}
+
 export interface ChatAttachment {
   type: 'image'
   key: string

@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from auth import get_current_user
 from database import AsyncSessionLocal, get_db
 from models import ChatMessage, ChatSession
-from schemas import ChatMessageOut, ChatSendIn, ChatSessionOut
+from schemas import ChatMessageOut, ChatSendIn, ChatSessionOut, ScreenContext
 from services.chat_agent import run_react_stream
 
 router = APIRouter(prefix="/api/v1/chat", tags=["chat"])
@@ -119,7 +119,9 @@ async def send_message(
                 )
             try:
                 async for event in run_react_stream(
-                    db, session, payload.content, attachments=attachments
+                    db, session, payload.content,
+                    attachments=attachments,
+                    screen_context=payload.screen_context,
                 ):
                     yield _sse(event["type"], event.get("data", {}))
             except Exception as e:  # noqa: BLE001

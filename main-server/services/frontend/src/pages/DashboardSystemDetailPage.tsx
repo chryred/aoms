@@ -1,5 +1,6 @@
 import { useState, useMemo, useCallback, useEffect } from 'react'
 import { useParams, Link } from 'react-router-dom'
+import { useRegisterScreenContext } from '@/store/chatContextStore'
 import {
   ArrowLeft,
   AlertCircle,
@@ -219,6 +220,8 @@ function ProcessTreemap({ data }: { data: ProcessSummary[] }) {
 
 export function DashboardSystemDetailPage() {
   const { systemId } = useParams<{ systemId: string }>()
+
+  useRegisterScreenContext({ system_id: systemId })
 
   const [timeRange, setTimeRange] = useState<TimeRange>('6h')
   const [chartPopup, setChartPopup] = useState<{ group: string; collectorType: string } | null>(

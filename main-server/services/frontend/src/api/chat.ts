@@ -1,5 +1,11 @@
 import { adminApi } from '@/lib/ky-client'
-import type { ChatAttachment, ChatMessage, ChatSession, ChatStreamEvent } from '@/types/chat'
+import type {
+  ChatAttachment,
+  ChatMessage,
+  ChatSession,
+  ChatStreamEvent,
+  ScreenContext,
+} from '@/types/chat'
 import { useAuthStore } from '@/store/authStore'
 
 export const chatApi = {
@@ -29,6 +35,7 @@ export const chatApi = {
  * SSE 스트리밍 전송. ky 대신 fetch + ReadableStream으로 구현해 토큰 단위로 처리.
  * AbortController로 취소 가능.
  * @param systemId - RAG 검색 필터용 시스템 ID (null이면 전체 시스템 검색)
+ * @param screenContext - 현재 화면 컨텍스트 (옵셔널, 빈 객체이면 전송하지 않음)
  */
 export async function streamChatMessage(
   sessionId: string,
@@ -37,9 +44,17 @@ export async function streamChatMessage(
   onEvent: (event: ChatStreamEvent) => void,
   signal?: AbortSignal,
   systemId?: number | null,
+  screenContext?: ScreenContext | null,
 ): Promise<void> {
   const base = (import.meta.env.VITE_ADMIN_API_URL as string | undefined) ?? ''
   const token = useAuthStore.getState().token
+
+  const hasScreenContext =
+    screenContext != null &&
+    (screenContext.screen != null ||
+      screenContext.system_id != null ||
+      screenContext.incident_id != null)
+
   const resp = await fetch(`${base}/api/v1/chat/sessions/${sessionId}/messages`, {
     method: 'POST',
     credentials: 'include',
@@ -52,6 +67,7 @@ export async function streamChatMessage(
       content,
       attachment_keys: attachmentKeys,
       ...(systemId != null ? { system_id: systemId } : {}),
+      ...(hasScreenContext ? { screen_context: screenContext } : {}),
     }),
     signal,
   })

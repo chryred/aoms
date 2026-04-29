@@ -311,7 +311,7 @@ DB 변경: `chat_sessions.user_id` nullable, `visitor_employee_id/email/system_i
   - `GET /api/v1/chat/sessions` — 본인 세션 목록
   - `DELETE /api/v1/chat/sessions/{id}` — 세션 삭제 (첨부 파일도 정리)
   - `GET /api/v1/chat/sessions/{id}/messages` — 메시지 이력
-  - `POST /api/v1/chat/sessions/{id}/messages` → **SSE** (text/event-stream). body: `{content, attachment_keys}`
+  - `POST /api/v1/chat/sessions/{id}/messages` → **SSE** (text/event-stream). body: `{content, attachment_keys, screen_context?}` — `screen_context: {screen, screen_label, system_id?, incident_id?}`은 화면 진입 시 ChatLauncher가 chatStore에 보관 → ChatPage가 메시지 전송 시 첨부. LLM 프롬프트 1턴에만 한 줄 메타로 prepend되며 chat_messages 본문에는 저장되지 않음.
     - 이벤트 타입: `user_saved` / `iter_start` / `thought` / `tool_call` / `tool_result` / `token` / `final` / `error`
     - DevX 폴백: 완성 텍스트를 청크 분할하여 토큰 스트리밍
 - **첨부**

@@ -798,9 +798,17 @@ class ChatMessageOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class ScreenContext(BaseModel):
+    screen: str | None = None        # 'dashboard', 'incidents', 'systems', 'reports', 'knowledge', 'alerts'
+    screen_label: str | None = None   # 사람이 읽는 한국어 라벨
+    system_id: str | None = None
+    incident_id: str | None = None
+
+
 class ChatSendIn(BaseModel):
     content: str
     attachment_keys: list[str] = []
+    screen_context: ScreenContext | None = None  # 현재 사용자 화면 컨텍스트 (옵셔널)
 
 
 # ── V1 Knowledge RAG ─────────────────────────────────────────────────────────
