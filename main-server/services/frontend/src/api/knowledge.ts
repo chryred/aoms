@@ -31,7 +31,6 @@ export interface OperatorNoteListParams {
 }
 
 export interface FeedbackListParams {
-  system_id?: number
   q?: string
   limit?: number
   offset?: number

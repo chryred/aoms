@@ -14,6 +14,7 @@ interface UploadEntry {
   file: File
   jobId: string | null
   status: UploadJob['status'] | 'uploading'
+  systemName: string
   error?: string
   pointCount?: number
 }
@@ -44,6 +45,7 @@ export function DocumentUploadTab() {
           file,
           jobId: null,
           status: 'uploading',
+          systemName: systems.find(s => s.id === Number(selectedSystemId))?.display_name ?? selectedSystemId,
         }
         setEntries((prev) => [entry, ...prev])
 
@@ -70,7 +72,7 @@ export function DocumentUploadTab() {
         )
       })
     },
-    [selectedSystemId, tags, uploadMutation],
+    [selectedSystemId, tags, uploadMutation, systems],
   )
 
   const handleDrop = useCallback(
@@ -200,7 +202,7 @@ function UploadEntryRow({
       <div className="min-w-0 flex-1">
         <p className="text-text-primary truncate text-sm font-medium">{entry.file.name}</p>
         <p className="text-text-secondary text-xs">
-          {Math.round(entry.file.size / 1024)}KB
+          {entry.systemName} · {Math.round(entry.file.size / 1024)}KB
           {resolvedPointCount !== undefined && ` · ${resolvedPointCount}개 청크`}
         </p>
         {resolvedError && <p className="text-critical mt-0.5 text-xs">{resolvedError}</p>}

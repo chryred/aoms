@@ -30,55 +30,65 @@ export function FrequentQuestionsTab({ onAddNote }: FrequentQuestionsTabProps) {
   return (
     <div className="space-y-4">
       {/* 필터 */}
-      <div className="flex flex-wrap items-center gap-3">
-        <div
-          className="bg-bg-base shadow-neu-pressed inline-flex gap-1 rounded-sm p-1"
-          role="group"
-          aria-label="기간 필터"
-        >
-          {DAY_OPTIONS.map((d) => (
-            <button
-              key={d}
-              type="button"
-              aria-pressed={days === d}
-              onClick={() => setDays(d)}
-              className={cn(
-                'rounded-sm px-3 py-1 text-xs font-medium',
-                'transition-[color,background-color] duration-150',
-                'focus:ring-accent focus:ring-1 focus:outline-none',
-                days === d
-                  ? 'bg-accent text-accent-contrast shadow-neu-flat font-semibold'
-                  : 'text-text-secondary hover:text-text-primary',
-              )}
-            >
-              {d}일
-            </button>
-          ))}
+      <div className="flex flex-wrap items-end gap-4">
+        <div className="flex flex-col gap-1">
+          <span className="text-text-disabled text-[10px] font-medium uppercase tracking-wider">
+            기간
+          </span>
+          <div
+            className="bg-bg-base shadow-neu-pressed inline-flex gap-1 rounded-sm p-1"
+            role="group"
+            aria-label="기간 필터"
+          >
+            {DAY_OPTIONS.map((d) => (
+              <button
+                key={d}
+                type="button"
+                aria-pressed={days === d}
+                onClick={() => setDays(d)}
+                className={cn(
+                  'rounded-sm px-3 py-1 text-xs font-medium',
+                  'transition-[color,background-color] duration-150',
+                  'focus:ring-accent focus:ring-1 focus:outline-none',
+                  days === d
+                    ? 'bg-accent text-accent-contrast shadow-neu-flat font-semibold'
+                    : 'text-text-secondary hover:text-text-primary',
+                )}
+              >
+                {d}일
+              </button>
+            ))}
+          </div>
         </div>
 
-        <div
-          className="bg-bg-base shadow-neu-pressed inline-flex gap-1 rounded-sm p-1"
-          role="group"
-          aria-label="최소 발생 횟수 필터"
-        >
-          {THRESHOLD_OPTIONS.map((opt) => (
-            <button
-              key={opt.value}
-              type="button"
-              aria-pressed={threshold === opt.value}
-              onClick={() => setThreshold(opt.value)}
-              className={cn(
-                'rounded-sm px-3 py-1 text-xs font-medium',
-                'transition-[color,background-color] duration-150',
-                'focus:ring-accent focus:ring-1 focus:outline-none',
-                threshold === opt.value
-                  ? 'bg-accent text-accent-contrast shadow-neu-flat font-semibold'
-                  : 'text-text-secondary hover:text-text-primary',
-              )}
-            >
-              {opt.label}
-            </button>
-          ))}
+        <div className="flex flex-col gap-1">
+          <span className="text-text-disabled text-[10px] font-medium uppercase tracking-wider">
+            빈도
+          </span>
+          <div
+            className="bg-bg-base shadow-neu-pressed inline-flex gap-1 rounded-sm p-1"
+            role="group"
+            aria-label="최소 발생 횟수 필터"
+          >
+            {THRESHOLD_OPTIONS.map((opt) => (
+              <button
+                key={opt.value}
+                type="button"
+                aria-pressed={threshold === opt.value}
+                onClick={() => setThreshold(opt.value)}
+                className={cn(
+                  'rounded-sm px-3 py-1 text-xs font-medium',
+                  'transition-[color,background-color] duration-150',
+                  'focus:ring-accent focus:ring-1 focus:outline-none',
+                  threshold === opt.value
+                    ? 'bg-accent text-accent-contrast shadow-neu-flat font-semibold'
+                    : 'text-text-secondary hover:text-text-primary',
+                )}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -117,7 +127,7 @@ function FrequentQuestionCard({
     <NeuCard className="p-4">
       <div className="flex items-start gap-3">
         {/* 아이콘 */}
-        <MessageCircle className="text-accent mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+        <MessageCircle className="text-text-secondary mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
 
         <div className="min-w-0 flex-1">
           {/* 대표 질문 */}
@@ -144,7 +154,7 @@ function FrequentQuestionCard({
               <button
                 type="button"
                 onClick={() => setExpanded((v) => !v)}
-                className="text-text-secondary hover:text-text-primary text-xs underline-offset-2 hover:underline focus:outline-none"
+                className="text-text-secondary hover:text-text-primary text-xs underline-offset-2 hover:underline focus:outline-none focus:ring-1 focus:ring-accent focus:rounded-sm"
               >
                 유사 질문 {question.similar_queries.length}개 {expanded ? '접기' : '보기'}
               </button>

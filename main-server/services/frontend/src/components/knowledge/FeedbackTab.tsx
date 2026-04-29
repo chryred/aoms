@@ -3,12 +3,10 @@ import { Search, ChevronLeft, ChevronRight, ThumbsDown } from 'lucide-react'
 import { NeuCard } from '@/components/neumorphic/NeuCard'
 import { NeuButton } from '@/components/neumorphic/NeuButton'
 import { NeuInput } from '@/components/neumorphic/NeuInput'
-import { NeuSelect } from '@/components/neumorphic/NeuSelect'
 import { LoadingSkeleton } from '@/components/common/LoadingSkeleton'
 import { ErrorCard } from '@/components/common/ErrorCard'
 import { EmptyState } from '@/components/common/EmptyState'
 import { useKnowledgeFeedback } from '@/hooks/queries/useKnowledgeQueries'
-import { useSystems } from '@/hooks/queries/useSystems'
 import { formatKST, formatRelative } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 import type { KnowledgeCorrection } from '@/types/knowledge'
@@ -22,15 +20,12 @@ const COLLECTION_LABEL: Record<string, string> = {
 }
 
 export function FeedbackTab() {
-  const { data: systems = [] } = useSystems()
-  const [filterSystemId, setFilterSystemId] = useState<string>('')
   const [keyword, setKeyword] = useState('')
   const [appliedKeyword, setAppliedKeyword] = useState('')
   const [offset, setOffset] = useState(0)
   const [selected, setSelected] = useState<KnowledgeCorrection | null>(null)
 
   const params = {
-    system_id: filterSystemId ? Number(filterSystemId) : undefined,
     q: appliedKeyword || undefined,
     limit: PAGE_SIZE,
     offset,
@@ -53,22 +48,6 @@ export function FeedbackTab() {
     <div className="space-y-4">
       {/* 필터 */}
       <div className="flex flex-wrap items-center gap-3">
-        <div className="w-48">
-          <NeuSelect
-            value={filterSystemId}
-            onChange={(e) => {
-              setFilterSystemId(e.target.value)
-              setOffset(0)
-            }}
-          >
-            <option value="">전체 시스템</option>
-            {systems.map((s) => (
-              <option key={s.id} value={String(s.id)}>
-                {s.display_name}
-              </option>
-            ))}
-          </NeuSelect>
-        </div>
         <div className="min-w-[200px] flex-1">
           <NeuInput
             placeholder="질문 또는 교정 키워드"
@@ -86,14 +65,13 @@ export function FeedbackTab() {
         <NeuButton size="sm" onClick={applySearch}>
           검색
         </NeuButton>
-        {(appliedKeyword || filterSystemId) && (
+        {appliedKeyword && (
           <NeuButton
             variant="ghost"
             size="sm"
             onClick={() => {
               setKeyword('')
               setAppliedKeyword('')
-              setFilterSystemId('')
               setOffset(0)
             }}
           >
@@ -130,7 +108,14 @@ export function FeedbackTab() {
                 {items.map((item) => (
                   <tr
                     key={item.id}
+                    tabIndex={0}
                     onClick={() => setSelected(item)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        setSelected(item)
+                      }
+                    }}
                     className={cn(
                       'border-border text-text-primary cursor-pointer border-b transition-colors last:border-b-0',
                       selected?.id === item.id ? 'bg-accent-muted' : 'hover:bg-hover-subtle',
@@ -210,7 +195,7 @@ function FeedbackDetailDrawer({
       <aside
         className={cn(
           'border-border bg-bg-base fixed top-0 right-0 z-50 flex h-full w-full max-w-[480px] flex-col border-l',
-          'shadow-[-8px_0_32px_rgba(0,0,0,0.4)]',
+          'shadow-neu-flat',
         )}
       >
         <header className="border-border flex items-center justify-between border-b px-5 py-4">

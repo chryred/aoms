@@ -3,6 +3,7 @@ import { NeuCard } from '@/components/neumorphic/NeuCard'
 import { NeuButton } from '@/components/neumorphic/NeuButton'
 import { LoadingSkeleton } from '@/components/common/LoadingSkeleton'
 import { ErrorCard } from '@/components/common/ErrorCard'
+import { EmptyState } from '@/components/common/EmptyState'
 import { useSyncStatus } from '@/hooks/queries/useKnowledgeQueries'
 import { useTriggerSync } from '@/hooks/mutations/useKnowledgeMutations'
 import { formatKST, formatRelative } from '@/lib/utils'
@@ -26,7 +27,11 @@ export function SyncStatusTab() {
   return (
     <div className="space-y-4">
       {allStatuses.length === 0 && (
-        <p className="text-text-secondary py-8 text-center text-sm">동기화 소스가 없습니다.</p>
+        <EmptyState
+          icon={<RefreshCw className="text-text-secondary h-10 w-10" />}
+          title="동기화 소스가 없습니다"
+          description="Jira·Confluence 연동 환경변수(JIRA_URL, CONFLUENCE_URL)가 설정되면 동기화 현황이 여기에 표시됩니다."
+        />
       )}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {allStatuses.map((s) => (

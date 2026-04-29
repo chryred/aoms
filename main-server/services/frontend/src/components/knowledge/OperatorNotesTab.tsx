@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Pencil, Trash2, Tag, ExternalLink } from 'lucide-react'
+import { Pencil, Trash2, Tag, ExternalLink, Building2 } from 'lucide-react'
 import { NeuCard } from '@/components/neumorphic/NeuCard'
 import { NeuButton } from '@/components/neumorphic/NeuButton'
 import { NeuSelect } from '@/components/neumorphic/NeuSelect'
@@ -10,7 +10,7 @@ import { useOperatorNotes } from '@/hooks/queries/useKnowledgeQueries'
 import { useDeleteOperatorNote } from '@/hooks/mutations/useKnowledgeMutations'
 import { useSystems } from '@/hooks/queries/useSystems'
 import { OperatorNoteFormModal } from './OperatorNoteFormModal'
-import { formatKST } from '@/lib/utils'
+import { formatKST, formatRelative } from '@/lib/utils'
 import type { OperatorNote } from '@/types/knowledge'
 
 const PAGE_SIZE = 20
@@ -50,7 +50,6 @@ export function OperatorNotesTab({
   const isCreateOpen = openCreateModal || showCreateModal
 
   const handleDelete = (pointId: string) => {
-    if (!confirm('이 운영자 노트를 삭제하시겠습니까?')) return
     deleteNote.mutate(pointId, { onSuccess: () => refetch() })
   }
 
@@ -99,6 +98,7 @@ export function OperatorNotesTab({
                 <NoteRow
                   key={note.point_id}
                   note={note}
+                  systemName={systems.find((s) => s.id === note.system_id)?.display_name}
                   onEdit={setEditNote}
                   onDelete={handleDelete}
                 />
@@ -109,24 +109,26 @@ export function OperatorNotesTab({
           {/* 페이지네이션 */}
           <div className="flex items-center justify-between">
             <span className="text-text-secondary text-sm">총 {total}건</span>
-            <div className="flex gap-2">
-              <NeuButton
-                variant="ghost"
-                size="sm"
-                disabled={!hasPrev}
-                onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
-              >
-                이전
-              </NeuButton>
-              <NeuButton
-                variant="ghost"
-                size="sm"
-                disabled={!hasNext}
-                onClick={() => setOffset(offset + PAGE_SIZE)}
-              >
-                다음
-              </NeuButton>
-            </div>
+            {total > PAGE_SIZE && (
+              <div className="flex gap-2">
+                <NeuButton
+                  variant="ghost"
+                  size="sm"
+                  disabled={!hasPrev}
+                  onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
+                >
+                  이전
+                </NeuButton>
+                <NeuButton
+                  variant="ghost"
+                  size="sm"
+                  disabled={!hasNext}
+                  onClick={() => setOffset(offset + PAGE_SIZE)}
+                >
+                  다음
+                </NeuButton>
+              </div>
+            )}
           </div>
         </>
       )}
@@ -164,13 +166,17 @@ export function OperatorNotesTab({
 
 function NoteRow({
   note,
+  systemName,
   onEdit,
   onDelete,
 }: {
   note: OperatorNote
+  systemName?: string
   onEdit: (note: OperatorNote) => void
   onDelete: (pointId: string) => void
 }) {
+  const [confirmingDelete, setConfirmingDelete] = useState(false)
+
   return (
     <div className="px-4 py-3">
       <div className="flex items-start gap-3">
@@ -178,6 +184,12 @@ function NoteRow({
           <p className="text-text-primary text-sm font-medium">{note.question}</p>
           <p className="text-text-secondary mt-1 line-clamp-2 text-xs">{note.answer}</p>
           <div className="mt-2 flex flex-wrap items-center gap-2">
+            {systemName && (
+              <span className="text-text-secondary bg-surface shadow-neu-pressed flex items-center gap-0.5 rounded-sm px-2 py-0.5 text-[11px]">
+                <Building2 className="h-3 w-3" aria-hidden="true" />
+                {systemName}
+              </span>
+            )}
             {note.tags.map((tag) => (
               <span
                 key={tag}
@@ -198,31 +210,58 @@ function NoteRow({
                 출처
               </a>
             )}
-            <span className="text-text-disabled text-[11px]">
-              {formatKST(note.created_at, 'datetime')}
+            <span
+              className="text-text-disabled text-[11px]"
+              title={formatKST(note.created_at, 'datetime')}
+            >
+              {formatRelative(note.created_at)}
             </span>
           </div>
         </div>
-        <div className="flex shrink-0 items-center gap-1">
-          <NeuButton
-            variant="ghost"
-            size="sm"
-            onClick={() => onEdit(note)}
-            aria-label="수정"
-            className="p-1.5"
-          >
-            <Pencil className="h-3.5 w-3.5" />
-          </NeuButton>
-          <NeuButton
-            variant="ghost"
-            size="sm"
-            onClick={() => onDelete(note.point_id)}
-            aria-label="삭제"
-            className="text-critical hover:text-critical p-1.5"
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-          </NeuButton>
-        </div>
+        {confirmingDelete ? (
+          <div className="flex shrink-0 items-center gap-1">
+            <NeuButton
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                onDelete(note.point_id)
+                setConfirmingDelete(false)
+              }}
+              className="text-critical px-2 text-xs"
+            >
+              삭제
+            </NeuButton>
+            <NeuButton
+              variant="ghost"
+              size="sm"
+              onClick={() => setConfirmingDelete(false)}
+              className="px-2 text-xs"
+            >
+              취소
+            </NeuButton>
+          </div>
+        ) : (
+          <div className="flex shrink-0 items-center gap-1">
+            <NeuButton
+              variant="ghost"
+              size="sm"
+              onClick={() => onEdit(note)}
+              aria-label="수정"
+              className="p-2"
+            >
+              <Pencil className="h-3.5 w-3.5" />
+            </NeuButton>
+            <NeuButton
+              variant="ghost"
+              size="sm"
+              onClick={() => setConfirmingDelete(true)}
+              aria-label="삭제"
+              className="text-critical hover:text-critical p-2"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </NeuButton>
+          </div>
+        )}
       </div>
     </div>
   )

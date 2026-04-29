@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { BookOpen, Upload, RefreshCw, TrendingUp, Tag, ThumbsDown } from 'lucide-react'
+import { Upload, RefreshCw, TrendingUp, Tag, ThumbsDown } from 'lucide-react'
 import { PageHeader } from '@/components/common/PageHeader'
 import { DocumentUploadTab } from '@/components/knowledge/DocumentUploadTab'
 import { SyncStatusTab } from '@/components/knowledge/SyncStatusTab'
@@ -65,12 +65,6 @@ export function KnowledgePage() {
       <PageHeader
         title="지식 관리"
         description="운영자 노트, 문서, 동기화 소스를 관리하고 챗봇 RAG 품질을 개선합니다"
-        action={
-          <div className="flex items-center gap-1.5 rounded-sm px-2 py-1">
-            <BookOpen className="text-accent h-4 w-4" aria-hidden="true" />
-            <span className="text-text-secondary text-xs">Synapse-V Knowledge</span>
-          </div>
-        }
       />
 
       {/* 탭 내비게이션 */}

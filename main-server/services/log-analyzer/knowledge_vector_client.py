@@ -44,7 +44,7 @@ DOCUMENTS_COLLECTION  = "knowledge_documents"
 # Payload 인덱스 정의 (필드명, 타입)
 JIRA_PAYLOAD_INDEXES       = [("project", "keyword"), ("status", "keyword"), ("system_name", "keyword")]
 CONFLUENCE_PAYLOAD_INDEXES = [("space", "keyword"), ("system_name", "keyword")]
-DOCUMENTS_PAYLOAD_INDEXES  = [("doc_type", "keyword"), ("system_id", "integer"), ("tags", "keyword")]
+DOCUMENTS_PAYLOAD_INDEXES  = [("doc_type", "keyword"), ("system_id", "integer"), ("tags", "keyword"), ("stored_at", "datetime")]
 
 # cross-collection RRF 파라미터
 _RRF_K = 60
@@ -455,34 +455,49 @@ async def scroll_operator_notes(
         total = 0
 
     # scroll 조회 (offset 기반 페이지네이션)
+    # order_by는 stored_at payload 인덱스가 있어야 동작 — 인덱스 미생성 시 400 반환하므로
+    # 실패 시 order_by 없이 재시도하고 Python에서 정렬
     items: list[dict] = []
-    try:
-        scroll_resp = await _qdrant_http.post(
+
+    async def _do_scroll(with_order: bool) -> list[dict]:
+        body: dict = {
+            "filter": filter_body,
+            "limit": limit,
+            "offset": offset,
+            "with_payload": True,
+            "with_vector": False,
+        }
+        if with_order:
+            body["order_by"] = {"key": "stored_at", "direction": "desc"}
+        resp = await _qdrant_http.post(
             f"{QDRANT_URL}/collections/{DOCUMENTS_COLLECTION}/points/scroll",
-            json={
-                "filter": filter_body,
-                "limit": limit,
-                "offset": offset,
-                "with_payload": True,
-                "with_vector": False,
-                "order_by": {"key": "stored_at", "direction": "desc"},
-            },
+            json=body,
         )
-        scroll_resp.raise_for_status()
-        points = scroll_resp.json().get("result", {}).get("points", [])
-        for p in points:
-            payload = p.get("payload", {})
-            items.append({
-                "point_id": str(p["id"]),
-                "question": payload.get("question", ""),
-                "answer": payload.get("answer", ""),
-                "system_id": payload.get("system_id"),
-                "tags": payload.get("tags", []),
-                "source_reference": payload.get("source_reference"),
-                "created_at": payload.get("stored_at"),
-            })
+        resp.raise_for_status()
+        return resp.json().get("result", {}).get("points", [])
+
+    try:
+        points = await _do_scroll(with_order=True)
     except Exception as exc:
-        logger.warning("operator_note scroll 실패: %s", exc)
+        logger.warning("operator_note scroll (order_by) 실패: %s — order_by 없이 재시도", exc)
+        try:
+            points = await _do_scroll(with_order=False)
+            points.sort(key=lambda p: p.get("payload", {}).get("stored_at", ""), reverse=True)
+        except Exception as exc2:
+            logger.warning("operator_note scroll 실패: %s", exc2)
+            points = []
+
+    for p in points:
+        payload = p.get("payload", {})
+        items.append({
+            "point_id": str(p["id"]),
+            "question": payload.get("question", ""),
+            "answer": payload.get("answer", ""),
+            "system_id": payload.get("system_id"),
+            "tags": payload.get("tags", []),
+            "source_reference": payload.get("source_reference"),
+            "created_at": payload.get("stored_at"),
+        })
 
     return {"items": items, "total": total}
 
