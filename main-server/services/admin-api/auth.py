@@ -1,3 +1,4 @@
+import base64
 import os
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -23,6 +24,10 @@ if not SECRET_KEY or SECRET_KEY == "change-me-in-production":
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "15"))
 REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "7"))
+
+# ── OIDC IdP 설정 (ADR-014) ─────────────────────────────────────────────────
+OAUTH_ISSUER = os.getenv("OAUTH_ISSUER", "http://localhost:8080")
+OAUTH_ID_TOKEN_EXPIRE_MINUTES = 60
 
 _pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -108,3 +113,92 @@ async def require_admin(user: User = Depends(get_current_user)) -> User:
             detail="관리자 권한이 필요합니다",
         )
     return user
+
+
+# ── OIDC RSA 키 관리 (ADR-014) ──────────────────────────────────────────────
+
+def _load_rsa_private_key() -> Optional[str]:
+    """OAUTH_PRIVATE_KEY_PATH 파일에서 RSA private key PEM 로드."""
+    path = os.getenv("OAUTH_PRIVATE_KEY_PATH", "")
+    if not path:
+        return None
+    try:
+        with open(path) as f:
+            return f.read()
+    except OSError:
+        return None
+
+
+def _load_rsa_public_key() -> Optional[str]:
+    """OAUTH_PUBLIC_KEY_PATH 파일에서 RSA public key PEM 로드."""
+    path = os.getenv("OAUTH_PUBLIC_KEY_PATH", "")
+    if not path:
+        return None
+    try:
+        with open(path) as f:
+            return f.read()
+    except OSError:
+        return None
+
+
+def get_jwks() -> dict:
+    """OIDC JWKS 엔드포인트용 공개키 딕셔너리 반환."""
+    public_pem = _load_rsa_public_key()
+    if not public_pem:
+        return {"keys": []}
+    try:
+        from cryptography.hazmat.primitives.serialization import load_pem_public_key
+        pub_key = load_pem_public_key(public_pem.encode())
+        pub_numbers = pub_key.public_numbers()
+
+        def _int_to_b64url(n: int) -> str:
+            length = (n.bit_length() + 7) // 8
+            return base64.urlsafe_b64encode(n.to_bytes(length, "big")).rstrip(b"=").decode()
+
+        return {
+            "keys": [{
+                "kty": "RSA",
+                "use": "sig",
+                "alg": "RS256",
+                "kid": "default",
+                "n": _int_to_b64url(pub_numbers.n),
+                "e": _int_to_b64url(pub_numbers.e),
+            }]
+        }
+    except Exception:
+        return {"keys": []}
+
+
+def create_id_token(user: User, client_id: str, nonce: Optional[str] = None) -> str:
+    """OIDC ID Token (RS256) 발급."""
+    private_key = _load_rsa_private_key()
+    if not private_key:
+        raise ValueError("OAUTH_PRIVATE_KEY 환경변수가 설정되지 않았습니다")
+    expire = datetime.now(timezone.utc) + timedelta(minutes=OAUTH_ID_TOKEN_EXPIRE_MINUTES)
+    payload: dict = {
+        "iss": OAUTH_ISSUER,
+        "sub": str(user.id),
+        "aud": client_id,
+        "exp": expire,
+        "iat": datetime.now(timezone.utc),
+        "email": user.email,
+        "name": user.name,
+        "role": user.role,
+    }
+    if nonce:
+        payload["nonce"] = nonce
+    return jwt.encode(payload, private_key, algorithm="RS256")
+
+
+def create_oauth_access_token(user: User, client_id: str) -> str:
+    """OAuth userinfo 조회용 access_token (HS256, 1시간)."""
+    expire = datetime.now(timezone.utc) + timedelta(minutes=OAUTH_ID_TOKEN_EXPIRE_MINUTES)
+    payload = {
+        "sub": str(user.id),
+        "email": user.email,
+        "role": user.role,
+        "type": "oauth_access",
+        "aud": client_id,
+        "exp": expire,
+    }
+    return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)

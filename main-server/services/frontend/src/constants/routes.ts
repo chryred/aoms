@@ -25,6 +25,8 @@ export const ROUTES = {
   KNOWLEDGE: '/knowledge',
   CHAT: '/chat',
   CHAT_GUEST: '/chat/guest',
+  OAUTH_LOGIN: '/oauth/login',
+  ADMIN_OAUTH_CLIENTS: '/admin/oauth-clients',
   systemDetail: (id: number | string) => `/dashboard/${id}`,
   agentDetail: (id: number | string) => `/agents/${id}`,
   incidentDetail: (id: number | string) => `/incidents/${id}`,

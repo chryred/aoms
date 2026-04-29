@@ -23,6 +23,7 @@ import {
   Wrench,
   Siren,
   BookOpen,
+  KeyRound,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useUiStore } from '@/store/uiStore'
@@ -329,6 +330,13 @@ export function Sidebar() {
                   to={ROUTES.SCHEDULER_RUNS}
                   icon={<Activity className="h-4 w-4" />}
                   label="스케줄러 이력"
+                  collapsed={collapsed}
+                  onNavigate={closeMobileSidebar}
+                />
+                <NavItem
+                  to={ROUTES.ADMIN_OAUTH_CLIENTS}
+                  icon={<KeyRound className="h-4 w-4" />}
+                  label="OAuth 클라이언트"
                   collapsed={collapsed}
                   onNavigate={closeMobileSidebar}
                 />

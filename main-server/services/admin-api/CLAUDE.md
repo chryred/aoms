@@ -16,6 +16,7 @@
 - **DB**: PostgreSQL — SQLAlchemy 2.0 async (asyncpg 드라이버)
 - **알림**: Microsoft Teams Incoming Webhook (Adaptive Card)
 - **인증**: JWT(HS256) + bcrypt — `python-jose 3.3.0`, `passlib[bcrypt] 1.7.4`, `bcrypt 4.0.1`
+- **OIDC IdP**: RS256 ID Token, Authorization Code Flow — `python-jose[cryptography]` + `cryptography>=41.0.0` (ADR-014)
 - **포트**: 8080 (Docker)
 
 ## 파일 구조
@@ -26,7 +27,7 @@ admin-api/
 ├── database.py          # DB 엔진·세션 팩토리, get_db() 의존성
 ├── models.py            # SQLAlchemy ORM 모델 (16개 테이블 — agent_instances, agent_install_jobs 포함)
 ├── schemas.py           # Pydantic 입출력 스키마 (LlmAgentConfig 스키마 포함)
-├── auth.py              # JWT 발급/검증, bcrypt, get_current_user, require_admin Dependency
+├── auth.py              # JWT 발급/검증, bcrypt, get_current_user, require_admin + OIDC RSA 키/ID Token(ADR-014)
 ├── init.sql             # 최초 DB 스키마 생성용 SQL (운영 권장)
 ├── requirements.txt
 ├── Dockerfile
@@ -44,7 +45,8 @@ admin-api/
 │   ├── reports.py           # /api/v1/reports (Phase 5)
 │   ├── agents.py            # /api/v1/ssh/session, /api/v1/agents (Phase 6)
 │   ├── dashboard.py         # /api/v1/dashboard (통합 대시보드 API - Phase 8)
-│   └── websocket.py         # /ws/dashboard (실시간 알림 스트리밍 - Phase 8)
+│   ├── websocket.py         # /ws/dashboard (실시간 알림 스트리밍 - Phase 8)
+│   └── oauth.py             # OIDC IdP (ADR-014): /.well-known/openid-configuration, /oauth/jwks, /oauth/authorize, /oauth/token, /oauth/userinfo, /api/v1/oauth/clients
 └── services/
     ├── cooldown.py              # 알림 중복 발송 방지 (5분 쿨다운)
     ├── notification.py          # TeamsNotifier — Adaptive Card 생성·발송
@@ -406,6 +408,9 @@ log-analyzer → POST /api/v1/analysis
 | `CHAT_MAX_ITERS` | `5` | ReAct 오케스트레이터 도구 호출 반복 한도 |
 | `CHAT_HISTORY_WINDOW` | `20` | LLM 프롬프트에 주입할 최근 메시지 N턴 |
 | `KNOWLEDGE_DOCS_DIR` | `/app/synapse/knowledge-docs` | 업로드된 문서 저장 루트 디렉터리 (V1 RAG) |
+| `OAUTH_PRIVATE_KEY_PATH` | 없음 (필수) | RSA private key PEM 파일 경로. `admin-api/secrets/` 이미지 번들 → 컨테이너 `/app/secrets/oauth_private.pem` 고정. 로컬: 절대경로 지정 |
+| `OAUTH_PUBLIC_KEY_PATH` | 없음 (필수) | RSA public key PEM 파일 경로 (JWKS 노출용). 이미지 번들 → `/app/secrets/oauth_public.pem`. 로컬: 절대경로 지정 |
+| `OAUTH_ISSUER` | `http://localhost:8080` | OIDC issuer URL (id_token `iss` 클레임 + discovery 메타데이터) |
 
 ## DB 초기화
 

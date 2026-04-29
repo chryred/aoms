@@ -584,3 +584,37 @@ class KnowledgeSyncStatus(Base):
     total_synced  = Column(Integer, nullable=False, default=0)
     last_error    = Column(Text)                            # NULL = 마지막 동기화 성공
     updated_at    = Column(DateTime, nullable=False, default=func.now())
+
+
+# ── OIDC IdP (ADR-014) ────────────────────────────────────────────────────────
+
+class OAuthClient(Base):
+    """OIDC 클라이언트 등록 — 타시스템이 Synapse SSO를 사용하기 위한 자격증명"""
+    __tablename__ = "oauth_clients"
+
+    id            = Column(Integer, primary_key=True)
+    client_id     = Column(String(100), unique=True, nullable=False)
+    client_secret = Column(String(255), nullable=False)     # bcrypt 해시
+    name          = Column(String(200), nullable=False)     # 시스템 이름 (표시용)
+    redirect_uris = Column(JSONB, nullable=False)           # List[str]
+    is_active     = Column(Boolean, nullable=False, default=True)
+    created_at    = Column(DateTime, nullable=False, default=func.now())
+
+
+class OAuthAuthorizationCode(Base):
+    """OIDC Authorization Code — 발급 후 10분 유효, 1회 사용"""
+    __tablename__ = "oauth_authorization_codes"
+
+    code         = Column(String(100), primary_key=True)
+    client_id    = Column(String(100), nullable=False)
+    user_id      = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    redirect_uri = Column(Text, nullable=False)
+    scope        = Column(Text, nullable=False, default="openid profile email")
+    nonce        = Column(String(200))
+    expires_at   = Column(DateTime, nullable=False)
+    used         = Column(Boolean, nullable=False, default=False)
+    created_at   = Column(DateTime, nullable=False, default=func.now())
+
+    __table_args__ = (
+        Index("idx_oauth_codes_expires", "expires_at"),
+    )

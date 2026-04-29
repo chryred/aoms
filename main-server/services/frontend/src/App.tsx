@@ -86,6 +86,12 @@ const ChatPage = lazy(() => import('@/pages/ChatPage').then((m) => ({ default: m
 const GuestEntryPage = lazy(() =>
   import('@/pages/GuestEntryPage').then((m) => ({ default: m.GuestEntryPage })),
 )
+const OAuthLoginPage = lazy(() =>
+  import('@/pages/OAuthLoginPage').then((m) => ({ default: m.OAuthLoginPage })),
+)
+const OAuthClientsPage = lazy(() =>
+  import('@/pages/admin/OAuthClientsPage').then((m) => ({ default: m.OAuthClientsPage })),
+)
 
 export function App() {
   return (
@@ -110,6 +116,16 @@ export function App() {
           element={
             <Suspense fallback={<LoadingSkeleton shape="card" />}>
               <GuestEntryPage />
+            </Suspense>
+          }
+        />
+
+        {/* OIDC OAuth 로그인 페이지 — 타시스템 SSO 진입점 (인증 불필요) */}
+        <Route
+          path={ROUTES.OAUTH_LOGIN}
+          element={
+            <Suspense fallback={<LoadingSkeleton shape="card" />}>
+              <OAuthLoginPage />
             </Suspense>
           }
         />
@@ -339,6 +355,14 @@ export function App() {
               element={
                 <Suspense fallback={<LoadingSkeleton shape="table" />}>
                   <SchedulerRunHistoryPage />
+                </Suspense>
+              }
+            />
+            <Route
+              path={ROUTES.ADMIN_OAUTH_CLIENTS}
+              element={
+                <Suspense fallback={<LoadingSkeleton shape="table" />}>
+                  <OAuthClientsPage />
                 </Suspense>
               }
             />

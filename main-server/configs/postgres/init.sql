@@ -584,6 +584,34 @@ CREATE TABLE IF NOT EXISTS knowledge_sync_status (
     updated_at    TIMESTAMP    NOT NULL DEFAULT NOW()
 );
 
+-- ── OIDC IdP (ADR-014) ───────────────────────────────────────────────────────
+
+-- OAuth 클라이언트 등록 — 타시스템이 Synapse SSO를 사용하기 위한 자격증명
+CREATE TABLE IF NOT EXISTS oauth_clients (
+    id            SERIAL       PRIMARY KEY,
+    client_id     VARCHAR(100) UNIQUE NOT NULL,
+    client_secret VARCHAR(255) NOT NULL,          -- bcrypt 해시
+    name          VARCHAR(200) NOT NULL,           -- 시스템 이름 (표시용)
+    redirect_uris JSONB        NOT NULL,           -- List[str]
+    is_active     BOOLEAN      NOT NULL DEFAULT TRUE,
+    created_at    TIMESTAMP    NOT NULL DEFAULT NOW()
+);
+
+-- OIDC Authorization Code — 발급 후 10분 유효, 1회 사용
+CREATE TABLE IF NOT EXISTS oauth_authorization_codes (
+    code         VARCHAR(100) PRIMARY KEY,
+    client_id    VARCHAR(100) NOT NULL,
+    user_id      INTEGER      NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    redirect_uri TEXT         NOT NULL,
+    scope        TEXT         NOT NULL DEFAULT 'openid profile email',
+    nonce        VARCHAR(200),
+    expires_at   TIMESTAMP    NOT NULL,
+    used         BOOLEAN      NOT NULL DEFAULT FALSE,
+    created_at   TIMESTAMP    NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_oauth_codes_expires ON oauth_authorization_codes(expires_at);
+
 -- ── 샘플 데이터 (선택) ────────────────────────────────────────────────
 -- INSERT INTO systems(system_name, display_name, host, os_type, system_type)
 -- VALUES ('customer-experience', '고객 경험 시스템', 'cx-was01', 'linux', 'was');
