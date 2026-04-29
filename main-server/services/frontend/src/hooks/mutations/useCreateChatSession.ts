@@ -21,3 +21,13 @@ export function useDeleteChatSession() {
     },
   })
 }
+
+export function useRestoreChatSession() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (sessionId: string) => chatApi.restoreSession(sessionId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: qk.chat.sessions() })
+    },
+  })
+}

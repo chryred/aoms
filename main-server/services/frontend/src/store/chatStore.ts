@@ -10,8 +10,8 @@ interface ChatStoreState {
   // persisted
   isOpen: boolean
   currentSessionId: string | null
-  /** 검색 필터용 시스템 ID (null = 전체 시스템) */
-  filterSystemId: number | null
+  /** 검색 필터용 시스템 ID 배열 (빈 배열 = 선택 없음 / W3 통합 시 디폴트 결정) */
+  filterSystemIds: number[]
   unread: number
 
   // runtime (not persisted)
@@ -25,7 +25,7 @@ interface ChatStoreState {
   toggleOpen: () => void
   setOpen: (open: boolean) => void
   setCurrentSessionId: (id: string | null) => void
-  setFilterSystemId: (id: number | null) => void
+  setFilterSystemIds: (ids: number[]) => void
   setThinking: (thinking: boolean) => void
   setInputFocused: (focused: boolean) => void
   /** 알림 수신 시 alertActive를 8초간 활성화 */
@@ -42,7 +42,9 @@ export const useChatStore = create<ChatStoreState>()(
     (set) => ({
       isOpen: false,
       currentSessionId: null,
-      filterSystemId: null,
+      // Note: previously persisted as `filterSystemId` — existing localStorage entries are
+      // silently dropped by Zustand (unknown key). No version bump needed.
+      filterSystemIds: [],
       unread: 0,
       thinking: false,
       inputFocused: false,
@@ -52,7 +54,7 @@ export const useChatStore = create<ChatStoreState>()(
       toggleOpen: () => set((state) => ({ isOpen: !state.isOpen })),
       setOpen: (open) => set({ isOpen: open }),
       setCurrentSessionId: (id) => set({ currentSessionId: id }),
-      setFilterSystemId: (id) => set({ filterSystemId: id }),
+      setFilterSystemIds: (ids) => set({ filterSystemIds: ids }),
       setThinking: (thinking) => set({ thinking }),
       setInputFocused: (focused) => set({ inputFocused: focused }),
       receiveCritical: () => {
@@ -80,7 +82,7 @@ export const useChatStore = create<ChatStoreState>()(
       partialize: (state) => ({
         currentSessionId: state.currentSessionId,
         isOpen: state.isOpen,
-        filterSystemId: state.filterSystemId,
+        filterSystemIds: state.filterSystemIds,
         unread: state.unread,
       }),
     },

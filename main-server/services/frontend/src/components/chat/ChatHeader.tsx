@@ -3,6 +3,7 @@ import { NeuButton } from '@/components/neumorphic/NeuButton'
 import { Synap } from '@/components/mascot'
 import { useSynapState } from '@/store/chatStore'
 import type { System } from '@/types/system'
+import { SystemMultiSelect } from './SystemMultiSelect'
 
 interface ChatHeaderProps {
   title: string
@@ -13,8 +14,8 @@ interface ChatHeaderProps {
   onClose?: () => void
   disabled?: boolean
   systems: System[]
-  filterSystemId: number | null
-  onFilterSystemChange: (id: number | null) => void
+  filterSystemIds: number[]
+  onFilterSystemChange: (ids: number[]) => void
 }
 
 export function ChatHeader({
@@ -24,7 +25,7 @@ export function ChatHeader({
   onClose,
   disabled,
   systems,
-  filterSystemId,
+  filterSystemIds,
   onFilterSystemChange,
 }: ChatHeaderProps) {
   const effectiveSubtitle = subtitle === null ? null : (subtitle ?? 'Synapse-V 어시스턴트')
@@ -63,31 +64,24 @@ export function ChatHeader({
       {systems.length > 0 && (
         <div className="border-border flex items-center gap-2 border-t px-3 py-1.5">
           <span className="text-text-secondary flex shrink-0 items-center gap-1 text-[11px]">
-            <label htmlFor="chat-system-filter" className="cursor-pointer">
-              지식 검색 대상
-            </label>
+            <span className="cursor-default">지식 검색 대상</span>
             <span
               className="inline-flex cursor-help"
-              title="선택한 시스템의 과거 장애·문서·정책만 RAG 검색합니다. '전체 시스템'이면 모든 시스템 지식 검색."
+              title="선택한 시스템의 과거 장애·문서·정책만 RAG 검색합니다. 여러 시스템을 동시에 선택할 수 있습니다."
               aria-label="도움말"
               role="img"
             >
               <HelpCircle className="h-3 w-3" />
             </span>
           </span>
-          <select
-            id="chat-system-filter"
-            value={filterSystemId ?? ''}
-            onChange={(e) => onFilterSystemChange(e.target.value ? Number(e.target.value) : null)}
-            className="bg-bg-base text-text-primary border-border focus:ring-accent flex-1 rounded-sm border px-2 py-1 text-xs focus:ring-1 focus:outline-none"
-          >
-            <option value="">전체 시스템</option>
-            {systems.map((s) => (
-              <option key={s.id} value={String(s.id)}>
-                {s.display_name}
-              </option>
-            ))}
-          </select>
+          <div className="flex-1">
+            <SystemMultiSelect
+              value={filterSystemIds}
+              onChange={onFilterSystemChange}
+              systems={systems}
+              placeholder="시스템 선택"
+            />
+          </div>
         </div>
       )}
     </div>

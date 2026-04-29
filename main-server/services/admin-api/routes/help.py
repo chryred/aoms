@@ -14,7 +14,7 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, field_validator
 from sqlalchemy import select, text
@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
 from models import ChatMessage, ChatSession, Incident, IncidentTimeline, System
+from schemas import ChatMessageOut
 from services.chat_agent import run_react_stream
 
 logger = logging.getLogger(__name__)
@@ -95,7 +96,12 @@ class HelpEscalateOut(BaseModel):
 
 async def _get_help_session(db: AsyncSession, session_id: str) -> ChatSession:
     row = (
-        await db.execute(select(ChatSession).where(ChatSession.id == session_id))
+        await db.execute(
+            select(ChatSession).where(
+                ChatSession.id == session_id,
+                ChatSession.deleted_at.is_(None),
+            )
+        )
     ).scalar_one_or_none()
     if row is None or row.area_code != "help_inquiry":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="유효하지 않은 게스트 세션입니다.")
@@ -266,3 +272,26 @@ async def escalate_help_session(
     await db.commit()
 
     return HelpEscalateOut(incident_id=incident.id, status="created")
+
+
+@router.get("/sessions/{session_id}/messages", response_model=list[ChatMessageOut])
+async def get_help_session_messages(
+    session_id: str,
+    employee_id: str = Query(..., min_length=1),
+    db: AsyncSession = Depends(get_db),
+):
+    """게스트 세션 메시지 이력 조회. 사번 일치 및 유효한 게스트 세션만 허용."""
+    session = await _get_help_session(db, session_id)
+
+    if session.visitor_employee_id != employee_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="유효하지 않은 게스트 세션입니다.")
+
+    messages = (
+        await db.execute(
+            select(ChatMessage)
+            .where(ChatMessage.session_id == session_id)
+            .order_by(ChatMessage.created_at, ChatMessage.id)
+        )
+    ).scalars().all()
+
+    return messages

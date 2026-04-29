@@ -1,19 +1,27 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { CheckCircle, PhoneCall } from 'lucide-react'
 import toast from 'react-hot-toast'
+import { describeChatError } from '@/lib/chatErrorMessage'
 import { streamGuestMessage, type HelpSessionResponse } from '@/api/help'
 import { ChatComposer } from '@/components/chat/ChatComposer'
 import { ChatMessageView, StreamingAssistantMessage } from '@/components/chat/ChatMessage'
 import { ToolCallCard } from '@/components/chat/ToolCallCard'
 import { GuestEscalateButton } from '@/components/help/GuestEscalateButton'
+import { GuestRecentSessions } from '@/components/help/GuestRecentSessions'
 import { GuestSystemGrid } from '@/components/help/GuestSystemGrid'
 import { HelpVisitorForm } from '@/components/help/HelpVisitorForm'
 import { helpApi } from '@/api/help'
+import {
+  addOrUpdateSession,
+  loadCache,
+  wipeCache,
+  type SessionMeta,
+} from '@/lib/guestSessionCache'
 import type { ChatMessage, ChatStreamEvent } from '@/types/chat'
 import { cn } from '@/lib/utils'
 import { NeuButton } from '@/components/neumorphic/NeuButton'
 
-type Phase = 'visitor_form' | 'system_select' | 'chat' | 'escalated'
+type Phase = 'visitor_form' | 'recent_sessions' | 'system_select' | 'chat' | 'escalated'
 
 interface StreamingToolState {
   id: string
@@ -39,8 +47,9 @@ const GUEST_PROMPTS = [
 export function GuestEntryPage() {
   const [phase, setPhase] = useState<Phase>('visitor_form')
   const [session, setSession] = useState<HelpSessionResponse | null>(null)
-  const [selectedSystemId, setSelectedSystemId] = useState<number | null>(null)
+  const [selectedSystemIds, setSelectedSystemIds] = useState<number[]>([])
   const [incidentId, setIncidentId] = useState<number | null>(null)
+  const [cachedSessions, setCachedSessions] = useState<SessionMeta[]>([])
 
   // 채팅 상태 (로컬, DB 미동기화)
   const [messages, setMessages] = useState<ChatMessage[]>([])
@@ -53,6 +62,9 @@ export function GuestEntryPage() {
   // 자주 묻는 질문
   const [frequentQuestions, setFrequentQuestions] = useState<string[]>([])
 
+  // 시스템명 매핑 (헤더 친근 톤 노출용 — chat phase에서 한 번 로드)
+  const [systemMap, setSystemMap] = useState<Map<number, string>>(new Map())
+
   const abortRef = useRef<AbortController | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
 
@@ -62,8 +74,20 @@ export function GuestEntryPage() {
         .getFrequentQuestions(6)
         .then((r) => setFrequentQuestions(r.questions.map((q) => q.content)))
         .catch(() => {})
+
+      // 시스템 이름 매핑 — 헤더에 "{system_names} 관련 질문에 답해드려요" 표시용
+      if (systemMap.size === 0) {
+        helpApi
+          .getSystems()
+          .then((systems) => {
+            const m = new Map<number, string>()
+            systems.forEach((s) => m.set(s.id, s.display_name))
+            setSystemMap(m)
+          })
+          .catch(() => {})
+      }
     }
-  }, [phase])
+  }, [phase, systemMap.size])
 
   useEffect(() => {
     const el = scrollRef.current
@@ -167,6 +191,18 @@ export function GuestEntryPage() {
         },
       ])
 
+      // localStorage 캐시 갱신 — 첫 메시지를 title로, 이후 메시지는 last_message_at만 갱신
+      const trimmed = content.length > 30 ? content.slice(0, 30) + '…' : content
+      const freshCache = loadCache()
+      const existingMeta = freshCache?.sessions.find((m) => m.session_id === session.session_id)
+      addOrUpdateSession(session.employee_id, {
+        session_id: session.session_id,
+        title: existingMeta?.title ?? trimmed,
+        created_at: existingMeta?.created_at ?? new Date().toISOString(),
+        last_message_at: new Date().toISOString(),
+        system_ids: selectedSystemIds,
+      })
+
       const controller = new AbortController()
       abortRef.current = controller
 
@@ -178,23 +214,60 @@ export function GuestEntryPage() {
           controller.signal,
         )
       } catch (err) {
-        if ((err as Error).name !== 'AbortError') {
-          toast.error('채팅 중 오류가 발생했습니다.')
-        }
+        const msg = describeChatError(err)
+        if (msg) toast.error(msg)
       } finally {
         finishStream()
       }
     },
-    [session, isStreaming, finishStream],
+    [session, isStreaming, finishStream, selectedSystemIds],
   )
 
   const handleSessionCreated = (s: HelpSessionResponse) => {
-    setSession(s)
+    const cache = loadCache()
+    if (cache && cache.visitor_employee_id === s.employee_id && cache.sessions.length > 0) {
+      setCachedSessions(cache.sessions)
+      setSession(s)
+      setPhase('recent_sessions')
+    } else {
+      setSession(s)
+      setPhase('system_select')
+    }
+  }
+
+  const handleResume = useCallback(
+    async (sessionId: string) => {
+      if (!session) return
+      try {
+        const meta = cachedSessions.find((m) => m.session_id === sessionId)
+        const restored = await helpApi.getMessages(sessionId, session.employee_id)
+        setMessages(restored)
+        setSession({
+          session_id: sessionId,
+          employee_id: session.employee_id,
+          system_id: meta?.system_ids?.[0] ?? null,
+        })
+        setSelectedSystemIds(meta?.system_ids ?? [])
+        setPhase('chat')
+      } catch {
+        toast.error('이전 대화를 불러오지 못했습니다.')
+      }
+    },
+    [session, cachedSessions],
+  )
+
+  const handleStartNew = () => {
     setPhase('system_select')
   }
 
-  const handleSystemSelected = (systemId: number | null) => {
-    setSelectedSystemId(systemId)
+  const handleWipeAll = () => {
+    wipeCache()
+    setCachedSessions([])
+    setPhase('system_select')
+  }
+
+  const handleSystemSelected = (systemIds: number[]) => {
+    setSelectedSystemIds(systemIds)
     setPhase('chat')
   }
 
@@ -205,6 +278,18 @@ export function GuestEntryPage() {
 
   if (phase === 'visitor_form') {
     return <HelpVisitorForm onSuccess={handleSessionCreated} />
+  }
+
+  if (phase === 'recent_sessions') {
+    return (
+      <GuestRecentSessions
+        sessions={cachedSessions}
+        employeeId={session?.employee_id ?? ''}
+        onResume={handleResume}
+        onStartNew={handleStartNew}
+        onWipe={handleWipeAll}
+      />
+    )
   }
 
   if (phase === 'system_select') {
@@ -244,14 +329,35 @@ export function GuestEntryPage() {
       {/* 헤더 */}
       <div className="border-border bg-surface flex items-center justify-between border-b px-4 py-3">
         <div>
-          <h1 className="text-text-primary text-sm font-semibold">운영 지식 문의</h1>
+          <h1 className="text-text-primary text-sm font-semibold">
+            어떤 도움이 필요하세요?
+          </h1>
           <p className="text-text-secondary text-xs">
-            {selectedSystemId ? `시스템 필터 적용 중 · ID ${selectedSystemId}` : '전체 시스템'}
+            {(() => {
+              if (selectedSystemIds.length === 0) {
+                return '전체 시스템 관련 질문에 답해드려요'
+              }
+              const names = selectedSystemIds.map((id) => systemMap.get(id)).filter(Boolean) as string[]
+              if (names.length === 0) {
+                return `${selectedSystemIds.length}개 시스템 관련 질문에 답해드려요`
+              }
+              if (names.length === 1) return `${names[0]} 관련 질문에 답해드려요`
+              return `${names[0]} 외 ${names.length - 1}개 시스템 관련 질문에 답해드려요`
+            })()}
           </p>
         </div>
-        {session && (
-          <GuestEscalateButton sessionId={session.session_id} onEscalated={handleEscalated} />
-        )}
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={handleWipeAll}
+            className="text-text-disabled hover:text-critical focus:ring-accent rounded-sm px-2 py-1.5 text-xs transition-colors focus:ring-1 focus:outline-none"
+          >
+            기록 삭제
+          </button>
+          {session && (
+            <GuestEscalateButton sessionId={session.session_id} onEscalated={handleEscalated} />
+          )}
+        </div>
       </div>
 
       {/* 메시지 영역 */}

@@ -36,4 +36,3 @@ export function useRegisterScreenContext(ids: { system_id?: string; incident_id?
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [system_id, incident_id])
 }
-

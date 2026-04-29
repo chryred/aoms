@@ -84,8 +84,8 @@ admin-api/
 | `incident_timeline` | 인시던트 이벤트 타임라인 — `event_type`: alert_added / analysis_added / status_changed / comment |
 | `chat_tools` | ReAct 챗봇이 호출할 수 있는 도구 레지스트리. `executor` (ems/admin/log_analyzer/qdrant), `is_enabled`, `input_schema` JSON Schema (Phase Chat, ADR-011 qdrant 추가) |
 | `chat_executor_configs` | Executor별 자격증명/설정. `config` JSONB (secret 필드는 Fernet 암호문), `config_schema` 폼 렌더 메타 (Phase Chat) |
-| `chat_sessions` | 사용자 챗봇 세션. UUID PK, `user_id` FK (Phase Chat) |
-| `chat_messages` | 세션 내 메시지. role: user/assistant/tool, `attachments` JSONB (Phase Chat). V1: `rag_top1_score` (Float), `rag_sources_count` (Integer) — knowledge 검색 품질 추적 |
+| `chat_sessions` | 사용자 챗봇 세션. UUID PK, `user_id` FK. `system_ids INTEGER[]` (다중 시스템 스코프), `deleted_at` (소프트 삭제) (Phase Chat) |
+| `chat_messages` | 세션 내 메시지. role: user/assistant/tool, `attachments` JSONB (Phase Chat). V1: `rag_top1_score` (Float), `rag_sources_count` (Integer). `system_id INTEGER` FK→systems (도구 호출별 실제 조회 시스템 — 통계용) |
 | `knowledge_corrections` | 사용자 오답 교정 이력 — `source_point_id`, `source_collection`, `correct_answer` (V1 RAG) |
 | `knowledge_sync_status` | 외부 지식 소스(Jira/Confluence/Documents) 동기화 현황. source가 PK (V1 RAG) |
 | `scheduler_run_history` | log-analyzer 스케줄러 실행 이력. `scheduler_type`(analysis/hourly/daily/weekly/monthly/longperiod/trend), `status`(ok/error), `error_count`, `analyzed_count`, `summary_json`, `error_message` |
@@ -298,6 +298,7 @@ docker exec -it aoms-admin-api \
 
 - `POST /api/v1/help/sessions` — 게스트 세션 생성 (사번 필수, user_id=NULL)
 - `POST /api/v1/help/sessions/{id}/messages` — SSE 스트리밍 (area_code 검증 후 run_react_stream)
+- `GET /api/v1/help/sessions/{id}/messages?employee_id=` — 메시지 이력 조회. `area_code='help_inquiry'` + `deleted_at IS NULL` + `visitor_employee_id` 일치 검증 후 `list[ChatMessageOut]` 시간순 반환. 불일치/삭제 세션은 403.
 - `GET /api/v1/help/systems` — 시스템 카드 목록 (status='active')
 - `GET /api/v1/help/questions/frequent` — 자주 묻는 질문 (help_inquiry 세션 기준)
 - `POST /api/v1/help/sessions/{id}/escalate` — incidents 생성 (source='help_inquiry')
@@ -307,13 +308,18 @@ DB 변경: `chat_sessions.user_id` nullable, `visitor_employee_id/email/system_i
 
 ### ReAct 챗봇 `/api/v1/chat*` (Phase Chat)
 - **세션**
-  - `POST /api/v1/chat/sessions` — 세션 생성
-  - `GET /api/v1/chat/sessions` — 본인 세션 목록
-  - `DELETE /api/v1/chat/sessions/{id}` — 세션 삭제 (첨부 파일도 정리)
-  - `GET /api/v1/chat/sessions/{id}/messages` — 메시지 이력
+  - `POST /api/v1/chat/sessions` — 세션 생성. body(선택): `{ system_ids?: int[] }` (기본 [])
+  - `GET /api/v1/chat/sessions` — 본인 세션 목록. 쿼리 파라미터: `q` (title ILIKE 검색). 소프트 삭제된 세션은 제외.
+  - `PATCH /api/v1/chat/sessions/{id}` — 제목/시스템 변경. body: `{ title?: str, system_ids?: int[] }` (변경할 필드만)
+  - `DELETE /api/v1/chat/sessions/{id}` — **소프트 삭제** (`deleted_at = NOW()`). 첨부파일은 보존.
+  - `POST /api/v1/chat/sessions/{id}/restore` — 소프트 삭제 세션 **복구** (`deleted_at = NULL`). 본인 세션만. 프론트에서 삭제 직후 토스트 "되돌리기" 액션이 호출.
+  - `GET /api/v1/chat/sessions/{id}/messages` — 메시지 이력 (소프트 삭제된 세션은 404)
   - `POST /api/v1/chat/sessions/{id}/messages` → **SSE** (text/event-stream). body: `{content, attachment_keys, screen_context?}` — `screen_context: {screen, screen_label, system_id?, incident_id?}`은 화면 진입 시 ChatLauncher가 chatStore에 보관 → ChatPage가 메시지 전송 시 첨부. LLM 프롬프트 1턴에만 한 줄 메타로 prepend되며 chat_messages 본문에는 저장되지 않음.
     - 이벤트 타입: `user_saved` / `iter_start` / `thought` / `tool_call` / `tool_result` / `token` / `final` / `error`
     - DevX 폴백: 완성 텍스트를 청크 분할하여 토큰 스트리밍
+- **통계** (admin 전용)
+  - `GET /api/v1/chat/statistics?from=YYYY-MM-DD&to=YYYY-MM-DD&group_by=system` — 시스템별 챗봇 사용 통계
+    - 응답: `[{ system_id, system_name, session_count, message_count, top1_avg_score }]`
 - **첨부**
   - `POST /api/v1/chat/sessions/{id}/attachments` — multipart, image/png|jpeg|webp|gif, ≤10MB → `{key, mime, size}`
   - `GET /api/v1/chat/sessions/{id}/attachments/{key}` — 인증 후 스트리밍 서빙

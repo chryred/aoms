@@ -766,10 +766,17 @@ class ChatSessionOut(BaseModel):
     id: str
     title: str
     area_code: str
+    system_ids: list[int] = []
+    deleted_at: Optional[UtcDatetime] = None
     created_at: UtcDatetime
     updated_at: UtcDatetime
 
     model_config = {"from_attributes": True}
+
+
+class ChatSessionPatchIn(BaseModel):
+    title: Optional[str] = None
+    system_ids: Optional[list[int]] = None
 
 
 class ChatAttachmentOut(BaseModel):
@@ -793,6 +800,7 @@ class ChatMessageOut(BaseModel):
     # V1 RAG: federated search 품질 추적
     rag_top1_score: Optional[float] = None
     rag_sources_count: Optional[int] = None
+    system_id: Optional[int] = None
     created_at: UtcDatetime
 
     model_config = {"from_attributes": True}

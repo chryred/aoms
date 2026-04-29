@@ -45,6 +45,9 @@ src/
 │   ├── trends/        # CriticalTrendBanner, TrendAlertCard
 │   ├── system/        # SystemFormDrawer
 │   ├── agent/         # SSHSessionModal, AgentCard, AgentStatusBadge, AgentFormModal, InstallJobMonitor (Phase 6)
+│   ├── chat/          # ChatHeader, ChatPanel, SystemMultiSelect, ChatSessionSearchInput, SessionItemMenu, SessionRenameModal, SessionDeleteConfirmModal
+│   ├── help/          # GuestSystemGrid (다중 선택), HelpVisitorForm
+│   ├── mascot/        # Synap (마스코트 캐릭터)
 │   └── user/
 ├── hooks/
 │   ├── queries/       # 조회 훅 (useDashboardHealth, useSystemDetailHealth, useAgents, useAgentStatus, useAgentConfig, useInstallJob)

@@ -1,24 +1,23 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import toast from 'react-hot-toast'
+import { describeChatError } from '@/lib/chatErrorMessage'
 import { useQueryClient } from '@tanstack/react-query'
-import {
-  Menu,
-  Plus,
-  MessageSquare,
-  Server,
-  AlertTriangle,
-  BookOpen,
-  FileSearch,
-  TrendingUp,
-  History,
-} from 'lucide-react'
+import { Menu, Plus, MessageSquare } from 'lucide-react'
 import { streamChatMessage } from '@/api/chat'
 import { useChatMessages } from '@/hooks/queries/useChatMessages'
 import { useChatSessions } from '@/hooks/queries/useChatSessions'
-import { useCreateChatSession } from '@/hooks/mutations/useCreateChatSession'
+import {
+  useCreateChatSession,
+  useDeleteChatSession,
+  useRestoreChatSession,
+} from '@/hooks/mutations/useCreateChatSession'
+import { usePatchChatSession } from '@/hooks/mutations/usePatchChatSession'
+import { useChatPromptCategories } from '@/hooks/queries/useChatPromptCategories'
 import { useChatAttachments } from '@/hooks/useChatAttachments'
 import { useChatStore } from '@/store/chatStore'
+import { useAuthStore } from '@/store/authStore'
 import { useSystems } from '@/hooks/queries/useSystems'
+import { useMyPrimarySystems } from '@/hooks/queries/useMyPrimarySystems'
 import { qk } from '@/constants/queryKeys'
 import type { ChatMessage, ChatSession, ChatStreamEvent, ScreenContext } from '@/types/chat'
 import { cn, formatRelative } from '@/lib/utils'
@@ -29,39 +28,10 @@ import { ChatComposer } from '@/components/chat/ChatComposer'
 import { ChatHeader } from '@/components/chat/ChatHeader'
 import { ChatMessageView, StreamingAssistantMessage } from '@/components/chat/ChatMessage'
 import { ToolCallCard } from '@/components/chat/ToolCallCard'
-
-const PROMPT_CATEGORIES = [
-  {
-    icon: Server,
-    category: '시스템 상태',
-    prompt: 'CRM 서버 오늘 CPU 사용률 알려줘',
-  },
-  {
-    icon: AlertTriangle,
-    category: '장애 이력',
-    prompt: '지난주 결제 시스템 장애 원인 정리해줘',
-  },
-  {
-    icon: BookOpen,
-    category: '운영 정책',
-    prompt: 'VIP 등급 기준이 뭐야?',
-  },
-  {
-    icon: FileSearch,
-    category: '로그 분석',
-    prompt: '방금 발생한 알림 관련 에러 로그 보여줘',
-  },
-  {
-    icon: TrendingUp,
-    category: '메트릭 추이',
-    prompt: '고객경험 시스템 메모리 사용률 추이',
-  },
-  {
-    icon: History,
-    category: '유사 사례',
-    prompt: '비슷한 장애 이력 검색해줘',
-  },
-] as const
+import { ChatSessionSearchInput } from '@/components/chat/ChatSessionSearchInput'
+import { SessionItemMenu } from '@/components/chat/SessionItemMenu'
+import { SessionRenameModal } from '@/components/chat/SessionRenameModal'
+import { SessionDeleteConfirmModal } from '@/components/chat/SessionDeleteConfirmModal'
 
 interface StreamingToolState {
   id: string
@@ -72,11 +42,18 @@ interface StreamingToolState {
   thought?: string
 }
 
+type ActiveMenuMode = 'rename' | 'delete'
+interface ActiveMenuSession {
+  id: string
+  title: string
+  mode: ActiveMenuMode
+}
+
 export function ChatPage() {
   const currentSessionId = useChatStore((s) => s.currentSessionId)
   const setCurrentSessionId = useChatStore((s) => s.setCurrentSessionId)
-  const filterSystemId = useChatStore((s) => s.filterSystemId)
-  const setFilterSystemId = useChatStore((s) => s.setFilterSystemId)
+  const filterSystemIds = useChatStore((s) => s.filterSystemIds)
+  const setFilterSystemIds = useChatStore((s) => s.setFilterSystemIds)
   const consumePendingScreenContext = useChatStore((s) => s.consumePendingScreenContext)
 
   // 진입 시 1회 소비하여 로컬 state에 보관
@@ -90,10 +67,54 @@ export function ChatPage() {
   }, [])
 
   const { data: systems = [] } = useSystems()
+  const { data: primarySystems } = useMyPrimarySystems()
+  const user = useAuthStore((s) => s.user)
+
+  // filterSystemIds 디폴트 초기화: 빈 배열이고 사용자 정보가 로드된 경우에만 1회 적용
+  const defaultsApplied = useRef(false)
+  useEffect(() => {
+    if (defaultsApplied.current) return
+    if (filterSystemIds.length > 0) {
+      // 이미 persist 복원된 값이 있으면 그대로 사용
+      defaultsApplied.current = true
+      return
+    }
+    if (!user) return
+
+    if (user.role === 'admin') {
+      // admin은 모든 시스템이 로드되었을 때 전체 선택
+      if (systems.length > 0) {
+        setFilterSystemIds(systems.map((s) => s.id))
+        defaultsApplied.current = true
+      }
+    } else {
+      // 일반 사용자: 담당 시스템 기본 선택 (로드 완료 시)
+      if (primarySystems !== undefined) {
+        if (primarySystems.length > 0) {
+          setFilterSystemIds(primarySystems.map((s) => s.system_id))
+        }
+        // 담당 시스템 0개면 빈 상태 유지
+        defaultsApplied.current = true
+      }
+    }
+  }, [user, systems, primarySystems, filterSystemIds, setFilterSystemIds])
 
   const qc = useQueryClient()
-  const { data: sessions } = useChatSessions(true)
+
+  // 세션 검색
+  const [searchQ, setSearchQ] = useState('')
+  const deferredQ = useDeferredValue(searchQ)
+  const [debouncedQ, setDebouncedQ] = useState('')
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedQ(deferredQ), 200)
+    return () => clearTimeout(timer)
+  }, [deferredQ])
+
+  const { data: sessions } = useChatSessions(true, debouncedQ || undefined)
   const createSession = useCreateChatSession()
+  const deleteSession = useDeleteChatSession()
+  const restoreSession = useRestoreChatSession()
+  const patchSession = usePatchChatSession()
   const {
     attachments,
     addFiles,
@@ -103,6 +124,11 @@ export function ChatPage() {
     isUploading,
   } = useChatAttachments(currentSessionId)
 
+  const promptCategories = useChatPromptCategories()
+
+  // 모달 상태 (단일 모달 정책)
+  const [activeMenuSession, setActiveMenuSession] = useState<ActiveMenuSession | null>(null)
+
   // 세션이 없으면 자동 생성 또는 최신 세션 복원
   useEffect(() => {
     if (currentSessionId) return
@@ -110,12 +136,19 @@ export function ChatPage() {
       setCurrentSessionId(sessions[0].id)
       return
     }
-    if (sessions && sessions.length === 0 && !createSession.isPending) {
+    if (sessions && sessions.length === 0 && !debouncedQ && !createSession.isPending) {
       createSession.mutate(undefined, {
-        onSuccess: (s) => setCurrentSessionId(s.id),
+        onSuccess: (s) => {
+          setCurrentSessionId(s.id)
+          // system_ids 전달
+          if (filterSystemIds.length > 0) {
+            patchSession.mutate({ sessionId: s.id, data: { system_ids: filterSystemIds } })
+          }
+        },
       })
     }
-  }, [currentSessionId, sessions, setCurrentSessionId, createSession])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentSessionId, sessions, debouncedQ, setCurrentSessionId, createSession])
 
   const { data: messages } = useChatMessages(currentSessionId)
 
@@ -175,27 +208,18 @@ export function ChatPage() {
             handleEventRef.current(event)
           },
           controller.signal,
-          filterSystemId,
+          null,
           latestScreenContext,
         )
       } catch (err) {
         console.error(err)
-        if (!(err instanceof Error && err.name === 'AbortError')) {
-          toast.error('채팅 중 오류가 발생했습니다.')
-        }
+        const msg = describeChatError(err)
+        if (msg) toast.error(msg)
       } finally {
         finishStream()
       }
     },
-    [
-      currentSessionId,
-      isStreaming,
-      readyKeys,
-      clearAttachments,
-      finishStream,
-      filterSystemId,
-      latestScreenContext,
-    ],
+    [currentSessionId, isStreaming, readyKeys, clearAttachments, finishStream, latestScreenContext],
   )
 
   const handleEvent = (event: ChatStreamEvent) => {
@@ -268,9 +292,19 @@ export function ChatPage() {
       onSuccess: (s) => {
         setCurrentSessionId(s.id)
         clearAttachments()
+        if (filterSystemIds.length > 0) {
+          patchSession.mutate({ sessionId: s.id, data: { system_ids: filterSystemIds } })
+        }
       },
     })
-  }, [createSession, isStreaming, setCurrentSessionId, clearAttachments])
+  }, [
+    createSession,
+    isStreaming,
+    setCurrentSessionId,
+    clearAttachments,
+    filterSystemIds,
+    patchSession,
+  ])
 
   const currentSession = useMemo(
     () => sessions?.find((s) => s.id === currentSessionId) ?? null,
@@ -293,6 +327,72 @@ export function ChatPage() {
     },
     [messages, isStreaming, handleSend],
   )
+
+  // filterSystemIds 변경 시 현재 세션에 PATCH
+  const filterSystemIdsRef = useRef(filterSystemIds)
+  useEffect(() => {
+    filterSystemIdsRef.current = filterSystemIds
+  }, [filterSystemIds])
+
+  const handleFilterChange = useCallback(
+    (ids: number[]) => {
+      setFilterSystemIds(ids)
+      if (currentSessionId) {
+        patchSession.mutate({ sessionId: currentSessionId, data: { system_ids: ids } })
+      }
+    },
+    [setFilterSystemIds, currentSessionId, patchSession],
+  )
+
+  // 세션 이름 변경 핸들러
+  const handleRenameSubmit = useCallback(
+    async (title: string) => {
+      if (!activeMenuSession) return
+      await patchSession.mutateAsync({ sessionId: activeMenuSession.id, data: { title } })
+      setActiveMenuSession(null)
+    },
+    [activeMenuSession, patchSession],
+  )
+
+  // 세션 삭제 핸들러 — 삭제 후 Undo 토스트 (8초)
+  const handleDeleteConfirm = useCallback(async () => {
+    if (!activeMenuSession) return
+    const { id, title } = activeMenuSession
+    await deleteSession.mutateAsync(id)
+    if (currentSessionId === id) {
+      setCurrentSessionId(null)
+    }
+    setActiveMenuSession(null)
+
+    const truncated = title.length > 20 ? `${title.slice(0, 20)}…` : title
+    toast(
+      (t) => (
+        <span className="flex items-center gap-3">
+          <span>
+            <span className="text-text-primary font-medium">&ldquo;{truncated}&rdquo;</span>{' '}
+            <span className="text-text-secondary">대화를 삭제했어요</span>
+          </span>
+          <button
+            type="button"
+            onClick={async () => {
+              toast.dismiss(t.id)
+              try {
+                const restored = await restoreSession.mutateAsync(id)
+                setCurrentSessionId(restored.id)
+                toast.success('대화를 복구했어요')
+              } catch {
+                toast.error('복구에 실패했어요. 잠시 후 다시 시도해주세요.')
+              }
+            }}
+            className="text-accent hover:text-accent-contrast hover:bg-accent rounded-sm px-2 py-1 text-xs font-medium transition-colors"
+          >
+            되돌리기
+          </button>
+        </span>
+      ),
+      { duration: 8000 },
+    )
+  }, [activeMenuSession, deleteSession, restoreSession, currentSessionId, setCurrentSessionId])
 
   // 키보드 단축키
   useEffect(() => {
@@ -414,7 +514,7 @@ export function ChatPage() {
             'lg:static lg:z-auto lg:w-64 lg:translate-x-0',
           )}
         >
-          <div className="border-border border-b px-3 py-2">
+          <div className="border-border flex flex-col gap-2 border-b px-3 py-2">
             <NeuButton
               variant="secondary"
               size="sm"
@@ -425,45 +525,77 @@ export function ChatPage() {
               <Plus className="h-4 w-4" />
               <span>새 대화</span>
             </NeuButton>
+            <ChatSessionSearchInput value={searchQ} onChange={setSearchQ} />
           </div>
 
           <div className="flex-1 overflow-y-auto py-1">
             {sessions && sessions.length === 0 && (
-              <p className="text-text-disabled px-3 py-4 text-center text-xs">대화 없음</p>
+              <p className="text-text-disabled px-3 py-4 text-center text-xs">
+                {debouncedQ ? '검색 결과 없음' : '대화 없음'}
+              </p>
             )}
             {sessions?.map((session: ChatSession) => {
               const isActive = session.id === currentSessionId
               return (
-                <button
+                <div
                   key={session.id}
-                  type="button"
-                  onClick={() => {
-                    setCurrentSessionId(session.id)
-                    setMobileSessionListOpen(false)
-                  }}
-                  aria-current={isActive ? 'true' : undefined}
                   className={cn(
-                    'flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors',
+                    'group flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors',
                     'min-h-[44px]',
-                    'focus:ring-accent focus:ring-1 focus:outline-none',
                     isActive
                       ? 'bg-accent text-accent-contrast font-medium'
                       : 'text-text-secondary hover:bg-accent-muted hover:text-text-primary',
                   )}
                 >
-                  <MessageSquare className="h-3.5 w-3.5 shrink-0" />
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate">{session.title || '새 대화'}</div>
-                    <div
-                      className={cn(
-                        'truncate text-[10px]',
-                        isActive ? 'text-accent-contrast/70' : 'text-text-disabled',
-                      )}
-                    >
-                      {formatRelative(session.updated_at)}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCurrentSessionId(session.id)
+                      setMobileSessionListOpen(false)
+                    }}
+                    aria-current={isActive ? 'true' : undefined}
+                    className={cn(
+                      'flex min-w-0 flex-1 items-center gap-2 text-left',
+                      'focus:ring-accent rounded-sm focus:ring-1 focus:outline-none',
+                    )}
+                  >
+                    <MessageSquare className="h-3.5 w-3.5 shrink-0" />
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate">{session.title || '새 대화'}</div>
+                      <div
+                        className={cn(
+                          'truncate text-[10px]',
+                          isActive ? 'text-accent-contrast/70' : 'text-text-disabled',
+                        )}
+                      >
+                        {formatRelative(session.updated_at)}
+                      </div>
                     </div>
-                  </div>
-                </button>
+                  </button>
+                  <SessionItemMenu
+                    onRename={() =>
+                      setActiveMenuSession({
+                        id: session.id,
+                        title: session.title || '새 대화',
+                        mode: 'rename',
+                      })
+                    }
+                    onDelete={() =>
+                      setActiveMenuSession({
+                        id: session.id,
+                        title: session.title || '새 대화',
+                        mode: 'delete',
+                      })
+                    }
+                    className={cn(
+                      'shrink-0 transition-opacity duration-100',
+                      // 모바일/터치 환경: 항상 가시화 (hover 없음)
+                      // 데스크탑(md 이상): hover 시에만 노출
+                      'opacity-100 md:opacity-0 md:group-hover:opacity-100',
+                      isActive && 'md:opacity-100',
+                    )}
+                  />
+                </div>
               )
             })}
           </div>
@@ -477,8 +609,8 @@ export function ChatPage() {
             onNewChat={handleNewChat}
             disabled={isStreaming}
             systems={systems}
-            filterSystemId={filterSystemId}
-            onFilterSystemChange={setFilterSystemId}
+            filterSystemIds={filterSystemIds}
+            onFilterSystemChange={handleFilterChange}
           />
 
           <div
@@ -521,26 +653,36 @@ export function ChatPage() {
                   </div>
                 )}
 
-                <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-                  {PROMPT_CATEGORIES.map(({ icon: Icon, category, prompt }) => (
-                    <button
-                      key={category}
-                      type="button"
-                      onClick={() => handleSend(prompt)}
-                      disabled={isStreaming || !currentSessionId}
-                      className={cn(
-                        'border-border rounded-sm border p-3 text-left transition-colors',
-                        'hover:bg-accent-muted hover:border-accent',
-                        'focus:ring-accent focus:ring-1 focus:outline-none',
-                        'disabled:cursor-not-allowed disabled:opacity-40',
-                      )}
-                    >
-                      <div className="text-text-secondary mb-1 flex items-center gap-1.5 text-xs">
-                        <Icon className="h-3.5 w-3.5" />
-                        <span>{category}</span>
+                {/* 추천 카드 — 의미 그룹별 sub-header + 3+3 layout */}
+                <div className="space-y-3">
+                  {promptCategories.map((group) => (
+                    <div key={group.label}>
+                      <p className="text-text-secondary mb-1.5 text-[11px] font-medium uppercase tracking-wide">
+                        {group.label}
+                      </p>
+                      <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+                        {group.items.map(({ icon: Icon, category, prompt }) => (
+                          <button
+                            key={category}
+                            type="button"
+                            onClick={() => handleSend(prompt)}
+                            disabled={isStreaming || !currentSessionId}
+                            className={cn(
+                              'border-border rounded-sm border p-3 text-left transition-colors',
+                              'hover:bg-accent-muted hover:border-accent',
+                              'focus:ring-accent focus:ring-1 focus:outline-none',
+                              'disabled:cursor-not-allowed disabled:opacity-40',
+                            )}
+                          >
+                            <div className="text-text-secondary mb-1 flex items-center gap-1.5 text-xs">
+                              <Icon className="h-3.5 w-3.5" />
+                              <span>{category}</span>
+                            </div>
+                            <div className="text-text-primary text-sm">{prompt}</div>
+                          </button>
+                        ))}
                       </div>
-                      <div className="text-text-primary text-sm">{prompt}</div>
-                    </button>
+                    </div>
                   ))}
                 </div>
                 <p className="text-text-disabled mt-4 hidden text-center text-[11px] lg:block">
@@ -589,6 +731,24 @@ export function ChatPage() {
           />
         </div>
       </div>
+
+      {/* 이름 변경 모달 */}
+      <SessionRenameModal
+        open={activeMenuSession?.mode === 'rename'}
+        initialTitle={activeMenuSession?.title ?? ''}
+        onClose={() => setActiveMenuSession(null)}
+        onSubmit={handleRenameSubmit}
+        isPending={patchSession.isPending}
+      />
+
+      {/* 삭제 확인 모달 */}
+      <SessionDeleteConfirmModal
+        open={activeMenuSession?.mode === 'delete'}
+        sessionTitle={activeMenuSession?.title ?? ''}
+        onClose={() => setActiveMenuSession(null)}
+        onConfirm={handleDeleteConfirm}
+        isPending={deleteSession.isPending}
+      />
     </div>
   )
 }

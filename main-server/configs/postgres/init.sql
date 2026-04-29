@@ -452,11 +452,15 @@ CREATE TABLE IF NOT EXISTS chat_sessions (
     visitor_employee_id  VARCHAR(100),                                     -- 게스트 사번 (감사용)
     visitor_email        VARCHAR(200),                                     -- 게스트 이메일 (선택)
     visitor_system_id    INTEGER REFERENCES systems(id) ON DELETE SET NULL, -- 게스트 선택 시스템
+    system_ids           INTEGER[] NOT NULL DEFAULT '{}',                  -- 사용자가 선택한 N개 시스템 (다중 검색 스코프)
+    deleted_at           TIMESTAMP,                                        -- NULL=활성, NOT NULL=소프트 삭제
     created_at           TIMESTAMP DEFAULT NOW(),
     updated_at           TIMESTAMP DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_chat_sessions_user    ON chat_sessions(user_id, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_chat_sessions_visitor ON chat_sessions(visitor_employee_id) WHERE visitor_employee_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_chat_sessions_system_ids ON chat_sessions USING GIN (system_ids);
+CREATE INDEX IF NOT EXISTS idx_chat_sessions_active ON chat_sessions(user_id, updated_at DESC) WHERE deleted_at IS NULL;
 
 -- 챗봇 메시지
 CREATE TABLE IF NOT EXISTS chat_messages (
@@ -472,9 +476,11 @@ CREATE TABLE IF NOT EXISTS chat_messages (
     -- V1 RAG: federated search 품질 추적 (ADR-002)
     rag_top1_score    FLOAT,                                   -- NULL 허용 — federated search RRF top-1 점수
     rag_sources_count INTEGER,                                 -- NULL 허용 — 검색 결과 개수
+    system_id         INTEGER REFERENCES systems(id) ON DELETE SET NULL,  -- 메시지별 실제 조회 시스템 (통계용)
     created_at        TIMESTAMP DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_chat_messages_session ON chat_messages(session_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_chat_messages_system ON chat_messages(system_id, created_at) WHERE system_id IS NOT NULL;
 
 -- chat_assistant LLM agent 시드
 INSERT INTO llm_agent_configs (area_code, area_name, agent_code, description) VALUES

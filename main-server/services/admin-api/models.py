@@ -5,6 +5,7 @@ from sqlalchemy import (
     String, Text, UniqueConstraint, func
 )
 from sqlalchemy import JSON as JSONB
+from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import relationship
 from database import Base
 
@@ -518,6 +519,8 @@ class ChatSession(Base):
     visitor_employee_id = Column(String(100), nullable=True)   # 게스트 사번 (감사용)
     visitor_email       = Column(String(200), nullable=True)   # 게스트 이메일 (선택)
     visitor_system_id   = Column(Integer, ForeignKey("systems.id", ondelete="SET NULL"), nullable=True)
+    system_ids          = Column(ARRAY(Integer).with_variant(JSONB, "sqlite"), nullable=False, default=list)
+    deleted_at          = Column(DateTime, nullable=True)
     created_at          = Column(DateTime, default=func.now())
     updated_at          = Column(DateTime, default=func.now(), onupdate=func.now())
 
@@ -543,6 +546,7 @@ class ChatMessage(Base):
     # V1 RAG: federated search 품질 추적 (ADR-002)
     rag_top1_score    = Column(Float)          # NULL 허용 — federated search RRF top-1 점수
     rag_sources_count = Column(Integer)        # NULL 허용 — 검색 결과 개수
+    system_id         = Column(Integer, ForeignKey("systems.id", ondelete="SET NULL"), nullable=True)
     created_at        = Column(DateTime, default=func.now())
 
     __table_args__ = (

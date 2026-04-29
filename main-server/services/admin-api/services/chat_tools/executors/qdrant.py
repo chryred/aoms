@@ -36,12 +36,15 @@ async def _search_incident_knowledge(
         return {"error": "query 파라미터 필요"}
 
     system_name = args.get("system_name")
+    system_ids  = args.get("system_ids")  # list[int] 다중 필터 (신규)
     limit       = min(int(args.get("limit", 5)), 10)
     base        = await _base_url(db)
 
-    payload = {"query": query, "limit": limit}
+    payload: dict[str, Any] = {"query": query, "limit": limit}
     if system_name:
         payload["system_name"] = system_name
+    if system_ids:
+        payload["system_ids"] = [int(sid) for sid in system_ids]
 
     try:
         async with httpx.AsyncClient(timeout=20.0) as client:
@@ -106,17 +109,20 @@ async def _search_aggregation_summary(
     if not query:
         return {"error": "query 파라미터 필요"}
 
-    system_id = args.get("system_id")
-    limit     = min(int(args.get("limit", 5)), 10)
-    base      = await _base_url(db)
+    system_id  = args.get("system_id")
+    system_ids = args.get("system_ids")  # list[int] 다중 필터 (신규)
+    limit      = min(int(args.get("limit", 5)), 10)
+    base       = await _base_url(db)
 
-    payload = {
+    payload: dict[str, Any] = {
         "query_text": query,
         "collection": "aggregation_summaries",
         "limit":      limit,
     }
     if system_id is not None:
         payload["system_id"] = int(system_id)
+    if system_ids:
+        payload["system_ids"] = [int(sid) for sid in system_ids]
 
     try:
         async with httpx.AsyncClient(timeout=20.0) as client:
@@ -161,6 +167,7 @@ async def _search_hourly_patterns(
         return {"error": "query 파라미터 필요"}
 
     system_name = args.get("system_name")
+    system_ids  = args.get("system_ids")  # list[int] 다중 필터 (신규)
     limit       = min(int(args.get("limit", 5)), 10)
     base        = await _base_url(db)
 
@@ -171,6 +178,8 @@ async def _search_hourly_patterns(
     }
     if system_name:
         payload["system_name"] = system_name
+    if system_ids:
+        payload["system_ids"] = [int(sid) for sid in system_ids]
 
     try:
         async with httpx.AsyncClient(timeout=20.0) as client:

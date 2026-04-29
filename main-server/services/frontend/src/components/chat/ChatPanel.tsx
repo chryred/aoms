@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import toast from 'react-hot-toast'
+import { describeChatError } from '@/lib/chatErrorMessage'
 import { useQueryClient } from '@tanstack/react-query'
-import { Server, AlertTriangle, BookOpen, FileSearch, TrendingUp, History } from 'lucide-react'
 import { streamChatMessage } from '@/api/chat'
 import { useChatMessages } from '@/hooks/queries/useChatMessages'
 import { useChatSessions } from '@/hooks/queries/useChatSessions'
 import { useCreateChatSession } from '@/hooks/mutations/useCreateChatSession'
+import { usePatchChatSession } from '@/hooks/mutations/usePatchChatSession'
+import { useChatPromptCategories } from '@/hooks/queries/useChatPromptCategories'
 import { useChatAttachments } from '@/hooks/useChatAttachments'
 import { useChatStore } from '@/store/chatStore'
 import { useSystems } from '@/hooks/queries/useSystems'
@@ -17,39 +19,6 @@ import { ChatComposer } from './ChatComposer'
 import { ChatHeader } from './ChatHeader'
 import { ChatMessageView, StreamingAssistantMessage } from './ChatMessage'
 import { ToolCallCard } from './ToolCallCard'
-
-const PROMPT_CATEGORIES = [
-  {
-    icon: Server,
-    category: '시스템 상태',
-    prompt: 'CRM 서버 오늘 CPU 사용률 알려줘',
-  },
-  {
-    icon: AlertTriangle,
-    category: '장애 이력',
-    prompt: '지난주 결제 시스템 장애 원인 정리해줘',
-  },
-  {
-    icon: BookOpen,
-    category: '운영 정책',
-    prompt: 'VIP 등급 기준이 뭐야?',
-  },
-  {
-    icon: FileSearch,
-    category: '로그 분석',
-    prompt: '방금 발생한 알림 관련 에러 로그 보여줘',
-  },
-  {
-    icon: TrendingUp,
-    category: '메트릭 추이',
-    prompt: '고객경험 시스템 메모리 사용률 추이',
-  },
-  {
-    icon: History,
-    category: '유사 사례',
-    prompt: '비슷한 장애 이력 검색해줘',
-  },
-] as const
 
 interface StreamingToolState {
   id: string
@@ -65,8 +34,8 @@ export function ChatPanel() {
   const setOpen = useChatStore((s) => s.setOpen)
   const currentSessionId = useChatStore((s) => s.currentSessionId)
   const setCurrentSessionId = useChatStore((s) => s.setCurrentSessionId)
-  const filterSystemId = useChatStore((s) => s.filterSystemId)
-  const setFilterSystemId = useChatStore((s) => s.setFilterSystemId)
+  const filterSystemIds = useChatStore((s) => s.filterSystemIds)
+  const setFilterSystemIds = useChatStore((s) => s.setFilterSystemIds)
   const setThinking = useChatStore((s) => s.setThinking)
   const resetUnread = useChatStore((s) => s.resetUnread)
   const consumePendingScreenContext = useChatStore((s) => s.consumePendingScreenContext)
@@ -79,6 +48,7 @@ export function ChatPanel() {
   const qc = useQueryClient()
   const { data: sessions } = useChatSessions(isOpen)
   const createSession = useCreateChatSession()
+  const patchSession = usePatchChatSession()
   const {
     attachments,
     addFiles,
@@ -87,6 +57,8 @@ export function ChatPanel() {
     readyKeys,
     isUploading,
   } = useChatAttachments(currentSessionId)
+
+  const promptCategories = useChatPromptCategories()
 
   // 세션이 없으면 열 때 자동 생성 또는 최신 세션 복원
   useEffect(() => {
@@ -98,9 +70,15 @@ export function ChatPanel() {
     }
     if (sessions && sessions.length === 0 && !createSession.isPending) {
       createSession.mutate(undefined, {
-        onSuccess: (s) => setCurrentSessionId(s.id),
+        onSuccess: (s) => {
+          setCurrentSessionId(s.id)
+          if (filterSystemIds.length > 0) {
+            patchSession.mutate({ sessionId: s.id, data: { system_ids: filterSystemIds } })
+          }
+        },
       })
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, currentSessionId, sessions, setCurrentSessionId, createSession])
 
   const { data: messages } = useChatMessages(currentSessionId)
@@ -176,27 +154,18 @@ export function ChatPanel() {
             handleEventRef.current(event)
           },
           controller.signal,
-          filterSystemId,
+          null,
           latestScreenContext,
         )
       } catch (err) {
         console.error(err)
-        if (!(err instanceof Error && err.name === 'AbortError')) {
-          toast.error('채팅 중 오류가 발생했습니다.')
-        }
+        const msg = describeChatError(err)
+        if (msg) toast.error(msg)
       } finally {
         finishStream()
       }
     },
-    [
-      currentSessionId,
-      isStreaming,
-      readyKeys,
-      clearAttachments,
-      finishStream,
-      filterSystemId,
-      latestScreenContext,
-    ],
+    [currentSessionId, isStreaming, readyKeys, clearAttachments, finishStream, latestScreenContext],
   )
 
   const handleEvent = (event: ChatStreamEvent) => {
@@ -270,9 +239,19 @@ export function ChatPanel() {
       onSuccess: (s) => {
         setCurrentSessionId(s.id)
         clearAttachments()
+        if (filterSystemIds.length > 0) {
+          patchSession.mutate({ sessionId: s.id, data: { system_ids: filterSystemIds } })
+        }
       },
     })
-  }, [createSession, isStreaming, setCurrentSessionId, clearAttachments])
+  }, [
+    createSession,
+    isStreaming,
+    setCurrentSessionId,
+    clearAttachments,
+    filterSystemIds,
+    patchSession,
+  ])
 
   const currentSession = useMemo(
     () => sessions?.find((s) => s.id === currentSessionId) ?? null,
@@ -294,6 +273,17 @@ export function ChatPanel() {
       handleSend(userContent)
     },
     [messages, isStreaming, handleSend],
+  )
+
+  // filterSystemIds 변경 시 현재 세션에 PATCH
+  const handleFilterChange = useCallback(
+    (ids: number[]) => {
+      setFilterSystemIds(ids)
+      if (currentSessionId) {
+        patchSession.mutate({ sessionId: currentSessionId, data: { system_ids: ids } })
+      }
+    },
+    [setFilterSystemIds, currentSessionId, patchSession],
   )
 
   // 키보드 단축키
@@ -388,8 +378,8 @@ export function ChatPanel() {
         onClose={() => setOpen(false)}
         disabled={isStreaming}
         systems={systems}
-        filterSystemId={filterSystemId}
-        onFilterSystemChange={setFilterSystemId}
+        filterSystemIds={filterSystemIds}
+        onFilterSystemChange={handleFilterChange}
       />
 
       <div
@@ -432,26 +422,35 @@ export function ChatPanel() {
               </div>
             )}
 
-            <div className="grid grid-cols-1 gap-2">
-              {PROMPT_CATEGORIES.map(({ icon: Icon, category, prompt }) => (
-                <button
-                  key={category}
-                  type="button"
-                  onClick={() => handleSend(prompt)}
-                  disabled={isStreaming || !currentSessionId}
-                  className={cn(
-                    'border-border rounded-sm border p-3 text-left transition-colors',
-                    'hover:bg-accent-muted hover:border-accent',
-                    'focus:ring-accent focus:ring-1 focus:outline-none',
-                    'disabled:cursor-not-allowed disabled:opacity-40',
-                  )}
-                >
-                  <div className="text-text-secondary mb-1 flex items-center gap-1.5 text-xs">
-                    <Icon className="h-3.5 w-3.5" />
-                    <span>{category}</span>
+            <div className="space-y-3">
+              {promptCategories.map((group) => (
+                <div key={group.label}>
+                  <p className="text-text-secondary mb-1.5 text-[11px] font-medium uppercase tracking-wide">
+                    {group.label}
+                  </p>
+                  <div className="grid grid-cols-1 gap-2">
+                    {group.items.map(({ icon: Icon, category, prompt }) => (
+                      <button
+                        key={category}
+                        type="button"
+                        onClick={() => handleSend(prompt)}
+                        disabled={isStreaming || !currentSessionId}
+                        className={cn(
+                          'border-border rounded-sm border p-3 text-left transition-colors',
+                          'hover:bg-accent-muted hover:border-accent',
+                          'focus:ring-accent focus:ring-1 focus:outline-none',
+                          'disabled:cursor-not-allowed disabled:opacity-40',
+                        )}
+                      >
+                        <div className="text-text-secondary mb-1 flex items-center gap-1.5 text-xs">
+                          <Icon className="h-3.5 w-3.5" />
+                          <span>{category}</span>
+                        </div>
+                        <div className="text-text-primary text-sm">{prompt}</div>
+                      </button>
+                    ))}
                   </div>
-                  <div className="text-text-primary text-sm">{prompt}</div>
-                </button>
+                </div>
               ))}
             </div>
           </div>

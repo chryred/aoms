@@ -211,6 +211,7 @@ async def _append_message(
     tool_args: dict | None = None,
     tool_result: dict | None = None,
     attachments: list | None = None,
+    system_id: int | None = None,
 ) -> ChatMessage:
     msg = ChatMessage(
         session_id=session_id,
@@ -221,10 +222,68 @@ async def _append_message(
         tool_args=tool_args,
         tool_result=tool_result,
         attachments=attachments or [],
+        system_id=system_id,
     )
     db.add(msg)
     await db.flush()
     return msg
+
+
+async def _resolve_system_id_from_name(db: AsyncSession, system_name: str) -> int | None:
+    """system_name으로 systems 테이블 조회 → system_id 반환. 없으면 None."""
+    from models import System
+    from sqlalchemy import select as _select
+    row = (
+        await db.execute(
+            _select(System).where(System.system_name == system_name)
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        # display_name으로도 시도
+        row = (
+            await db.execute(
+                _select(System).where(System.display_name == system_name)
+            )
+        ).scalar_one_or_none()
+    return row.id if row else None
+
+
+def _extract_system_id_from_tool(
+    tool_args: dict,
+    tool_result: dict | None,
+    session_system_ids: list[int],
+) -> int | None:
+    """도구 호출 결과/인자에서 system_id를 추출한다.
+
+    폴백 순서:
+    1. tool_args.system_id
+    2. tool_result에서 단일 system_id 노출
+    3. 세션의 system_ids가 1개면 그것
+    4. NULL
+    tool_args.system_name은 비동기 DB 조회가 필요하므로 별도 처리.
+    """
+    # 1. tool_args.system_id
+    sid = tool_args.get("system_id")
+    if sid is not None:
+        try:
+            return int(sid)
+        except (TypeError, ValueError):
+            pass
+
+    # 2. tool_result 단일 system_id
+    if isinstance(tool_result, dict):
+        sid = tool_result.get("system_id")
+        if sid is not None:
+            try:
+                return int(sid)
+            except (TypeError, ValueError):
+                pass
+
+    # 3. 세션 스코프가 단 1개
+    if len(session_system_ids) == 1:
+        return session_system_ids[0]
+
+    return None
 
 
 def _parse_json(text: str) -> dict | None:
@@ -401,16 +460,38 @@ async def run_react_stream(
             yield {"type": "final", "data": {"content": msg}}
             return
 
-        yield {"type": "tool_call", "data": {"tool": action, "args": args}}
-        result = await run_tool(db, action, args if isinstance(args, dict) else {})
+        # qdrant 도구에 세션의 system_ids 주입 (LLM이 명시한 값 우선)
+        session_system_ids: list[int] = list(getattr(session, "system_ids", None) or [])
+        if action.startswith("qdrant_") and session_system_ids:
+            if isinstance(args, dict):
+                args.setdefault("system_ids", session_system_ids)
+            else:
+                args = {"system_ids": session_system_ids}
+
+        safe_args = args if isinstance(args, dict) else {}
+        yield {"type": "tool_call", "data": {"tool": action, "args": safe_args}}
+        result = await run_tool(db, action, safe_args)
+
+        # system_id 추출 (동기 우선 폴백)
+        extracted_system_id = _extract_system_id_from_tool(safe_args, result, session_system_ids)
+        # tool_args.system_name → DB 조회 폴백 (추출 못한 경우만)
+        if extracted_system_id is None:
+            system_name_hint = safe_args.get("system_name")
+            if system_name_hint:
+                try:
+                    extracted_system_id = await _resolve_system_id_from_name(db, str(system_name_hint))
+                except Exception as _sid_exc:  # noqa: BLE001
+                    logger.debug("system_id 이름 조회 실패 (무시): %s", _sid_exc)
+
         tool_msg = await _append_message(
             db,
             session_id=session.id,
             role="tool",
             thought=thought or None,
             tool_name=action,
-            tool_args=args if isinstance(args, dict) else {},
+            tool_args=safe_args,
             tool_result=result,
+            system_id=extracted_system_id,
         )
 
         # V1 RAG: qdrant_search_knowledge 결과의 top-1 점수를 직전 user 메시지에 기록

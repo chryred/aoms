@@ -33,6 +33,8 @@ export interface ChatSession {
   id: string
   title: string
   area_code: string
+  system_ids: number[]
+  deleted_at?: string | null
   created_at: string
   updated_at: string
 }

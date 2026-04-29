@@ -47,7 +47,8 @@ export const qk = {
   agentHealthSummary: ['agents', 'health-summary'] as const,
 
   chat: {
-    sessions: () => ['chat', 'sessions'] as const,
+    sessions: (q?: string) =>
+      q ? (['chat', 'sessions', { q }] as const) : (['chat', 'sessions'] as const),
     messages: (sessionId: string) => ['chat', 'messages', sessionId] as const,
     tools: () => ['chat', 'tools'] as const,
     executorConfigs: () => ['chat', 'executor-configs'] as const,

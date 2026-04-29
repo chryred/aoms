@@ -1,5 +1,5 @@
 import ky from 'ky'
-import type { ChatStreamEvent } from '@/types/chat'
+import type { ChatMessage, ChatStreamEvent } from '@/types/chat'
 
 const BASE = (import.meta.env.VITE_ADMIN_API_URL as string | undefined) ?? ''
 
@@ -42,6 +42,13 @@ export const helpApi = {
     helpRawApi
       .post(`api/v1/help/sessions/${sessionId}/escalate`, { json: { description } })
       .json<HelpEscalateResponse>(),
+
+  getMessages: (sessionId: string, employeeId: string) =>
+    helpRawApi
+      .get(`api/v1/help/sessions/${sessionId}/messages`, {
+        searchParams: { employee_id: employeeId },
+      })
+      .json<ChatMessage[]>(),
 }
 
 export async function streamGuestMessage(

@@ -9,12 +9,19 @@ import type {
 import { useAuthStore } from '@/store/authStore'
 
 export const chatApi = {
-  listSessions: () => adminApi.get('api/v1/chat/sessions').json<ChatSession[]>(),
+  listSessions: (q?: string) => {
+    const url = q ? `api/v1/chat/sessions?q=${encodeURIComponent(q)}` : 'api/v1/chat/sessions'
+    return adminApi.get(url).json<ChatSession[]>()
+  },
+  patchSession: (id: string, body: { title?: string; system_ids?: number[] }) =>
+    adminApi.patch(`api/v1/chat/sessions/${id}`, { json: body }).json<ChatSession>(),
   createSession: () => adminApi.post('api/v1/chat/sessions').json<ChatSession>(),
   getMessages: (sessionId: string) =>
     adminApi.get(`api/v1/chat/sessions/${sessionId}/messages`).json<ChatMessage[]>(),
   deleteSession: (sessionId: string) =>
     adminApi.delete(`api/v1/chat/sessions/${sessionId}`).then(() => undefined),
+  restoreSession: (sessionId: string) =>
+    adminApi.post(`api/v1/chat/sessions/${sessionId}/restore`).json<ChatSession>(),
   uploadAttachment: async (sessionId: string, file: File): Promise<ChatAttachment> => {
     const form = new FormData()
     form.append('file', file)

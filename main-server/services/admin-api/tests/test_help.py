@@ -1,11 +1,12 @@
 """routes/help.py 테스트 — 게스트 세션, 시스템 목록, 에스컬레이션."""
 
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from httpx import AsyncClient
 
-from models import ChatSession, Incident, IncidentTimeline, System
+from models import ChatMessage, ChatSession, Incident, IncidentTimeline, System
 
 
 # ── 픽스처 ────────────────────────────────────────────────────────────────────
@@ -172,3 +173,96 @@ async def test_help_tools_filtered(db_session, guest_session):
     filtered = [t for t in all_tools if t["name"] in _HELP_ALLOWED_TOOLS]
     disallowed = [t for t in filtered if t["name"] not in _HELP_ALLOWED_TOOLS]
     assert len(disallowed) == 0, f"허용되지 않은 도구가 필터링 후 남았음: {disallowed}"
+
+
+# ── TC-6: 메시지 조회 ─────────────────────────────────────────────────────────
+
+def _now_utc() -> datetime:
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+@pytest.mark.anyio
+async def test_help_get_messages_owner_match(client: AsyncClient, db_session, guest_session):
+    """사번 일치 → 200 + 메시지 시간순 반환."""
+    from datetime import timedelta
+
+    t0 = _now_utc()
+    msg1 = ChatMessage(
+        session_id=guest_session.id,
+        role="user",
+        content="첫 번째 질문",
+        created_at=t0,
+    )
+    msg2 = ChatMessage(
+        session_id=guest_session.id,
+        role="assistant",
+        content="첫 번째 답변",
+        created_at=t0 + timedelta(seconds=1),
+    )
+    db_session.add(msg1)
+    db_session.add(msg2)
+    await db_session.commit()
+
+    resp = await client.get(
+        f"/api/v1/help/sessions/{guest_session.id}/messages",
+        params={"employee_id": "EMP001"},
+    )
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data) == 2
+    assert data[0]["content"] == "첫 번째 질문"
+    assert data[1]["content"] == "첫 번째 답변"
+
+
+@pytest.mark.anyio
+async def test_help_get_messages_owner_mismatch(client: AsyncClient, guest_session):
+    """사번 불일치 → 403."""
+    resp = await client.get(
+        f"/api/v1/help/sessions/{guest_session.id}/messages",
+        params={"employee_id": "EMP_OTHER"},
+    )
+    assert resp.status_code == 403
+
+
+@pytest.mark.anyio
+async def test_help_get_messages_deleted_session(client: AsyncClient, db_session, guest_session):
+    """soft delete 세션 (deleted_at NOT NULL) → 403."""
+    guest_session.deleted_at = _now_utc()
+    await db_session.commit()
+
+    resp = await client.get(
+        f"/api/v1/help/sessions/{guest_session.id}/messages",
+        params={"employee_id": "EMP001"},
+    )
+    assert resp.status_code == 403
+
+
+@pytest.mark.anyio
+async def test_help_get_messages_wrong_area(client: AsyncClient, db_session):
+    """area_code='chat_assistant' 세션 → 403."""
+    wrong_sess = ChatSession(
+        user_id=None,
+        title="normal_chat",
+        area_code="chat_assistant",
+        visitor_employee_id="EMP001",
+    )
+    db_session.add(wrong_sess)
+    await db_session.commit()
+    await db_session.refresh(wrong_sess)
+
+    resp = await client.get(
+        f"/api/v1/help/sessions/{wrong_sess.id}/messages",
+        params={"employee_id": "EMP001"},
+    )
+    assert resp.status_code == 403
+
+
+@pytest.mark.anyio
+async def test_help_get_messages_empty(client: AsyncClient, guest_session):
+    """메시지 0건 → 200 + 빈 배열."""
+    resp = await client.get(
+        f"/api/v1/help/sessions/{guest_session.id}/messages",
+        params={"employee_id": "EMP001"},
+    )
+    assert resp.status_code == 200
+    assert resp.json() == []
