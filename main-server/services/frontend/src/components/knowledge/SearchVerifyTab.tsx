@@ -416,8 +416,16 @@ function AggregationVerifyCard({ result, systemName }: AggregationVerifyCardProp
     }
   }
 
-  const bodyText =
+  const rawBody =
     (result.summary_text as string | undefined) ?? (result.content as string | undefined) ?? null
+  // summary_text 형식: "시스템:xxx 날짜:xxx | 수집기:xxx | 집계시간:Nh 이상:Mh | ..."
+  // 시스템/날짜는 헤더에 이미 표시되므로 해당 세그먼트 제거
+  const bodyText = rawBody
+    ? rawBody
+        .split(' | ')
+        .filter((seg) => !seg.startsWith('시스템:'))
+        .join(' | ') || null
+    : null
 
   const llmTrend = result.llm_trend as string | undefined
   const llmPrediction = result.llm_prediction as string | undefined

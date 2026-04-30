@@ -3,11 +3,15 @@ import { NeuCard } from '@/components/neumorphic/NeuCard'
 import { NeuButton } from '@/components/neumorphic/NeuButton'
 import { LoadingSkeleton } from '@/components/common/LoadingSkeleton'
 import { ErrorCard } from '@/components/common/ErrorCard'
-import { EmptyState } from '@/components/common/EmptyState'
 import { useSyncStatus } from '@/hooks/queries/useKnowledgeQueries'
 import { useTriggerSync } from '@/hooks/mutations/useKnowledgeMutations'
 import { formatKST, formatRelative } from '@/lib/utils'
 import type { KnowledgeSyncStatus } from '@/types/knowledge'
+
+const DEFAULT_SOURCES: KnowledgeSyncStatus[] = [
+  { source: 'jira', last_sync_at: null, total_synced: 0, last_error: null, updated_at: null },
+  { source: 'confluence', last_sync_at: null, total_synced: 0, last_error: null, updated_at: null },
+]
 
 const SOURCE_LABEL: Record<string, string> = {
   jira: 'Jira',
@@ -22,22 +26,17 @@ export function SyncStatusTab() {
   if (isLoading) return <LoadingSkeleton shape="card" count={3} />
   if (isError) return <ErrorCard onRetry={refetch} />
 
-  const allStatuses = statuses ?? []
+  const fetched = statuses ?? []
+  const allStatuses = [
+    ...DEFAULT_SOURCES.filter((d) => !fetched.some((s) => s.source === d.source)),
+    ...fetched,
+  ]
 
   return (
-    <div className="space-y-4">
-      {allStatuses.length === 0 && (
-        <EmptyState
-          icon={<RefreshCw className="text-text-secondary h-10 w-10" />}
-          title="동기화 소스가 없습니다"
-          description="Jira·Confluence 연동 환경변수(JIRA_URL, CONFLUENCE_URL)가 설정되면 동기화 현황이 여기에 표시됩니다."
-        />
-      )}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {allStatuses.map((s) => (
-          <SyncCard key={s.source} status={s} onTrigger={triggerSync.mutate} />
-        ))}
-      </div>
+    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      {allStatuses.map((s) => (
+        <SyncCard key={s.source} status={s} onTrigger={triggerSync.mutate} />
+      ))}
     </div>
   )
 }

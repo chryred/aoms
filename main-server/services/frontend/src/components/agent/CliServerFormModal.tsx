@@ -46,7 +46,7 @@ export function CliServerFormModal({ systems, onSuccess, onClose }: CliServerFor
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div className="bg-overlay absolute inset-0" onClick={onClose} />
+      <div className="bg-overlay absolute inset-0" aria-hidden="true" onClick={onClose} />
       <NeuCard className="relative mx-4 w-full max-w-sm">
         <div className="mb-4 flex items-center justify-between">
           <div className="flex items-center gap-2">

@@ -379,9 +379,9 @@ export function DashboardSystemDetailPage() {
           돌아가기
         </Link>
         <div className="space-y-1">
-          <h1 className="text-text-primary text-xl leading-tight font-bold break-words sm:text-2xl">
+          <h2 className="text-text-primary text-xl leading-tight font-bold break-words sm:text-2xl">
             {detail.display_name}
-          </h1>
+          </h2>
           <p className="text-text-secondary font-mono text-xs break-all sm:text-sm">
             {detail.system_name}
           </p>
@@ -694,7 +694,7 @@ export function DashboardSystemDetailPage() {
       <section className="space-y-4">
         <div className="flex items-center justify-between">
           <h2 className="text-text-primary flex items-center gap-2 text-lg font-semibold">
-            <ShieldAlert className="h-5 w-5 text-purple-400" />
+            <ShieldAlert className="h-5 w-5 text-proactive-text" />
             예방적 패턴 감지
           </h2>
           {detail.proactive_alerts.length > 0 && (
@@ -716,14 +716,14 @@ export function DashboardSystemDetailPage() {
                     'border-l-4 transition-all duration-150',
                     alert.llm_severity === 'critical'
                       ? 'border-l-red-500/40'
-                      : 'border-l-purple-500/40',
+                      : 'border-l-proactive/40',
                   )}
                 >
                   <div className="space-y-3">
                     {/* 헤더 */}
                     <div className="flex items-start justify-between gap-3 sm:gap-4">
                       <div className="flex min-w-0 flex-1 items-start gap-2">
-                        <TrendingUp className="mt-0.5 h-4 w-4 flex-shrink-0 text-purple-400" />
+                        <TrendingUp className="mt-0.5 h-4 w-4 flex-shrink-0 text-proactive-text" />
                         <div className="min-w-0 flex-1">
                           <p className="text-text-primary line-clamp-2 text-sm font-semibold break-words">
                             <span className="bg-btn-secondary mr-1 inline-block rounded px-1.5 py-0.5 font-mono text-xs">
@@ -765,8 +765,8 @@ export function DashboardSystemDetailPage() {
                     )}
 
                     {/* 예측 */}
-                    <div className="rounded-sm border border-purple-500/25 bg-purple-500/5 p-3">
-                      <p className="mb-2 flex items-center gap-1 text-xs font-semibold text-purple-400">
+                    <div className="rounded-sm border border-proactive-border bg-proactive-card-bg p-3">
+                      <p className="mb-2 flex items-center gap-1 text-xs font-semibold text-proactive-text">
                         <span>⚡</span>
                         예측
                       </p>

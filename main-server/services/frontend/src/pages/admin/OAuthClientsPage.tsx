@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Plus, Trash2, Copy, Check, ShieldCheck } from 'lucide-react'
+import { Plus, Trash2, Copy, Check } from 'lucide-react'
 import { PageHeader } from '@/components/common/PageHeader'
 import { LoadingSkeleton } from '@/components/common/LoadingSkeleton'
 import { NeuButton } from '@/components/neumorphic/NeuButton'
@@ -177,7 +177,6 @@ export function OAuthClientsPage() {
       <PageHeader
         title="OAuth 클라이언트"
         description="Synapse SSO를 사용할 타시스템 클라이언트를 관리합니다"
-        icon={<ShieldCheck className="h-5 w-5" />}
         action={
           !showForm && (
             <NeuButton onClick={() => setShowForm(true)} className="flex items-center gap-2">

@@ -372,7 +372,7 @@ export function AgentFormModal({ systems, onClose, onCreated }: AgentFormModalPr
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div className="bg-overlay absolute inset-0 z-0" onClick={onClose} />
+      <div className="bg-overlay absolute inset-0 z-0" aria-hidden="true" onClick={onClose} />
       <NeuCard className="relative z-10 mx-4 max-h-[90vh] w-full max-w-lg overflow-y-auto">
         <div className="mb-4 flex items-center justify-between">
           <h3 className="text-text-primary text-base font-semibold">에이전트 등록</h3>
@@ -709,7 +709,7 @@ export function AgentFormModal({ systems, onClose, onCreated }: AgentFormModalPr
               >
                 {logMonitors.map((lm, idx) => (
                   <div
-                    key={idx}
+                    key={`lm-${lm.log_type ?? ''}-${idx}`}
                     className="border-border bg-bg-deep space-y-2 rounded-sm border p-2"
                   >
                     <div className="flex items-center justify-between">
@@ -789,7 +789,7 @@ export function AgentFormModal({ systems, onClose, onCreated }: AgentFormModalPr
               <div className="space-y-2">
                 {webServers.map((ws, idx) => (
                   <div
-                    key={idx}
+                    key={`ws-${ws.name ?? ''}-${idx}`}
                     className="border-border bg-bg-deep space-y-2 rounded-sm border p-2"
                   >
                     <div className="flex items-center justify-between">

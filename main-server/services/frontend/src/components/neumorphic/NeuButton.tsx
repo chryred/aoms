@@ -41,8 +41,8 @@ export const NeuButton = forwardRef<HTMLButtonElement, NeuButtonProps>(function 
         variant === 'glass' && [
           'bg-glass-bg text-accent',
           'border-glass-border border backdrop-blur-sm',
-          'hover:bg-[rgba(0,212,255,0.14)]',
-          'active:bg-[rgba(0,212,255,0.20)]',
+          'hover:bg-accent-14',
+          'active:bg-accent-20',
         ],
         variant === 'ghost' && [
           'text-text-secondary hover:bg-hover-subtle hover:text-text-primary',

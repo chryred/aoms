@@ -92,7 +92,7 @@ export function AlertTable({ alerts, onSelect, selectedIds, onToggleSelect }: Al
               aria-label={`알림: ${alert.title} (${alert.severity})`}
               className={cn(
                 'cursor-pointer transition-colors',
-                'hover:bg-[rgba(0,212,255,0.04)]',
+                'hover:bg-accent-04',
                 'focus-visible:bg-accent-muted focus-visible:outline-none',
                 alert.acknowledged && 'opacity-60',
                 selectedIds?.has(alert.id) && 'bg-accent/5',

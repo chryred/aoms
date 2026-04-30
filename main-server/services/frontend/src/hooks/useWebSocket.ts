@@ -71,7 +71,6 @@ export function useWebSocketDashboard(options: UseWebSocketOptions = {}) {
       const ws = new WebSocket(wsUrl)
 
       ws.onopen = () => {
-        console.log('[WebSocket] Connected to dashboard')
         setIsConnected(true)
         setIsConnecting(false)
         reconnectCountRef.current = 0
@@ -91,8 +90,6 @@ export function useWebSocketDashboard(options: UseWebSocketOptions = {}) {
 
         try {
           const message: WebSocketMessage = JSON.parse(event.data as string)
-          console.log('[WebSocket] Message:', message.type)
-
           onMessageRef.current?.(message)
 
           // React Query 자동 갱신 (타입별)
@@ -111,7 +108,6 @@ export function useWebSocketDashboard(options: UseWebSocketOptions = {}) {
       }
 
       ws.onclose = () => {
-        console.log('[WebSocket] Disconnected')
         setIsConnected(false)
         setIsConnecting(false)
         onDisconnectRef.current?.()
@@ -124,9 +120,6 @@ export function useWebSocketDashboard(options: UseWebSocketOptions = {}) {
         // 자동 재연결
         if (autoReconnect && reconnectCountRef.current < reconnectAttempts) {
           const delay = reconnectDelay * Math.pow(2, reconnectCountRef.current)
-          console.log(
-            `[WebSocket] Reconnecting in ${delay}ms (attempt ${reconnectCountRef.current + 1}/${reconnectAttempts})`,
-          )
           reconnectCountRef.current += 1
           setTimeout(() => connect(), delay)
         }

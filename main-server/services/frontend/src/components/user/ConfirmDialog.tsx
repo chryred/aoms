@@ -71,8 +71,8 @@ export function ConfirmDialog({
       {/* 오버레이 */}
       <div
         className="bg-overlay absolute inset-0"
-        onClick={() => !isPending && onOpenChange(false)}
         aria-hidden="true"
+        onClick={() => !isPending && onOpenChange(false)}
       />
 
       {/* 다이얼로그 */}

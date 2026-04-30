@@ -77,6 +77,9 @@
   --t-accent-hover: #00b8e0;
   --t-accent-contrast: #1e2127; /* accent 배경 위 대비 텍스트 */
   --t-accent-muted: rgba(0, 212, 255, 0.1);
+  --t-accent-04: rgba(0, 212, 255, 0.04);
+  --t-accent-14: rgba(0, 212, 255, 0.14);
+  --t-accent-20: rgba(0, 212, 255, 0.20);
   --t-glass-bg: rgba(0, 212, 255, 0.08);
   --t-glass-border: rgba(0, 212, 255, 0.16);
 
@@ -126,12 +129,12 @@
   --t-metric-alert-border: rgba(59, 130, 246, 0.25);
   --t-metric-alert-card-bg: rgba(59, 130, 246, 0.04);
 
-  /* 시맨틱: 예방 패턴(purple) */
-  --t-proactive: #a855f7;
-  --t-proactive-text: #c084fc;
-  --t-proactive-bg: rgba(168, 85, 247, 0.12);
-  --t-proactive-border: rgba(168, 85, 247, 0.25);
-  --t-proactive-card-bg: rgba(168, 85, 247, 0.04);
+  /* 시맨틱: 예방 패턴(teal) */
+  --t-proactive: #14b8a6;
+  --t-proactive-text: #2dd4bf;
+  --t-proactive-bg: rgba(20, 184, 166, 0.12);
+  --t-proactive-border: rgba(20, 184, 166, 0.25);
+  --t-proactive-card-bg: rgba(20, 184, 166, 0.04);
 
   /* 시맨틱: 에이전트 수집(sky) */
   --t-agent-collect: #7dd3fc;
@@ -157,7 +160,7 @@
   --t-shadow-glow-metric-alert:
     3px 3px 7px #111317, -3px -3px 7px #2b2f37, 0 0 12px rgba(59, 130, 246, 0.12);
   --t-shadow-glow-proactive:
-    3px 3px 7px #111317, -3px -3px 7px #2b2f37, 0 0 12px rgba(168, 85, 247, 0.12);
+    3px 3px 7px #111317, -3px -3px 7px #2b2f37, 0 0 12px rgba(20, 184, 166, 0.12);
   --t-shadow-glow-agent-collect:
     3px 3px 7px #111317, -3px -3px 7px #2b2f37, 0 0 12px rgba(125, 211, 252, 0.15);
 
@@ -180,6 +183,9 @@
   --t-accent-hover: #00b8d9;
   --t-accent-contrast: #ffffff; /* accent 배경 위 흰색 대비 텍스트 */
   --t-accent-muted: rgba(38, 198, 218, 0.1);
+  --t-accent-04: rgba(38, 198, 218, 0.04);
+  --t-accent-14: rgba(38, 198, 218, 0.14);
+  --t-accent-20: rgba(38, 198, 218, 0.20);
   --t-glass-bg: rgba(255, 255, 255, 0.4);
   --t-glass-border: rgba(255, 255, 255, 0.1);
 
@@ -230,11 +236,11 @@
   --t-metric-alert-card-bg: rgba(37, 99, 235, 0.04);
 
   /* 시맨틱: 예방 패턴 — light */
-  --t-proactive: #9333ea;
-  --t-proactive-text: #7e22ce;
-  --t-proactive-bg: rgba(147, 51, 234, 0.08);
-  --t-proactive-border: rgba(147, 51, 234, 0.2);
-  --t-proactive-card-bg: rgba(147, 51, 234, 0.04);
+  --t-proactive: #0d9488;
+  --t-proactive-text: #0f766e;
+  --t-proactive-bg: rgba(13, 148, 136, 0.08);
+  --t-proactive-border: rgba(13, 148, 136, 0.2);
+  --t-proactive-card-bg: rgba(13, 148, 136, 0.04);
 
   /* 시맨틱: 에이전트 수집 — light */
   --t-agent-collect: #0284c7;
@@ -267,7 +273,7 @@
     0 0 12px rgba(37, 99, 235, 0.1);
   --t-shadow-glow-proactive:
     3px 3px 8px rgba(0, 0, 0, 0.12), -3px -3px 8px rgba(255, 255, 255, 0.9),
-    0 0 12px rgba(147, 51, 234, 0.1);
+    0 0 12px rgba(13, 148, 136, 0.1);
   --t-shadow-glow-agent-collect:
     3px 3px 8px rgba(0, 0, 0, 0.12), -3px -3px 8px rgba(255, 255, 255, 0.9),
     0 0 12px rgba(2, 132, 199, 0.12);
@@ -311,6 +317,9 @@
   --color-accent-hover: var(--t-accent-hover);
   --color-accent-contrast: var(--t-accent-contrast);
   --color-accent-muted: var(--t-accent-muted);
+  --color-accent-04: var(--t-accent-04);
+  --color-accent-14: var(--t-accent-14);
+  --color-accent-20: var(--t-accent-20);
   --color-glass-bg: var(--t-glass-bg);
   --color-glass-border: var(--t-glass-border);
   --color-text-primary: var(--t-text-primary);

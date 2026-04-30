@@ -134,8 +134,8 @@ export function SystemHostPanel({ systemId }: SystemHostPanelProps) {
         <div className="fixed inset-0 z-[60] flex justify-end">
           <div
             className="bg-overlay absolute inset-0"
-            onClick={() => setSheetOpen(false)}
             aria-hidden="true"
+            onClick={() => setSheetOpen(false)}
           />
           <div
             ref={sheetRef}

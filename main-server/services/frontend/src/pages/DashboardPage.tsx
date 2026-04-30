@@ -34,9 +34,8 @@ export function DashboardPage() {
 
   // WebSocket 연결 (실시간 알림 수신)
   const { isConnected: wsConnected, isConnecting: wsConnecting } = useWebSocketDashboard({
-    onMessage: (message) => {
+    onMessage: (_message) => {
       setLastAlertUpdate(new Date())
-      console.log('[Dashboard] Received real-time update:', message.type)
     },
   })
 
