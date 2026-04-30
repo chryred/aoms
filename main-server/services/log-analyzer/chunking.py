@@ -106,6 +106,50 @@ def chunk_text(
 
 # ── Confluence 페이지 (HTML or 텍스트) ─────────────────────────────────────────
 
+_TABLE_CELL = {"td", "th"}
+_TEXT_BLOCK = {"p", "li", "pre", "blockquote", "h1", "h4", "h5", "h6"}
+_SECTION_BREAK = {"h2", "h3"}
+_SKIP_TAGS = {"script", "style"}
+
+
+def _walk_html(root) -> list[tuple[str, str]]:
+    """HTML 트리를 children 단위로 재귀 탐색해 (kind, text) 목록 반환.
+
+    - ("break", heading): h2/h3 섹션 경계
+    - ("text",  content): 단락/리스트/표 행 텍스트
+
+    root.descendants 대신 children 재귀를 사용해
+    <th><h2>...</h2></th> 구조에서 h2가 섹션 경계로 오인되는 버그와
+    td/th 중복 텍스트 추출 버그를 함께 수정한다.
+    table은 행 단위로 '|' 결합해 열 관계를 보존한다.
+    """
+    results: list[tuple[str, str]] = []
+    for elem in root.children:
+        name = getattr(elem, "name", None)
+        if name is None:
+            continue
+        if name in _SKIP_TAGS:
+            continue
+        if name in _SECTION_BREAK:
+            results.append(("break", elem.get_text(strip=True)))
+        elif name == "table":
+            for tr in elem.find_all("tr"):
+                cells = [
+                    c.get_text(separator=" ", strip=True)
+                    for c in tr.find_all(["td", "th"])
+                ]
+                row = " | ".join(c for c in cells if c)
+                if row:
+                    results.append(("text", row))
+        elif name in _TEXT_BLOCK:
+            txt = elem.get_text(separator=" ", strip=True)
+            if txt:
+                results.append(("text", txt))
+        else:
+            results.extend(_walk_html(elem))
+    return results
+
+
 def _looks_like_html(text: str) -> bool:
     snippet = text[:512].lower()
     return "<" in snippet and (">" in snippet) and any(
@@ -154,20 +198,15 @@ def chunk_confluence_page(
 
     # body 또는 root 직속 자식들을 순회해 헤딩 기준으로 분할
     root = soup.body if soup.body else soup
-    for elem in root.descendants:
-        if not getattr(elem, "name", None):
-            continue
-        if elem.name in ("h2", "h3"):
-            # 누적된 본문을 섹션으로 확정
+    for kind, text in _walk_html(root):
+        if kind == "break":
             buf_text = "\n".join(s for s in current_buffer if s).strip()
             if buf_text:
                 sections.append((current_heading, buf_text))
-            current_heading = elem.get_text(strip=True)
+            current_heading = text
             current_buffer = []
-        elif elem.name in ("p", "li", "td", "th", "pre", "blockquote", "h1", "h4", "h5", "h6"):
-            txt = elem.get_text(separator=" ", strip=True)
-            if txt:
-                current_buffer.append(txt)
+        else:
+            current_buffer.append(text)
 
     # 마지막 섹션 마무리
     tail = "\n".join(s for s in current_buffer if s).strip()
