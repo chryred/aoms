@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { ChevronLeft, ChevronRight, Search, X } from 'lucide-react'
 import { useFeedbackSearch } from '@/hooks/queries/useFeedbackSearch'
 import { useSystems } from '@/hooks/queries/useSystems'
@@ -23,9 +24,14 @@ const ALERT_TYPE_LABEL: Record<string, string> = {
 }
 
 export function FeedbackSearchPage() {
-  const [systemId, setSystemId] = useState<string>('')
-  const [keyword, setKeyword] = useState('')
-  const [appliedKeyword, setAppliedKeyword] = useState('')
+  const [searchParams, setSearchParams] = useSearchParams()
+
+  const initialSystemId = searchParams.get('system_id') ?? ''
+  const initialKeyword = searchParams.get('q') ?? ''
+
+  const [systemId, setSystemId] = useState<string>(initialSystemId)
+  const [keyword, setKeyword] = useState(initialKeyword)
+  const [appliedKeyword, setAppliedKeyword] = useState(initialKeyword)
   const [offset, setOffset] = useState(0)
   const [selected, setSelected] = useState<FeedbackSearchItem | null>(null)
 
@@ -46,9 +52,28 @@ export function FeedbackSearchPage() {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  const applySearch = () => {
-    setAppliedKeyword(keyword.trim())
+  useEffect(() => {
+    const sid = searchParams.get('system_id') ?? ''
+    const q = searchParams.get('q') ?? ''
+    setSystemId(sid)
+    setKeyword(q)
+    setAppliedKeyword(q)
     setOffset(0)
+  }, [searchParams])
+
+  const applySearch = () => {
+    const trimmed = keyword.trim()
+    setAppliedKeyword(trimmed)
+    setOffset(0)
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        if (trimmed) next.set('q', trimmed)
+        else next.delete('q')
+        return next
+      },
+      { replace: true },
+    )
   }
 
   const onKeywordKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -59,8 +84,18 @@ export function FeedbackSearchPage() {
   }
 
   const onSystemChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    setSystemId(e.target.value)
+    const newId = e.target.value
+    setSystemId(newId)
     setOffset(0)
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        if (newId) next.set('system_id', newId)
+        else next.delete('system_id')
+        return next
+      },
+      { replace: true },
+    )
   }
 
   const items = data?.items ?? []
@@ -108,6 +143,7 @@ export function FeedbackSearchPage() {
               setAppliedKeyword('')
               setSystemId('')
               setOffset(0)
+              setSearchParams({}, { replace: true })
             }}
           >
             초기화

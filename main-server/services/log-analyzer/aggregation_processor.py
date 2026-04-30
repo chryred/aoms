@@ -553,8 +553,10 @@ async def _process_single_config(
             if pg_row_id:
                 try:
                     embedding = await vector_client.get_embedding(embed_input)
+                    sparse_vec = await vector_client.get_sparse_vector(embed_input)
                     point_id = await aggregation_vector_client.store_hourly_pattern_vector(
                         embedding=embedding,
+                        sparse=sparse_vec,
                         system_id=system_id,
                         system_name=system_name,
                         hour_bucket=hour_bucket_iso,
@@ -734,6 +736,19 @@ async def run_daily_aggregation() -> dict:
     day_bucket_iso = yesterday_start.isoformat()
 
     async with httpx.AsyncClient(timeout=30.0) as client:
+        # 시스템 목록 조회 — system_id → {system_name, display_name} 매핑
+        systems_map: dict[int, dict] = {}
+        try:
+            sys_resp = await client.get(f"{ADMIN_API_URL}/api/v1/systems")
+            sys_resp.raise_for_status()
+            systems_list = sys_resp.json()
+            if isinstance(systems_list, dict):
+                systems_list = systems_list.get("items", systems_list.get("data", []))
+            for sys in systems_list:
+                systems_map[sys.get("id")] = sys
+        except Exception as exc:
+            logger.warning("일별 집계 — 시스템 목록 조회 실패: %s", exc)
+
         try:
             resp = await client.get(
                 f"{ADMIN_API_URL}/api/v1/aggregations/hourly",
@@ -758,10 +773,14 @@ async def run_daily_aggregation() -> dict:
         # 그룹핑 (system_id + collector_type + metric_group)
         groups: dict[tuple, dict] = {}
         for row in hourly_rows:
+            sid = row.get("system_id")
+            sys_info = systems_map.get(sid, {})
+            row_system_name = sys_info.get("system_name") or row.get("system_name", "")
+            row_display_name = sys_info.get("display_name") or row.get("display_name", row_system_name)
             key = (
-                row.get("system_id"),
-                row.get("system_name", ""),
-                row.get("display_name", row.get("system_name", "")),
+                sid,
+                row_system_name,
+                row_display_name,
                 row.get("collector_type", ""),
                 row.get("metric_group", ""),
             )
@@ -966,6 +985,19 @@ async def run_weekly_report() -> dict:
     week_end_iso   = (this_monday - timedelta(seconds=1)).isoformat()
 
     async with httpx.AsyncClient(timeout=60.0) as client:
+        # 시스템 목록 조회 — system_id → {system_name, display_name} 매핑
+        systems_map: dict[int, dict] = {}
+        try:
+            sys_resp = await client.get(f"{ADMIN_API_URL}/api/v1/systems")
+            sys_resp.raise_for_status()
+            systems_list = sys_resp.json()
+            if isinstance(systems_list, dict):
+                systems_list = systems_list.get("items", systems_list.get("data", []))
+            for sys in systems_list:
+                systems_map[sys.get("id")] = sys
+        except Exception as exc:
+            logger.warning("주간 리포트 — 시스템 목록 조회 실패: %s", exc)
+
         try:
             resp = await client.get(
                 f"{ADMIN_API_URL}/api/v1/aggregations/daily",
@@ -990,11 +1022,14 @@ async def run_weekly_report() -> dict:
         # 시스템별 그룹핑
         system_summary: dict[str, dict] = {}
         for row in daily_rows:
-            sn = row.get("system_name", "")
-            dn = row.get("display_name", sn)
+            sid = row.get("system_id")
+            sys_info = systems_map.get(sid, {})
+            sn = sys_info.get("system_name") or row.get("system_name", "")
+            dn = sys_info.get("display_name") or row.get("display_name", sn)
             if sn not in system_summary:
                 system_summary[sn] = {
-                    "system_id":           row.get("system_id"),
+                    "system_id":           sid,
+                    "system_name":         sn,
                     "display_name":        dn,
                     "total_anomaly_hours": 0,
                     "worst_severity":      "normal",
@@ -1087,15 +1122,17 @@ async def run_weekly_report() -> dict:
         except Exception as exc:
             logger.warning("주간 리포트 이력 저장 실패: %s", exc)
 
-        # 주간 집계 저장
+        # 주간 집계 저장 + Qdrant 요약 저장
         for sn, s in system_summary.items():
+            # PG 저장 (실패해도 Qdrant 저장은 계속 진행)
+            pg_row_id = 0
             try:
                 metrics_json_dict = {
                     "total_anomaly_hours": round(s["total_anomaly_hours"], 2),
                     "worst_severity":      s["worst_severity"],
                     "system_count":        1,
                 }
-                await client.post(
+                saved_resp = await client.post(
                     f"{ADMIN_API_URL}/api/v1/aggregations/weekly",
                     json={
                         "system_id":      s["system_id"],
@@ -1106,8 +1143,41 @@ async def run_weekly_report() -> dict:
                     },
                     timeout=10.0,
                 )
+                if saved_resp.is_success:
+                    pg_row_id = saved_resp.json().get("id") or 0
+                else:
+                    logger.warning("주간 집계 PG 저장 실패 [%s]: HTTP %s", sn, saved_resp.status_code)
             except Exception as exc:
-                logger.warning("주간 집계 저장 실패 [%s]: %s", sn, exc)
+                logger.warning("주간 집계 PG 저장 실패 [%s]: %s", sn, exc)
+
+            # Qdrant 요약 저장 (Hybrid Dense+Sparse) — PG 결과와 무관하게 실행
+            if sn:
+                try:
+                    cause_text = s.get("cause", "")
+                    summary_parts = [
+                        f"시스템:{sn} 주간:{last_monday_kst.strftime('%Y-%m-%d')}~{(this_monday_kst - timedelta(days=1)).strftime('%Y-%m-%d')}",
+                        f"이상:{round(s['total_anomaly_hours'])}h 심각도:{s['worst_severity']}",
+                    ]
+                    if cause_text:
+                        summary_parts.append(f"주요추세:{cause_text[:100]}")
+                    summary_text = " | ".join(summary_parts)
+                    embed_input = (cause_text or f"이상 {round(s['total_anomaly_hours'])}시간 발생").strip()
+
+                    embedding = await vector_client.get_embedding(embed_input)
+                    sparse    = await vector_client.get_sparse_vector(embed_input)
+                    await aggregation_vector_client.store_aggregation_summary_vector(
+                        embedding=embedding,
+                        sparse=sparse,
+                        system_id=s["system_id"],
+                        system_name=sn,
+                        period_type="weekly",
+                        period_start=week_start_iso,
+                        summary_text=summary_text,
+                        dominant_severity=s["worst_severity"],
+                        pg_row_id=pg_row_id,  # 0이면 PG 저장 실패 sentinel
+                    )
+                except Exception as exc:
+                    logger.warning("Qdrant 주간 요약 저장 실패 [%s]: %s", sn, exc)
 
     logger.info("weekly 리포트 완료 — systems=%d", len(system_summary))
     return {"status": "ok", "system_count": len(system_summary)}
@@ -1136,6 +1206,19 @@ async def run_monthly_report() -> dict:
     month_name = prev_month_start_kst.strftime("%Y년 %m월")
 
     async with httpx.AsyncClient(timeout=60.0) as client:
+        # 시스템 목록 조회 — system_id → {system_name, display_name} 매핑
+        systems_map: dict[int, dict] = {}
+        try:
+            sys_resp = await client.get(f"{ADMIN_API_URL}/api/v1/systems")
+            sys_resp.raise_for_status()
+            systems_list = sys_resp.json()
+            if isinstance(systems_list, dict):
+                systems_list = systems_list.get("items", systems_list.get("data", []))
+            for sys in systems_list:
+                systems_map[sys.get("id")] = sys
+        except Exception as exc:
+            logger.warning("월간 리포트 — 시스템 목록 조회 실패: %s", exc)
+
         try:
             resp = await client.get(
                 f"{ADMIN_API_URL}/api/v1/aggregations/daily",
@@ -1159,11 +1242,14 @@ async def run_monthly_report() -> dict:
 
         system_summary: dict[str, dict] = {}
         for row in daily_rows:
-            sn = row.get("system_name", "")
-            dn = row.get("display_name", sn)
+            sid = row.get("system_id")
+            sys_info = systems_map.get(sid, {})
+            sn = sys_info.get("system_name") or row.get("system_name", "")
+            dn = sys_info.get("display_name") or row.get("display_name", sn)
             if sn not in system_summary:
                 system_summary[sn] = {
-                    "system_id":           row.get("system_id"),
+                    "system_id":           sid,
+                    "system_name":         sn,
                     "display_name":        dn,
                     "total_anomaly_hours": 0,
                     "worst_severity":      "normal",
@@ -1248,6 +1334,37 @@ async def run_monthly_report() -> dict:
         except Exception as exc:
             logger.warning("월간 리포트 이력 저장 실패: %s", exc)
 
+        # Qdrant 월간 요약 저장 — 시스템별 1포인트
+        for sn, s in system_summary.items():
+            if not sn:
+                continue
+            try:
+                cause_text = s.get("cause", "")
+                summary_parts = [
+                    f"시스템:{sn} 월간:{month_name}",
+                    f"이상:{round(s['total_anomaly_hours'])}h 심각도:{s['worst_severity']}",
+                ]
+                if cause_text:
+                    summary_parts.append(f"주요추세:{cause_text[:100]}")
+                summary_text = " | ".join(summary_parts)
+                embed_input = (cause_text or f"이상 {round(s['total_anomaly_hours'])}시간 발생").strip()
+
+                embedding = await vector_client.get_embedding(embed_input)
+                sparse    = await vector_client.get_sparse_vector(embed_input)
+                await aggregation_vector_client.store_aggregation_summary_vector(
+                    embedding=embedding,
+                    sparse=sparse,
+                    system_id=s["system_id"],
+                    system_name=sn,
+                    period_type="monthly",
+                    period_start=month_start_iso,
+                    summary_text=summary_text,
+                    dominant_severity=s["worst_severity"],
+                    pg_row_id=0,  # monthly는 report_history row만 있고 aggregation row는 없음
+                )
+            except Exception as exc:
+                logger.warning("Qdrant 월간 요약 저장 실패 [%s]: %s", sn, exc)
+
     logger.info("monthly 리포트 완료 — systems=%d", len(system_summary))
     return {"status": "ok", "system_count": len(system_summary)}
 
@@ -1262,6 +1379,19 @@ async def _run_single_period_report(
     label: str,
 ) -> dict:
     """단일 장기 리포트 (quarterly / half_year / annual) 생성"""
+    # 시스템 목록 조회 — system_id → {system_name, display_name} 매핑
+    systems_map: dict[int, dict] = {}
+    try:
+        sys_resp = await client.get(f"{ADMIN_API_URL}/api/v1/systems")
+        sys_resp.raise_for_status()
+        systems_list = sys_resp.json()
+        if isinstance(systems_list, dict):
+            systems_list = systems_list.get("items", systems_list.get("data", []))
+        for sys in systems_list:
+            systems_map[sys.get("id")] = sys
+    except Exception as exc:
+        logger.warning("장기 리포트 — 시스템 목록 조회 실패 [%s]: %s", period_type, exc)
+
     try:
         resp = await client.get(
             f"{ADMIN_API_URL}/api/v1/aggregations/daily",
@@ -1285,11 +1415,14 @@ async def _run_single_period_report(
 
     system_summary: dict[str, dict] = {}
     for row in rows:
-        sn = row.get("system_name", "")
-        dn = row.get("display_name", sn)
+        sid = row.get("system_id")
+        sys_info = systems_map.get(sid, {})
+        sn = sys_info.get("system_name") or row.get("system_name", "")
+        dn = sys_info.get("display_name") or row.get("display_name", sn)
         if sn not in system_summary:
             system_summary[sn] = {
-                "system_id":           row.get("system_id"),
+                "system_id":           sid,
+                "system_name":         sn,
                 "display_name":        dn,
                 "total_anomaly_hours": 0,
                 "worst_severity":      "normal",
@@ -1383,6 +1516,38 @@ async def _run_single_period_report(
         )
     except Exception as exc:
         logger.warning("장기 리포트 이력 저장 실패 [%s]: %s", period_type, exc)
+
+    # Qdrant 장기 요약 저장 — 시스템별 1포인트
+    period_start_iso = _dt_naive(period_start)
+    for sn, s in system_summary.items():
+        if not sn:
+            continue
+        try:
+            cause_text = s.get("cause", "")
+            summary_parts = [
+                f"시스템:{sn} {period_type}:{period_start.strftime('%Y-%m-%d')}~{period_end.strftime('%Y-%m-%d')}",
+                f"이상:{round(s['total_anomaly_hours'])}h 심각도:{s['worst_severity']}",
+            ]
+            if cause_text:
+                summary_parts.append(f"주요추세:{cause_text[:100]}")
+            summary_text = " | ".join(summary_parts)
+            embed_input = (cause_text or f"이상 {round(s['total_anomaly_hours'])}시간 발생").strip()
+
+            embedding = await vector_client.get_embedding(embed_input)
+            sparse    = await vector_client.get_sparse_vector(embed_input)
+            await aggregation_vector_client.store_aggregation_summary_vector(
+                embedding=embedding,
+                sparse=sparse,
+                system_id=s["system_id"],
+                system_name=sn,
+                period_type=period_type,
+                period_start=period_start_iso,
+                summary_text=summary_text,
+                dominant_severity=s["worst_severity"],
+                pg_row_id=0,  # 장기 리포트는 aggregation 단위 행 없음 (report_history만 존재)
+            )
+        except Exception as exc:
+            logger.warning("Qdrant 장기 요약 저장 실패 [%s/%s]: %s", period_type, sn, exc)
 
     return {"status": "ok", "period_type": period_type, "system_count": len(system_summary)}
 

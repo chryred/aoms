@@ -1,15 +1,16 @@
 import { useState, useRef, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { Upload, RefreshCw, TrendingUp, Tag, ThumbsDown } from 'lucide-react'
+import { Upload, RefreshCw, TrendingUp, Tag, ThumbsDown, Search } from 'lucide-react'
 import { PageHeader } from '@/components/common/PageHeader'
 import { DocumentUploadTab } from '@/components/knowledge/DocumentUploadTab'
 import { SyncStatusTab } from '@/components/knowledge/SyncStatusTab'
 import { FrequentQuestionsTab } from '@/components/knowledge/FrequentQuestionsTab'
 import { OperatorNotesTab } from '@/components/knowledge/OperatorNotesTab'
 import { FeedbackTab } from '@/components/knowledge/FeedbackTab'
+import { SearchVerifyTab } from '@/components/knowledge/SearchVerifyTab'
 import { cn } from '@/lib/utils'
 
-type KnowledgeTab = 'documents' | 'sync' | 'frequent' | 'notes' | 'feedback'
+type KnowledgeTab = 'documents' | 'sync' | 'frequent' | 'notes' | 'feedback' | 'verify'
 
 const TABS: Array<{ key: KnowledgeTab; label: string; icon: React.ReactNode }> = [
   { key: 'documents', label: '문서', icon: <Upload className="h-4 w-4" /> },
@@ -17,10 +18,11 @@ const TABS: Array<{ key: KnowledgeTab; label: string; icon: React.ReactNode }> =
   { key: 'frequent', label: '질문 분석', icon: <TrendingUp className="h-4 w-4" /> },
   { key: 'notes', label: '운영자 노트', icon: <Tag className="h-4 w-4" /> },
   { key: 'feedback', label: '피드백', icon: <ThumbsDown className="h-4 w-4" /> },
+  { key: 'verify', label: '검색 검증', icon: <Search className="h-4 w-4" /> },
 ]
 
 const isValidTab = (v: string | null): v is KnowledgeTab =>
-  ['documents', 'sync', 'frequent', 'notes', 'feedback'].includes(v ?? '')
+  ['documents', 'sync', 'frequent', 'notes', 'feedback', 'verify'].includes(v ?? '')
 
 export function KnowledgePage() {
   const [searchParams, setSearchParams] = useSearchParams()
@@ -127,6 +129,7 @@ export function KnowledgePage() {
           />
         )}
         {activeTab === 'feedback' && <FeedbackTab />}
+        {activeTab === 'verify' && <SearchVerifyTab />}
       </div>
     </div>
   )

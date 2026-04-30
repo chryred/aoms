@@ -282,6 +282,11 @@ async def upsert_document_chunks(
         f"{file_name}:{doc_type}:{chunks[0]['text'][:200]}".encode()
     ).hexdigest()[:16]
 
+    # 재업로드 자동 cleanup — 동일 file_hash 기존 청크 제거 후 새 청크 적재
+    existing = await delete_document_chunks_by_file_hash(file_hash)
+    if existing > 0:
+        logger.info("문서 재업로드 cleanup: file=%s, 삭제된 기존 청크=%d", file_name, existing)
+
     points = []
     for chunk in chunks:
         chunk_index = chunk["metadata"].get("chunk_index", 0)
@@ -540,6 +545,128 @@ async def delete_operator_note(*, point_id: int) -> bool:
         return False
 
 
+# ── 문서 청크 일괄 삭제 / 목록 조회 ─────────────────────────────────────────────
+
+async def delete_document_chunks_by_file_hash(file_hash: str) -> int:
+    """knowledge_documents 컬렉션에서 file_hash 기준으로 문서 청크를 일괄 삭제.
+
+    operator_note 포인트는 file_hash payload가 없으므로 영향 없음.
+
+    반환: 삭제된 포인트 수 (삭제 전 count API로 계산)
+
+    통합 테스트 시나리오:
+      1. .docx 파일 업로드 → chunk_count N 확인
+      2. DELETE /knowledge/documents/{file_hash} 호출
+      3. Qdrant에서 해당 file_hash 포인트 없음 확인 (count=0)
+      4. 동일 file_hash 재업로드 → 기존 청크 자동 cleanup 후 새 N개 적재 확인
+    """
+    filter_body = {
+        "must": [{"key": "file_hash", "match": {"value": file_hash}}]
+    }
+
+    # 삭제 전 포인트 수 조회 (Qdrant delete filter는 삭제 건수를 반환하지 않음)
+    count = 0
+    try:
+        count_resp = await _qdrant_http.post(
+            f"{QDRANT_URL}/collections/{DOCUMENTS_COLLECTION}/points/count",
+            json={"filter": filter_body, "exact": True},
+        )
+        count_resp.raise_for_status()
+        count = count_resp.json().get("result", {}).get("count", 0)
+    except Exception as exc:
+        logger.warning("문서 청크 count 조회 실패 file_hash=%s: %s", file_hash, exc)
+
+    if count == 0:
+        return 0
+
+    # 필터 기반 일괄 삭제
+    try:
+        del_resp = await _qdrant_http.post(
+            f"{QDRANT_URL}/collections/{DOCUMENTS_COLLECTION}/points/delete",
+            json={"filter": filter_body},
+        )
+        del_resp.raise_for_status()
+        logger.info("문서 청크 삭제: file_hash=%s, %d 포인트", file_hash, count)
+    except Exception as exc:
+        logger.warning("문서 청크 삭제 실패 file_hash=%s: %s", file_hash, exc)
+        return 0
+
+    return count
+
+
+async def list_documents(system_id: int | None = None) -> list[dict]:
+    """knowledge_documents 컬렉션에서 문서 청크를 file_hash 단위로 그룹핑하여 반환.
+
+    operator_note(doc_type=operator_note)는 제외.
+    system_id 인자가 있으면 해당 시스템 문서만 조회.
+
+    반환: [{"file_hash", "file_name", "system_id", "chunk_count", "uploaded_at"}]
+      uploaded_at: 청크들 중 가장 이른 stored_at (없으면 None)
+    """
+    must_conditions: list[dict] = []
+    if system_id is not None:
+        must_conditions.append({"key": "system_id", "match": {"value": system_id}})
+
+    filter_body: dict = {
+        "must": must_conditions,
+        "must_not": [{"key": "doc_type", "match": {"value": "operator_note"}}],
+    }
+
+    # Qdrant scroll 로 전체 포인트 수집 (next_page_offset 기반 페이지네이션)
+    all_points: list[dict] = []
+    next_offset: str | int | None = None
+    batch_size = 250
+
+    while True:
+        body: dict = {
+            "filter": filter_body,
+            "limit": batch_size,
+            "with_payload": True,
+            "with_vector": False,
+        }
+        if next_offset is not None:
+            body["offset"] = next_offset
+
+        try:
+            resp = await _qdrant_http.post(
+                f"{QDRANT_URL}/collections/{DOCUMENTS_COLLECTION}/points/scroll",
+                json=body,
+            )
+            resp.raise_for_status()
+            data = resp.json().get("result", {})
+            points = data.get("points", [])
+            all_points.extend(points)
+            next_offset = data.get("next_page_offset")
+            if next_offset is None:
+                break
+        except Exception as exc:
+            logger.warning("문서 목록 scroll 실패: %s", exc)
+            break
+
+    # file_hash 단위로 그룹핑
+    groups: dict[str, dict] = {}
+    for p in all_points:
+        payload = p.get("payload", {})
+        fh = payload.get("file_hash")
+        if not fh:
+            continue
+        if fh not in groups:
+            groups[fh] = {
+                "file_hash":    fh,
+                "file_name":    payload.get("file_name", ""),
+                "system_id":    payload.get("system_id"),
+                "chunk_count":  0,
+                "uploaded_at":  None,
+            }
+        groups[fh]["chunk_count"] += 1
+        stored_at = payload.get("stored_at")
+        if stored_at:
+            if groups[fh]["uploaded_at"] is None or stored_at < groups[fh]["uploaded_at"]:
+                groups[fh]["uploaded_at"] = stored_at
+
+    return list(groups.values())
+
+
 # ── Federated 검색 (3종 컬렉션 → 2차 RRF 병합) ─────────────────────────────
 
 def _rrf_score(rank: int, k: int = _RRF_K) -> float:
@@ -611,6 +738,10 @@ async def federated_search(
             "by_source": {"jira": N, "confluence": N, "documents": N}
         }
     """
+    # V1 정책: jira/confluence 필터 미적용. system_name 은 시그니처 호환 유지를 위해
+    # 받지만 의도적으로 사용하지 않음 — 정적 분석 미사용 경고 회피.
+    _ = system_name
+
     active_sources = sources or ["jira", "confluence", "documents"]
 
     # 임베딩 (공통 쿼리)
@@ -630,11 +761,9 @@ async def federated_search(
         collection = _source_to_collection(source)
         filter_must: list[dict] = []
 
-        if source == "jira" and system_name:
-            filter_must.append({"key": "system_name", "match": {"value": system_name}})
-        elif source == "confluence" and system_name:
-            filter_must.append({"key": "system_name", "match": {"value": system_name}})
-        elif source == "documents" and system_id is not None:
+        # jira/confluence 는 전체 지식베이스 조회 — system_name 필터 미적용 (V1 정책)
+        # knowledge_documents 만 system_id 필터 적용
+        if source == "documents" and system_id is not None:
             filter_must.append({"key": "system_id", "match": {"value": system_id}})
 
         try:

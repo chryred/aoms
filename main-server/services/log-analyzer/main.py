@@ -54,6 +54,7 @@ CONFLUENCE_URL     = os.getenv("CONFLUENCE_URL")
 CONFLUENCE_TOKEN   = os.getenv("CONFLUENCE_TOKEN")
 CONFLUENCE_SPACES  = os.getenv("CONFLUENCE_SPACES")  # 콤마 구분 "DEV,OPS"
 KNOWLEDGE_SYNC_RATE_LIMIT = int(os.getenv("KNOWLEDGE_SYNC_RATE_LIMIT", "5"))  # req/sec
+KNOWLEDGE_DOCS_DIR = os.getenv("KNOWLEDGE_DOCS_DIR", "/app/synapse/knowledge-docs")  # admin-api와 동일 기본값
 
 _KST = timezone(timedelta(hours=9))  # 집계 스케줄 기준 타임존
 
@@ -1050,6 +1051,10 @@ async def knowledge_search(req: KnowledgeSearchRequest):
         )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Knowledge 검색 실패: {exc}")
+    # uint64 point_id는 JS Number 정밀도를 초과하므로 문자열로 직렬화
+    for item in result.get("results", []):
+        if "point_id" in item and item["point_id"] is not None:
+            item["point_id"] = str(item["point_id"])
     return result
 
 
@@ -1143,11 +1148,62 @@ async def add_operator_note(req: OperatorNoteRequest):
         )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"운영자 노트 저장 실패: {exc}")
-    return {"point_id": point_id}
+    return {"point_id": str(point_id)}
+
+
+class OperatorNoteUpdateRequest(BaseModel):
+    question:         str | None = None
+    answer:           str | None = None
+    system_id:        int | None = None
+    source_reference: str | None = None
+    tags:             list[str] | None = None
+
+
+@app.patch("/knowledge/operator-note/{point_id}")
+async def patch_operator_note(point_id: str, req: OperatorNoteUpdateRequest):
+    """운영자 노트 수정 — Qdrant payload set_payload.
+
+    point_id 는 uint64 문자열로 수신 (JS Number 정밀도 손실 방지).
+    내부 Qdrant 호출은 int 변환 후 전달.
+    """
+    try:
+        point_id_int = int(point_id)
+    except ValueError:
+        raise HTTPException(status_code=422, detail=f"point_id가 유효한 정수가 아닙니다: {point_id}")
+    fields = req.model_dump(exclude_none=True)
+    if not fields:
+        raise HTTPException(status_code=400, detail="수정할 필드가 없습니다")
+    try:
+        ok = await knowledge_vector_client.update_operator_note(point_id=point_id_int, **fields)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"운영자 노트 수정 실패: {exc}")
+    if not ok:
+        raise HTTPException(status_code=404, detail=f"운영자 노트 없음: {point_id}")
+    return {"ok": True, "point_id": point_id}
+
+
+@app.delete("/knowledge/operator-note/{point_id}")
+async def delete_operator_note_route(point_id: str):
+    """운영자 노트 삭제 — Qdrant 포인트 제거.
+
+    point_id 는 uint64 문자열로 수신 (JS Number 정밀도 손실 방지).
+    내부 Qdrant 호출은 int 변환 후 전달.
+    """
+    try:
+        point_id_int = int(point_id)
+    except ValueError:
+        raise HTTPException(status_code=422, detail=f"point_id가 유효한 정수가 아닙니다: {point_id}")
+    try:
+        ok = await knowledge_vector_client.delete_operator_note(point_id=point_id_int)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"운영자 노트 삭제 실패: {exc}")
+    if not ok:
+        raise HTTPException(status_code=404, detail=f"운영자 노트 없음: {point_id}")
+    return {"ok": True, "point_id": point_id}
 
 
 class CorrectionRequest(BaseModel):
-    point_id:        int
+    point_id:        str   # uint64 문자열 (JS Number 정밀도 손실 방지)
     collection:      str
     correction_text: str
 
@@ -1155,8 +1211,12 @@ class CorrectionRequest(BaseModel):
 @app.post("/knowledge/correction")
 async def apply_correction_endpoint(req: CorrectionRequest):
     """검색 결과 피드백 적용 — corrected=True + correction_text Qdrant 저장."""
+    try:
+        point_id_int = int(req.point_id)
+    except ValueError:
+        raise HTTPException(status_code=422, detail=f"point_id가 유효한 정수가 아닙니다: {req.point_id}")
     ok = await knowledge_vector_client.apply_correction(
-        point_id=req.point_id,
+        point_id=point_id_int,
         collection=req.collection,
         correction_text=req.correction_text,
     )
@@ -1177,3 +1237,87 @@ async def trigger_confluence_sync():
     """Confluence 동기화 즉시 실행 (관리/테스트용)."""
     asyncio.create_task(_confluence_sync_run())
     return {"status": "triggered", "source": "confluence"}
+
+
+# ── V1 Knowledge: 문서 목록 조회 / 일괄 삭제 ──────────────────────────────────
+
+@app.get("/knowledge/documents")
+async def list_documents_endpoint(system_id: int | None = None):
+    """
+    knowledge_documents 컬렉션에 적재된 문서 목록 조회 (file_hash 단위 그룹핑).
+    operator_note 제외. system_id 지정 시 해당 시스템 문서만 반환.
+
+    Response: {"items": [{"file_hash", "file_name", "system_id", "chunk_count", "uploaded_at"}]}
+    """
+    try:
+        items = await knowledge_vector_client.list_documents(system_id=system_id)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"문서 목록 조회 실패: {exc}")
+    return {"items": items}
+
+
+@app.delete("/knowledge/documents/{file_hash}")
+async def delete_document_endpoint(file_hash: str):
+    """
+    file_hash 기반 문서 청크 일괄 삭제 + 디스크 원본 파일 삭제.
+
+    1. Qdrant에서 해당 file_hash의 모든 포인트 삭제
+    2. KNOWLEDGE_DOCS_DIR 하위에서 file_name 일치 파일 삭제
+       (디스크 삭제 실패해도 deleted_points 는 반환)
+
+    Response: {"deleted_points": int, "deleted_file": bool}
+    """
+    import pathlib
+
+    # Qdrant 포인트 삭제 전 file_name 조회 (삭제 후엔 payload 접근 불가)
+    file_name: str | None = None
+    system_id_found: int | None = None
+    try:
+        scroll_resp = await knowledge_vector_client._qdrant_http.post(
+            f"{knowledge_vector_client.QDRANT_URL}/collections/{knowledge_vector_client.DOCUMENTS_COLLECTION}/points/scroll",
+            json={
+                "filter": {"must": [{"key": "file_hash", "match": {"value": file_hash}}]},
+                "limit": 1,
+                "with_payload": True,
+                "with_vector": False,
+            },
+        )
+        scroll_resp.raise_for_status()
+        pts = scroll_resp.json().get("result", {}).get("points", [])
+        if pts:
+            pl = pts[0].get("payload", {})
+            file_name = pl.get("file_name")
+            system_id_found = pl.get("system_id")
+    except Exception as exc:
+        logger.warning("문서 삭제 전 file_name 조회 실패 file_hash=%s: %s", file_hash, exc)
+
+    # Qdrant 청크 삭제
+    try:
+        deleted_points = await knowledge_vector_client.delete_document_chunks_by_file_hash(file_hash)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Qdrant 청크 삭제 실패: {exc}")
+
+    # 디스크 원본 파일 삭제
+    deleted_file = False
+    if file_name:
+        # admin-api 저장 구조: KNOWLEDGE_DOCS_DIR/{system_id}/{file_name}
+        search_dirs: list[pathlib.Path] = []
+        if system_id_found is not None:
+            search_dirs.append(pathlib.Path(KNOWLEDGE_DOCS_DIR) / str(system_id_found))
+        # system_id 불명 시 하위 전체 탐색
+        docs_root = pathlib.Path(KNOWLEDGE_DOCS_DIR)
+        if docs_root.exists() and not search_dirs:
+            search_dirs = [d for d in docs_root.iterdir() if d.is_dir()]
+
+        for dir_path in search_dirs:
+            candidate = dir_path / file_name
+            if candidate.exists():
+                try:
+                    candidate.unlink()
+                    deleted_file = True
+                    logger.info("문서 원본 파일 삭제: %s", candidate)
+                except Exception as exc:
+                    logger.warning("문서 원본 파일 삭제 실패 %s: %s", candidate, exc)
+                break
+
+    return {"deleted_points": deleted_points, "deleted_file": deleted_file}

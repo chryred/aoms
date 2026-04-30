@@ -20,16 +20,21 @@ from fastapi import (
     Depends,
     Form,
     HTTPException,
+    Query,
     Response,
     UploadFile,
 )
+import httpx
 from pydantic import BaseModel
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+_LOG_ANALYZER_URL = os.getenv("LOG_ANALYZER_URL", "http://log-analyzer:8000")
+_PROXY_TIMEOUT = 20.0
+
 from auth import get_current_user
 from database import get_db
-from models import KnowledgeCorrection, KnowledgeSyncStatus, User
+from models import Contact, KnowledgeCorrection, KnowledgeSyncStatus, SystemContact, User
 from services import knowledge_service
 
 logger = logging.getLogger(__name__)
@@ -184,7 +189,7 @@ async def create_operator_note(
         tags=body.tags,
     )
     return {
-        "point_id": point_id,
+        "point_id": str(point_id) if point_id is not None else None,
         "question": body.question,
         "system_id": body.system_id,
         "stored": point_id is not None,
@@ -737,3 +742,112 @@ async def get_upload_status_v2(
     if job is None:
         raise HTTPException(status_code=404, detail="Job을 찾을 수 없습니다.")
     return job
+
+
+# ── 적재 문서 목록 / 삭제 ────────────────────────────────────────────────────────
+
+@router.get("/documents")
+async def list_documents(
+    system_id: int | None = Query(default=None),
+    _user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Qdrant에 적재된 문서 목록 조회 (log-analyzer 프록시).
+
+    log-analyzer GET /knowledge/documents 를 그대로 전달.
+    응답: { items: [{ file_hash, file_name, system_id, chunk_count, uploaded_at }] }
+    """
+    base = _LOG_ANALYZER_URL.rstrip("/")
+    params: dict[str, Any] = {}
+    if system_id is not None:
+        params["system_id"] = system_id
+    try:
+        async with httpx.AsyncClient(timeout=_PROXY_TIMEOUT) as client:
+            resp = await client.get(f"{base}/knowledge/documents", params=params)
+            if resp.status_code >= 400:
+                raise HTTPException(
+                    status_code=502,
+                    detail=f"log-analyzer 응답 오류: {resp.status_code}",
+                )
+            return resp.json()
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.warning("GET /knowledge/documents 호출 실패: %s", exc)
+        raise HTTPException(status_code=502, detail="log-analyzer 연결 실패")
+
+
+@router.delete("/documents/{file_hash}", status_code=200)
+async def delete_document(
+    file_hash: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    """file_hash 기반 문서 청크 일괄 삭제 (log-analyzer 프록시).
+
+    권한:
+      - admin: 무조건 허용
+      - operator: 해당 file_hash 문서의 system_id 에 대한 SystemContact 매핑 담당자만 허용
+
+    처리 순서:
+      1. log-analyzer GET /knowledge/documents 에서 file_hash → system_id 조회
+      2. 권한 검증 (admin 아닌 경우)
+      3. log-analyzer DELETE /knowledge/documents/{file_hash} 호출
+    """
+    base = _LOG_ANALYZER_URL.rstrip("/")
+
+    # 1) file_hash → system_id 조회
+    file_system_id: int | None = None
+    if user.role != "admin":
+        try:
+            async with httpx.AsyncClient(timeout=_PROXY_TIMEOUT) as client:
+                resp = await client.get(f"{base}/knowledge/documents")
+                if resp.status_code < 400:
+                    items = resp.json().get("items") or []
+                    for item in items:
+                        if item.get("file_hash") == file_hash:
+                            file_system_id = item.get("system_id")
+                            break
+        except Exception as exc:
+            logger.warning("문서 목록 조회 실패 (권한 체크): %s", exc)
+            raise HTTPException(status_code=502, detail="log-analyzer 연결 실패")
+
+        # 2) 권한 검증
+        if file_system_id is None:
+            # 문서를 찾을 수 없으면 존재하지 않는 것 (또는 접근 불가)
+            raise HTTPException(status_code=404, detail="문서를 찾을 수 없습니다")
+
+        # SystemContact 매핑 확인: user → contact → system_contacts
+        contact = (
+            await db.execute(select(Contact).where(Contact.user_id == user.id))
+        ).scalar_one_or_none()
+        if contact is None:
+            raise HTTPException(status_code=403, detail="담당자 권한이 없습니다")
+
+        system_contact = (
+            await db.execute(
+                select(SystemContact).where(
+                    SystemContact.contact_id == contact.id,
+                    SystemContact.system_id == file_system_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if system_contact is None:
+            raise HTTPException(status_code=403, detail="해당 시스템의 담당자가 아닙니다")
+
+    # 3) log-analyzer DELETE 호출
+    try:
+        async with httpx.AsyncClient(timeout=_PROXY_TIMEOUT) as client:
+            resp = await client.delete(f"{base}/knowledge/documents/{file_hash}")
+            if resp.status_code == 404:
+                raise HTTPException(status_code=404, detail="문서를 찾을 수 없습니다")
+            if resp.status_code >= 400:
+                raise HTTPException(
+                    status_code=502,
+                    detail=f"log-analyzer 응답 오류: {resp.status_code}",
+                )
+            return resp.json()
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.warning("DELETE /knowledge/documents/%s 호출 실패: %s", file_hash, exc)
+        raise HTTPException(status_code=502, detail="log-analyzer 연결 실패")

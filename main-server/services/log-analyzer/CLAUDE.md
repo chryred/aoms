@@ -104,10 +104,15 @@ log-analyzer/
 - `POST /aggregation/store-summary`  — (하위 호환) 일/주/월 집계 요약을 `aggregation_summaries`에 저장
 
 ### V1 Knowledge RAG (knowledge_vector_client.py)
-- `POST /knowledge/search`           — 3종 컬렉션 Federated 검색 (2차 RRF + corrected 보너스 + 옵션 reranker)
-- `POST /embed/document`             — 문서 파일 청킹 → 임베딩 → `knowledge_documents` 저장 (docx/pdf/xlsx/pptx)
-- `POST /knowledge/operator-note`    — 운영자 Q&A 노트 등록 (`knowledge_documents`, doc_type=operator_note)
-- `POST /knowledge/correction`       — 검색 결과 피드백 적용 (corrected=True + correction_text)
+- `POST /knowledge/search`           — 3종 컬렉션 Federated 검색 (2차 RRF + corrected 보너스 + 옵션 reranker). jira/confluence는 system_name 필터 미적용 — 전체 지식베이스 조회 (V1 정책)
+- `POST /embed/document`             — 문서 파일 청킹 → 임베딩 → `knowledge_documents` 저장 (docx/pdf/xlsx/pptx). 재업로드 시 동일 file_hash 기존 청크 자동 cleanup
+- `POST /knowledge/operator-note`    — 운영자 Q&A 노트 등록 (`knowledge_documents`, doc_type=operator_note). 응답 `point_id`는 **문자열** (uint64 → JS 정밀도 손실 방지)
+- `PATCH /knowledge/operator-note/{point_id}` — 운영자 노트 수정. path param `point_id`는 **문자열** 수신 → 내부에서 `int()` 변환 후 Qdrant 호출. 응답 `point_id`도 문자열.
+- `DELETE /knowledge/operator-note/{point_id}` — 운영자 노트 삭제. 동일 문자열 규칙 적용.
+- `POST /knowledge/correction`       — 검색 결과 피드백 적용 (corrected=True + correction_text). 요청 body `point_id`는 **문자열**. (CorrectionRequest.point_id: str)
+- `POST /knowledge/search`           — Federated 검색 결과의 각 item `point_id`는 **문자열** (uint64 → str 직렬화, endpoint 반환 직전 coerce)
+- `GET  /knowledge/documents`        — 적재된 문서 목록 조회 (file_hash 단위 그룹핑, operator_note 제외). `?system_id=N` 필터 가능
+- `DELETE /knowledge/documents/{file_hash}` — file_hash 기반 Qdrant 청크 일괄 삭제 + 디스크 원본 파일 삭제. 응답: `{"deleted_points": int, "deleted_file": bool}`
 - `POST /knowledge/sync/jira/trigger`       — Jira 동기화 수동 즉시 트리거
 - `POST /knowledge/sync/confluence/trigger` — Confluence 동기화 수동 즉시 트리거
 
@@ -122,6 +127,33 @@ log-analyzer/
 | `knowledge_jira_issues` | — | V1 Knowledge: Jira 이슈 (project/status/system_name payload 인덱스) |
 | `knowledge_confluence_pages` | — | V1 Knowledge: Confluence 페이지 청크 (space/system_name payload 인덱스) |
 | `knowledge_documents` | — | V1 Knowledge: 문서 청크 + 운영자 노트 (doc_type/system_id/tags payload 인덱스). doc_type="operator_note"는 운영자 Q&A |
+
+### 컬렉션별 시스템 필터 정책 (V1 확정)
+
+| 컬렉션 | 시스템 필터 | 근거 |
+|---|---|---|
+| `log_incidents` | ✅ system_name 필터 적용 | 시스템별 로그 이력 분리 필수 |
+| `metric_baselines` | ✅ system_name 필터 적용 | 시스템별 메트릭 알림 이력 분리 필수 |
+| `aggregation_summaries` | ✅ system_name 필터 적용 | 시스템별 집계 리포트 분리 필수 |
+| `metric_hourly_patterns` | ✅ system_name 필터 적용 | 시스템별 1시간 집계 패턴 분리 필수 |
+| `knowledge_documents` | ✅ system_id 필터 적용 | 업로드 시 system_id 입력값으로 소속 구분 |
+| `knowledge_jira_issues` | ❌ 필터 미적용 — 전체 지식베이스 조회 | Jira 프로젝트는 한 시스템 1:1 매핑 아님. bge-m3 임베딩이 시스템 키워드 변별 |
+| `knowledge_confluence_pages` | ❌ 필터 미적용 — 전체 지식베이스 조회 | Confluence 스페이스는 공통 인프라 가이드·정책 문서 포함. 운영 부담 최소화 |
+
+> `federated_search()` 에서 jira/confluence 분기의 `system_name` filter_must 생성 코드 제거됨 (V1). `system_name` 파라미터는 시그니처 호환 유지를 위해 남겨두되 무시함.
+
+### aggregation_summaries 스케줄러별 system_name 보존 현황
+
+| 스케줄러 | period_type | system_name 출처 | pg_row_id 출처 | Qdrant 저장 |
+|---|---|---|---|---|
+| `run_daily_aggregation` | `daily` | `systems_map` (GET /api/v1/systems) | `/api/v1/aggregations/daily` POST 응답 id | ✅ collector_type/metric_group별 |
+| `run_weekly_report` | `weekly` | `systems_map` (GET /api/v1/systems) | PG POST 성공 시 응답 id, 실패 시 0 sentinel (Qdrant 저장은 PG와 독립) | ✅ 시스템당 1포인트 |
+| `run_monthly_report` | `monthly` | `systems_map` (GET /api/v1/systems) | 0 (monthly는 집계 행 없음) | ✅ 시스템당 1포인트 |
+| `_run_single_period_report` | quarterly/half_year/annual | `systems_map` (GET /api/v1/systems) | 0 (report_history만 존재) | ✅ 시스템당 1포인트 |
+| `run_trend_alert` | — | hourly rows에서 직접 (Teams 알림 전용) | N/A | ❌ 벡터 저장 없음 (의도적) |
+
+> **중요**: `/api/v1/aggregations/daily` GET 응답 스키마(`DailyAggregationOut`)에는 `system_name`/`display_name` 컬럼이 없다.
+> weekly/monthly/longperiod 모두 반드시 `systems_map`(GET /api/v1/systems)으로 `system_id → system_name` 변환 후 Qdrant payload에 저장해야 한다.
 
 ## 환경변수
 
@@ -148,6 +180,7 @@ log-analyzer/
 | `CONFLUENCE_TOKEN` | Confluence Bearer 토큰. 미설정 시 비활성 |
 | `CONFLUENCE_SPACES` | 동기화 대상 Space 키 (콤마 구분, 예: `DEV,OPS`). 미설정 시 비활성 |
 | `KNOWLEDGE_SYNC_RATE_LIMIT` | Knowledge 동기화 req/sec 상한 (기본 5) |
+| `KNOWLEDGE_DOCS_DIR` | 문서 원본 파일 저장 루트 (기본 `/app/synapse/knowledge-docs`). admin-api와 동일 경로 사용 — `{KNOWLEDGE_DOCS_DIR}/{system_id}/{file_name}` 구조 |
 
 ## 핵심 로직
 
