@@ -207,6 +207,85 @@ async def _longperiod_agg_scheduler() -> None:
 
 # ── V1 Knowledge 동기화 스케줄러 ─────────────────────────────────────────────
 
+_JIRA_FIELDS = (
+    "summary,description,status,comment,"
+    "issuetype,priority,components,resolutiondate,project,"
+    "customfield_18370,customfield_11011,customfield_17901,"
+    "customfield_15315,customfield_15316,customfield_14403,"
+    "customfield_11351,customfield_11718,customfield_11343,"
+    "customfield_16460,customfield_16461,"
+    "customfield_10451,customfield_10452,customfield_10453,"
+    "customfield_10454,customfield_10455,customfield_10415,"
+    "customfield_11374,customfield_11347,customfield_11368,"
+    "customfield_11369,customfield_11370,customfield_11012,"
+    "customfield_11311,customfield_11362,customfield_11363,"
+    "customfield_11366"
+)
+
+
+def _issue_to_upsert_kwargs(issue: dict) -> dict:
+    """Jira issue dict → upsert_jira_issue() kwargs. force sync 엔드포인트에서 재사용."""
+    f = issue.get("fields", {})
+    comments = [c.get("body", "") for c in f.get("comment", {}).get("comments", [])[:10] if c.get("body")]
+
+    def _cv(key: str) -> str | None:
+        v = f.get(key)
+        if isinstance(v, dict):
+            return v.get("value") or v.get("name") or None
+        return str(v) if v is not None else None
+
+    def _cl(key: str) -> list[str]:
+        v = f.get(key)
+        if not isinstance(v, list):
+            return []
+        return [
+            (item.get("name") or item.get("value") or str(item))
+            if isinstance(item, dict) else str(item)
+            for item in v
+        ]
+
+    return dict(
+        project=f.get("project", {}).get("key", ""),
+        issue_id=issue["id"],
+        issue_key=issue.get("key"),
+        title=f.get("summary", ""),
+        description=f.get("description") or "",
+        status=f.get("status", {}).get("name", ""),
+        comments=comments,
+        issue_type=f.get("issuetype", {}).get("name"),
+        priority=f.get("priority", {}).get("name"),
+        components=[c["name"] for c in f.get("components", []) if c.get("name")],
+        resolution_date=f.get("resolutiondate"),
+        company=_cl("customfield_18370"),
+        system_dept=_cl("customfield_11011"),
+        service=_cl("customfield_17901"),
+        fte_category=_cl("customfield_15315"),
+        fte_type=_cl("customfield_15316"),
+        difficulty=_cv("customfield_14403"),
+        service_grade=_cl("customfield_11351"),
+        request_type=_cl("customfield_11718"),
+        change_process_type=_cl("customfield_16460"),
+        sr_process_type=_cl("customfield_16461"),
+        issue_type_am=_cl("customfield_11343"),
+        incident_summary=_cv("customfield_10451"),
+        action_taken=f.get("customfield_10452") or None,
+        action_timeline=f.get("customfield_10453") or None,
+        root_cause=f.get("customfield_10454") or None,
+        solution=f.get("customfield_10455") or None,
+        reception_channel=_cv("customfield_10415"),
+        incident_cause_type=_cv("customfield_11374"),
+        incident_type=_cl("customfield_11347"),
+        impact_scope=_cv("customfield_11368"),
+        grade=_cv("customfield_11369"),
+        responsibility=_cv("customfield_11370"),
+        business_system=_cl("customfield_11012"),
+        incident_start_at=f.get("customfield_11311"),
+        incident_noticed_at=f.get("customfield_11362"),
+        incident_notified_at=f.get("customfield_11363"),
+        duration_minutes=f.get("customfield_11366"),
+    )
+
+
 async def _jira_sync_run() -> dict:
     """Jira 증분 동기화 실행. 결과 요약 dict 반환."""
     if not (JIRA_URL and JIRA_TOKEN and JIRA_PROJECTS):
@@ -282,71 +361,10 @@ async def _jira_sync_run() -> dict:
                     break
 
                 for issue in issues:
-                    f = issue.get("fields", {})
-                    comments_raw = f.get("comment", {}).get("comments", [])
-                    comments = [c.get("body", "") for c in comments_raw[:10] if c.get("body")]
-
-                    def _cv(key: str) -> str | None:
-                        """커스텀 필드 단일 선택값 추출 (value 또는 name 키)."""
-                        v = f.get(key)
-                        if isinstance(v, dict):
-                            return v.get("value") or v.get("name") or None
-                        return str(v) if v is not None else None
-
-                    def _cl(key: str) -> list[str]:
-                        """커스텀 필드 다중값 추출 (list of string)."""
-                        v = f.get(key)
-                        if not isinstance(v, list):
-                            return []
-                        return [
-                            (item.get("name") or item.get("value") or str(item))
-                            if isinstance(item, dict) else str(item)
-                            for item in v
-                        ]
-
                     async with rate_sem:
                         try:
                             await knowledge_vector_client.upsert_jira_issue(
-                                project=project,
-                                issue_id=issue["id"],
-                                issue_key=issue.get("key"),
-                                title=f.get("summary", ""),
-                                description=f.get("description") or "",
-                                status=f.get("status", {}).get("name", ""),
-                                comments=comments,
-                                issue_type=f.get("issuetype", {}).get("name"),
-                                priority=f.get("priority", {}).get("name"),
-                                components=[c["name"] for c in f.get("components", []) if c.get("name")],
-                                resolution_date=f.get("resolutiondate"),
-                                # SR통계 공통
-                                company=_cl("customfield_18370"),
-                                system_dept=_cl("customfield_11011"),
-                                service=_cl("customfield_17901"),
-                                fte_category=_cl("customfield_15315"),
-                                fte_type=_cl("customfield_15316"),
-                                difficulty=_cv("customfield_14403"),
-                                service_grade=_cl("customfield_11351"),
-                                request_type=_cl("customfield_11718"),
-                                change_process_type=_cl("customfield_16460"),
-                                sr_process_type=_cl("customfield_16461"),
-                                issue_type_am=_cl("customfield_11343"),
-                                # 장애관리 전용
-                                incident_summary=_cv("customfield_10451"),
-                                action_taken=f.get("customfield_10452") or None,
-                                action_timeline=f.get("customfield_10453") or None,
-                                root_cause=f.get("customfield_10454") or None,
-                                solution=f.get("customfield_10455") or None,
-                                reception_channel=_cv("customfield_10415"),
-                                incident_cause_type=_cv("customfield_11374"),
-                                incident_type=_cl("customfield_11347"),
-                                impact_scope=_cv("customfield_11368"),
-                                grade=_cv("customfield_11369"),
-                                responsibility=_cv("customfield_11370"),
-                                business_system=_cl("customfield_11012"),
-                                incident_start_at=f.get("customfield_11311"),
-                                incident_noticed_at=f.get("customfield_11362"),
-                                incident_notified_at=f.get("customfield_11363"),
-                                duration_minutes=f.get("customfield_11366"),
+                                **_issue_to_upsert_kwargs(issue)
                             )
                             synced += 1
                         except Exception as exc:
@@ -1336,6 +1354,82 @@ async def trigger_confluence_sync():
     """Confluence 동기화 즉시 실행 (관리/테스트용)."""
     asyncio.create_task(_confluence_sync_run())
     return {"status": "triggered", "source": "confluence"}
+
+
+@app.post("/knowledge/sync/jira/{issue_key}/force")
+async def force_sync_jira_issue(issue_key: str) -> dict:
+    """Jira 단건 이슈 강제 재동기화. 완료까지 대기 후 결과 반환."""
+    if not (JIRA_URL and JIRA_TOKEN):
+        raise HTTPException(status_code=503, detail="Jira 환경변수 미설정")
+    try:
+        async with httpx.AsyncClient(
+            timeout=30.0,
+            headers={"Authorization": f"Bearer {JIRA_TOKEN}", "Accept": "application/json"},
+        ) as client:
+            resp = await client.get(
+                f"{JIRA_URL}/rest/api/2/issue/{issue_key}",
+                params={"fields": _JIRA_FIELDS},
+            )
+            resp.raise_for_status()
+            issue = resp.json()
+    except httpx.HTTPStatusError as exc:
+        code = exc.response.status_code
+        if code == 404:
+            raise HTTPException(status_code=404, detail=f"Jira 이슈를 찾을 수 없음: {issue_key}")
+        raise HTTPException(status_code=502, detail=f"Jira API 오류: {code}")
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Jira 연결 실패: {str(exc)[:200]}")
+    try:
+        await knowledge_vector_client.upsert_jira_issue(**_issue_to_upsert_kwargs(issue))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Qdrant upsert 실패: {str(exc)[:200]}")
+    logger.info("Jira force sync 완료: %s", issue_key)
+    return {"synced": True, "issue_key": issue_key}
+
+
+@app.post("/knowledge/sync/confluence/{page_id}/force")
+async def force_sync_confluence_page(page_id: str) -> dict:
+    """Confluence 단건 페이지 강제 재동기화. 완료까지 대기 후 결과 반환."""
+    if not (CONFLUENCE_URL and CONFLUENCE_TOKEN):
+        raise HTTPException(status_code=503, detail="Confluence 환경변수 미설정")
+    try:
+        async with httpx.AsyncClient(
+            timeout=30.0,
+            headers={"Authorization": f"Bearer {CONFLUENCE_TOKEN}", "Accept": "application/json"},
+        ) as client:
+            resp = await client.get(
+                f"{CONFLUENCE_URL}/rest/api/content/{page_id}",
+                params={"expand": "body.storage,space,version"},
+            )
+            resp.raise_for_status()
+            page = resp.json()
+    except httpx.HTTPStatusError as exc:
+        code = exc.response.status_code
+        if code == 404:
+            raise HTTPException(status_code=404, detail=f"Confluence 페이지를 찾을 수 없음: {page_id}")
+        raise HTTPException(status_code=502, detail=f"Confluence API 오류: {code}")
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Confluence 연결 실패: {str(exc)[:200]}")
+    import chunking  # noqa: PLC0415
+    page_title = page.get("title", "")
+    space_key = page.get("space", {}).get("key", "")
+    html_content = page.get("body", {}).get("storage", {}).get("value", "") or ""
+    page_url = f"{CONFLUENCE_URL}/pages/{page_id}"
+    try:
+        chunks = chunking.chunk_confluence_page(
+            content=html_content, page_id=page_id, page_title=page_title, space=space_key,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Confluence 청킹 실패: {str(exc)[:200]}")
+    try:
+        await knowledge_vector_client.delete_confluence_chunks_by_page_id(page_id)
+        n = await knowledge_vector_client.upsert_confluence_chunks(
+            page_id=page_id, page_title=page_title, space=space_key, chunks=chunks, url=page_url,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Qdrant upsert 실패: {str(exc)[:200]}")
+    logger.info("Confluence force sync 완료: page_id=%s, chunks=%d", page_id, n)
+    return {"synced": True, "page_id": page_id, "synced_chunks": n}
 
 
 # ── V1 Knowledge: 문서 목록 조회 / 일괄 삭제 ──────────────────────────────────

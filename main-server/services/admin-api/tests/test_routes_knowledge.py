@@ -277,3 +277,48 @@ async def test_sync_status_upsert(authed_client: AsyncClient):
     resp = await authed_client.get("/api/v1/knowledge/sync-status?source=jira")
     items = resp.json()
     assert items[0]["total_synced"] == 100
+
+
+# ── 강제 재동기화 ──────────────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_force_sync_jira_success(authed_client: AsyncClient):
+    with patch(
+        "routes.knowledge.knowledge_service.call_force_sync_jira",
+        new=AsyncMock(return_value={"synced": True, "issue_key": "PROJ-123"}),
+    ):
+        resp = await authed_client.post("/api/v1/knowledge/sync/jira/PROJ-123/force")
+    assert resp.status_code == 200
+    assert resp.json()["synced"] is True
+    assert resp.json()["issue_key"] == "PROJ-123"
+
+
+@pytest.mark.asyncio
+async def test_force_sync_jira_failure(authed_client: AsyncClient):
+    with patch(
+        "routes.knowledge.knowledge_service.call_force_sync_jira",
+        new=AsyncMock(return_value={"synced": False, "error": "404: not found"}),
+    ):
+        resp = await authed_client.post("/api/v1/knowledge/sync/jira/PROJ-999/force")
+    assert resp.status_code == 502
+
+
+@pytest.mark.asyncio
+async def test_force_sync_confluence_success(authed_client: AsyncClient):
+    with patch(
+        "routes.knowledge.knowledge_service.call_force_sync_confluence",
+        new=AsyncMock(return_value={"synced": True, "page_id": "12345", "synced_chunks": 3}),
+    ):
+        resp = await authed_client.post("/api/v1/knowledge/sync/confluence/12345/force")
+    assert resp.status_code == 200
+    assert resp.json()["synced_chunks"] == 3
+
+
+@pytest.mark.asyncio
+async def test_force_sync_confluence_failure(authed_client: AsyncClient):
+    with patch(
+        "routes.knowledge.knowledge_service.call_force_sync_confluence",
+        new=AsyncMock(return_value={"synced": False, "error": "page not found"}),
+    ):
+        resp = await authed_client.post("/api/v1/knowledge/sync/confluence/99999/force")
+    assert resp.status_code == 502

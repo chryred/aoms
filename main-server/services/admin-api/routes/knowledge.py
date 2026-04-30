@@ -688,6 +688,30 @@ async def trigger_sync(
     return result
 
 
+@router.post("/sync/jira/{issue_key}/force")
+async def force_sync_jira_issue(
+    issue_key: str,
+    _user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Jira 단건 이슈 강제 재동기화 (log-analyzer 프록시). 완료까지 대기."""
+    result = await knowledge_service.call_force_sync_jira(issue_key)
+    if not result.get("synced"):
+        raise HTTPException(status_code=502, detail=result.get("error", "force sync 실패"))
+    return result
+
+
+@router.post("/sync/confluence/{page_id}/force")
+async def force_sync_confluence_page(
+    page_id: str,
+    _user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Confluence 단건 페이지 강제 재동기화 (log-analyzer 프록시). 완료까지 대기."""
+    result = await knowledge_service.call_force_sync_confluence(page_id)
+    if not result.get("synced"):
+        raise HTTPException(status_code=502, detail=result.get("error", "force sync 실패"))
+    return result
+
+
 # 문서 업로드 (/documents 경로)
 
 @router.post("/documents", status_code=202)

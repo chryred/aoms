@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
+import toast from 'react-hot-toast'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import {
@@ -31,6 +32,7 @@ import { useMyPrimarySystems } from '@/hooks/queries/useMyPrimarySystems'
 import { useSearchVerifyChatbot, useSearchVerifyCollections } from '@/hooks/queries/useSearchVerify'
 import { useDeleteOperatorNote } from '@/hooks/mutations/useKnowledgeMutations'
 import { useDeleteDocument } from '@/hooks/mutations/useDeleteDocument'
+import { knowledgeApi } from '@/api/knowledge'
 import { cn, formatKST, formatRelative, formatPeriodLabel } from '@/lib/utils'
 import { ROUTES } from '@/constants/routes'
 import {
@@ -694,6 +696,7 @@ interface JiraConfluenceCardProps {
   onResync: (result: SearchVerifyResult) => void
   onDetailClick?: () => void
   scoreKind?: 'sim' | 'rrf'
+  isResyncing?: boolean
 }
 
 function JiraConfluenceCard({
@@ -701,6 +704,7 @@ function JiraConfluenceCard({
   onResync,
   onDetailClick,
   scoreKind,
+  isResyncing = false,
 }: JiraConfluenceCardProps) {
   const isJira = result.collection === 'knowledge_jira_issues'
   const title = isJira ? result.issue_key : result.page_title
@@ -745,10 +749,11 @@ function JiraConfluenceCard({
             variant="ghost"
             size="sm"
             onClick={() => onResync(result)}
+            disabled={isResyncing}
             className="gap-1 px-2 text-xs"
           >
-            <RefreshCw className="h-3 w-3" />
-            강제 재동기화
+            <RefreshCw className={cn('h-3 w-3', isResyncing && 'animate-spin')} />
+            {isResyncing ? '동기화 중...' : '강제 재동기화'}
           </NeuButton>
         </div>
       </div>
@@ -951,6 +956,7 @@ interface ResultCardProps {
   onResync: (result: SearchVerifyResult) => void
   onDetailClick?: () => void
   scoreKind?: 'sim' | 'rrf'
+  isResyncing?: boolean
 }
 
 function ResultCard({
@@ -963,6 +969,7 @@ function ResultCard({
   onResync,
   onDetailClick,
   scoreKind,
+  isResyncing = false,
 }: ResultCardProps) {
   const kind = getCardKind(result)
 
@@ -996,6 +1003,7 @@ function ResultCard({
         onResync={onResync}
         onDetailClick={onDetailClick}
         scoreKind={scoreKind}
+        isResyncing={isResyncing}
       />
     )
   }
@@ -1110,6 +1118,7 @@ export function SearchVerifyTab() {
   const [results, setResults] = useState<SearchVerifyResult[]>([])
   const [hasSearched, setHasSearched] = useState(false)
   const [detailResult, setDetailResult] = useState<SearchVerifyResult | null>(null)
+  const [resyncingIds, setResyncingIds] = useState<Set<string>>(new Set())
 
   const searchChatbot = useSearchVerifyChatbot()
   const searchCollections = useSearchVerifyCollections()
@@ -1188,9 +1197,38 @@ export function SearchVerifyTab() {
     handleSearch()
   }
 
-  const handleResync = (_result: SearchVerifyResult) => {
-    // TODO: 강제 재동기화 엔드포인트 연동 (현재 sync 트리거와 동일 흐름)
-    alert('강제 재동기화가 요청되었습니다. 동기화 탭에서 진행 상황을 확인하세요.')
+  const handleResync = async (result: SearchVerifyResult) => {
+    const id = result.point_id
+    if (!id) return
+
+    setResyncingIds((prev) => new Set(prev).add(id))
+    try {
+      if (result.collection === 'knowledge_jira_issues') {
+        const issueKey = (result.jira_key ?? result.issue_key) as string | undefined
+        if (!issueKey) {
+          toast.error('이슈 키를 찾을 수 없습니다')
+          return
+        }
+        await knowledgeApi.forceSyncJiraIssue(issueKey)
+        toast.success(`Jira 이슈 재동기화 완료: ${issueKey}`)
+      } else if (result.collection === 'knowledge_confluence_pages') {
+        const pageId = (result.confluence_id ?? result.page_id) as string | undefined
+        if (!pageId) {
+          toast.error('페이지 ID를 찾을 수 없습니다')
+          return
+        }
+        const res = await knowledgeApi.forceSyncConfluencePage(pageId)
+        toast.success(`Confluence 페이지 재동기화 완료 (${res.synced_chunks}청크)`)
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '재동기화 실패')
+    } finally {
+      setResyncingIds((prev) => {
+        const next = new Set(prev)
+        next.delete(id)
+        return next
+      })
+    }
   }
 
   return (
@@ -1334,6 +1372,7 @@ export function SearchVerifyTab() {
                 onResync={handleResync}
                 onDetailClick={result.point_id ? () => setDetailResult(result) : undefined}
                 scoreKind={scoreKind}
+                isResyncing={resyncingIds.has(result.point_id ?? '')}
               />
             ))}
           </div>

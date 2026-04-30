@@ -158,6 +158,36 @@ async def call_trigger_sync(source: str) -> dict[str, Any]:
         return {"queued": False}
 
 
+async def call_force_sync_jira(issue_key: str) -> dict[str, Any]:
+    """log-analyzer POST /knowledge/sync/jira/{issue_key}/force 호출."""
+    base = LOG_ANALYZER_URL.rstrip("/")
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            resp = await client.post(f"{base}/knowledge/sync/jira/{issue_key}/force")
+            if resp.status_code >= 400:
+                logger.warning("force sync jira %s %s: %s", issue_key, resp.status_code, resp.text[:200])
+                return {"synced": False, "error": f"{resp.status_code}: {resp.text[:200]}"}
+            return resp.json()
+    except Exception as exc:
+        logger.warning("force sync jira 호출 실패 [%s]: %s", issue_key, exc)
+        return {"synced": False, "error": str(exc)[:200]}
+
+
+async def call_force_sync_confluence(page_id: str) -> dict[str, Any]:
+    """log-analyzer POST /knowledge/sync/confluence/{page_id}/force 호출."""
+    base = LOG_ANALYZER_URL.rstrip("/")
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            resp = await client.post(f"{base}/knowledge/sync/confluence/{page_id}/force")
+            if resp.status_code >= 400:
+                logger.warning("force sync confluence %s %s: %s", page_id, resp.status_code, resp.text[:200])
+                return {"synced": False, "error": f"{resp.status_code}: {resp.text[:200]}"}
+            return resp.json()
+    except Exception as exc:
+        logger.warning("force sync confluence 호출 실패 [%s]: %s", page_id, exc)
+        return {"synced": False, "error": str(exc)[:200]}
+
+
 async def call_correction(
     point_id: str,
     collection: str,

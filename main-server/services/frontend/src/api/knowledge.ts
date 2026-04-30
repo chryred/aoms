@@ -100,4 +100,16 @@ export const knowledgeApi = {
 
   triggerSync: (source: 'jira' | 'confluence'): Promise<{ queued: boolean }> =>
     adminApi.post(`api/v1/knowledge/sync/${source}`).json<{ queued: boolean }>(),
+
+  forceSyncJiraIssue: (issueKey: string): Promise<{ synced: boolean; issue_key: string }> =>
+    adminApi
+      .post(`api/v1/knowledge/sync/jira/${issueKey}/force`, { timeout: 65_000 })
+      .json<{ synced: boolean; issue_key: string }>(),
+
+  forceSyncConfluencePage: (
+    pageId: string,
+  ): Promise<{ synced: boolean; page_id: string; synced_chunks: number }> =>
+    adminApi
+      .post(`api/v1/knowledge/sync/confluence/${pageId}/force`, { timeout: 65_000 })
+      .json<{ synced: boolean; page_id: string; synced_chunks: number }>(),
 }

@@ -291,6 +291,9 @@ docker exec -it aoms-admin-api \
 - `GET /questions/frequent` — 최근 N일 사용자 질문 집계·클러스터링 (cosine 유사도 0.85, 5분 캐시)
 - `GET /sync-status` — knowledge_sync_status 조회 (source 필터 지원)
 - `POST /sync-status` — log-analyzer 스케줄러가 호출 (last_sync_at, total_synced UPSERT)
+- `POST /sync/{jira|confluence}` — 전체 소스 동기화 트리거 (background, log-analyzer 프록시)
+- `POST /sync/jira/{issue_key}/force` — Jira 단건 이슈 강제 재동기화 (동기, log-analyzer 프록시)
+- `POST /sync/confluence/{page_id}/force` — Confluence 단건 페이지 강제 재동기화 (동기, log-analyzer 프록시)
 - `GET /documents` — Qdrant 적재 문서 목록 조회 (log-analyzer GET /knowledge/documents 프록시). `?system_id=` 필터 지원. 응답: `{ items: [{ file_hash, file_name, system_id, chunk_count, uploaded_at }] }`
 - `DELETE /documents/{file_hash}` — file_hash 단위 문서 청크 일괄 삭제 (log-analyzer DELETE /knowledge/documents/{file_hash} 프록시). 권한: admin 또는 해당 system_id 의 SystemContact 담당자
 

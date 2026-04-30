@@ -114,8 +114,10 @@ log-analyzer/
 - `POST /knowledge/search`           — Federated 검색 결과의 각 item `point_id`는 **문자열** (uint64 → str 직렬화, endpoint 반환 직전 coerce)
 - `GET  /knowledge/documents`        — 적재된 문서 목록 조회 (file_hash 단위 그룹핑, operator_note 제외). `?system_id=N` 필터 가능
 - `DELETE /knowledge/documents/{file_hash}` — file_hash 기반 Qdrant 청크 일괄 삭제 + 디스크 원본 파일 삭제. 응답: `{"deleted_points": int, "deleted_file": bool}`
-- `POST /knowledge/sync/jira/trigger`       — Jira 동기화 수동 즉시 트리거
-- `POST /knowledge/sync/confluence/trigger` — Confluence 동기화 수동 즉시 트리거
+- `POST /knowledge/sync/jira/trigger`            — Jira 동기화 수동 즉시 트리거 (background)
+- `POST /knowledge/sync/confluence/trigger`     — Confluence 동기화 수동 즉시 트리거 (background)
+- `POST /knowledge/sync/jira/{issue_key}/force`       — Jira 단건 이슈 강제 재동기화 (동기 await, 완료 후 결과 반환)
+- `POST /knowledge/sync/confluence/{page_id}/force`   — Confluence 단건 페이지 강제 재동기화 (delete-upsert, 동기 await)
 
 ## Qdrant 컬렉션
 
