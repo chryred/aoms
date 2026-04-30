@@ -186,6 +186,13 @@ services:
       - SPARSE_EMBED_MODEL=${SPARSE_EMBED_MODEL:-Qdrant/bm25}
       - HF_HUB_OFFLINE=1                 # 폐쇄망 안전장치: 로컬 번들만 사용
       - QDRANT_URL=${QDRANT_URL}
+      # JIRA, Conflence 동기화
+      - JIRA_URL=${JIRA_URL}              # Jira 서버 주소                                                                   
+      - JIRA_TOKEN=${JIRA_TOKEN}          # Jira API 토큰 (Bearer)
+      - JIRA_PROJECTS=${JIRA_PROJECTS}    # 동기화할 프로젝트 키 (콤마 구분)                                                   
+      - CONFLUENCE_URL=${CONFLUENCE_URL}                                                                                  
+      - CONFLUENCE_TOKEN=${CONFLUENCE_TOKEN}                                                                                      
+      - CONFLUENCE_SPACES=${CONFLUENCE_SPACES}
     mem_limit: 2048m   # ADR-011: bge-m3 ONNX(~1.2GB) 로드를 위해 상향 (기존 256m)
     cpus: '1.0'
     depends_on: [admin-api]

@@ -56,9 +56,11 @@ async def test_knowledge_requires_auth_sync_status(client: AsyncClient):
 
 @pytest.mark.asyncio
 async def test_upload_unsupported_type_rejected(authed_client: AsyncClient):
+    # _ALLOWED_MIMES: pdf/docx/xlsx/pptx + text/plain + text/markdown.
+    # 명백히 지원 외인 타입(image/png)으로 415 검증.
     resp = await authed_client.post(
         "/api/v1/knowledge/upload",
-        files={"file": ("test.txt", b"hello", "text/plain")},
+        files={"file": ("test.png", b"\x89PNG\r\n\x1a\n", "image/png")},
         data={"system_id": "1"},
     )
     assert resp.status_code == 415

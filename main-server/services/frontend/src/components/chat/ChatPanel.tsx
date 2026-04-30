@@ -357,21 +357,23 @@ export function ChatPanel() {
       {...inertProps}
       aria-hidden={!isOpen}
       className={cn(
-        'bg-surface border-border flex flex-col',
+        'border-border',
 
         // === 모바일 (<lg): fixed overlay 유지 ===
         'fixed top-0 right-0 z-40 h-screen w-full',
         'shadow-side-overlay',
-        'transition-transform duration-200 ease-out',
+        'transition-transform duration-300 ease-out',
         isOpen ? 'translate-x-0' : 'translate-x-full',
 
         // === 데스크탑 (lg+): push layout ===
+        // 너비만 애니메이션. 내부 콘텐츠는 고정 폭 inner div가 담당하여 reflow 방지
         'lg:static lg:top-auto lg:right-auto lg:z-auto',
         'lg:h-full lg:translate-x-0 lg:shadow-none',
-        'lg:overflow-hidden lg:transition-[width] lg:duration-200',
+        'lg:overflow-hidden lg:transition-[width] lg:duration-300 lg:ease-out',
         isOpen ? 'lg:w-[420px] lg:border-l' : 'lg:w-0 lg:border-0',
       )}
     >
+      <div className="bg-surface flex h-full w-full flex-col lg:w-[420px] lg:shrink-0">
       <ChatHeader
         title={currentSession?.title ?? '새 대화'}
         onNewChat={handleNewChat}
@@ -488,6 +490,7 @@ export function ChatPanel() {
         onSend={handleSend}
         prefillValue={restoreValue}
       />
+      </div>
     </div>
   )
 }

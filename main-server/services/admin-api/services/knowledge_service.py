@@ -6,6 +6,7 @@ log-analyzer V1 엔드포인트(T2)가 없어도 import-time 오류 없게 설�
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from typing import Any
@@ -17,6 +18,8 @@ logger = logging.getLogger(__name__)
 LOG_ANALYZER_URL = os.getenv("LOG_ANALYZER_URL", "http://log-analyzer:8000")
 
 _TIMEOUT = 30.0
+_EMBED_POLL_INTERVAL = 3.0   # 폴링 간격(초)
+_EMBED_POLL_MAX = 200         # 최대 시도 횟수 (200 × 3s = 600s = 10분)
 
 
 # ── log-analyzer HTTP 호출 wrapper ────────────────────────────────────────────
@@ -27,8 +30,14 @@ async def call_embed_document(
     system_id: int,
     tags: list[str] | None = None,
 ) -> dict[str, Any]:
-    """log-analyzer POST /embed/document 호출 → job_id 반환."""
+    """log-analyzer POST /embed/document → job_id 반환 → 완료까지 폴링.
+
+    log-analyzer는 즉시 job_id를 반환하고 백그라운드에서 임베딩을 수행한다.
+    이 함수는 완료(done/error)까지 폴링 후 최종 결과를 반환한다.
+    """
     base = LOG_ANALYZER_URL.rstrip("/")
+
+    # 1) 임베딩 Job 등록 (즉시 반환)
     try:
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
             resp = await client.post(
@@ -43,10 +52,32 @@ async def call_embed_document(
             if resp.status_code >= 400:
                 logger.warning("embed/document %s: %s", resp.status_code, resp.text[:200])
                 return {"error": f"log-analyzer {resp.status_code}: {resp.text[:200]}"}
-            return resp.json()
+            job = resp.json()
     except Exception as exc:
         logger.warning("embed/document 호출 실패: %s", exc)
         return {"error": f"log-analyzer 호출 실패: {str(exc)[:200]}"}
+
+    log_job_id = job.get("job_id")
+    if not log_job_id:
+        # 구버전 호환: 즉시 결과 반환 형태
+        return job
+
+    # 2) 완료까지 폴링
+    for _ in range(_EMBED_POLL_MAX):
+        await asyncio.sleep(_EMBED_POLL_INTERVAL)
+        try:
+            async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+                status_resp = await client.get(f"{base}/embed/jobs/{log_job_id}")
+                if status_resp.status_code == 200:
+                    status = status_resp.json()
+                    if status.get("status") == "done":
+                        return status
+                    if status.get("status") == "error":
+                        return {"error": status.get("error", "임베딩 실패")}
+        except Exception as exc:
+            logger.warning("embed/jobs 폴링 실패: %s", exc)
+
+    return {"error": "임베딩 타임아웃 (10분 초과)"}
 
 
 async def call_operator_note(

@@ -47,6 +47,9 @@ _ALLOWED_MIMES = {
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "text/plain",
+    "text/markdown",
+    "text/x-markdown",
 }
 
 # 문서 저장 루트 (운영: Docker 볼륨 마운트)
@@ -70,14 +73,14 @@ async def _embed_document_background(
     tags: list[str],
 ) -> None:
     """log-analyzer /embed/document 비동기 호출 (BackgroundTask)."""
-    _jobs[job_id]["status"] = "processing"
+    _jobs[job_id]["status"] = "embedding"
     result = await knowledge_service.call_embed_document(file_path, doc_type, system_id, tags)
     if "error" in result:
-        _jobs[job_id]["status"] = "failed"
+        _jobs[job_id]["status"] = "error"
         _jobs[job_id]["error"] = result["error"]
     else:
         _jobs[job_id]["status"] = "done"
-        _jobs[job_id]["result"] = result
+        _jobs[job_id]["point_count"] = result.get("point_count")
 
 
 @router.post("/upload", status_code=202)
@@ -118,6 +121,9 @@ async def upload_document(
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
         "application/vnd.openxmlformats-officedocument.presentationml.presentation": "pptx",
+        "text/plain": "txt",
+        "text/markdown": "md",
+        "text/x-markdown": "md",
     }
     doc_type = _mime_to_doc.get(file.content_type or "", "unknown")
 
@@ -745,6 +751,9 @@ async def upload_document_v2(
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
         "application/vnd.openxmlformats-officedocument.presentationml.presentation": "pptx",
+        "text/plain": "txt",
+        "text/markdown": "md",
+        "text/x-markdown": "md",
     }
     doc_type = _mime_to_doc.get(file.content_type or "", "unknown")
 
@@ -775,6 +784,32 @@ async def get_upload_status_v2(
 
 
 # ── 적재 문서 목록 / 삭제 ────────────────────────────────────────────────────────
+
+@router.get("/documents/{file_hash}/chunks")
+async def get_document_chunks(
+    file_hash: str,
+    _user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    """file_hash 기반 문서 청크 상세 조회 (log-analyzer 프록시).
+
+    응답: { chunks: [{ point_id, chunk_index, text, stored_at, page_no?, ... }] }
+    """
+    base = _LOG_ANALYZER_URL.rstrip("/")
+    try:
+        async with httpx.AsyncClient(timeout=_PROXY_TIMEOUT) as client:
+            resp = await client.get(f"{base}/knowledge/documents/{file_hash}/chunks")
+            if resp.status_code >= 400:
+                raise HTTPException(
+                    status_code=502,
+                    detail=f"log-analyzer 응답 오류: {resp.status_code}",
+                )
+            return resp.json()
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.warning("GET /knowledge/documents/%s/chunks 호출 실패: %s", file_hash, exc)
+        raise HTTPException(status_code=502, detail="log-analyzer 연결 실패")
+
 
 @router.get("/documents")
 async def list_documents(

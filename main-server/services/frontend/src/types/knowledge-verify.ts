@@ -83,6 +83,25 @@ export interface KnowledgeDocumentItem {
   system_id: number
   chunk_count: number
   uploaded_at: string
+  point_ids?: string[]
+}
+
+export interface DocumentChunk {
+  point_id: string
+  chunk_index: number
+  text: string
+  stored_at?: string
+  page_no?: number
+  sheet_name?: string
+  slide_no?: number
+  slide_title?: string
+  heading?: string
+  tags?: string[]
+  doc_type?: string
+}
+
+export interface DocumentChunksResponse {
+  chunks: DocumentChunk[]
 }
 
 export interface KnowledgeDocumentListResponse {

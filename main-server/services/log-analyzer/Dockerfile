@@ -1,5 +1,10 @@
 FROM python:3.11-slim AS deps
 
+# 시스템 패키지: Tesseract OCR (한국어 + 영어 언어팩)
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-kor && \
+    rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
 # Python 의존성 먼저 설치 (레이어 캐시 활용)

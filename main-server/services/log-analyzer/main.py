@@ -24,11 +24,12 @@ Synapse Log Analyzer — FastAPI 앱
 import asyncio
 import logging
 import os
+import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 
 import httpx
-from fastapi import FastAPI, HTTPException
+from fastapi import BackgroundTasks, FastAPI, HTTPException
 from pydantic import BaseModel
 
 import analyzer
@@ -332,22 +333,7 @@ async def _jira_sync_run() -> dict:
                     resp = await jira_client.get(
                         f"{JIRA_URL}/rest/api/2/search",
                         params={"jql": jql, "startAt": start_at, "maxResults": max_results,
-                                "fields": (
-                                    "summary,description,status,comment,"
-                                    "issuetype,priority,components,resolutiondate,"
-                                    # SR통계 공통
-                                    "customfield_18370,customfield_11011,customfield_17901,"
-                                    "customfield_15315,customfield_15316,customfield_14403,"
-                                    "customfield_11351,customfield_11718,customfield_11343,"
-                                    "customfield_16460,customfield_16461,"
-                                    # 장애관리 전용
-                                    "customfield_10451,customfield_10452,customfield_10453,"
-                                    "customfield_10454,customfield_10455,customfield_10415,"
-                                    "customfield_11374,customfield_11347,customfield_11368,"
-                                    "customfield_11369,customfield_11370,customfield_11012,"
-                                    "customfield_11311,customfield_11362,customfield_11363,"
-                                    "customfield_11366"
-                                )},
+                                "fields": _JIRA_FIELDS},
                     )
                     resp.raise_for_status()
                     data = resp.json()
@@ -1182,38 +1168,46 @@ class EmbedDocumentRequest(BaseModel):
     tags:      list[str] | None = None
 
 
-@app.post("/embed/document")
-async def embed_document(req: EmbedDocumentRequest):
-    """
-    admin-api 문서 업로드 → 청킹 → 임베딩 → knowledge_documents 저장.
-    {point_count, file_name} 반환.
-    """
+# 임베딩 Job 인메모리 추적
+_embed_jobs: dict[str, dict] = {}
+
+
+async def _do_embed_task(job_id: str, req: EmbedDocumentRequest) -> None:
+    """비동기 백그라운드 임베딩 작업."""
     import chunking
 
+    _embed_jobs[job_id]["status"] = "embedding"
     doc_type = req.doc_type.lower()
+
+    def _chunk_text_file() -> list[dict]:
+        import pathlib
+        text = pathlib.Path(req.file_path).read_text(encoding="utf-8", errors="replace")
+        return chunking.chunk_text(text, base_metadata={"source_type": doc_type})
+
     chunkers = {
         "docx": lambda: chunking.chunk_docx(req.file_path),
         "pdf":  lambda: chunking.chunk_pdf(req.file_path),
         "xlsx": lambda: chunking.chunk_xlsx(req.file_path),
         "pptx": lambda: chunking.chunk_pptx(req.file_path),
+        "txt":  _chunk_text_file,
+        "md":   _chunk_text_file,
     }
+
     if doc_type not in chunkers:
-        raise HTTPException(
-            status_code=400,
-            detail=f"지원하지 않는 doc_type: {doc_type}. 지원: {list(chunkers.keys())}",
-        )
+        _embed_jobs[job_id].update({"status": "error", "error": f"지원하지 않는 doc_type: {doc_type}"})
+        return
 
     try:
         chunks = chunkers[doc_type]()
     except Exception as exc:
-        raise HTTPException(status_code=422, detail=f"문서 청킹 실패: {exc}")
+        _embed_jobs[job_id].update({"status": "error", "error": f"청킹 실패: {exc}"})
+        return
 
     if not chunks:
-        return {"point_count": 0, "file_name": req.file_path}
+        _embed_jobs[job_id].update({"status": "done", "point_count": 0})
+        return
 
-    import os
     file_name = os.path.basename(req.file_path)
-
     try:
         point_count = await knowledge_vector_client.upsert_document_chunks(
             file_name=file_name,
@@ -1222,10 +1216,30 @@ async def embed_document(req: EmbedDocumentRequest):
             chunks=chunks,
             tags=req.tags,
         )
+        _embed_jobs[job_id].update({"status": "done", "point_count": point_count, "file_name": file_name})
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"문서 임베딩 저장 실패: {exc}")
+        _embed_jobs[job_id].update({"status": "error", "error": f"임베딩 저장 실패: {exc}"})
 
-    return {"point_count": point_count, "file_name": file_name}
+
+@app.post("/embed/document")
+async def embed_document(req: EmbedDocumentRequest, background_tasks: BackgroundTasks):
+    """
+    admin-api 문서 업로드 → 비동기 청킹/임베딩 → knowledge_documents 저장.
+    즉시 job_id 반환 (status: queued). GET /embed/jobs/{job_id} 로 폴링.
+    """
+    job_id = str(uuid.uuid4())
+    _embed_jobs[job_id] = {"job_id": job_id, "status": "queued"}
+    background_tasks.add_task(_do_embed_task, job_id, req)
+    return {"job_id": job_id, "status": "queued"}
+
+
+@app.get("/embed/jobs/{job_id}")
+async def get_embed_job(job_id: str):
+    """임베딩 Job 상태 조회. status: queued | embedding | done | error"""
+    job = _embed_jobs.get(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job을 찾을 수 없습니다.")
+    return job
 
 
 class OperatorNoteRequest(BaseModel):
@@ -1447,6 +1461,19 @@ async def list_documents_endpoint(system_id: int | None = None):
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"문서 목록 조회 실패: {exc}")
     return {"items": items}
+
+
+@app.get("/knowledge/documents/{file_hash}/chunks")
+async def get_document_chunks_endpoint(file_hash: str):
+    """
+    file_hash 기반 문서 청크 상세 조회 (point_id, text, metadata 포함).
+    Response: {"chunks": [{point_id, chunk_index, text, stored_at, ...}]}
+    """
+    try:
+        chunks = await knowledge_vector_client.get_document_chunks(file_hash)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"청크 조회 실패: {exc}")
+    return {"chunks": chunks}
 
 
 @app.delete("/knowledge/documents/{file_hash}")

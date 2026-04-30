@@ -827,14 +827,68 @@ async def list_documents(system_id: int | None = None) -> list[dict]:
                 "system_id":    payload.get("system_id"),
                 "chunk_count":  0,
                 "uploaded_at":  None,
+                "point_ids":    [],
             }
         groups[fh]["chunk_count"] += 1
+        groups[fh]["point_ids"].append(str(p["id"]))
         stored_at = payload.get("stored_at")
         if stored_at:
             if groups[fh]["uploaded_at"] is None or stored_at < groups[fh]["uploaded_at"]:
                 groups[fh]["uploaded_at"] = stored_at
 
     return list(groups.values())
+
+
+async def get_document_chunks(file_hash: str) -> list[dict]:
+    """file_hash 기반 청크 상세 목록 (text, metadata 포함, chunk_index 오름차순)."""
+    filter_body: dict = {
+        "must": [{"key": "file_hash", "match": {"value": file_hash}}],
+        "must_not": [{"key": "doc_type", "match": {"value": "operator_note"}}],
+    }
+
+    all_points: list[dict] = []
+    next_offset: str | int | None = None
+
+    while True:
+        body: dict = {
+            "filter": filter_body,
+            "limit": 100,
+            "with_payload": True,
+            "with_vector": False,
+        }
+        if next_offset is not None:
+            body["offset"] = next_offset
+
+        try:
+            resp = await _qdrant_http.post(
+                f"{QDRANT_URL}/collections/{DOCUMENTS_COLLECTION}/points/scroll",
+                json=body,
+            )
+            resp.raise_for_status()
+            data = resp.json().get("result", {})
+            all_points.extend(data.get("points", []))
+            next_offset = data.get("next_page_offset")
+            if next_offset is None:
+                break
+        except Exception as exc:
+            logger.warning("청크 상세 scroll 실패: %s", exc)
+            break
+
+    result = []
+    for p in sorted(all_points, key=lambda x: x.get("payload", {}).get("chunk_index", 0)):
+        payload = p.get("payload", {})
+        chunk: dict = {
+            "point_id":    str(p["id"]),
+            "chunk_index": payload.get("chunk_index"),
+            "text":        payload.get("text", ""),
+            "stored_at":   payload.get("stored_at"),
+        }
+        for meta_key in ("page_no", "sheet_name", "slide_no", "slide_title", "heading", "tags", "doc_type"):
+            if meta_key in payload:
+                chunk[meta_key] = payload[meta_key]
+        result.append(chunk)
+
+    return result
 
 
 # ── Federated 검색 (3종 컬렉션 → 2차 RRF 병합) ─────────────────────────────

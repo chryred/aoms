@@ -1,5 +1,5 @@
 import { adminApi, filterParams } from '@/lib/ky-client'
-import type { KnowledgeDocumentListResponse } from '@/types/knowledge-verify'
+import type { KnowledgeDocumentListResponse, DocumentChunksResponse } from '@/types/knowledge-verify'
 
 export interface ListKnowledgeDocumentsParams {
   system_id?: number
@@ -16,6 +16,10 @@ export const knowledgeDocumentsApi = {
     adminApi
       .get('api/v1/knowledge/documents', { searchParams: filterParams(params ?? {}) })
       .json<KnowledgeDocumentListResponse>(),
+
+  /** file_hash 기반 청크 상세 조회 (point_id, text, metadata) */
+  getDocumentChunks: (fileHash: string): Promise<DocumentChunksResponse> =>
+    adminApi.get(`api/v1/knowledge/documents/${fileHash}/chunks`).json<DocumentChunksResponse>(),
 
   /** file_hash 기반 문서 청크 일괄 삭제 */
   deleteDocument: (fileHash: string): Promise<DeleteDocumentResult> =>

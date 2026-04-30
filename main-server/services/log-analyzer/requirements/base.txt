@@ -22,3 +22,7 @@ python-pptx>=0.6.23
 pdfplumber>=0.11.0
 openpyxl>=3.1.0
 beautifulsoup4>=4.12.0   # Confluence HTML 파싱
+
+# 이미지 OCR (Tesseract 기반)
+pytesseract>=0.3.13
+Pillow>=10.0.0

@@ -104,12 +104,44 @@ def chunk_text(
     return chunks
 
 
+# ── 이미지 OCR 공통 헬퍼 ─────────────────────────────────────────────────────
+
+_OCR_MIN_LEN = 10           # 의미있는 텍스트 최소 길이
+_OCR_VALID_RATIO = 0.7      # 정상 문자 비율 임계 (가비지 필터)
+
+
+def _is_meaningful_ocr(text: str) -> bool:
+    """OCR 결과가 노이즈인지 판정. 한글/영문/숫자/공백/일반 구두점 비율로 추정."""
+    if len(text) < _OCR_MIN_LEN:
+        return False
+    valid = sum(1 for c in text if c.isalnum() or c in " \n\t.,()[]/-:;%")
+    return (valid / len(text)) >= _OCR_VALID_RATIO
+
+
+def _ocr_image_blob(blob: bytes) -> str:
+    """이미지 blob → Tesseract OCR 텍스트. 실패/노이즈는 빈 문자열.
+
+    lang=kor+eng, timeout=3s. import는 함수 내부에서 lazy로 호출해
+    Tesseract/Pillow 미설치 환경(테스트 등)에서 모듈 import 자체는 깨지지 않도록 한다.
+    """
+    try:
+        from PIL import Image
+        import pytesseract
+        import io
+        img = Image.open(io.BytesIO(blob))
+        raw = pytesseract.image_to_string(img, lang="kor+eng", timeout=3).strip()
+        return raw if _is_meaningful_ocr(raw) else ""
+    except Exception:
+        return ""
+
+
 # ── Confluence 페이지 (HTML or 텍스트) ─────────────────────────────────────────
 
 _TABLE_CELL = {"td", "th"}
 _TEXT_BLOCK = {"p", "li", "pre", "blockquote", "h1", "h4", "h5", "h6"}
 _SECTION_BREAK = {"h2", "h3"}
 _SKIP_TAGS = {"script", "style"}
+_IMAGE_TAGS = {"ac:image", "img"}
 
 
 def _walk_html(root) -> list[tuple[str, str]]:
@@ -141,6 +173,13 @@ def _walk_html(root) -> list[tuple[str, str]]:
                 row = " | ".join(c for c in cells if c)
                 if row:
                     results.append(("text", row))
+        elif name in _IMAGE_TAGS:
+            alt = (elem.get("alt") or elem.get("ac:alt") or "").strip()
+            attachment = elem.find("ri:attachment")
+            filename = attachment.get("ri:filename", "") if attachment else ""
+            label = alt or filename or "이미지"
+            results.append(("text", f"[이미지: {label}]"))
+            # 자식 재귀 안 함 (이미지 내부에 텍스트 노드 없음)
         elif name in _TEXT_BLOCK:
             txt = elem.get_text(separator=" ", strip=True)
             if txt:
@@ -271,6 +310,18 @@ def chunk_docx(
             row_text = " | ".join(c for c in row_cells if c)
             if row_text:
                 parts.append(row_text)
+
+    # inline image OCR (related_parts에서 image content_type만 추출)
+    for rel_id, rel in doc.part.related_parts.items():
+        content_type = getattr(rel, "content_type", "") or ""
+        if not content_type.startswith("image/"):
+            continue
+        blob = getattr(rel, "blob", None)
+        if not blob:
+            continue
+        ocr_text = _ocr_image_blob(blob)
+        if ocr_text:
+            parts.append(f"[이미지: {ocr_text}]")
 
     full_text = "\n\n".join(parts)
     base_meta = {
@@ -418,6 +469,7 @@ def chunk_pptx(file_path: str) -> list[dict]:
     - 슬라이드 의미 보존을 위해 길어도 분할하지 않음
     """
     from pptx import Presentation
+    from pptx.enum.shapes import MSO_SHAPE_TYPE
 
     prs = Presentation(file_path)
     file_name = os.path.basename(file_path)
@@ -438,6 +490,21 @@ def chunk_pptx(file_path: str) -> list[dict]:
         for shape in slide.shapes:
             # 타이틀은 위에서 이미 처리 → 본문 부분만
             if shape == slide.shapes.title:
+                continue
+            if shape.shape_type == MSO_SHAPE_TYPE.PICTURE:
+                # alt text는 shape.name(=Picture 3 같은 ID) 아닌 nvPicPr.cNvPr.descr 속성
+                try:
+                    alt_text = shape._element.nvPicPr.cNvPr.get("descr", "").strip()
+                except AttributeError:
+                    alt_text = ""
+                ocr_text = ""
+                try:
+                    ocr_text = _ocr_image_blob(shape.image.blob)
+                except Exception:
+                    pass
+                parts = [p for p in (alt_text, ocr_text) if p]
+                if parts:
+                    body_parts.append(f"[이미지: {' '.join(parts)}]")
                 continue
             txt = _shape_text(shape)
             if txt:

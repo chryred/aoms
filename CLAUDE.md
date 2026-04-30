@@ -108,6 +108,26 @@ make test-api        # 단위 테스트 (SQLite in-memory)
 - `async def` 엔드포인트에서 동기 I/O 블로킹 함수를 직접 호출하지 않는다.
 - SQLAlchemy는 `asyncpg` 드라이버 + `AsyncSession` 패턴을 일관되게 사용한다.
 
+### [Python] venv 강제 사용 — 글로벌 pip 오염 금지
+
+**배경:** 글로벌 Python은 `pyenv 3.11.9` shim으로 다른 워크스페이스와 공유됨.
+이 프로젝트 패키지를 글로벌에 설치하면 타 프로젝트 환경 오염 → 과거 60개 패키지가
+글로벌에 잘못 깔려 충돌 발생한 이력 있음. `pip3 install ...`을 직접 호출하면 안 됨.
+
+**venv 경로:** `/Users/youwonji/workspace/ai/aoms/venv/` (Python 3.11.9, 이미 존재)
+
+**규칙:**
+- ✅ `make test-api`, `make run-api`, `make install-api` — Makefile은 `$(VENV)/bin/python` 자동 사용
+- ✅ ad-hoc 실행: `./venv/bin/python -c "..."` 또는 `./venv/bin/python -m pytest ...`
+- ✅ 의존성 추가: `requirements/*.txt` 수정 → `make install-api` / `make install-analyzer`
+- ❌ `python3 -c "..."` 직접 호출 (글로벌 pyenv shim으로 떨어짐)
+- ❌ `pip install ...` / `pip3 install ...` 직접 호출
+- ❌ `python3 -m pytest` (cwd 무관 — venv를 거치지 않음)
+
+**Claude 자가 점검:** Bash로 Python 명령 실행 시 반드시 `./venv/bin/python` 또는
+`make` 타겟 경유. ad-hoc에서 `ModuleNotFoundError`가 나면 의존성을 새로 설치해야
+한다는 신호가 아니라 **venv를 안 거쳤다는 신호**다. 글로벌에 추가 설치 금지.
+
 ### [타임존] 저장=UTC / 스케줄=KST / 표출=KST
 
 전 계층에서 다음 규칙을 준수해야 UTC/KST 혼재 버그가 재발하지 않는다.
