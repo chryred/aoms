@@ -404,6 +404,7 @@ async def _confluence_sync_run() -> dict:
 
                     async with rate_sem:
                         try:
+                            await knowledge_vector_client.delete_confluence_chunks_by_page_id(page_id)
                             n = await knowledge_vector_client.upsert_confluence_chunks(
                                 page_id=page_id,
                                 page_title=page_title,

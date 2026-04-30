@@ -594,6 +594,44 @@ async def delete_document_chunks_by_file_hash(file_hash: str) -> int:
     return count
 
 
+async def delete_confluence_chunks_by_page_id(page_id: str) -> int:
+    """knowledge_confluence_pages 컬렉션에서 page_id 기준으로 청크 일괄 삭제.
+
+    페이지 재동기화 전 호출하여 청크 수 변화 시 잔존 포인트를 제거한다.
+    반환: 삭제된 포인트 수
+    """
+    filter_body = {
+        "must": [{"key": "page_id", "match": {"value": page_id}}]
+    }
+
+    count = 0
+    try:
+        count_resp = await _qdrant_http.post(
+            f"{QDRANT_URL}/collections/{CONFLUENCE_COLLECTION}/points/count",
+            json={"filter": filter_body, "exact": True},
+        )
+        count_resp.raise_for_status()
+        count = count_resp.json().get("result", {}).get("count", 0)
+    except Exception as exc:
+        logger.warning("Confluence 청크 count 조회 실패 page_id=%s: %s", page_id, exc)
+
+    if count == 0:
+        return 0
+
+    try:
+        del_resp = await _qdrant_http.post(
+            f"{QDRANT_URL}/collections/{CONFLUENCE_COLLECTION}/points/delete",
+            json={"filter": filter_body},
+        )
+        del_resp.raise_for_status()
+        logger.info("Confluence 청크 삭제: page_id=%s, %d 포인트", page_id, count)
+    except Exception as exc:
+        logger.warning("Confluence 청크 삭제 실패 page_id=%s: %s", page_id, exc)
+        return 0
+
+    return count
+
+
 async def list_documents(system_id: int | None = None) -> list[dict]:
     """knowledge_documents 컬렉션에서 문서 청크를 file_hash 단위로 그룹핑하여 반환.
 
