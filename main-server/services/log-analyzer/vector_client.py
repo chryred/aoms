@@ -71,23 +71,30 @@ _sparse_model = None
 
 
 def _resolve_dense_model_dir() -> str:
-    """HF snapshot 디렉터리 경로 반환. DENSE_MODEL_CACHE 미지정 시 HF 기본 경로 사용."""
+    """HF snapshot 디렉터리 경로 반환. DENSE_MODEL_CACHE 미지정 시 HF 기본 경로 사용.
+
+    캐시 디렉터리에 ONNX 파일이 이미 존재하면 local_files_only=True로 네트워크 확인 생략.
+    HF_HUB_OFFLINE=1 환경(폐쇄망)에서는 HF 라이브러리가 자동으로 오프라인 동작.
+    """
     from huggingface_hub import snapshot_download
-    kwargs: dict = dict(
-        repo_id=DENSE_MODEL_NAME,
-        allow_patterns=[
-            "config.json",
-            "tokenizer.json",
-            "tokenizer_config.json",
-            "sentencepiece.bpe.model",
-            "special_tokens_map.json",
-            f"{DENSE_ONNX_FILE}",
-            f"{DENSE_ONNX_FILE}_data",
-            "onnx/*.json",
-        ],
-    )
+    allow = [
+        "config.json",
+        "tokenizer.json",
+        "tokenizer_config.json",
+        "sentencepiece.bpe.model",
+        "special_tokens_map.json",
+        f"{DENSE_ONNX_FILE}",
+        f"{DENSE_ONNX_FILE}_data",
+        "onnx/*.json",
+    ]
+    kwargs: dict = dict(repo_id=DENSE_MODEL_NAME, allow_patterns=allow)
     if DENSE_MODEL_CACHE:
         kwargs["cache_dir"] = DENSE_MODEL_CACHE
+
+    # 캐시에 ONNX 파일이 있으면 네트워크 체크 없이 로컬 경로 반환
+    if DENSE_MODEL_CACHE and os.path.isfile(os.path.join(DENSE_MODEL_CACHE, DENSE_ONNX_FILE)):
+        kwargs["local_files_only"] = True
+
     return snapshot_download(**kwargs)
 
 
@@ -212,10 +219,61 @@ def _embed_sparse_sync(text: str) -> dict:
     }
 
 
+def _embed_dense_batch_sync(texts: list[str]) -> list[list[float] | None]:
+    """bge-m3 ONNX 배치 추론. encode_batch로 패딩 후 1회 session.run.
+
+    실패 시 texts 길이만큼 None 배열 반환 (호출부 no-op 폴백).
+    """
+    import numpy as np
+    try:
+        truncated = [t[:_EMBED_MAX_CHARS] for t in texts]
+        sess, tok, input_names = _get_dense_session()
+        encodings = tok.encode_batch(truncated)
+        feed: dict = {}
+        if "input_ids" in input_names:
+            feed["input_ids"] = np.array([e.ids for e in encodings], dtype=np.int64)
+        if "attention_mask" in input_names:
+            feed["attention_mask"] = np.array([e.attention_mask for e in encodings], dtype=np.int64)
+        if "token_type_ids" in input_names:
+            feed["token_type_ids"] = np.array([e.type_ids for e in encodings], dtype=np.int64)
+        outputs = sess.run(None, feed)
+        output_names = [o.name for o in sess.get_outputs()]
+        if "sentence_embedding" in output_names:
+            vecs = outputs[output_names.index("sentence_embedding")]  # (batch, 1024)
+        else:
+            last = outputs[0]  # (batch, seq_len, 1024)
+            cls = last[:, 0, :]
+            norms = np.linalg.norm(cls, axis=1, keepdims=True)
+            vecs = cls / norms
+        return [v.tolist() for v in vecs]
+    except Exception as exc:
+        logger.warning("배치 ONNX 추론 실패 (batch_size=%d): %s", len(texts), exc)
+        return [None] * len(texts)
+
+
 async def get_embedding(text: str) -> list[float]:
     """Dense 임베딩 (bge-m3, 1024차원). ONNX 동기 호출을 executor로 래핑."""
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(None, _embed_dense_sync, text)
+
+
+_BATCH_CHUNK_SIZE = 16  # 청크당 ONNX 추론 한 번. executor 블로킹을 짧게 유지.
+
+
+async def get_embedding_batch(texts: list[str]) -> list[list[float]]:
+    """Dense 배치 임베딩. _BATCH_CHUNK_SIZE 단위로 쪼개 executor를 짧게 점유.
+
+    청크 사이에 이벤트 루프가 돌아 search-verify 등 다른 ONNX 호출이 끼어들 수 있다.
+    """
+    if not texts:
+        return []
+    loop = asyncio.get_event_loop()
+    results: list[list[float]] = []
+    for i in range(0, len(texts), _BATCH_CHUNK_SIZE):
+        chunk = texts[i : i + _BATCH_CHUNK_SIZE]
+        chunk_results = await loop.run_in_executor(None, _embed_dense_batch_sync, chunk)
+        results.extend(chunk_results)
+    return results
 
 
 async def get_sparse_vector(text: str) -> dict:

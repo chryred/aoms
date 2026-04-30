@@ -79,7 +79,7 @@
   --t-accent-muted: rgba(0, 212, 255, 0.1);
   --t-accent-04: rgba(0, 212, 255, 0.04);
   --t-accent-14: rgba(0, 212, 255, 0.14);
-  --t-accent-20: rgba(0, 212, 255, 0.20);
+  --t-accent-20: rgba(0, 212, 255, 0.2);
   --t-glass-bg: rgba(0, 212, 255, 0.08);
   --t-glass-border: rgba(0, 212, 255, 0.16);
 
@@ -185,7 +185,7 @@
   --t-accent-muted: rgba(38, 198, 218, 0.1);
   --t-accent-04: rgba(38, 198, 218, 0.04);
   --t-accent-14: rgba(38, 198, 218, 0.14);
-  --t-accent-20: rgba(38, 198, 218, 0.20);
+  --t-accent-20: rgba(38, 198, 218, 0.2);
   --t-glass-bg: rgba(255, 255, 255, 0.4);
   --t-glass-border: rgba(255, 255, 255, 0.1);
 

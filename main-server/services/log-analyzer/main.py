@@ -522,6 +522,15 @@ async def _confluence_sync_scheduler() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Dense + Sparse 모델 사전 로드 — 첫 요청 타임아웃 방지
+    # snapshot_download + ONNX 세션 초기화(수 초)를 startup 단계에서 완료
+    try:
+        await vector_client.get_embedding("warmup")
+        await vector_client.get_sparse_vector("warmup")
+        logger.info("임베딩 모델 사전 로드 완료")
+    except Exception as e:
+        logger.warning("임베딩 모델 사전 로드 실패 — 첫 요청 시 지연 발생 가능: %s", e)
+
     # ADR-011: log_incidents / metric_baselines 는 Hybrid (Dense+Sparse) 스키마
     for col in ("log_incidents", "metric_baselines"):
         try:
@@ -1124,6 +1133,28 @@ async def knowledge_search(req: KnowledgeSearchRequest):
         if "point_id" in item and item["point_id"] is not None:
             item["point_id"] = str(item["point_id"])
     return result
+
+
+class EmbedTextRequest(BaseModel):
+    text: str
+
+
+@app.post("/embed/text")
+async def embed_text(req: EmbedTextRequest):
+    """단일 텍스트 임베딩 반환. admin-api 질문 클러스터링용."""
+    embedding = await vector_client.get_embedding(req.text)
+    return {"embedding": embedding}
+
+
+class EmbedBatchRequest(BaseModel):
+    texts: list[str]
+
+
+@app.post("/embed/batch")
+async def embed_batch(req: EmbedBatchRequest):
+    """복수 텍스트 배치 임베딩 반환. ONNX 1회 추론으로 처리."""
+    embeddings = await vector_client.get_embedding_batch(req.texts)
+    return {"embeddings": embeddings}
 
 
 class EmbedDocumentRequest(BaseModel):

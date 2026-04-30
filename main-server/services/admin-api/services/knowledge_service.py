@@ -229,6 +229,26 @@ async def call_embed_text(text: str) -> list[float] | None:
         return None
 
 
+async def call_embed_batch(texts: list[str]) -> list[list[float] | None]:
+    """복수 텍스트 배치 임베딩. log-analyzer /embed/batch 1회 호출.
+
+    실패 시 texts 길이만큼 None 배열 반환 (클러스터링 no-op 폴백).
+    """
+    if not texts:
+        return []
+    base = LOG_ANALYZER_URL.rstrip("/")
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(f"{base}/embed/batch", json={"texts": texts})
+            if resp.status_code >= 400:
+                return [None] * len(texts)
+            data = resp.json()
+            return data.get("embeddings", [None] * len(texts))
+    except Exception as exc:
+        logger.debug("embed/batch 호출 실패: %s", exc)
+        return [None] * len(texts)
+
+
 # ── 클러스터링 유틸리티 ────────────────────────────────────────────────────────
 
 def cluster_questions_by_cosine(

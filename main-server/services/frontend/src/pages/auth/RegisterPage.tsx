@@ -17,11 +17,9 @@ const registerSchema = z
     email: z.string().email('유효한 이메일 주소를 입력하세요'),
     password: z
       .string()
-      .min(8, '비밀번호는 8자 이상이어야 합니다')
-      .regex(
-        /^(?=.*[a-zA-Z])(?=.*\d)(?=.*[!@#$%^&*()_+\-=[\]{};':"\\|,.<>/?])/,
-        '영문, 숫자, 특수문자를 모두 포함해야 합니다',
-      ),
+      .min(12, '비밀번호는 12자 이상이어야 합니다')
+      .regex(/[A-Z]/, '대문자를 1개 이상 포함해야 합니다')
+      .regex(/[0-9]/, '숫자를 1개 이상 포함해야 합니다'),
     confirmPassword: z.string(),
   })
   .refine((data) => data.password === data.confirmPassword, {
@@ -51,10 +49,21 @@ export function RegisterPage() {
       { name: data.name, email: data.email, password: data.password },
       {
         onSuccess: () => setIsSuccess(true),
-        onError: (err: unknown) => {
-          const status = (err as { response?: { status: number } })?.response?.status
+        onError: async (err: unknown) => {
+          const response = (err as { response?: Response })?.response
+          const status = response?.status
           if (status === 409) {
             setError('email', { message: '이미 사용 중인 이메일입니다' })
+          } else if (status === 422) {
+            try {
+              const body = await response!.json()
+              const detail = body?.detail
+              const msg =
+                Array.isArray(detail) ? detail.map((d: { msg: string }) => d.msg).join(', ') : String(detail)
+              setError('password', { message: msg })
+            } catch {
+              toast.error('등록 신청 중 오류가 발생했습니다')
+            }
           } else {
             toast.error('등록 신청 중 오류가 발생했습니다')
           }
@@ -104,7 +113,7 @@ export function RegisterPage() {
           id="password"
           type="password"
           label="비밀번호"
-          placeholder="영문+숫자+특수문자 8자 이상"
+          placeholder="대문자+숫자 포함 12자 이상"
           autoComplete="new-password"
           error={errors.password?.message}
           {...register('password')}

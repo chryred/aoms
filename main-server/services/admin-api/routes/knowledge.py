@@ -323,19 +323,22 @@ async def list_frequent_questions(
         _FREQ_CACHE_DATA[cache_key] = {"ts": now, "data": result}
         return result
 
-    # 2) 임베딩 시도 (T2 없으면 None)
-    items: list[dict[str, Any]] = []
-    for row in rows[:limit]:
-        content = row.content or ""
-        emb = await knowledge_service.call_embed_text(content)
-        items.append({
+    # 2) 배치 임베딩 (HTTP 1회 호출)
+    target_rows = rows[:limit]
+    contents = [row.content or "" for row in target_rows]
+    embeddings = await knowledge_service.call_embed_batch(contents)
+
+    items: list[dict[str, Any]] = [
+        {
             "id": row.id,
             "content": content,
             "rag_top1_score": row.rag_top1_score,
             "rag_sources_count": row.rag_sources_count,
             "created_at": row.created_at.isoformat() if row.created_at else None,
             "embedding": emb,
-        })
+        }
+        for row, content, emb in zip(target_rows, contents, embeddings)
+    ]
 
     # 3) 클러스터링
     clusters_raw = knowledge_service.cluster_questions_by_cosine(items, threshold=0.85)
@@ -599,17 +602,20 @@ async def list_frequent_questions_v2(
         if not rows:
             return []
 
-        items: list[dict[str, Any]] = []
-        for row in rows[:50]:
-            content = row.content or ""
-            emb = await knowledge_service.call_embed_text(content)
-            items.append({
+        target_rows = rows[:50]
+        contents = [row.content or "" for row in target_rows]
+        embeddings = await knowledge_service.call_embed_batch(contents)
+
+        items: list[dict[str, Any]] = [
+            {
                 "id": row.id,
                 "content": content,
                 "rag_top1_score": row.rag_top1_score,
                 "created_at": row.created_at.isoformat() if row.created_at else None,
                 "embedding": emb,
-            })
+            }
+            for row, content, emb in zip(target_rows, contents, embeddings)
+        ]
 
         clusters_raw = knowledge_service.cluster_questions_by_cosine(items, threshold=0.85)
         clusters = []

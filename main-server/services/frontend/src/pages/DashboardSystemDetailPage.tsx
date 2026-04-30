@@ -694,7 +694,7 @@ export function DashboardSystemDetailPage() {
       <section className="space-y-4">
         <div className="flex items-center justify-between">
           <h2 className="text-text-primary flex items-center gap-2 text-lg font-semibold">
-            <ShieldAlert className="h-5 w-5 text-proactive-text" />
+            <ShieldAlert className="text-proactive-text h-5 w-5" />
             예방적 패턴 감지
           </h2>
           {detail.proactive_alerts.length > 0 && (
@@ -723,7 +723,7 @@ export function DashboardSystemDetailPage() {
                     {/* 헤더 */}
                     <div className="flex items-start justify-between gap-3 sm:gap-4">
                       <div className="flex min-w-0 flex-1 items-start gap-2">
-                        <TrendingUp className="mt-0.5 h-4 w-4 flex-shrink-0 text-proactive-text" />
+                        <TrendingUp className="text-proactive-text mt-0.5 h-4 w-4 flex-shrink-0" />
                         <div className="min-w-0 flex-1">
                           <p className="text-text-primary line-clamp-2 text-sm font-semibold break-words">
                             <span className="bg-btn-secondary mr-1 inline-block rounded px-1.5 py-0.5 font-mono text-xs">
@@ -765,8 +765,8 @@ export function DashboardSystemDetailPage() {
                     )}
 
                     {/* 예측 */}
-                    <div className="rounded-sm border border-proactive-border bg-proactive-card-bg p-3">
-                      <p className="mb-2 flex items-center gap-1 text-xs font-semibold text-proactive-text">
+                    <div className="border-proactive-border bg-proactive-card-bg rounded-sm border p-3">
+                      <p className="text-proactive-text mb-2 flex items-center gap-1 text-xs font-semibold">
                         <span>⚡</span>
                         예측
                       </p>

@@ -105,6 +105,7 @@ log-analyzer/
 
 ### V1 Knowledge RAG (knowledge_vector_client.py)
 - `POST /knowledge/search`           — 3종 컬렉션 Federated 검색 (2차 RRF + corrected 보너스 + 옵션 reranker). jira/confluence는 system_name 필터 미적용 — 전체 지식베이스 조회 (V1 정책)
+- `POST /embed/text`                 — 단일 텍스트 임베딩 반환 `{"embedding": [...]}`. admin-api 질문 클러스터링(`/knowledge/questions/frequent`)용
 - `POST /embed/document`             — 문서 파일 청킹 → 임베딩 → `knowledge_documents` 저장 (docx/pdf/xlsx/pptx). 재업로드 시 동일 file_hash 기존 청크 자동 cleanup
 - `POST /knowledge/operator-note`    — 운영자 Q&A 노트 등록 (`knowledge_documents`, doc_type=operator_note). 응답 `point_id`는 **문자열** (uint64 → JS 정밀도 손실 방지)
 - `PATCH /knowledge/operator-note/{point_id}` — 운영자 노트 수정. path param `point_id`는 **문자열** 수신 → 내부에서 `int()` 변환 후 Qdrant 호출. 응답 `point_id`도 문자열.

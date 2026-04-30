@@ -78,7 +78,7 @@ export function SystemTable({ systems, onEdit, searchQuery = '' }: SystemTablePr
           </thead>
           <tbody className="divide-border divide-y">
             {filtered.map((system) => (
-              <tr key={system.id} className="transition-colors hover:bg-accent-04">
+              <tr key={system.id} className="hover:bg-accent-04 transition-colors">
                 <td className="px-4 py-3">
                   <p className="text-text-primary font-medium">{system.display_name}</p>
                   <p className="text-text-secondary font-mono text-xs">{system.system_name}</p>
