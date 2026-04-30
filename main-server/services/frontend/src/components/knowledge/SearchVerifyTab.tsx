@@ -151,11 +151,12 @@ function DeleteConfirmInline({ label, onConfirm, onCancel, isPending }: DeleteCo
 }
 
 // 점수 배지
-function ScoreBadge({ score }: { score: number }) {
+function ScoreBadge({ score, kind }: { score: number; kind?: 'sim' | 'rrf' }) {
   const pct = `${(score * 100).toFixed(1)}%`
   return (
-    <span className="bg-accent-muted text-accent rounded-full px-2 py-0.5 text-[11px] font-semibold">
+    <span className="bg-accent-muted text-accent rounded-full px-2 py-0.5 text-xs font-semibold">
       {pct}
+      {kind && <span className="ml-0.5 text-[10px] font-medium opacity-65">{kind.toUpperCase()}</span>}
     </span>
   )
 }
@@ -171,7 +172,7 @@ function PointIdBadge({ pointId, onClick }: { pointId: string; onClick: () => vo
       }}
       title={`point_id: ${pointId}\n클릭하면 상세 보기`}
       className={cn(
-        'rounded-sm px-1.5 py-0.5 font-mono text-[10px]',
+        'rounded-sm px-1.5 py-0.5 font-mono text-xs',
         'text-text-disabled bg-bg-base shadow-neu-pressed',
         'hover:text-accent hover:bg-accent-muted transition-colors',
         'focus:ring-accent focus:ring-1 focus:outline-none',
@@ -236,9 +237,11 @@ function normalizeMarkdown(text: string): string {
 function SearchResultDetailModal({
   result,
   onClose,
+  scoreKind,
 }: {
   result: SearchVerifyResult
   onClose: () => void
+  scoreKind?: 'sim' | 'rrf'
 }) {
   const [copied, setCopied] = useState(false)
 
@@ -329,7 +332,7 @@ function SearchResultDetailModal({
               <span className="text-text-secondary bg-surface shadow-neu-pressed rounded-sm px-2 py-0.5 font-mono text-xs">
                 {result.collection}
               </span>
-              <ScoreBadge score={result.score} />
+              <ScoreBadge score={result.score} kind={scoreKind} />
             </div>
             {result.point_id && (
               <div className="flex items-center gap-2">
@@ -373,9 +376,9 @@ function SearchResultDetailModal({
             if (!value || typeof value !== 'string') return null
             return (
               <div key={key} className="space-y-1.5">
-                <p className="text-text-disabled text-xs font-medium">{label}</p>
+                <p className="text-text-disabled text-sm font-medium">{label}</p>
                 <div className="bg-surface shadow-neu-inset max-h-52 overflow-y-auto rounded-sm p-3">
-                  <div className="prose-sm prose-invert text-text-primary text-sm [&_table]:w-full [&_table]:border-collapse [&_td]:border [&_td]:border-border [&_td]:px-2 [&_td]:py-1 [&_th]:border [&_th]:border-border [&_th]:px-2 [&_th]:py-1 [&_th]:text-left [&_strong]:text-text-primary [&_a]:text-accent [&_ul]:list-disc [&_ul]:pl-4 [&_ol]:list-decimal [&_ol]:pl-4 [&_code]:bg-surface [&_code]:px-1 [&_code]:rounded-sm [&_code]:font-mono [&_code]:text-[11px] [&_blockquote]:border-l-2 [&_blockquote]:border-border [&_blockquote]:pl-3 [&_blockquote]:text-text-secondary">
+                  <div className="prose text-text-primary [&_p]:text-sm [&_p]:text-text-primary [&_li]:text-sm [&_li]:text-text-primary [&_td]:text-sm [&_td]:text-text-primary [&_th]:text-sm [&_th]:text-text-primary [&_table]:w-full [&_table]:border-collapse [&_td]:border [&_td]:border-border [&_td]:px-2 [&_td]:py-1 [&_th]:border [&_th]:border-border [&_th]:px-2 [&_th]:py-1 [&_th]:text-left [&_strong]:text-text-primary [&_a]:text-accent [&_ul]:list-disc [&_ul]:pl-4 [&_ol]:list-decimal [&_ol]:pl-4 [&_code]:bg-surface [&_code]:px-1 [&_code]:rounded-sm [&_code]:font-mono [&_code]:text-xs [&_blockquote]:border-l-2 [&_blockquote]:border-border [&_blockquote]:pl-3 [&_blockquote]:text-text-secondary [&_h1]:text-text-primary [&_h2]:text-text-primary [&_h3]:text-text-primary">
                     <ReactMarkdown remarkPlugins={[remarkGfm]}>{normalizeMarkdown(value)}</ReactMarkdown>
                   </div>
                 </div>
@@ -385,7 +388,7 @@ function SearchResultDetailModal({
 
           {hasMetaValues && (
             <div className="space-y-1.5">
-              <p className="text-text-disabled text-xs font-medium">메타데이터</p>
+              <p className="text-text-disabled text-sm font-medium">메타데이터</p>
               <div className="space-y-1">
                 {META_FIELDS.map(([k, label]) => {
                   const v = result[k]
@@ -404,7 +407,7 @@ function SearchResultDetailModal({
 
           {extraFields.length > 0 && (
             <div className="border-border space-y-1.5 border-t pt-3">
-              <p className="text-text-disabled text-xs font-medium">기타 필드</p>
+              <p className="text-text-disabled text-sm font-medium">기타 필드</p>
               <div className="space-y-1">
                 {extraFields.map(([k, v]) => (
                   <div key={k} className="flex items-start gap-3 text-sm">
@@ -432,6 +435,7 @@ interface OperatorNoteCardProps {
   onNoteDeleted: () => void
   onNoteEditRequest: (note: OperatorNote) => void
   onDetailClick?: () => void
+  scoreKind?: 'sim' | 'rrf'
 }
 
 function OperatorNoteCard({
@@ -440,6 +444,7 @@ function OperatorNoteCard({
   onNoteDeleted,
   onNoteEditRequest,
   onDetailClick,
+  scoreKind,
 }: OperatorNoteCardProps) {
   const [confirmDelete, setConfirmDelete] = useState(false)
   const deleteNote = useDeleteOperatorNote()
@@ -465,22 +470,22 @@ function OperatorNoteCard({
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <div className="mb-1 flex flex-wrap items-center gap-2">
-            <span className="bg-accent-muted text-accent rounded-sm px-2 py-0.5 text-[11px] font-medium">
+            <span className="bg-accent-muted text-accent rounded-sm px-2 py-0.5 text-xs font-medium">
               운영자 노트
             </span>
-            {systemName && <span className="text-text-secondary text-[11px]">{systemName}</span>}
+            {systemName && <span className="text-text-secondary text-xs">{systemName}</span>}
             {result.created_at && (
               <span
-                className="text-text-disabled text-[11px]"
+                className="text-text-disabled text-xs"
                 title={formatKST(result.created_at, 'datetime')}
               >
                 {formatRelative(result.created_at)}
               </span>
             )}
-            <ScoreBadge score={result.score} />
+            <ScoreBadge score={result.score} kind={scoreKind} />
           </div>
           <p className="text-text-primary text-sm font-medium">{result.question}</p>
-          <p className="text-text-secondary mt-1 line-clamp-3 text-xs">{result.answer}</p>
+          <p className="text-text-secondary mt-1 line-clamp-3 text-sm">{result.answer}</p>
         </div>
       </div>
       <div className="border-border flex items-center border-t pt-2">
@@ -529,9 +534,10 @@ interface DocumentChunkCardProps {
   systemName?: string
   onDeleted: () => void
   onDetailClick?: () => void
+  scoreKind?: 'sim' | 'rrf'
 }
 
-function DocumentChunkCard({ result, systemName, onDeleted, onDetailClick }: DocumentChunkCardProps) {
+function DocumentChunkCard({ result, systemName, onDeleted, onDetailClick, scoreKind }: DocumentChunkCardProps) {
   const [confirmDelete, setConfirmDelete] = useState(false)
   const deleteDoc = useDeleteDocument()
 
@@ -552,17 +558,17 @@ function DocumentChunkCard({ result, systemName, onDeleted, onDetailClick }: Doc
     <NeuCard className="space-y-2 p-4">
       <div className="min-w-0 flex-1">
         <div className="mb-1 flex flex-wrap items-center gap-2">
-          <span className="text-text-secondary bg-surface shadow-neu-pressed rounded-sm px-2 py-0.5 text-[11px]">
+          <span className="text-text-secondary bg-surface shadow-neu-pressed rounded-sm px-2 py-0.5 text-xs">
             <FileText className="mr-0.5 inline h-3 w-3" />
             문서 청크
           </span>
-          {systemName && <span className="text-text-secondary text-[11px]">{systemName}</span>}
-          {locationLabel && <span className="text-text-disabled text-[11px]">{locationLabel}</span>}
-          <ScoreBadge score={result.score} />
+          {systemName && <span className="text-text-secondary text-xs">{systemName}</span>}
+          {locationLabel && <span className="text-text-disabled text-xs">{locationLabel}</span>}
+          <ScoreBadge score={result.score} kind={scoreKind} />
         </div>
         <p className="text-text-primary text-sm font-medium">{result.file_name}</p>
         {result.content && (
-          <p className="text-text-secondary mt-1 line-clamp-3 text-xs">{result.content}</p>
+          <p className="text-text-secondary mt-1 line-clamp-3 text-sm">{result.content}</p>
         )}
       </div>
       <div className="border-border flex items-center border-t pt-2">
@@ -599,9 +605,10 @@ interface JiraConfluenceCardProps {
   result: SearchVerifyResult
   onResync: (result: SearchVerifyResult) => void
   onDetailClick?: () => void
+  scoreKind?: 'sim' | 'rrf'
 }
 
-function JiraConfluenceCard({ result, onResync, onDetailClick }: JiraConfluenceCardProps) {
+function JiraConfluenceCard({ result, onResync, onDetailClick, scoreKind }: JiraConfluenceCardProps) {
   const isJira = result.collection === 'knowledge_jira_issues'
   const title = isJira ? result.issue_key : result.page_title
   const url = isJira ? result.issue_url : result.page_url
@@ -610,16 +617,16 @@ function JiraConfluenceCard({ result, onResync, onDetailClick }: JiraConfluenceC
     <NeuCard className="space-y-2 p-4">
       <div className="min-w-0 flex-1">
         <div className="mb-1 flex flex-wrap items-center gap-2">
-          <span className="bg-accent-muted text-accent flex items-center gap-0.5 rounded-full px-2.5 py-0.5 text-[11px] font-medium">
+          <span className="bg-accent-muted text-accent flex items-center gap-0.5 rounded-full px-2.5 py-0.5 text-xs font-medium">
             <Globe className="h-3 w-3" />
             전체 지식베이스
           </span>
-          <span className="text-text-secondary text-[11px]">{isJira ? 'Jira' : 'Confluence'}</span>
-          <ScoreBadge score={result.score} />
+          <span className="text-text-secondary text-xs">{isJira ? 'Jira' : 'Confluence'}</span>
+          <ScoreBadge score={result.score} kind={scoreKind} />
         </div>
         {title && <p className="text-text-primary text-sm font-medium">{title}</p>}
         {result.content && (
-          <p className="text-text-secondary mt-1 line-clamp-3 text-xs">{result.content}</p>
+          <p className="text-text-secondary mt-1 line-clamp-3 text-sm">{result.content}</p>
         )}
       </div>
       <div className="border-border flex items-center border-t pt-2">
@@ -661,9 +668,10 @@ interface AggregationVerifyCardProps {
   result: SearchVerifyResult
   systemName?: string
   onDetailClick?: () => void
+  scoreKind?: 'sim' | 'rrf'
 }
 
-function AggregationVerifyCard({ result, systemName, onDetailClick }: AggregationVerifyCardProps) {
+function AggregationVerifyCard({ result, systemName, onDetailClick, scoreKind }: AggregationVerifyCardProps) {
   const collectionLabel =
     result.collection === 'aggregation_summaries' ? '집계 요약' : '시간별 패턴'
 
@@ -724,29 +732,29 @@ function AggregationVerifyCard({ result, systemName, onDetailClick }: Aggregatio
     <NeuCard className="space-y-2 p-4">
       <div className="min-w-0 flex-1">
         <div className="mb-1 flex flex-wrap items-center gap-2">
-          <span className="bg-warning-bg text-warning-text rounded-sm px-2 py-0.5 text-[11px] font-medium">
+          <span className="bg-warning-bg text-warning-text rounded-sm px-2 py-0.5 text-xs font-medium">
             {collectionLabel}
           </span>
-          <span className="text-text-secondary text-[11px]">{displayedSystemName}</span>
-          {periodLabel && <span className="text-text-disabled text-[11px]">{periodLabel}</span>}
+          <span className="text-text-secondary text-xs">{displayedSystemName}</span>
+          {periodLabel && <span className="text-text-disabled text-xs">{periodLabel}</span>}
           {severityClass && severityLabel && (
-            <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-medium', severityClass)}>
+            <span className={cn('rounded-full px-2 py-0.5 text-xs font-medium', severityClass)}>
               {severityLabel}
             </span>
           )}
-          <ScoreBadge score={result.score} />
+          <ScoreBadge score={result.score} kind={scoreKind} />
         </div>
-        {bodyText && <p className="text-text-secondary mt-1 line-clamp-3 text-xs">{bodyText}</p>}
+        {bodyText && <p className="text-text-secondary mt-1 line-clamp-3 text-sm">{bodyText}</p>}
         {llmTrend && (
           <div className="mt-2 flex items-start gap-1.5">
-            <TrendingUp className="text-text-secondary mt-0.5 h-3 w-3 shrink-0" />
-            <p className="text-text-secondary text-xs">{llmTrend}</p>
+            <TrendingUp className="text-text-secondary mt-0.5 h-4 w-4 shrink-0" />
+            <p className="text-text-secondary text-sm">{llmTrend}</p>
           </div>
         )}
         {llmPrediction && (
           <div className="mt-1 flex items-start gap-1.5">
-            <Sparkles className="text-text-secondary mt-0.5 h-3 w-3 shrink-0" />
-            <p className="text-text-secondary text-xs">{llmPrediction}</p>
+            <Sparkles className="text-text-secondary mt-0.5 h-4 w-4 shrink-0" />
+            <p className="text-text-secondary text-sm">{llmPrediction}</p>
           </div>
         )}
       </div>
@@ -765,9 +773,10 @@ interface IncidentCardProps {
   systemName?: string
   originalQuery: string
   onDetailClick?: () => void
+  scoreKind?: 'sim' | 'rrf'
 }
 
-function IncidentCard({ result, systemName, originalQuery, onDetailClick }: IncidentCardProps) {
+function IncidentCard({ result, systemName, originalQuery, onDetailClick, scoreKind }: IncidentCardProps) {
   const navigate = useNavigate()
   const collectionLabel = result.collection === 'metric_baselines' ? '메트릭 기준선' : '로그 장애'
 
@@ -786,24 +795,26 @@ function IncidentCard({ result, systemName, originalQuery, onDetailClick }: Inci
     <NeuCard className="space-y-2 p-4">
       <div className="min-w-0 flex-1">
         <div className="mb-1 flex flex-wrap items-center gap-2">
-          <span className="bg-warning-bg text-warning-text rounded-sm px-2 py-0.5 text-[11px] font-medium">
+          <span className="bg-warning-bg text-warning-text rounded-sm px-2 py-0.5 text-xs font-medium">
             {collectionLabel}
           </span>
-          <span className="text-text-secondary text-[11px]">{displayedSystemName}</span>
+          <span className="text-text-secondary text-xs">{displayedSystemName}</span>
           {result.resolved_at && (
             <span
-              className="text-text-disabled text-[11px]"
+              className="text-text-disabled text-xs"
               title={formatKST(result.resolved_at, 'datetime')}
             >
               {formatKST(result.resolved_at, 'datetime')}
             </span>
           )}
-          <ScoreBadge score={result.score} />
+          <ScoreBadge score={result.score} kind={scoreKind} />
         </div>
         {result.content && (
-          <p className="text-text-secondary mt-1 line-clamp-3 text-xs">{result.content}</p>
+          <p className="text-text-secondary mt-1 line-clamp-3 text-sm">{result.content}</p>
         )}
-        {result.solution && <p className="text-text-primary mt-1 text-xs">{result.solution}</p>}
+        {result.solution && (
+          <p className="text-text-primary mt-1 line-clamp-3 text-sm">{result.solution}</p>
+        )}
       </div>
       <div className="border-border flex items-center border-t pt-2">
         {result.point_id && onDetailClick && (
@@ -816,6 +827,7 @@ function IncidentCard({ result, systemName, originalQuery, onDetailClick }: Inci
             onClick={handleFeedbackSearch}
             className="gap-1 px-2 text-xs"
           >
+            <Search className="h-3 w-3" />
             해결책 검색
           </NeuButton>
         </div>
@@ -834,6 +846,7 @@ interface ResultCardProps {
   onDocDeleted: () => void
   onResync: (result: SearchVerifyResult) => void
   onDetailClick?: () => void
+  scoreKind?: 'sim' | 'rrf'
 }
 
 function ResultCard({
@@ -845,6 +858,7 @@ function ResultCard({
   onDocDeleted,
   onResync,
   onDetailClick,
+  scoreKind,
 }: ResultCardProps) {
   const kind = getCardKind(result)
 
@@ -856,6 +870,7 @@ function ResultCard({
         onNoteDeleted={onNoteDeleted}
         onNoteEditRequest={onNoteEditRequest}
         onDetailClick={onDetailClick}
+        scoreKind={scoreKind}
       />
     )
   }
@@ -866,11 +881,19 @@ function ResultCard({
         systemName={systemName}
         onDeleted={onDocDeleted}
         onDetailClick={onDetailClick}
+        scoreKind={scoreKind}
       />
     )
   }
   if (kind === 'jira_confluence') {
-    return <JiraConfluenceCard result={result} onResync={onResync} onDetailClick={onDetailClick} />
+    return (
+      <JiraConfluenceCard
+        result={result}
+        onResync={onResync}
+        onDetailClick={onDetailClick}
+        scoreKind={scoreKind}
+      />
+    )
   }
   // incident_metric: aggregation / hourly → AggregationVerifyCard, 그 외 → IncidentCard
   if (
@@ -878,7 +901,12 @@ function ResultCard({
     result.collection === 'metric_hourly_patterns'
   ) {
     return (
-      <AggregationVerifyCard result={result} systemName={systemName} onDetailClick={onDetailClick} />
+      <AggregationVerifyCard
+        result={result}
+        systemName={systemName}
+        onDetailClick={onDetailClick}
+        scoreKind={scoreKind}
+      />
     )
   }
   return (
@@ -887,6 +915,7 @@ function ResultCard({
       systemName={systemName}
       originalQuery={originalQuery}
       onDetailClick={onDetailClick}
+      scoreKind={scoreKind}
     />
   )
 }
@@ -908,7 +937,7 @@ function CollectionCheckboxGroup({ selected, onChange }: CollectionCheckboxGroup
 
   return (
     <div className="space-y-2">
-      <p className="text-text-secondary text-xs font-medium">컬렉션 선택</p>
+      <p className="text-text-secondary text-sm font-medium">컬렉션 선택</p>
       <div className="flex flex-wrap gap-x-4 gap-y-2">
         {ALL_COLLECTIONS.map((col) => {
           const checked = selected.includes(col)
@@ -916,7 +945,7 @@ function CollectionCheckboxGroup({ selected, onChange }: CollectionCheckboxGroup
             <label
               key={col}
               htmlFor={`collection-${col}`}
-              className="flex cursor-pointer items-center gap-1.5 text-xs"
+              className="flex cursor-pointer items-center gap-1.5 text-sm"
             >
               <span
                 className={cn(
@@ -983,6 +1012,8 @@ export function SearchVerifyTab() {
 
   const isPending = searchChatbot.isPending || searchCollections.isPending
   const isError = searchChatbot.isError || searchCollections.isError
+
+  const scoreKind: 'sim' | 'rrf' = mode === 'chatbot' ? 'sim' : 'rrf'
 
   // 담당 시스템 자동 체크 — 최초 1회만 (useRef 게이트로 재초기화 방지)
   const primarySystemsInitialized = useRef(false)
@@ -1074,9 +1105,9 @@ export function SearchVerifyTab() {
             label="시스템 필터"
             placeholder="시스템 선택 (미선택 시 전체)"
           />
-          <p className="text-text-secondary flex items-center gap-1 text-xs">
+          <p className="text-text-secondary flex items-center gap-1 text-sm">
             <Info className="h-3 w-3 shrink-0" aria-hidden="true" />
-            Jira/Confluence 는 시스템 무관 전체 조회됩니다
+            Jira/Confluence는 시스템 무관 전체 조회됩니다
           </p>
         </div>
 
@@ -1100,6 +1131,7 @@ export function SearchVerifyTab() {
                   type="button"
                   role="switch"
                   aria-checked={useReranker}
+                  aria-label="Reranker 적용"
                   disabled={!rerankerEnabled}
                   onClick={() => rerankerEnabled && setUseReranker((v) => !v)}
                   className={cn(
@@ -1111,7 +1143,7 @@ export function SearchVerifyTab() {
                 >
                   <span
                     className={cn(
-                      'shadow-neu-flat absolute top-0.5 h-4 w-4 rounded-full transition-transform',
+                      'shadow-neu-flat absolute top-0.5 h-4 w-4 rounded-full transition-transform duration-150',
                       useReranker && rerankerEnabled
                         ? 'bg-accent-contrast left-4'
                         : 'bg-text-disabled left-0.5',
@@ -1197,6 +1229,7 @@ export function SearchVerifyTab() {
                 onDocDeleted={handleResultsRefresh}
                 onResync={handleResync}
                 onDetailClick={result.point_id ? () => setDetailResult(result) : undefined}
+                scoreKind={scoreKind}
               />
             ))}
           </div>
@@ -1240,7 +1273,11 @@ export function SearchVerifyTab() {
 
       {/* 검색 결과 상세 팝업 */}
       {detailResult && (
-        <SearchResultDetailModal result={detailResult} onClose={() => setDetailResult(null)} />
+        <SearchResultDetailModal
+          result={detailResult}
+          onClose={() => setDetailResult(null)}
+          scoreKind={scoreKind}
+        />
       )}
 
       {/* 결과 없을 때도 첫 진입 상태면 안내 */}
