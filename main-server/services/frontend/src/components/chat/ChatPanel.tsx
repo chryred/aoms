@@ -425,7 +425,7 @@ export function ChatPanel() {
             <div className="space-y-3">
               {promptCategories.map((group) => (
                 <div key={group.label}>
-                  <p className="text-text-secondary mb-1.5 text-[11px] font-medium uppercase tracking-wide">
+                  <p className="text-text-secondary mb-1.5 text-[11px] font-medium tracking-wide uppercase">
                     {group.label}
                   </p>
                   <div className="grid grid-cols-1 gap-2">

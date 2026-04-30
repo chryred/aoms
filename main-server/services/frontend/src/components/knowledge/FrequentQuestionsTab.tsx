@@ -32,7 +32,7 @@ export function FrequentQuestionsTab({ onAddNote }: FrequentQuestionsTabProps) {
       {/* 필터 */}
       <div className="flex flex-wrap items-end gap-4">
         <div className="flex flex-col gap-1">
-          <span className="text-text-disabled text-[10px] font-medium uppercase tracking-wider">
+          <span className="text-text-disabled text-[10px] font-medium tracking-wider uppercase">
             기간
           </span>
           <div
@@ -62,7 +62,7 @@ export function FrequentQuestionsTab({ onAddNote }: FrequentQuestionsTabProps) {
         </div>
 
         <div className="flex flex-col gap-1">
-          <span className="text-text-disabled text-[10px] font-medium uppercase tracking-wider">
+          <span className="text-text-disabled text-[10px] font-medium tracking-wider uppercase">
             빈도
           </span>
           <div
@@ -154,7 +154,7 @@ function FrequentQuestionCard({
               <button
                 type="button"
                 onClick={() => setExpanded((v) => !v)}
-                className="text-text-secondary hover:text-text-primary text-xs underline-offset-2 hover:underline focus:outline-none focus:ring-1 focus:ring-accent focus:rounded-sm"
+                className="text-text-secondary hover:text-text-primary focus:ring-accent text-xs underline-offset-2 hover:underline focus:rounded-sm focus:ring-1 focus:outline-none"
               >
                 유사 질문 {question.similar_queries.length}개 {expanded ? '접기' : '보기'}
               </button>

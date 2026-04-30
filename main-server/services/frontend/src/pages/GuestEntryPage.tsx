@@ -11,12 +11,7 @@ import { GuestRecentSessions } from '@/components/help/GuestRecentSessions'
 import { GuestSystemGrid } from '@/components/help/GuestSystemGrid'
 import { HelpVisitorForm } from '@/components/help/HelpVisitorForm'
 import { helpApi } from '@/api/help'
-import {
-  addOrUpdateSession,
-  loadCache,
-  wipeCache,
-  type SessionMeta,
-} from '@/lib/guestSessionCache'
+import { addOrUpdateSession, loadCache, wipeCache, type SessionMeta } from '@/lib/guestSessionCache'
 import type { ChatMessage, ChatStreamEvent } from '@/types/chat'
 import { cn } from '@/lib/utils'
 import { NeuButton } from '@/components/neumorphic/NeuButton'
@@ -366,15 +361,15 @@ export function GuestEntryPage() {
       {/* 헤더 */}
       <div className="border-border bg-surface flex items-center justify-between border-b px-4 py-3">
         <div>
-          <h1 className="text-text-primary text-sm font-semibold">
-            어떤 도움이 필요하세요?
-          </h1>
+          <h1 className="text-text-primary text-sm font-semibold">어떤 도움이 필요하세요?</h1>
           <p className="text-text-secondary text-xs">
             {(() => {
               if (selectedSystemIds.length === 0) {
                 return '전체 시스템 관련 질문에 답해드려요'
               }
-              const names = selectedSystemIds.map((id) => systemMap.get(id)).filter(Boolean) as string[]
+              const names = selectedSystemIds
+                .map((id) => systemMap.get(id))
+                .filter(Boolean) as string[]
               if (names.length === 0) {
                 return `${selectedSystemIds.length}개 시스템 관련 질문에 답해드려요`
               }

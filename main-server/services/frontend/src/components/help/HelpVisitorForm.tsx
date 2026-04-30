@@ -46,9 +46,7 @@ export function HelpVisitorForm({ onSuccess }: HelpVisitorFormProps) {
     <div className="flex min-h-screen flex-col items-center justify-center px-4">
       <div className="w-full max-w-sm">
         <div className="mb-8 text-center">
-          <h1 className="text-text-primary mb-2 text-xl font-semibold">
-            어떤 도움이 필요하세요?
-          </h1>
+          <h1 className="text-text-primary mb-2 text-xl font-semibold">어떤 도움이 필요하세요?</h1>
           <p className="text-text-secondary text-sm leading-relaxed">
             운영 매뉴얼·정책·시스템 관련 질문에 답해드려요.
             <br />

@@ -78,7 +78,9 @@ export function OAuthLoginPage() {
     return (
       <div className="bg-bg-deep flex min-h-screen items-center justify-center">
         <NeuCard className="w-full max-w-md text-center">
-          <p className="text-critical text-sm">잘못된 접근입니다. client_id와 redirect_uri가 필요합니다.</p>
+          <p className="text-critical text-sm">
+            잘못된 접근입니다. client_id와 redirect_uri가 필요합니다.
+          </p>
         </NeuCard>
       </div>
     )
