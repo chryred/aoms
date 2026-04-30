@@ -45,6 +45,10 @@ export default defineConfig({
       '/analyze': 'http://localhost:8000',
       '/aggregation': 'http://localhost:8000',
       '/grafana/': 'http://localhost:3000',
+      '/qdrant': {
+        target: process.env.QDRANT_URL ?? 'http://localhost:6333',
+        rewrite: (path: string) => path.replace(/^\/qdrant/, ''),
+      },
     },
   },
 })

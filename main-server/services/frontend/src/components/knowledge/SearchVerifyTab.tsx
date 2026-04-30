@@ -152,11 +152,13 @@ function DeleteConfirmInline({ label, onConfirm, onCancel, isPending }: DeleteCo
 
 // 점수 배지
 function ScoreBadge({ score, kind }: { score: number; kind?: 'sim' | 'rrf' }) {
-  const pct = `${(score * 100).toFixed(1)}%`
+  const display = kind === 'rrf' ? score.toFixed(4) : `${(score * 100).toFixed(1)}%`
   return (
     <span className="bg-accent-muted text-accent rounded-full px-2 py-0.5 text-xs font-semibold">
-      {pct}
-      {kind && <span className="ml-0.5 text-[10px] font-medium opacity-65">{kind.toUpperCase()}</span>}
+      {display}
+      {kind && (
+        <span className="ml-0.5 text-[10px] font-medium opacity-65">{kind.toUpperCase()}</span>
+      )}
     </span>
   )
 }
@@ -233,6 +235,70 @@ function normalizeMarkdown(text: string): string {
   return result.join('\n')
 }
 
+const URL_FIELDS = new Set(['issue_url', 'page_url', 'url'])
+
+function resolveUrl(fieldKey: string, rawUrl: string): string {
+  if (fieldKey === 'url') {
+    return rawUrl.replace(/\/pages\/(\d+)$/, '/pages/viewpage.action?pageId=$1')
+  }
+  return rawUrl
+}
+
+function getMetaFields(collection: string): [string, string][] {
+  if (collection === 'knowledge_jira_issues') {
+    return [
+      ['title', '제목'],
+      ['issue_key', 'Jira 키'],
+      ['issue_url', 'Jira URL'],
+      ['source', '출처'],
+      ['system_name', '시스템'],
+      ['system_id', 'System ID'],
+      ['created_at', '생성 시각'],
+      ['tags', '태그'],
+    ]
+  }
+  if (collection === 'knowledge_confluence_pages') {
+    return [
+      ['title', '제목'],
+      ['url', 'Confluence URL'],
+      ['confluence_id', 'Page ID'],
+      ['source', '출처'],
+      ['system_name', '시스템'],
+      ['system_id', 'System ID'],
+      ['chunk_index', '청크'],
+      ['created_at', '생성 시각'],
+      ['tags', '태그'],
+    ]
+  }
+  if (collection === 'knowledge_documents') {
+    return [
+      ['file_name', '파일명'],
+      ['source', '출처'],
+      ['page_number', '페이지'],
+      ['slide_number', '슬라이드'],
+      ['chunk_index', '청크'],
+      ['file_hash', '파일 해시'],
+      ['doc_type', '문서 유형'],
+      ['system_name', '시스템'],
+      ['system_id', 'System ID'],
+      ['created_at', '생성 시각'],
+      ['tags', '태그'],
+      ['source_reference', '출처 참조'],
+    ]
+  }
+  return [
+    ['source', '출처'],
+    ['system_name', '시스템'],
+    ['system_id', 'System ID'],
+    ['doc_type', '문서 유형'],
+    ['resolved_at', '해결 시각'],
+    ['resolved_by', '해결자'],
+    ['created_at', '생성 시각'],
+    ['tags', '태그'],
+    ['source_reference', '출처 참조'],
+  ]
+}
+
 // 검색 결과 상세 팝업
 function SearchResultDetailModal({
   result,
@@ -268,27 +334,6 @@ function SearchResultDetailModal({
     })
   }
 
-  const META_FIELDS: [string, string][] = [
-    ['tool', '도구'],
-    ['system_id', 'System ID'],
-    ['system_name', '시스템'],
-    ['doc_type', '문서 유형'],
-    ['file_name', '파일명'],
-    ['file_hash', '파일 해시'],
-    ['chunk_index', '청크'],
-    ['page_number', '페이지'],
-    ['slide_number', '슬라이드'],
-    ['issue_key', 'Jira 키'],
-    ['issue_url', 'Jira URL'],
-    ['page_title', 'Confluence 제목'],
-    ['page_url', 'Confluence URL'],
-    ['resolved_at', '해결 시각'],
-    ['resolved_by', '해결자'],
-    ['created_at', '생성 시각'],
-    ['tags', '태그'],
-    ['source_reference', '출처'],
-  ]
-
   const TEXT_FIELDS: [string, string][] = [
     ['content', '본문'],
     ['question', '질문'],
@@ -296,22 +341,29 @@ function SearchResultDetailModal({
     ['solution', '해결책'],
   ]
 
+  const metaFields = getMetaFields(result.collection)
+
   const displayedKeys = new Set<string>([
     'collection',
     'score',
     'point_id',
+    'tool',
     ...TEXT_FIELDS.map(([k]) => k),
-    ...META_FIELDS.map(([k]) => k),
+    ...metaFields.map(([k]) => k),
   ])
 
   const extraFields = Object.entries(result).filter(
     ([k, v]) => !displayedKeys.has(k) && v !== undefined && v !== null && v !== '',
   )
 
-  const hasMetaValues = META_FIELDS.some(([k]) => {
+  const hasMetaValues = metaFields.some(([k]) => {
     const v = result[k]
     return v !== undefined && v !== null && v !== ''
   })
+
+  const qdrantPointUrl = result.point_id
+    ? `/qdrant/collections/${result.collection}/points/${result.point_id}`
+    : null
 
   return (
     <>
@@ -356,6 +408,21 @@ function SearchResultDetailModal({
                     <Copy className="h-3.5 w-3.5" />
                   )}
                 </button>
+                {qdrantPointUrl && (
+                  <a
+                    href={qdrantPointUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    aria-label="Qdrant에서 포인트 조회"
+                    className={cn(
+                      'shrink-0 rounded-sm p-1 transition-colors',
+                      'text-text-secondary hover:text-accent hover:bg-accent-muted',
+                      'focus:ring-accent focus:ring-1 focus:outline-none',
+                    )}
+                  >
+                    <ExternalLink className="h-3.5 w-3.5" />
+                  </a>
+                )}
               </div>
             )}
           </div>
@@ -371,6 +438,9 @@ function SearchResultDetailModal({
 
         {/* 본문 */}
         <div className="space-y-4 overflow-y-auto px-5 py-4">
+          {typeof result.title === 'string' && result.title && (
+            <p className="text-text-primary font-semibold">{result.title}</p>
+          )}
           {TEXT_FIELDS.map(([key, label]) => {
             const value = result[key]
             if (!value || typeof value !== 'string') return null
@@ -378,8 +448,10 @@ function SearchResultDetailModal({
               <div key={key} className="space-y-1.5">
                 <p className="text-text-disabled text-sm font-medium">{label}</p>
                 <div className="bg-surface shadow-neu-inset max-h-52 overflow-y-auto rounded-sm p-3">
-                  <div className="prose text-text-primary [&_p]:text-sm [&_p]:text-text-primary [&_li]:text-sm [&_li]:text-text-primary [&_td]:text-sm [&_td]:text-text-primary [&_th]:text-sm [&_th]:text-text-primary [&_table]:w-full [&_table]:border-collapse [&_td]:border [&_td]:border-border [&_td]:px-2 [&_td]:py-1 [&_th]:border [&_th]:border-border [&_th]:px-2 [&_th]:py-1 [&_th]:text-left [&_strong]:text-text-primary [&_a]:text-accent [&_ul]:list-disc [&_ul]:pl-4 [&_ol]:list-decimal [&_ol]:pl-4 [&_code]:bg-surface [&_code]:px-1 [&_code]:rounded-sm [&_code]:font-mono [&_code]:text-xs [&_blockquote]:border-l-2 [&_blockquote]:border-border [&_blockquote]:pl-3 [&_blockquote]:text-text-secondary [&_h1]:text-text-primary [&_h2]:text-text-primary [&_h3]:text-text-primary">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{normalizeMarkdown(value)}</ReactMarkdown>
+                  <div className="prose text-text-primary [&_p]:text-text-primary [&_li]:text-text-primary [&_td]:text-text-primary [&_th]:text-text-primary [&_td]:border-border [&_th]:border-border [&_strong]:text-text-primary [&_a]:text-accent [&_code]:bg-surface [&_blockquote]:border-border [&_blockquote]:text-text-secondary [&_h1]:text-text-primary [&_h2]:text-text-primary [&_h3]:text-text-primary [&_blockquote]:border-l-2 [&_blockquote]:pl-3 [&_code]:rounded-sm [&_code]:px-1 [&_code]:font-mono [&_code]:text-xs [&_li]:text-sm [&_ol]:list-decimal [&_ol]:pl-4 [&_p]:text-sm [&_table]:w-full [&_table]:border-collapse [&_td]:border [&_td]:px-2 [&_td]:py-1 [&_td]:text-sm [&_th]:border [&_th]:px-2 [&_th]:py-1 [&_th]:text-left [&_th]:text-sm [&_ul]:list-disc [&_ul]:pl-4">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                      {normalizeMarkdown(value)}
+                    </ReactMarkdown>
                   </div>
                 </div>
               </div>
@@ -387,21 +459,31 @@ function SearchResultDetailModal({
           })}
 
           {hasMetaValues && (
-            <div className="space-y-1.5">
-              <p className="text-text-disabled text-sm font-medium">메타데이터</p>
-              <div className="space-y-1">
-                {META_FIELDS.map(([k, label]) => {
+            <div className="space-y-1">
+                {metaFields.map(([k, label]) => {
+                  if (k === 'title') return null
                   const v = result[k]
                   if (v === undefined || v === null || v === '') return null
                   const displayVal = Array.isArray(v) ? (v as unknown[]).join(', ') : String(v)
                   return (
                     <div key={k} className="flex items-start gap-3 text-sm">
                       <span className="text-text-disabled w-32 shrink-0 pt-0.5">{label}</span>
-                      <span className="text-text-primary break-all">{displayVal}</span>
+                      {URL_FIELDS.has(k) ? (
+                        <a
+                          href={resolveUrl(k, displayVal)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-accent flex items-center gap-1 break-all hover:underline"
+                        >
+                          {resolveUrl(k, displayVal)}
+                          <ExternalLink className="h-3 w-3 shrink-0" />
+                        </a>
+                      ) : (
+                        <span className="text-text-primary break-all">{displayVal}</span>
+                      )}
                     </div>
                   )
                 })}
-              </div>
             </div>
           )}
 
@@ -537,7 +619,13 @@ interface DocumentChunkCardProps {
   scoreKind?: 'sim' | 'rrf'
 }
 
-function DocumentChunkCard({ result, systemName, onDeleted, onDetailClick, scoreKind }: DocumentChunkCardProps) {
+function DocumentChunkCard({
+  result,
+  systemName,
+  onDeleted,
+  onDetailClick,
+  scoreKind,
+}: DocumentChunkCardProps) {
   const [confirmDelete, setConfirmDelete] = useState(false)
   const deleteDoc = useDeleteDocument()
 
@@ -608,7 +696,12 @@ interface JiraConfluenceCardProps {
   scoreKind?: 'sim' | 'rrf'
 }
 
-function JiraConfluenceCard({ result, onResync, onDetailClick, scoreKind }: JiraConfluenceCardProps) {
+function JiraConfluenceCard({
+  result,
+  onResync,
+  onDetailClick,
+  scoreKind,
+}: JiraConfluenceCardProps) {
   const isJira = result.collection === 'knowledge_jira_issues'
   const title = isJira ? result.issue_key : result.page_title
   const url = isJira ? result.issue_url : result.page_url
@@ -671,7 +764,12 @@ interface AggregationVerifyCardProps {
   scoreKind?: 'sim' | 'rrf'
 }
 
-function AggregationVerifyCard({ result, systemName, onDetailClick, scoreKind }: AggregationVerifyCardProps) {
+function AggregationVerifyCard({
+  result,
+  systemName,
+  onDetailClick,
+  scoreKind,
+}: AggregationVerifyCardProps) {
   const collectionLabel =
     result.collection === 'aggregation_summaries' ? '집계 요약' : '시간별 패턴'
 
@@ -776,7 +874,13 @@ interface IncidentCardProps {
   scoreKind?: 'sim' | 'rrf'
 }
 
-function IncidentCard({ result, systemName, originalQuery, onDetailClick, scoreKind }: IncidentCardProps) {
+function IncidentCard({
+  result,
+  systemName,
+  originalQuery,
+  onDetailClick,
+  scoreKind,
+}: IncidentCardProps) {
   const navigate = useNavigate()
   const collectionLabel = result.collection === 'metric_baselines' ? '메트릭 기준선' : '로그 장애'
 

@@ -58,8 +58,9 @@ export function RegisterPage() {
             try {
               const body = await response!.json()
               const detail = body?.detail
-              const msg =
-                Array.isArray(detail) ? detail.map((d: { msg: string }) => d.msg).join(', ') : String(detail)
+              const msg = Array.isArray(detail)
+                ? detail.map((d: { msg: string }) => d.msg).join(', ')
+                : String(detail)
               setError('password', { message: msg })
             } catch {
               toast.error('등록 신청 중 오류가 발생했습니다')
