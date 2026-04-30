@@ -1,4 +1,6 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import {
   Search,
   Globe,
@@ -180,6 +182,56 @@ function PointIdBadge({ pointId, onClick }: { pointId: string; onClick: () => vo
   )
 }
 
+// Jira 위키 마크업 → GFM 변환 (표 구분선 자동 삽입, ||header|| 처리)
+function normalizeMarkdown(text: string): string {
+  const lines = text.split('\n')
+  const result: string[] = []
+  let i = 0
+
+  while (i < lines.length) {
+    const trimmed = lines[i].trim()
+
+    // Jira header row: ||col1||col2||
+    if (trimmed.startsWith('||') && trimmed.endsWith('||')) {
+      const cells = trimmed.slice(2, -2).split('||')
+      result.push('| ' + cells.join(' | ') + ' |')
+      result.push('| ' + cells.map(() => '---').join(' | ') + ' |')
+      i++
+      continue
+    }
+
+    // Pipe table row without separator
+    if (trimmed.startsWith('|') && trimmed.endsWith('|') && !/^\|(\s*[-:]+\s*\|)+$/.test(trimmed)) {
+      const tableLines: string[] = [trimmed]
+      i++
+      while (i < lines.length) {
+        const next = lines[i].trim()
+        if (next.startsWith('|') && next.endsWith('|')) {
+          tableLines.push(next)
+          i++
+        } else {
+          break
+        }
+      }
+      const hasSep = tableLines.some((l) => /^\|(\s*[-:]+\s*\|)+$/.test(l))
+      if (!hasSep) {
+        const colCount = (tableLines[0].match(/\|/g) ?? []).length - 1
+        result.push(tableLines[0])
+        result.push('|' + ' --- |'.repeat(colCount))
+        result.push(...tableLines.slice(1))
+      } else {
+        result.push(...tableLines)
+      }
+      continue
+    }
+
+    result.push(lines[i])
+    i++
+  }
+
+  return result.join('\n')
+}
+
 // 검색 결과 상세 팝업
 function SearchResultDetailModal({
   result,
@@ -323,9 +375,9 @@ function SearchResultDetailModal({
               <div key={key} className="space-y-1.5">
                 <p className="text-text-disabled text-xs font-medium">{label}</p>
                 <div className="bg-surface shadow-neu-inset max-h-52 overflow-y-auto rounded-sm p-3">
-                  <p className="text-text-primary text-sm break-words whitespace-pre-wrap">
-                    {value}
-                  </p>
+                  <div className="prose-sm prose-invert text-text-primary text-sm [&_table]:w-full [&_table]:border-collapse [&_td]:border [&_td]:border-border [&_td]:px-2 [&_td]:py-1 [&_th]:border [&_th]:border-border [&_th]:px-2 [&_th]:py-1 [&_th]:text-left [&_strong]:text-text-primary [&_a]:text-accent [&_ul]:list-disc [&_ul]:pl-4 [&_ol]:list-decimal [&_ol]:pl-4 [&_code]:bg-surface [&_code]:px-1 [&_code]:rounded-sm [&_code]:font-mono [&_code]:text-[11px] [&_blockquote]:border-l-2 [&_blockquote]:border-border [&_blockquote]:pl-3 [&_blockquote]:text-text-secondary">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]}>{normalizeMarkdown(value)}</ReactMarkdown>
+                  </div>
                 </div>
               </div>
             )
