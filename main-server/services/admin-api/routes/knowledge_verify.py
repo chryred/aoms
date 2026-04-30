@@ -192,12 +192,14 @@ async def _call_aggregation_search(
     items: list[SearchResultItem] = []
     for r in data.get("results") or []:
         payload_data = r.get("payload") or {}
+        raw_sid = payload_data.get("system_id")
         items.append(SearchResultItem(
             tool="qdrant_search_aggregation_summary",
             collection=collection,
             score=r.get("score"),
             content=payload_data.get("summary_text") or "",
-            system_name=payload_data.get("system_name"),
+            system_id=int(raw_sid) if raw_sid is not None else None,
+            system_name=payload_data.get("system_name") or None,
             extra={
                 "period_type": payload_data.get("period_type"),
                 "period_start": payload_data.get("period_start"),

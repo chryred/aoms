@@ -124,6 +124,12 @@ def _get_sparse_model():
     global _sparse_model
     if _sparse_model is None:
         from fastembed import SparseTextEmbedding
+        # tqdm이 스레드 executor에서 호출될 때 _lock 미초기화 문제 방지
+        try:
+            import tqdm as _tqdm
+            _tqdm.tqdm.get_lock()
+        except Exception:
+            pass
         logger.info("Sparse(BM25) 모델 로딩: %s", SPARSE_MODEL_NAME)
         kwargs: dict = {"model_name": SPARSE_MODEL_NAME}
         if SPARSE_MODEL_CACHE:
@@ -192,6 +198,13 @@ def _embed_dense_sync(text: str) -> list[float]:
 def _embed_sparse_sync(text: str) -> dict:
     truncated = text[:_EMBED_MAX_CHARS]
     model = _get_sparse_model()
+    # fastembed가 내부적으로 tqdm을 사용하는데, run_in_executor 스레드에서
+    # tqdm._lock 미초기화 경고가 발생할 수 있어 호출 전 보장
+    try:
+        import tqdm as _tqdm
+        _tqdm.tqdm.get_lock()
+    except Exception:
+        pass
     result = next(model.embed([truncated]))
     return {
         "indices": result.indices.tolist(),

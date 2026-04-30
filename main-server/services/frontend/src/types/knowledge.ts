@@ -33,7 +33,7 @@ export interface KnowledgeSyncStatus {
   last_sync_at: string | null
   total_synced: number
   last_error: string | null
-  updated_at: string
+  updated_at: string | null
 }
 
 export interface UploadJob {
