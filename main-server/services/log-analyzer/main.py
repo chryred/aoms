@@ -256,11 +256,18 @@ async def _jira_sync_run() -> dict:
                                 "fields": (
                                     "summary,description,status,comment,"
                                     "issuetype,priority,components,resolutiondate,"
+                                    # SR통계 공통
+                                    "customfield_18370,customfield_11011,customfield_17901,"
+                                    "customfield_15315,customfield_15316,customfield_14403,"
+                                    "customfield_11351,customfield_11718,customfield_11343,"
+                                    "customfield_16460,customfield_16461,"
+                                    # 장애관리 전용
                                     "customfield_10451,customfield_10452,customfield_10453,"
                                     "customfield_10454,customfield_10455,customfield_10415,"
-                                    "customfield_11374,customfield_11368,customfield_11369,"
-                                    "customfield_11370,customfield_11012,"
-                                    "customfield_11362,customfield_11363,customfield_11366"
+                                    "customfield_11374,customfield_11347,customfield_11368,"
+                                    "customfield_11369,customfield_11370,customfield_11012,"
+                                    "customfield_11311,customfield_11362,customfield_11363,"
+                                    "customfield_11366"
                                 )},
                     )
                     resp.raise_for_status()
@@ -311,19 +318,34 @@ async def _jira_sync_run() -> dict:
                                 priority=f.get("priority", {}).get("name"),
                                 components=[c["name"] for c in f.get("components", []) if c.get("name")],
                                 resolution_date=f.get("resolutiondate"),
+                                # SR통계 공통
+                                company=_cl("customfield_18370"),
+                                system_dept=_cl("customfield_11011"),
+                                service=_cl("customfield_17901"),
+                                fte_category=_cl("customfield_15315"),
+                                fte_type=_cl("customfield_15316"),
+                                difficulty=_cv("customfield_14403"),
+                                service_grade=_cl("customfield_11351"),
+                                request_type=_cl("customfield_11718"),
+                                change_process_type=_cl("customfield_16460"),
+                                sr_process_type=_cl("customfield_16461"),
+                                issue_type_am=_cl("customfield_11343"),
+                                # 장애관리 전용
                                 incident_summary=_cv("customfield_10451"),
-                                cause_analysis=f.get("customfield_10452") or None,
+                                action_taken=f.get("customfield_10452") or None,
                                 action_timeline=f.get("customfield_10453") or None,
                                 root_cause=f.get("customfield_10454") or None,
                                 solution=f.get("customfield_10455") or None,
-                                incident_type=_cv("customfield_10415"),
-                                incident_class=_cv("customfield_11374"),
-                                severity=_cv("customfield_11368"),
+                                reception_channel=_cv("customfield_10415"),
+                                incident_cause_type=_cv("customfield_11374"),
+                                incident_type=_cl("customfield_11347"),
+                                impact_scope=_cv("customfield_11368"),
                                 grade=_cv("customfield_11369"),
                                 responsibility=_cv("customfield_11370"),
                                 business_system=_cl("customfield_11012"),
-                                incident_start=f.get("customfield_11362"),
-                                incident_end=f.get("customfield_11363"),
+                                incident_start_at=f.get("customfield_11311"),
+                                incident_noticed_at=f.get("customfield_11362"),
+                                incident_notified_at=f.get("customfield_11363"),
                                 duration_minutes=f.get("customfield_11366"),
                             )
                             synced += 1

@@ -139,41 +139,71 @@ async def upsert_jira_issue(
     priority: str | None = None,
     components: list[str] | None = None,
     resolution_date: str | None = None,
+    # SR통계 공통 필드 (변경관리·서비스요청 공통)
+    company: list[str] | None = None,           # customfield_18370 관계사
+    system_dept: list[str] | None = None,       # customfield_11011 시스템부서
+    service: list[str] | None = None,           # customfield_17901 서비스
+    fte_category: list[str] | None = None,      # customfield_15315 업무구분(FTE)
+    fte_type: list[str] | None = None,          # customfield_15316 업무유형(FTE)
+    difficulty: str | None = None,              # customfield_14403 난이도 (상/중/하)
+    service_grade: list[str] | None = None,     # customfield_11351 서비스등급
+    request_type: list[str] | None = None,      # customfield_11718 요청구분
+    change_process_type: list[str] | None = None,  # customfield_16460 처리유형(변경관리)
+    sr_process_type: list[str] | None = None,   # customfield_16461 처리유형(서비스요청)
+    issue_type_am: list[str] | None = None,     # customfield_11343 이슈유형(AM)
     # 장애관리 전용 커스텀 필드
-    incident_summary: str | None = None,    # customfield_10451 장애개요
-    cause_analysis: str | None = None,      # customfield_10452 원인분석
-    action_timeline: str | None = None,     # customfield_10453 시간대별 처리사항
-    root_cause: str | None = None,          # customfield_10454 장애원인
-    solution: str | None = None,            # customfield_10455 해결방안
-    incident_type: str | None = None,       # customfield_10415 장애유형
-    incident_class: str | None = None,      # customfield_11374 장애분류
-    severity: str | None = None,            # customfield_11368 심각도
-    grade: str | None = None,               # customfield_11369 등급
-    responsibility: str | None = None,      # customfield_11370 귀책
-    business_system: list[str] | None = None,  # customfield_11012 업무시스템
-    incident_start: str | None = None,      # customfield_11362 장애시작
-    incident_end: str | None = None,        # customfield_11363 장애종료
-    duration_minutes: float | None = None,  # customfield_11366 지속시간(분)
+    incident_summary: str | None = None,        # customfield_10451 장애개요
+    action_taken: str | None = None,            # customfield_10452 조치사항(I&C/관계사)
+    action_timeline: str | None = None,         # customfield_10453 시간대별처리사항
+    root_cause: str | None = None,              # customfield_10454 장애원인
+    solution: str | None = None,               # customfield_10455 해결방안
+    reception_channel: str | None = None,       # customfield_10415 접수경로
+    incident_cause_type: str | None = None,     # customfield_11374 장애발생원인 (기계적/인적)
+    incident_type: list[str] | None = None,     # customfield_11347 장애유형 (APP/서버 등)
+    impact_scope: str | None = None,            # customfield_11368 장애영향범위 (낮음/중간/높음)
+    grade: str | None = None,                   # customfield_11369 장애등급 (A/B/C/D)
+    responsibility: str | None = None,          # customfield_11370 귀책사유
+    business_system: list[str] | None = None,   # customfield_11012 업무시스템(구)
+    incident_start_at: str | None = None,       # customfield_11311 장애발생일시
+    incident_noticed_at: str | None = None,     # customfield_11362 장애인지일시
+    incident_notified_at: str | None = None,    # customfield_11363 장애전파일시
+    duration_minutes: float | None = None,      # customfield_11366 장애시간(분)
 ) -> int:
     """Jira 이슈를 knowledge_jira_issues에 upsert. point_id 반환.
 
-    텍스트 = title + 장애관리 전용 필드(원인/해결방안 등) + description + comments 합산으로 임베딩.
+    텍스트 = title + 관계사/시스템부서 + 유형 + 장애 전용 필드 + description + comments 합산으로 임베딩.
     동일 project/issue_id는 항상 같은 point_id → 재실행 시 덮어쓰기.
     """
     point_id = make_jira_point_id(project, issue_id)
 
-    # 임베딩 대상 텍스트 구성 — 장애관리 전용 필드를 레이블과 함께 포함
+    # 임베딩 대상 텍스트 구성
     text_parts = [f"[{project}] {title}"]
+    if company:
+        text_parts.append(f"[관계사] {', '.join(company)}")
+    if system_dept:
+        text_parts.append(f"[시스템부서] {', '.join(system_dept)}")
+    if service:
+        text_parts.append(f"[서비스] {', '.join(service)}")
     if issue_type:
         text_parts.append(f"[유형] {issue_type}")
+    if incident_type:
+        text_parts.append(f"[장애유형] {', '.join(incident_type)}")
+    if change_process_type:
+        text_parts.append(f"[처리유형] {', '.join(change_process_type)}")
+    if fte_category:
+        text_parts.append(f"[업무구분] {', '.join(fte_category)}")
+    if fte_type:
+        text_parts.append(f"[업무유형] {', '.join(fte_type)}")
+    if difficulty:
+        text_parts.append(f"[난이도] {difficulty}")
     if incident_summary:
         text_parts.append(f"[장애개요] {incident_summary}")
     if description:
         text_parts.append(description)
     if root_cause:
         text_parts.append(f"[장애원인] {root_cause}")
-    if cause_analysis:
-        text_parts.append(f"[원인분석] {cause_analysis}")
+    if action_taken:
+        text_parts.append(f"[조치사항] {action_taken}")
     if solution:
         text_parts.append(f"[해결방안] {solution}")
     if action_timeline:
@@ -196,7 +226,7 @@ async def upsert_jira_issue(
         "comments":     (comments or [])[:10],
         "stored_at":    datetime.now(timezone.utc).isoformat(),
     }
-    # 공통 메타 (값이 있을 때만 저장 — 기존 포인트와 스키마 혼재 허용)
+    # 공통 메타
     if issue_key:
         payload["issue_key"] = issue_key
     if issue_type:
@@ -207,33 +237,60 @@ async def upsert_jira_issue(
         payload["components"] = components
     if resolution_date:
         payload["resolution_date"] = resolution_date
+    # SR통계 공통
+    if company:
+        payload["company"] = company
+    if system_dept:
+        payload["system_dept"] = system_dept
+    if service:
+        payload["service"] = service
+    if fte_category:
+        payload["fte_category"] = fte_category
+    if fte_type:
+        payload["fte_type"] = fte_type
+    if difficulty:
+        payload["difficulty"] = difficulty
+    if service_grade:
+        payload["service_grade"] = service_grade
+    if request_type:
+        payload["request_type"] = request_type
+    if change_process_type:
+        payload["change_process_type"] = change_process_type
+    if sr_process_type:
+        payload["sr_process_type"] = sr_process_type
+    if issue_type_am:
+        payload["issue_type_am"] = issue_type_am
     # 장애관리 전용
     if incident_summary:
         payload["incident_summary"] = incident_summary[:2000]
     if root_cause:
         payload["root_cause"] = root_cause[:2000]
-    if cause_analysis:
-        payload["cause_analysis"] = cause_analysis[:2000]
+    if action_taken:
+        payload["action_taken"] = action_taken[:2000]
     if solution:
         payload["solution"] = solution[:2000]
     if action_timeline:
         payload["action_timeline"] = action_timeline[:2000]
+    if reception_channel:
+        payload["reception_channel"] = reception_channel
+    if incident_cause_type:
+        payload["incident_cause_type"] = incident_cause_type
     if incident_type:
         payload["incident_type"] = incident_type
-    if incident_class:
-        payload["incident_class"] = incident_class
-    if severity:
-        payload["severity"] = severity
+    if impact_scope:
+        payload["impact_scope"] = impact_scope
     if grade:
         payload["grade"] = grade
     if responsibility:
         payload["responsibility"] = responsibility
     if business_system:
         payload["business_system"] = business_system
-    if incident_start:
-        payload["incident_start"] = incident_start
-    if incident_end:
-        payload["incident_end"] = incident_end
+    if incident_start_at:
+        payload["incident_start_at"] = incident_start_at
+    if incident_noticed_at:
+        payload["incident_noticed_at"] = incident_noticed_at
+    if incident_notified_at:
+        payload["incident_notified_at"] = incident_notified_at
     if duration_minutes is not None:
         payload["duration_minutes"] = duration_minutes
     if system_name:
