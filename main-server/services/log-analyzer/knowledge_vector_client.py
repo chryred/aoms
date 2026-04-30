@@ -127,22 +127,57 @@ async def upsert_jira_issue(
     *,
     project: str,
     issue_id: str,
+    issue_key: str | None = None,
     title: str,
     description: str,
     status: str,
     comments: list[str] | None = None,
     system_name: str | None = None,
     url: str | None = None,
+    # 이슈 공통 메타
+    issue_type: str | None = None,
+    priority: str | None = None,
+    components: list[str] | None = None,
+    resolution_date: str | None = None,
+    # 장애관리 전용 커스텀 필드
+    incident_summary: str | None = None,    # customfield_10451 장애개요
+    cause_analysis: str | None = None,      # customfield_10452 원인분석
+    action_timeline: str | None = None,     # customfield_10453 시간대별 처리사항
+    root_cause: str | None = None,          # customfield_10454 장애원인
+    solution: str | None = None,            # customfield_10455 해결방안
+    incident_type: str | None = None,       # customfield_10415 장애유형
+    incident_class: str | None = None,      # customfield_11374 장애분류
+    severity: str | None = None,            # customfield_11368 심각도
+    grade: str | None = None,               # customfield_11369 등급
+    responsibility: str | None = None,      # customfield_11370 귀책
+    business_system: list[str] | None = None,  # customfield_11012 업무시스템
+    incident_start: str | None = None,      # customfield_11362 장애시작
+    incident_end: str | None = None,        # customfield_11363 장애종료
+    duration_minutes: float | None = None,  # customfield_11366 지속시간(분)
 ) -> int:
     """Jira 이슈를 knowledge_jira_issues에 upsert. point_id 반환.
 
-    텍스트 = title + description + comments 합산으로 임베딩.
+    텍스트 = title + 장애관리 전용 필드(원인/해결방안 등) + description + comments 합산으로 임베딩.
     동일 project/issue_id는 항상 같은 point_id → 재실행 시 덮어쓰기.
     """
     point_id = make_jira_point_id(project, issue_id)
 
-    # 임베딩 대상 텍스트 구성
-    text_parts = [f"[{project}] {title}", description or ""]
+    # 임베딩 대상 텍스트 구성 — 장애관리 전용 필드를 레이블과 함께 포함
+    text_parts = [f"[{project}] {title}"]
+    if issue_type:
+        text_parts.append(f"[유형] {issue_type}")
+    if incident_summary:
+        text_parts.append(f"[장애개요] {incident_summary}")
+    if description:
+        text_parts.append(description)
+    if root_cause:
+        text_parts.append(f"[장애원인] {root_cause}")
+    if cause_analysis:
+        text_parts.append(f"[원인분석] {cause_analysis}")
+    if solution:
+        text_parts.append(f"[해결방안] {solution}")
+    if action_timeline:
+        text_parts.append(f"[처리사항] {action_timeline}")
     if comments:
         text_parts.extend(comments)
     embed_text = "\n".join(p for p in text_parts if p)
@@ -158,9 +193,49 @@ async def upsert_jira_issue(
         "title":        title,
         "description":  (description or "")[:2000],
         "status":       status,
-        "comments":     (comments or [])[:10],  # 최대 10개 보존
+        "comments":     (comments or [])[:10],
         "stored_at":    datetime.now(timezone.utc).isoformat(),
     }
+    # 공통 메타 (값이 있을 때만 저장 — 기존 포인트와 스키마 혼재 허용)
+    if issue_key:
+        payload["issue_key"] = issue_key
+    if issue_type:
+        payload["issue_type"] = issue_type
+    if priority:
+        payload["priority"] = priority
+    if components:
+        payload["components"] = components
+    if resolution_date:
+        payload["resolution_date"] = resolution_date
+    # 장애관리 전용
+    if incident_summary:
+        payload["incident_summary"] = incident_summary[:2000]
+    if root_cause:
+        payload["root_cause"] = root_cause[:2000]
+    if cause_analysis:
+        payload["cause_analysis"] = cause_analysis[:2000]
+    if solution:
+        payload["solution"] = solution[:2000]
+    if action_timeline:
+        payload["action_timeline"] = action_timeline[:2000]
+    if incident_type:
+        payload["incident_type"] = incident_type
+    if incident_class:
+        payload["incident_class"] = incident_class
+    if severity:
+        payload["severity"] = severity
+    if grade:
+        payload["grade"] = grade
+    if responsibility:
+        payload["responsibility"] = responsibility
+    if business_system:
+        payload["business_system"] = business_system
+    if incident_start:
+        payload["incident_start"] = incident_start
+    if incident_end:
+        payload["incident_end"] = incident_end
+    if duration_minutes is not None:
+        payload["duration_minutes"] = duration_minutes
     if system_name:
         payload["system_name"] = system_name
     if url:

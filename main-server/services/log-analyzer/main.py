@@ -253,7 +253,15 @@ async def _jira_sync_run() -> dict:
                     resp = await jira_client.get(
                         f"{JIRA_URL}/rest/api/2/search",
                         params={"jql": jql, "startAt": start_at, "maxResults": max_results,
-                                "fields": "summary,description,status,comment"},
+                                "fields": (
+                                    "summary,description,status,comment,"
+                                    "issuetype,priority,components,resolutiondate,"
+                                    "customfield_10451,customfield_10452,customfield_10453,"
+                                    "customfield_10454,customfield_10455,customfield_10415,"
+                                    "customfield_11374,customfield_11368,customfield_11369,"
+                                    "customfield_11370,customfield_11012,"
+                                    "customfield_11362,customfield_11363,customfield_11366"
+                                )},
                     )
                     resp.raise_for_status()
                     data = resp.json()
@@ -267,19 +275,56 @@ async def _jira_sync_run() -> dict:
                     break
 
                 for issue in issues:
-                    fields = issue.get("fields", {})
-                    comments_raw = fields.get("comment", {}).get("comments", [])
+                    f = issue.get("fields", {})
+                    comments_raw = f.get("comment", {}).get("comments", [])
                     comments = [c.get("body", "") for c in comments_raw[:10] if c.get("body")]
+
+                    def _cv(key: str) -> str | None:
+                        """커스텀 필드 단일 선택값 추출 (value 또는 name 키)."""
+                        v = f.get(key)
+                        if isinstance(v, dict):
+                            return v.get("value") or v.get("name") or None
+                        return str(v) if v is not None else None
+
+                    def _cl(key: str) -> list[str]:
+                        """커스텀 필드 다중값 추출 (list of string)."""
+                        v = f.get(key)
+                        if not isinstance(v, list):
+                            return []
+                        return [
+                            (item.get("name") or item.get("value") or str(item))
+                            if isinstance(item, dict) else str(item)
+                            for item in v
+                        ]
 
                     async with rate_sem:
                         try:
                             await knowledge_vector_client.upsert_jira_issue(
                                 project=project,
                                 issue_id=issue["id"],
-                                title=fields.get("summary", ""),
-                                description=fields.get("description") or "",
-                                status=fields.get("status", {}).get("name", ""),
+                                issue_key=issue.get("key"),
+                                title=f.get("summary", ""),
+                                description=f.get("description") or "",
+                                status=f.get("status", {}).get("name", ""),
                                 comments=comments,
+                                issue_type=f.get("issuetype", {}).get("name"),
+                                priority=f.get("priority", {}).get("name"),
+                                components=[c["name"] for c in f.get("components", []) if c.get("name")],
+                                resolution_date=f.get("resolutiondate"),
+                                incident_summary=_cv("customfield_10451"),
+                                cause_analysis=f.get("customfield_10452") or None,
+                                action_timeline=f.get("customfield_10453") or None,
+                                root_cause=f.get("customfield_10454") or None,
+                                solution=f.get("customfield_10455") or None,
+                                incident_type=_cv("customfield_10415"),
+                                incident_class=_cv("customfield_11374"),
+                                severity=_cv("customfield_11368"),
+                                grade=_cv("customfield_11369"),
+                                responsibility=_cv("customfield_11370"),
+                                business_system=_cl("customfield_11012"),
+                                incident_start=f.get("customfield_11362"),
+                                incident_end=f.get("customfield_11363"),
+                                duration_minutes=f.get("customfield_11366"),
                             )
                             synced += 1
                         except Exception as exc:
