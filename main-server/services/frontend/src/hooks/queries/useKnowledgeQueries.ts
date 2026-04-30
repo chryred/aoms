@@ -3,7 +3,7 @@ import { knowledgeApi } from '@/api/knowledge'
 import { qk } from '@/constants/queryKeys'
 import type { OperatorNoteListParams, FeedbackListParams } from '@/api/knowledge'
 
-export function useFrequentQuestions(days = 30, threshold = 3) {
+export function useFrequentQuestions(days = 7, threshold = 3) {
   return useQuery({
     queryKey: qk.knowledge.frequentQuestions(days, threshold),
     queryFn: () => knowledgeApi.listFrequentQuestions(days, threshold),

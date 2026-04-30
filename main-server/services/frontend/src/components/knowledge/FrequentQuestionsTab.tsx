@@ -10,7 +10,7 @@ import { formatRelative } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 import type { FrequentQuestion } from '@/types/knowledge'
 
-const DAY_OPTIONS = [7, 14, 30, 60, 90]
+const DAY_OPTIONS = [7, 14, 30]
 const THRESHOLD_OPTIONS = [
   { value: 2, label: '2회 이상' },
   { value: 3, label: '3회 이상' },
@@ -22,7 +22,7 @@ interface FrequentQuestionsTabProps {
 }
 
 export function FrequentQuestionsTab({ onAddNote }: FrequentQuestionsTabProps) {
-  const [days, setDays] = useState(30)
+  const [days, setDays] = useState(7)
   const [threshold, setThreshold] = useState(3)
 
   const { data, isLoading, isError, refetch } = useFrequentQuestions(days, threshold)

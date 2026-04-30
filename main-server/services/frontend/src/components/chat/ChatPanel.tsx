@@ -258,6 +258,15 @@ export function ChatPanel() {
     [sessions, currentSessionId],
   )
 
+  const recentSessions = useMemo(
+    () =>
+      sessions
+        ?.slice()
+        .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
+        .slice(0, 5) ?? [],
+    [sessions],
+  )
+
   const handleRetry = useCallback(
     (failedMessageId: string) => {
       if (!messages || isStreaming) return
@@ -376,6 +385,9 @@ export function ChatPanel() {
       <div className="bg-surface flex h-full w-full flex-col lg:w-[420px] lg:shrink-0">
       <ChatHeader
         title={currentSession?.title ?? '새 대화'}
+        sessions={recentSessions}
+        currentSessionId={currentSessionId}
+        onSessionSelect={setCurrentSessionId}
         onNewChat={handleNewChat}
         onClose={() => setOpen(false)}
         disabled={isStreaming}

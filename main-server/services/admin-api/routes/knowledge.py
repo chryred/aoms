@@ -283,108 +283,100 @@ async def create_feedback(
 
 # ── 질문 분석 (chat_messages 기반) ────────────────────────────────────────────
 
-@router.get("/questions/frequent")
-async def list_frequent_questions(
-    days: int = 7,
-    threshold: float = 0.030,
-    limit: int = 50,
-    db: AsyncSession = Depends(get_db),
-    _user: User = Depends(get_current_user),
-) -> dict[str, Any]:
-    """최근 N일 사용자 질문을 집계하고 유사 질문을 클러스터로 묶어 반환.
+async def _build_question_clusters(
+    db: AsyncSession,
+    days: int,
+    unique_limit: int = 200,
+) -> list[dict[str, Any]]:
+    """기간 내 전체 질문을 content 기준으로 집계한 뒤 임베딩 클러스터링.
 
-    캐시 TTL: 5분.
-    클러스터링: cosine 유사도 >= 0.85 (임베딩 불가 시 no-op, 개별 질문 반환).
+    GROUP BY content로 exact 중복을 DB에서 먼저 합산하므로
+    메시지 건수가 많아도 unique_limit(기본 200) 개의 고유 질문만 임베딩한다.
     """
-    cache_key = f"{days}:{threshold}:{limit}"
-    now = time.monotonic()
-    cached = _FREQ_CACHE_DATA.get(cache_key)
-    if cached and (now - cached["ts"]) < _FREQ_CACHE_TTL:
-        return cached["data"]
+    from datetime import timedelta
 
-    # 1) SQL: 최근 N일 user 메시지 + RAG 점수
+    since = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=days)
     sql = text("""
         SELECT
-            cm.id,
             cm.content,
-            cm.rag_top1_score,
-            cm.rag_sources_count,
-            cm.created_at
+            COUNT(*) AS exact_count,
+            MAX(cm.created_at) AS last_asked_at,
+            AVG(cm.rag_top1_score) AS avg_rag_score
         FROM chat_messages cm
         WHERE cm.role = 'user'
           AND cm.content != ''
           AND cm.created_at >= :since
-        ORDER BY cm.created_at DESC
+        GROUP BY cm.content
+        ORDER BY COUNT(*) DESC, MAX(cm.created_at) DESC
         LIMIT :limit
     """)
-    since = datetime.now(timezone.utc).replace(tzinfo=None)
-    # days 전으로 since 계산
-    from datetime import timedelta
-    since = since - timedelta(days=days)
-
-    rows = (await db.execute(sql, {"since": since, "limit": limit * 5})).fetchall()
+    rows = (await db.execute(sql, {"since": since, "limit": unique_limit})).fetchall()
 
     if not rows:
-        result: dict[str, Any] = {"clusters": [], "total_questions": 0}
-        _FREQ_CACHE_DATA[cache_key] = {"ts": now, "data": result}
-        return result
+        return []
 
-    # 2) 배치 임베딩 (HTTP 1회 호출)
-    target_rows = rows[:limit]
-    contents = [row.content or "" for row in target_rows]
+    contents = [row.content for row in rows]
     embeddings = await knowledge_service.call_embed_batch(contents)
 
     items: list[dict[str, Any]] = [
         {
-            "id": row.id,
-            "content": content,
-            "rag_top1_score": row.rag_top1_score,
-            "rag_sources_count": row.rag_sources_count,
-            "created_at": row.created_at.isoformat() if row.created_at else None,
+            "content": row.content,
+            "exact_count": int(row.exact_count),
+            "last_asked_at": row.last_asked_at.isoformat() if row.last_asked_at else None,
+            "avg_rag_score": float(row.avg_rag_score) if row.avg_rag_score is not None else None,
             "embedding": emb,
         }
-        for row, content, emb in zip(target_rows, contents, embeddings)
+        for row, emb in zip(rows, embeddings)
     ]
 
-    # 3) 클러스터링
     clusters_raw = knowledge_service.cluster_questions_by_cosine(items, threshold=0.85)
 
-    # 4) 응답 정리
-    clusters_out = []
+    clusters: list[dict[str, Any]] = []
     for cluster in clusters_raw:
-        # avg rag_top1_score (None 제외)
-        scores = [c["rag_top1_score"] for c in cluster if c["rag_top1_score"] is not None]
+        total_count = sum(c["exact_count"] for c in cluster)
+        last_asked = max((c["last_asked_at"] for c in cluster if c["last_asked_at"]), default=None)
+        scores = [c["avg_rag_score"] for c in cluster if c["avg_rag_score"] is not None]
         avg_score = sum(scores) / len(scores) if scores else None
-
-        # threshold 기반 low-score 클러스터 필터
-        if avg_score is not None and avg_score < threshold:
-            pass  # 낮은 점수도 일단 포함 (threshold는 파라미터로 참조용)
-
-        clusters_out.append({
+        clusters.append({
             "representative": cluster[0]["content"],
-            "count": len(cluster),
+            "count": total_count,
+            "last_asked_at": last_asked,
             "avg_rag_score": round(avg_score, 4) if avg_score is not None else None,
             "questions": [
                 {
-                    "id": c["id"],
                     "content": c["content"],
-                    "rag_top1_score": c["rag_top1_score"],
-                    "created_at": c["created_at"],
+                    "exact_count": c["exact_count"],
+                    "last_asked_at": c["last_asked_at"],
                 }
                 for c in cluster
             ],
         })
 
-    # count 내림차순 정렬
-    clusters_out.sort(key=lambda c: c["count"], reverse=True)
+    clusters.sort(key=lambda c: c["count"], reverse=True)
+    return clusters
 
-    result = {
-        "clusters": clusters_out,
-        "total_questions": len(rows),
-        "clustered_questions": sum(c["count"] for c in clusters_out),
-    }
-    _FREQ_CACHE_DATA[cache_key] = {"ts": now, "data": result}
-    return result
+
+@router.get("/questions/frequent")
+async def list_frequent_questions(
+    days: int = 7,
+    db: AsyncSession = Depends(get_db),
+    _user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    """최근 N일 사용자 질문을 집계하고 유사 질문을 클러스터로 묶어 반환.
+
+    캐시 TTL: 5분. 클러스터링: cosine 유사도 >= 0.85.
+    """
+    cache_key = f"{days}:clusters"
+    now = time.monotonic()
+    cached = _FREQ_CACHE_DATA.get(cache_key)
+    if cached and (now - cached["ts"]) < _FREQ_CACHE_TTL:
+        clusters = cached["data"]
+    else:
+        clusters = await _build_question_clusters(db, days)
+        _FREQ_CACHE_DATA[cache_key] = {"ts": now, "data": clusters}
+
+    total = sum(c["count"] for c in clusters)
+    return {"clusters": clusters, "total_questions": total}
 
 
 # ── 동기화 상태 ────────────────────────────────────────────────────────────────
@@ -584,74 +576,25 @@ async def list_frequent_questions_v2(
 
     threshold 파라미터: 최소 발생 횟수 (클러스터 count >= threshold 필터).
     """
-    cache_key = f"{days}:fq"
+    cache_key = f"{days}:clusters"
     now = time.monotonic()
     cached = _FREQ_CACHE_DATA.get(cache_key)
     if cached and (now - cached["ts"]) < _FREQ_CACHE_TTL:
-        clusters = cached["data"].get("clusters", [])
+        clusters = cached["data"]
     else:
-        # /questions/frequent 내부 로직과 동일하게 DB 조회 후 클러스터링
-        from datetime import timedelta
-
-        sql = text("""
-            SELECT cm.id, cm.content, cm.rag_top1_score, cm.created_at
-            FROM chat_messages cm
-            WHERE cm.role = 'user'
-              AND cm.content != ''
-              AND cm.created_at >= :since
-            ORDER BY cm.created_at DESC
-            LIMIT :limit
-        """)
-        since = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(days=days)
-        rows = (await db.execute(sql, {"since": since, "limit": 250})).fetchall()
-
-        if not rows:
-            return []
-
-        target_rows = rows[:50]
-        contents = [row.content or "" for row in target_rows]
-        embeddings = await knowledge_service.call_embed_batch(contents)
-
-        items: list[dict[str, Any]] = [
-            {
-                "id": row.id,
-                "content": content,
-                "rag_top1_score": row.rag_top1_score,
-                "created_at": row.created_at.isoformat() if row.created_at else None,
-                "embedding": emb,
-            }
-            for row, content, emb in zip(target_rows, contents, embeddings)
-        ]
-
-        clusters_raw = knowledge_service.cluster_questions_by_cosine(items, threshold=0.85)
-        clusters = []
-        for cluster in clusters_raw:
-            scores = [c["rag_top1_score"] for c in cluster if c["rag_top1_score"] is not None]
-            avg_score = sum(scores) / len(scores) if scores else None
-            clusters.append({
-                "representative": cluster[0]["content"],
-                "count": len(cluster),
-                "avg_rag_score": round(avg_score, 4) if avg_score is not None else None,
-                "questions": [
-                    {"content": c["content"], "created_at": c["created_at"]}
-                    for c in cluster
-                ],
-            })
-        clusters.sort(key=lambda c: c["count"], reverse=True)
-        _FREQ_CACHE_DATA[cache_key] = {"ts": now, "data": {"clusters": clusters}}
+        clusters = await _build_question_clusters(db, days)
+        _FREQ_CACHE_DATA[cache_key] = {"ts": now, "data": clusters}
 
     result = []
     for c in clusters:
         if c["count"] < threshold:
             continue
-        dates = [q["created_at"] for q in c.get("questions", []) if q.get("created_at")]
-        last_asked = max(dates) if dates else None
         result.append({
             "representative_query": c["representative"],
             "similar_queries": [q["content"] for q in c.get("questions", [])[1:]],
             "occurrence_count": c["count"],
             "avg_top1_score": c.get("avg_rag_score"),
-            "last_asked": last_asked,
+            "last_asked": c.get("last_asked_at"),
             "category": None,
         })
     return result
