@@ -12,6 +12,9 @@ import {
   TrendingUp,
   Sparkles,
   Info,
+  Copy,
+  Check,
+  X,
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { NeuCard } from '@/components/neumorphic/NeuCard'
@@ -155,12 +158,228 @@ function ScoreBadge({ score }: { score: number }) {
   )
 }
 
+// point_id 뱃지 — 클릭 시 상세 팝업 열기
+function PointIdBadge({ pointId, onClick }: { pointId: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation()
+        onClick()
+      }}
+      title={`point_id: ${pointId}\n클릭하면 상세 보기`}
+      className={cn(
+        'rounded-sm px-1.5 py-0.5 font-mono text-[10px]',
+        'text-text-disabled bg-bg-base shadow-neu-pressed',
+        'hover:text-accent hover:bg-accent-muted transition-colors',
+        'focus:ring-accent focus:ring-1 focus:outline-none',
+      )}
+    >
+      #{pointId.slice(0, 8)}
+    </button>
+  )
+}
+
+// 검색 결과 상세 팝업
+function SearchResultDetailModal({
+  result,
+  onClose,
+}: {
+  result: SearchVerifyResult
+  onClose: () => void
+}) {
+  const [copied, setCopied] = useState(false)
+
+  useEffect(() => {
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.body.style.overflow = ''
+    }
+  }, [])
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [onClose])
+
+  const handleCopy = () => {
+    if (!result.point_id) return
+    void navigator.clipboard.writeText(result.point_id).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
+  }
+
+  const META_FIELDS: [string, string][] = [
+    ['tool', '도구'],
+    ['system_id', 'System ID'],
+    ['system_name', '시스템'],
+    ['doc_type', '문서 유형'],
+    ['file_name', '파일명'],
+    ['file_hash', '파일 해시'],
+    ['chunk_index', '청크'],
+    ['page_number', '페이지'],
+    ['slide_number', '슬라이드'],
+    ['issue_key', 'Jira 키'],
+    ['issue_url', 'Jira URL'],
+    ['page_title', 'Confluence 제목'],
+    ['page_url', 'Confluence URL'],
+    ['resolved_at', '해결 시각'],
+    ['resolved_by', '해결자'],
+    ['created_at', '생성 시각'],
+    ['tags', '태그'],
+    ['source_reference', '출처'],
+  ]
+
+  const TEXT_FIELDS: [string, string][] = [
+    ['content', '본문'],
+    ['question', '질문'],
+    ['answer', '답변'],
+    ['solution', '해결책'],
+  ]
+
+  const displayedKeys = new Set<string>([
+    'collection',
+    'score',
+    'point_id',
+    ...TEXT_FIELDS.map(([k]) => k),
+    ...META_FIELDS.map(([k]) => k),
+  ])
+
+  const extraFields = Object.entries(result).filter(
+    ([k, v]) => !displayedKeys.has(k) && v !== undefined && v !== null && v !== '',
+  )
+
+  const hasMetaValues = META_FIELDS.some(([k]) => {
+    const v = result[k]
+    return v !== undefined && v !== null && v !== ''
+  })
+
+  return (
+    <>
+      <div className="bg-overlay fixed inset-0 z-40" onClick={onClose} aria-hidden="true" />
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="검색 결과 상세"
+        className={cn(
+          'border-border bg-bg-base shadow-neu-flat fixed inset-x-4 top-1/2 z-50 mx-auto max-w-2xl -translate-y-1/2',
+          'flex max-h-[85vh] flex-col rounded-sm',
+        )}
+      >
+        {/* 헤더 */}
+        <div className="border-border flex shrink-0 items-start justify-between gap-3 border-b px-5 py-4">
+          <div className="min-w-0 flex-1 space-y-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-text-secondary bg-surface shadow-neu-pressed rounded-sm px-2 py-0.5 font-mono text-xs">
+                {result.collection}
+              </span>
+              <ScoreBadge score={result.score} />
+            </div>
+            {result.point_id && (
+              <div className="flex items-center gap-2">
+                <span className="text-text-disabled shrink-0 text-xs">point_id</span>
+                <code className="text-text-primary bg-surface shadow-neu-pressed min-w-0 rounded-sm px-2 py-0.5 font-mono text-xs break-all">
+                  {result.point_id}
+                </code>
+                <button
+                  type="button"
+                  onClick={handleCopy}
+                  aria-label="point_id 복사"
+                  className={cn(
+                    'shrink-0 rounded-sm p-1 transition-colors',
+                    'text-text-secondary hover:text-accent hover:bg-accent-muted',
+                    'focus:ring-accent focus:ring-1 focus:outline-none',
+                  )}
+                >
+                  {copied ? (
+                    <Check className="text-normal h-3.5 w-3.5" />
+                  ) : (
+                    <Copy className="h-3.5 w-3.5" />
+                  )}
+                </button>
+              </div>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="닫기"
+            className="text-text-secondary hover:text-text-primary focus:ring-accent shrink-0 rounded-sm p-1 focus:ring-1 focus:outline-none"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        {/* 본문 */}
+        <div className="space-y-4 overflow-y-auto px-5 py-4">
+          {TEXT_FIELDS.map(([key, label]) => {
+            const value = result[key]
+            if (!value || typeof value !== 'string') return null
+            return (
+              <div key={key} className="space-y-1.5">
+                <p className="text-text-disabled text-xs font-medium">{label}</p>
+                <div className="bg-surface shadow-neu-inset max-h-52 overflow-y-auto rounded-sm p-3">
+                  <p className="text-text-primary text-sm break-words whitespace-pre-wrap">
+                    {value}
+                  </p>
+                </div>
+              </div>
+            )
+          })}
+
+          {hasMetaValues && (
+            <div className="space-y-1.5">
+              <p className="text-text-disabled text-xs font-medium">메타데이터</p>
+              <div className="space-y-1">
+                {META_FIELDS.map(([k, label]) => {
+                  const v = result[k]
+                  if (v === undefined || v === null || v === '') return null
+                  const displayVal = Array.isArray(v) ? (v as unknown[]).join(', ') : String(v)
+                  return (
+                    <div key={k} className="flex items-start gap-3 text-sm">
+                      <span className="text-text-disabled w-32 shrink-0 pt-0.5">{label}</span>
+                      <span className="text-text-primary break-all">{displayVal}</span>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          {extraFields.length > 0 && (
+            <div className="border-border space-y-1.5 border-t pt-3">
+              <p className="text-text-disabled text-xs font-medium">기타 필드</p>
+              <div className="space-y-1">
+                {extraFields.map(([k, v]) => (
+                  <div key={k} className="flex items-start gap-3 text-sm">
+                    <span className="text-text-disabled w-32 shrink-0 pt-0.5 font-mono">{k}</span>
+                    <span className="text-text-primary break-all">
+                      {typeof v === 'object'
+                        ? JSON.stringify(v)
+                        : String(v as string | number | boolean)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </>
+  )
+}
+
 // 운영자 노트 카드
 interface OperatorNoteCardProps {
   result: SearchVerifyResult
   systemName?: string
   onNoteDeleted: () => void
   onNoteEditRequest: (note: OperatorNote) => void
+  onDetailClick?: () => void
 }
 
 function OperatorNoteCard({
@@ -168,6 +387,7 @@ function OperatorNoteCard({
   systemName,
   onNoteDeleted,
   onNoteEditRequest,
+  onDetailClick,
 }: OperatorNoteCardProps) {
   const [confirmDelete, setConfirmDelete] = useState(false)
   const deleteNote = useDeleteOperatorNote()
@@ -211,36 +431,41 @@ function OperatorNoteCard({
           <p className="text-text-secondary mt-1 line-clamp-3 text-xs">{result.answer}</p>
         </div>
       </div>
-      <div className="border-border flex items-center justify-end gap-1 border-t pt-2">
-        {confirmDelete ? (
-          <DeleteConfirmInline
-            label="정말 삭제할까요?"
-            onConfirm={handleDelete}
-            onCancel={() => setConfirmDelete(false)}
-            isPending={deleteNote.isPending}
-          />
-        ) : (
-          <>
-            <NeuButton
-              variant="ghost"
-              size="sm"
-              onClick={() => onNoteEditRequest(toOperatorNote())}
-              className="gap-1 px-2 text-xs"
-            >
-              <Pencil className="h-3 w-3" />
-              노트 수정
-            </NeuButton>
-            <NeuButton
-              variant="ghost"
-              size="sm"
-              onClick={() => setConfirmDelete(true)}
-              className="text-critical hover:text-critical gap-1 px-2 text-xs"
-            >
-              <Trash2 className="h-3 w-3" />
-              노트 삭제
-            </NeuButton>
-          </>
+      <div className="border-border flex items-center border-t pt-2">
+        {result.point_id && onDetailClick && (
+          <PointIdBadge pointId={result.point_id} onClick={onDetailClick} />
         )}
+        <div className="ml-auto flex items-center gap-1">
+          {confirmDelete ? (
+            <DeleteConfirmInline
+              label="정말 삭제할까요?"
+              onConfirm={handleDelete}
+              onCancel={() => setConfirmDelete(false)}
+              isPending={deleteNote.isPending}
+            />
+          ) : (
+            <>
+              <NeuButton
+                variant="ghost"
+                size="sm"
+                onClick={() => onNoteEditRequest(toOperatorNote())}
+                className="gap-1 px-2 text-xs"
+              >
+                <Pencil className="h-3 w-3" />
+                노트 수정
+              </NeuButton>
+              <NeuButton
+                variant="ghost"
+                size="sm"
+                onClick={() => setConfirmDelete(true)}
+                className="text-critical hover:text-critical gap-1 px-2 text-xs"
+              >
+                <Trash2 className="h-3 w-3" />
+                노트 삭제
+              </NeuButton>
+            </>
+          )}
+        </div>
       </div>
     </NeuCard>
   )
@@ -251,9 +476,10 @@ interface DocumentChunkCardProps {
   result: SearchVerifyResult
   systemName?: string
   onDeleted: () => void
+  onDetailClick?: () => void
 }
 
-function DocumentChunkCard({ result, systemName, onDeleted }: DocumentChunkCardProps) {
+function DocumentChunkCard({ result, systemName, onDeleted, onDetailClick }: DocumentChunkCardProps) {
   const [confirmDelete, setConfirmDelete] = useState(false)
   const deleteDoc = useDeleteDocument()
 
@@ -287,25 +513,30 @@ function DocumentChunkCard({ result, systemName, onDeleted }: DocumentChunkCardP
           <p className="text-text-secondary mt-1 line-clamp-3 text-xs">{result.content}</p>
         )}
       </div>
-      <div className="border-border flex items-center justify-end gap-1 border-t pt-2">
-        {confirmDelete ? (
-          <DeleteConfirmInline
-            label={`"${result.file_name ?? '이 문서'}" 전체 청크를 삭제할까요?`}
-            onConfirm={handleDelete}
-            onCancel={() => setConfirmDelete(false)}
-            isPending={deleteDoc.isPending}
-          />
-        ) : (
-          <NeuButton
-            variant="ghost"
-            size="sm"
-            onClick={() => setConfirmDelete(true)}
-            disabled={!result.file_hash}
-            className="text-critical hover:text-critical gap-1 px-2 text-xs"
-          >
-            <Trash2 className="h-3 w-3" />이 문서 전체 삭제
-          </NeuButton>
+      <div className="border-border flex items-center border-t pt-2">
+        {result.point_id && onDetailClick && (
+          <PointIdBadge pointId={result.point_id} onClick={onDetailClick} />
         )}
+        <div className="ml-auto flex items-center gap-1">
+          {confirmDelete ? (
+            <DeleteConfirmInline
+              label={`"${result.file_name ?? '이 문서'}" 전체 청크를 삭제할까요?`}
+              onConfirm={handleDelete}
+              onCancel={() => setConfirmDelete(false)}
+              isPending={deleteDoc.isPending}
+            />
+          ) : (
+            <NeuButton
+              variant="ghost"
+              size="sm"
+              onClick={() => setConfirmDelete(true)}
+              disabled={!result.file_hash}
+              className="text-critical hover:text-critical gap-1 px-2 text-xs"
+            >
+              <Trash2 className="h-3 w-3" />이 문서 전체 삭제
+            </NeuButton>
+          )}
+        </div>
       </div>
     </NeuCard>
   )
@@ -315,9 +546,10 @@ function DocumentChunkCard({ result, systemName, onDeleted }: DocumentChunkCardP
 interface JiraConfluenceCardProps {
   result: SearchVerifyResult
   onResync: (result: SearchVerifyResult) => void
+  onDetailClick?: () => void
 }
 
-function JiraConfluenceCard({ result, onResync }: JiraConfluenceCardProps) {
+function JiraConfluenceCard({ result, onResync, onDetailClick }: JiraConfluenceCardProps) {
   const isJira = result.collection === 'knowledge_jira_issues'
   const title = isJira ? result.issue_key : result.page_title
   const url = isJira ? result.issue_url : result.page_url
@@ -338,30 +570,35 @@ function JiraConfluenceCard({ result, onResync }: JiraConfluenceCardProps) {
           <p className="text-text-secondary mt-1 line-clamp-3 text-xs">{result.content}</p>
         )}
       </div>
-      <div className="border-border flex items-center justify-end gap-1 border-t pt-2">
-        {url && (
-          <a
-            href={url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className={cn(
-              'text-accent flex items-center gap-1 rounded-sm px-2 py-1 text-xs',
-              'hover:bg-accent-muted focus:ring-accent focus:ring-1 focus:outline-none',
-            )}
-          >
-            <ExternalLink className="h-3 w-3" />
-            원본 보기
-          </a>
+      <div className="border-border flex items-center border-t pt-2">
+        {result.point_id && onDetailClick && (
+          <PointIdBadge pointId={result.point_id} onClick={onDetailClick} />
         )}
-        <NeuButton
-          variant="ghost"
-          size="sm"
-          onClick={() => onResync(result)}
-          className="gap-1 px-2 text-xs"
-        >
-          <RefreshCw className="h-3 w-3" />
-          강제 재동기화
-        </NeuButton>
+        <div className="ml-auto flex items-center gap-1">
+          {url && (
+            <a
+              href={url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={cn(
+                'text-accent flex items-center gap-1 rounded-sm px-2 py-1 text-xs',
+                'hover:bg-accent-muted focus:ring-accent focus:ring-1 focus:outline-none',
+              )}
+            >
+              <ExternalLink className="h-3 w-3" />
+              원본 보기
+            </a>
+          )}
+          <NeuButton
+            variant="ghost"
+            size="sm"
+            onClick={() => onResync(result)}
+            className="gap-1 px-2 text-xs"
+          >
+            <RefreshCw className="h-3 w-3" />
+            강제 재동기화
+          </NeuButton>
+        </div>
       </div>
     </NeuCard>
   )
@@ -371,9 +608,10 @@ function JiraConfluenceCard({ result, onResync }: JiraConfluenceCardProps) {
 interface AggregationVerifyCardProps {
   result: SearchVerifyResult
   systemName?: string
+  onDetailClick?: () => void
 }
 
-function AggregationVerifyCard({ result, systemName }: AggregationVerifyCardProps) {
+function AggregationVerifyCard({ result, systemName, onDetailClick }: AggregationVerifyCardProps) {
   const collectionLabel =
     result.collection === 'aggregation_summaries' ? '집계 요약' : '시간별 패턴'
 
@@ -460,6 +698,11 @@ function AggregationVerifyCard({ result, systemName }: AggregationVerifyCardProp
           </div>
         )}
       </div>
+      {result.point_id && onDetailClick && (
+        <div className="border-border flex items-center border-t pt-2">
+          <PointIdBadge pointId={result.point_id} onClick={onDetailClick} />
+        </div>
+      )}
     </NeuCard>
   )
 }
@@ -469,9 +712,10 @@ interface IncidentCardProps {
   result: SearchVerifyResult
   systemName?: string
   originalQuery: string
+  onDetailClick?: () => void
 }
 
-function IncidentCard({ result, systemName, originalQuery }: IncidentCardProps) {
+function IncidentCard({ result, systemName, originalQuery, onDetailClick }: IncidentCardProps) {
   const navigate = useNavigate()
   const collectionLabel = result.collection === 'metric_baselines' ? '메트릭 기준선' : '로그 장애'
 
@@ -509,15 +753,20 @@ function IncidentCard({ result, systemName, originalQuery }: IncidentCardProps) 
         )}
         {result.solution && <p className="text-text-primary mt-1 text-xs">{result.solution}</p>}
       </div>
-      <div className="border-border flex items-center justify-end gap-1 border-t pt-2">
-        <NeuButton
-          variant="ghost"
-          size="sm"
-          onClick={handleFeedbackSearch}
-          className="gap-1 px-2 text-xs"
-        >
-          해결책 검색
-        </NeuButton>
+      <div className="border-border flex items-center border-t pt-2">
+        {result.point_id && onDetailClick && (
+          <PointIdBadge pointId={result.point_id} onClick={onDetailClick} />
+        )}
+        <div className="ml-auto flex items-center gap-1">
+          <NeuButton
+            variant="ghost"
+            size="sm"
+            onClick={handleFeedbackSearch}
+            className="gap-1 px-2 text-xs"
+          >
+            해결책 검색
+          </NeuButton>
+        </div>
       </div>
     </NeuCard>
   )
@@ -532,6 +781,7 @@ interface ResultCardProps {
   onNoteEditRequest: (note: OperatorNote) => void
   onDocDeleted: () => void
   onResync: (result: SearchVerifyResult) => void
+  onDetailClick?: () => void
 }
 
 function ResultCard({
@@ -542,6 +792,7 @@ function ResultCard({
   onNoteEditRequest,
   onDocDeleted,
   onResync,
+  onDetailClick,
 }: ResultCardProps) {
   const kind = getCardKind(result)
 
@@ -552,23 +803,40 @@ function ResultCard({
         systemName={systemName}
         onNoteDeleted={onNoteDeleted}
         onNoteEditRequest={onNoteEditRequest}
+        onDetailClick={onDetailClick}
       />
     )
   }
   if (kind === 'document_chunk') {
-    return <DocumentChunkCard result={result} systemName={systemName} onDeleted={onDocDeleted} />
+    return (
+      <DocumentChunkCard
+        result={result}
+        systemName={systemName}
+        onDeleted={onDocDeleted}
+        onDetailClick={onDetailClick}
+      />
+    )
   }
   if (kind === 'jira_confluence') {
-    return <JiraConfluenceCard result={result} onResync={onResync} />
+    return <JiraConfluenceCard result={result} onResync={onResync} onDetailClick={onDetailClick} />
   }
   // incident_metric: aggregation / hourly → AggregationVerifyCard, 그 외 → IncidentCard
   if (
     result.collection === 'aggregation_summaries' ||
     result.collection === 'metric_hourly_patterns'
   ) {
-    return <AggregationVerifyCard result={result} systemName={systemName} />
+    return (
+      <AggregationVerifyCard result={result} systemName={systemName} onDetailClick={onDetailClick} />
+    )
   }
-  return <IncidentCard result={result} systemName={systemName} originalQuery={originalQuery} />
+  return (
+    <IncidentCard
+      result={result}
+      systemName={systemName}
+      originalQuery={originalQuery}
+      onDetailClick={onDetailClick}
+    />
+  )
 }
 
 // 컬렉션 체크박스 그룹
@@ -656,6 +924,7 @@ export function SearchVerifyTab() {
   const [addNoteOpen, setAddNoteOpen] = useState(false)
   const [results, setResults] = useState<SearchVerifyResult[]>([])
   const [hasSearched, setHasSearched] = useState(false)
+  const [detailResult, setDetailResult] = useState<SearchVerifyResult | null>(null)
 
   const searchChatbot = useSearchVerifyChatbot()
   const searchCollections = useSearchVerifyCollections()
@@ -875,6 +1144,7 @@ export function SearchVerifyTab() {
                 onNoteEditRequest={setEditNote}
                 onDocDeleted={handleResultsRefresh}
                 onResync={handleResync}
+                onDetailClick={result.point_id ? () => setDetailResult(result) : undefined}
               />
             ))}
           </div>
@@ -914,6 +1184,11 @@ export function SearchVerifyTab() {
             handleResultsRefresh()
           }}
         />
+      )}
+
+      {/* 검색 결과 상세 팝업 */}
+      {detailResult && (
+        <SearchResultDetailModal result={detailResult} onClose={() => setDetailResult(null)} />
       )}
 
       {/* 결과 없을 때도 첫 진입 상태면 안내 */}
