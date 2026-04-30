@@ -116,6 +116,9 @@ services:
     user: "1036:510"
     ports:
       - "8080:8080"
+    volumes:
+      - ./services/attaches/knowledge-docs:/attaches/knowledge-docs:z
+      - ./services/attaches/chat-attachments:/attaches/chat-attachments:z
     environment:
       - DATABASE_URL=postgresql+asyncpg://synapse:${DB_PASSWORD}@postgres:5432/synapse
       - TEAMS_WEBHOOK_URL=${TEAMS_WEBHOOK_URL}
@@ -167,6 +170,7 @@ services:
       - /app/synapse/models/dense-models:/app/dense-models:ro,z
       - /app/synapse/models/fastembed-models:/app/fastembed-models:ro,z
       - /app/synapse/models/reranker-models:/app/reranker-models:ro,z
+      - ./services/attaches/knowledge-docs:/attaches/knowledge-docs:z
     environment:
       - PROMETHEUS_URL=http://prometheus:9090
       - ADMIN_API_URL=http://admin-api:8080

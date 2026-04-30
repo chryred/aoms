@@ -15,6 +15,8 @@
 | **빌드 변경** | 모델 분리 배포 — log-analyzer 이미지에서 모델 제거 → 볼륨 마운트 방식 |
 | **DB 마이그레이션** | 4개 SQL 신규 (OIDC 테이블, 채팅 다중시스템, 게스트 채팅) |
 | **버그픽스** | RHEL 8.9 Teams webhook SSL CA bundle 순서 수정 |
+| **파일 저장 경로** | `services/attaches/` 통합 — admin-api(업로드·첨부) + log-analyzer(임베딩) 공유 볼륨 |
+| **환경변수 정리** | `.env.example` 서비스별 재정리, 실제 운영값 → 플레이스홀더 교체 |
 
 ---
 
@@ -141,6 +143,28 @@ sudo chown -R 1036:510 /app/synapse/services/tempo
 (RedHat 8.9 SELinux uid 매칭 — 볼륨 쓰기 권한 오류 방지)
 
 `frontend` 컨테이너는 nginx 내부 권한 충돌로 `user` 설정을 **적용하지 않음**.
+
+---
+
+### 2-3. services/attaches/ 디렉터리 사전 생성 (신규)
+
+admin-api(문서 업로드 + 챗봇 첨부파일)와 log-analyzer(문서 임베딩)가 공유하는 파일 저장 경로.  
+컨테이너 기동 전 서버에서 디렉터리를 미리 생성해야 합니다.
+
+```bash
+ssh user@SERVER_A
+cd /app/synapse
+
+sudo mkdir -p services/attaches/{knowledge-docs,chat-attachments}
+sudo chown -R 1036:510 services/attaches/
+```
+
+> docker-compose 볼륨 마운트 구성 (이미 반영됨):
+> - admin-api: `./services/attaches/knowledge-docs:/attaches/knowledge-docs`
+> - admin-api: `./services/attaches/chat-attachments:/attaches/chat-attachments`
+> - log-analyzer: `./services/attaches/knowledge-docs:/attaches/knowledge-docs`
+>
+> 두 컨테이너가 동일한 호스트 경로를 마운트하므로 admin-api가 저장한 파일을 log-analyzer가 직접 읽을 수 있습니다.
 
 ---
 
@@ -445,6 +469,7 @@ scp main-server/synapse-models.tar.gz $SERVER_A:/tmp/
 
 # 6. 바인드 마운트 디렉터리 생성 (최초 1회)
 sudo mkdir -p /app/synapse/services/{prometheus,postgres/data,tempo}
+sudo mkdir -p /app/synapse/services/attaches/{knowledge-docs,chat-attachments}   # 섹션 2-3
 sudo chown -R 1036:510 /app/synapse/services/
 
 # 7. (최초 1회) 모델 압축 해제
@@ -490,8 +515,10 @@ curl -s http://localhost:8080/.well-known/openid-configuration | python3 -m json
 | Jira/Confluence 동기화 미실행 | 환경변수 미설정 | `.env`에 `JIRA_URL`, `JIRA_TOKEN`, `JIRA_PROJECTS` 설정 후 재시작 |
 | OIDC `/oauth/authorize` 404 | admin-api 이미지가 갱신 전 버전 | `docker images \| grep admin-api` 버전 확인 후 최신 이미지 로드 |
 | 챗봇 세션 조회 오류 (`column system_ids does not exist`) | DB 마이그레이션 미적용 | 섹션 4-2 `20260429_chat_multi_system.sql` 마이그레이션 적용 |
+| 문서 업로드·임베딩 실패 (`Permission denied`, `FileNotFoundError`) | services/attaches/ 소유권 불일치 또는 미생성 | 섹션 2-3 참조: `chown -R 1036:510 /app/synapse/services/attaches/` |
 
 ---
 
-*작성일: 2026-05-01*  
-*기준 커밋: `6c9f46f` (feat(knowledge): Jira/Confluence 단건 강제 재동기화 구현)*
+*작성일: 2026-05-01, 업데이트: 2026-05-01*  
+*기준 커밋: `6c9f46f` (feat(knowledge): Jira/Confluence 단건 강제 재동기화 구현)*  
+*추가 반영: §2-3 services/attaches/ 파일 저장 경로 통합 / .env.example 서비스별 재정리*

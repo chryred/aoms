@@ -26,7 +26,8 @@ router = APIRouter(prefix="/api/v1/chat", tags=["chat"])
 
 from pydantic import BaseModel
 
-ATTACH_ROOT = Path(os.getenv("CHAT_ATTACHMENT_DIR", "/var/lib/synapse-v/chat-attachments"))
+_DEFAULT_ATTACH_DIR = Path(__file__).parent.parent.parent / "attaches" / "chat-attachments"
+ATTACH_ROOT = Path(os.getenv("CHAT_ATTACHMENT_DIR", str(_DEFAULT_ATTACH_DIR)))
 
 
 class ChatSessionCreateIn(BaseModel):

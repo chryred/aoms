@@ -24,6 +24,7 @@ Synapse Log Analyzer — FastAPI 앱
 import asyncio
 import logging
 import os
+import pathlib
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
@@ -55,7 +56,10 @@ CONFLUENCE_URL     = os.getenv("CONFLUENCE_URL")
 CONFLUENCE_TOKEN   = os.getenv("CONFLUENCE_TOKEN")
 CONFLUENCE_SPACES  = os.getenv("CONFLUENCE_SPACES")  # 콤마 구분 "DEV,OPS"
 KNOWLEDGE_SYNC_RATE_LIMIT = int(os.getenv("KNOWLEDGE_SYNC_RATE_LIMIT", "5"))  # req/sec
-KNOWLEDGE_DOCS_DIR = os.getenv("KNOWLEDGE_DOCS_DIR", "/app/synapse/knowledge-docs")  # admin-api와 동일 기본값
+KNOWLEDGE_DOCS_DIR = os.getenv(
+    "KNOWLEDGE_DOCS_DIR",
+    str(pathlib.Path(__file__).parent.parent / "attaches" / "knowledge-docs"),
+)
 
 _KST = timezone(timedelta(hours=9))  # 집계 스케줄 기준 타임존
 

@@ -14,7 +14,10 @@ venv/
 agent/target/
 docs/security/*
 main-server/.env.local
-main-server/services/admin-api/knowledge-docs/*
+main-server/services/attaches/knowledge-docs/*
+!main-server/services/attaches/knowledge-docs/.gitkeep
+main-server/services/attaches/chat-attachments/*
+!main-server/services/attaches/chat-attachments/.gitkeep
 node_modules/
 # OTel Java Agent JAR — 폐쇄망 환경에서 수동 배치 (README 참조)
 main-server/artifacts/otel/*.jar
