@@ -1,5 +1,8 @@
 import { adminApi, filterParams } from '@/lib/ky-client'
-import type { KnowledgeDocumentListResponse, DocumentChunksResponse } from '@/types/knowledge-verify'
+import type {
+  KnowledgeDocumentListResponse,
+  DocumentChunksResponse,
+} from '@/types/knowledge-verify'
 
 export interface ListKnowledgeDocumentsParams {
   system_id?: number

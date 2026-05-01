@@ -92,7 +92,7 @@ export function ChatHeader({
 
           {/* 세션 선택 드롭다운 */}
           {dropdownOpen && hasSessionPicker && (
-            <div className="border-border bg-surface shadow-neu-flat absolute left-0 top-full z-50 mt-1 w-[280px] rounded-sm border py-1">
+            <div className="border-border bg-surface shadow-neu-flat absolute top-full left-0 z-50 mt-1 w-[280px] rounded-sm border py-1">
               {sessions!.map((session) => {
                 const isCurrent = session.id === currentSessionId
                 return (
@@ -105,9 +105,7 @@ export function ChatHeader({
                     }}
                     className={cn(
                       'flex w-full items-center gap-2 px-3 py-2 text-left text-sm',
-                      isCurrent
-                        ? 'text-accent bg-accent/10'
-                        : 'text-text-primary hover:bg-bg-base',
+                      isCurrent ? 'text-accent bg-accent/10' : 'text-text-primary hover:bg-bg-base',
                     )}
                   >
                     <Check

@@ -1,6 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Upload, FileText, CheckCircle, AlertCircle, Loader2, X, Trash2, ChevronRight, Copy, Check, ExternalLink } from 'lucide-react'
+import {
+  Upload,
+  FileText,
+  CheckCircle,
+  AlertCircle,
+  Loader2,
+  X,
+  Trash2,
+  ChevronRight,
+  Copy,
+  Check,
+  ExternalLink,
+} from 'lucide-react'
 import { NeuButton } from '@/components/neumorphic/NeuButton'
 import { NeuSelect } from '@/components/neumorphic/NeuSelect'
 import { NeuCard } from '@/components/neumorphic/NeuCard'
@@ -206,10 +218,7 @@ function UploadEntryRow({
 }) {
   const qc = useQueryClient()
   // 서버 측 상태 폴링 (jobId가 있고 완료/실패 전인 경우)
-  const polling =
-    !!entry.jobId &&
-    entry.status !== 'done' &&
-    entry.status !== 'error'
+  const polling = !!entry.jobId && entry.status !== 'done' && entry.status !== 'error'
   const { data: jobStatus } = useUploadStatus(polling ? (entry.jobId ?? null) : null)
 
   const resolvedStatus = jobStatus?.status ?? entry.status
@@ -482,7 +491,9 @@ function ChunkCard({ chunk }: { chunk: DocumentChunk }) {
         <div className="flex items-start gap-2">
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
-              <span className="text-text-secondary font-mono text-[10px]">#{chunk.chunk_index}</span>
+              <span className="text-text-secondary font-mono text-[10px]">
+                #{chunk.chunk_index}
+              </span>
               <button
                 type="button"
                 onClick={() => setDetailOpen(true)}
@@ -490,7 +501,7 @@ function ChunkCard({ chunk }: { chunk: DocumentChunk }) {
                 className={cn(
                   'rounded-sm px-1.5 py-0.5 font-mono text-[10px]',
                   'bg-bg-base text-accent',
-                  'hover:bg-accent-muted focus-visible:ring-accent transition-colors focus-visible:outline-none focus-visible:ring-1',
+                  'hover:bg-accent-muted focus-visible:ring-accent transition-colors focus-visible:ring-1 focus-visible:outline-none',
                 )}
               >
                 {chunk.point_id.slice(0, 12)}…
@@ -510,10 +521,12 @@ function ChunkCard({ chunk }: { chunk: DocumentChunk }) {
           </div>
           <button
             onClick={() => setExpanded((v) => !v)}
-            className="text-text-disabled hover:text-text-secondary focus-visible:ring-accent shrink-0 transition-colors focus-visible:outline-none focus-visible:ring-1"
+            className="text-text-disabled hover:text-text-secondary focus-visible:ring-accent shrink-0 transition-colors focus-visible:ring-1 focus-visible:outline-none"
             aria-label={expanded ? '접기' : '펼치기'}
           >
-            <ChevronRight className={cn('h-3.5 w-3.5 transition-transform', expanded && 'rotate-90')} />
+            <ChevronRight
+              className={cn('h-3.5 w-3.5 transition-transform', expanded && 'rotate-90')}
+            />
           </button>
         </div>
       </NeuCard>
@@ -565,10 +578,14 @@ function ChunkDetailModal({ chunk, onClose }: { chunk: DocumentChunk; onClose: (
                 className={cn(
                   'shrink-0 rounded-sm p-1 transition-colors',
                   'text-text-secondary hover:text-accent hover:bg-accent-muted',
-                  'focus-visible:ring-accent focus-visible:outline-none focus-visible:ring-1',
+                  'focus-visible:ring-accent focus-visible:ring-1 focus-visible:outline-none',
                 )}
               >
-                {copied ? <Check className="text-normal h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                {copied ? (
+                  <Check className="text-normal h-3.5 w-3.5" />
+                ) : (
+                  <Copy className="h-3.5 w-3.5" />
+                )}
               </button>
               <a
                 href={qdrantUrl}
@@ -578,7 +595,7 @@ function ChunkDetailModal({ chunk, onClose }: { chunk: DocumentChunk; onClose: (
                 className={cn(
                   'shrink-0 rounded-sm p-1 transition-colors',
                   'text-text-secondary hover:text-accent hover:bg-accent-muted',
-                  'focus-visible:ring-accent focus-visible:outline-none focus-visible:ring-1',
+                  'focus-visible:ring-accent focus-visible:ring-1 focus-visible:outline-none',
                 )}
               >
                 <ExternalLink className="h-3.5 w-3.5" />
@@ -604,7 +621,9 @@ function ChunkDetailModal({ chunk, onClose }: { chunk: DocumentChunk; onClose: (
         <div className="space-y-1.5">
           <p className="text-text-disabled text-xs font-medium">text</p>
           <div className="bg-surface shadow-neu-inset max-h-64 overflow-y-auto rounded-sm p-3">
-            <p className="text-text-primary whitespace-pre-wrap text-xs leading-relaxed">{chunk.text}</p>
+            <p className="text-text-primary text-xs leading-relaxed whitespace-pre-wrap">
+              {chunk.text}
+            </p>
           </div>
         </div>
       </div>

@@ -197,7 +197,12 @@ class SystemContactFullOut(BaseModel):
 
 
 # ── AlertHistory ─────────────────────────────────────────────────────────
-class AlertHistoryOut(BaseModel):
+# ISP(인터페이스 분리 원칙) — 2-6 리팩터
+# AlertHistoryBaseOut: 모든 alert_type에 공통인 필드
+# AlertHistoryMetricOut: metric 타입 전용 필드 추가
+# AlertHistoryLogOut: log_analysis 타입 전용 필드 추가
+# AlertHistoryOut: 하위 호환 슈퍼셋 — 기존 라우트·프론트 JSON 그대로 유지
+class AlertHistoryBaseOut(BaseModel):
     id: int
     system_id: Optional[int]
     alert_type: str
@@ -209,16 +214,35 @@ class AlertHistoryOut(BaseModel):
     host: Optional[str]
     acknowledged: bool
     escalated: bool
-    # Phase 4c: 메트릭 벡터 유사도 분석 필드
-    anomaly_type:     Optional[str]
-    similarity_score: Optional[float]
-    qdrant_point_id:  Optional[str]
     resolved_at: Optional[UtcDatetime]
     error_message:    Optional[str]   # NULL=성공, 값=LLM/분석 실패 사유
     incident_id: Optional[int]
     created_at: UtcDatetime
 
     model_config = {"from_attributes": True}
+
+
+class AlertHistoryMetricOut(AlertHistoryBaseOut):
+    """metric 알림 전용 — 벡터 유사도 분석 필드 포함."""
+    anomaly_type:     Optional[str] = None
+    similarity_score: Optional[float] = None
+    qdrant_point_id:  Optional[str] = None
+
+
+class AlertHistoryLogOut(AlertHistoryBaseOut):
+    """log_analysis 알림 전용 — 벡터 유사도 분석 필드 포함."""
+    anomaly_type:     Optional[str] = None
+    similarity_score: Optional[float] = None
+    qdrant_point_id:  Optional[str] = None
+
+
+# 하위 호환 슈퍼셋: 기존 라우트·프론트엔드 JSON 와이어 포맷 변경 없이 유지
+# (metric/log_analysis 공통으로 쓰는 라우트, incidents.py 등이 이 타입을 그대로 사용)
+class AlertHistoryOut(AlertHistoryBaseOut):
+    # Phase 4c: 메트릭·로그 유사도 분석 필드 (타입별 의미 다르나 슈퍼셋으로 노출)
+    anomaly_type:     Optional[str] = None
+    similarity_score: Optional[float] = None
+    qdrant_point_id:  Optional[str] = None
 
 
 class AcknowledgeRequest(BaseModel):

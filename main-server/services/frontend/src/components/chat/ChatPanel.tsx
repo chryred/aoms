@@ -383,125 +383,129 @@ export function ChatPanel() {
       )}
     >
       <div className="bg-surface flex h-full w-full flex-col lg:w-[420px] lg:shrink-0">
-      <ChatHeader
-        title={currentSession?.title ?? '새 대화'}
-        sessions={recentSessions}
-        currentSessionId={currentSessionId}
-        onSessionSelect={setCurrentSessionId}
-        onNewChat={handleNewChat}
-        onClose={() => setOpen(false)}
-        disabled={isStreaming}
-        systems={systems}
-        filterSystemIds={filterSystemIds}
-        onFilterSystemChange={handleFilterChange}
-      />
+        <ChatHeader
+          title={currentSession?.title ?? '새 대화'}
+          sessions={recentSessions}
+          currentSessionId={currentSessionId}
+          onSessionSelect={setCurrentSessionId}
+          onNewChat={handleNewChat}
+          onClose={() => setOpen(false)}
+          disabled={isStreaming}
+          systems={systems}
+          filterSystemIds={filterSystemIds}
+          onFilterSystemChange={handleFilterChange}
+        />
 
-      <div
-        ref={scrollRef}
-        onScroll={handleScroll}
-        className="bg-bg-base flex-1 space-y-3 overflow-y-auto px-3 py-3"
-      >
-        {messages?.length === 0 && !isStreaming && (
-          <div className="mt-4 px-1">
-            <p className="text-text-primary mb-3 text-center text-sm font-medium">
-              어떤 도움이 필요하신가요?
-            </p>
+        <div
+          ref={scrollRef}
+          onScroll={handleScroll}
+          className="bg-bg-base flex-1 space-y-3 overflow-y-auto px-3 py-3"
+        >
+          {messages?.length === 0 && !isStreaming && (
+            <div className="mt-4 px-1">
+              <p className="text-text-primary mb-3 text-center text-sm font-medium">
+                어떤 도움이 필요하신가요?
+              </p>
 
-            {/* 화면별 quick prompt chips */}
-            {latestScreenContext?.screen && SCREEN_PROMPTS[latestScreenContext.screen] && (
-              <div className="mb-3">
-                {latestScreenContext.screen_label && (
-                  <p className="text-text-secondary mb-1.5 text-[11px]">
-                    현재 화면: {latestScreenContext.screen_label}
-                  </p>
-                )}
-                <div className="flex flex-wrap gap-1.5">
-                  {SCREEN_PROMPTS[latestScreenContext.screen].map((chip) => (
-                    <button
-                      key={chip}
-                      type="button"
-                      onClick={() => setRestoreValue({ content: chip, nonce: Date.now() })}
-                      disabled={isStreaming || !currentSessionId}
-                      className={cn(
-                        'border-border rounded-sm border px-2.5 py-1 text-left text-xs transition-colors',
-                        'text-text-secondary hover:bg-accent-muted hover:border-accent hover:text-text-primary',
-                        'focus:ring-accent focus:ring-1 focus:outline-none',
-                        'disabled:cursor-not-allowed disabled:opacity-40',
-                      )}
-                    >
-                      {chip}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            <div className="space-y-3">
-              {promptCategories.map((group) => (
-                <div key={group.label}>
-                  <p className="text-text-secondary mb-1.5 text-[11px] font-medium tracking-wide uppercase">
-                    {group.label}
-                  </p>
-                  <div className="grid grid-cols-1 gap-2">
-                    {group.items.map(({ icon: Icon, category, prompt }) => (
+              {/* 화면별 quick prompt chips */}
+              {latestScreenContext?.screen && SCREEN_PROMPTS[latestScreenContext.screen] && (
+                <div className="mb-3">
+                  {latestScreenContext.screen_label && (
+                    <p className="text-text-secondary mb-1.5 text-[11px]">
+                      현재 화면: {latestScreenContext.screen_label}
+                    </p>
+                  )}
+                  <div className="flex flex-wrap gap-1.5">
+                    {SCREEN_PROMPTS[latestScreenContext.screen].map((chip) => (
                       <button
-                        key={category}
+                        key={chip}
                         type="button"
-                        onClick={() => handleSend(prompt)}
+                        onClick={() => setRestoreValue({ content: chip, nonce: Date.now() })}
                         disabled={isStreaming || !currentSessionId}
                         className={cn(
-                          'border-border rounded-sm border p-3 text-left transition-colors',
-                          'hover:bg-accent-muted hover:border-accent',
+                          'border-border rounded-sm border px-2.5 py-1 text-left text-xs transition-colors',
+                          'text-text-secondary hover:bg-accent-muted hover:border-accent hover:text-text-primary',
                           'focus:ring-accent focus:ring-1 focus:outline-none',
                           'disabled:cursor-not-allowed disabled:opacity-40',
                         )}
                       >
-                        <div className="text-text-secondary mb-1 flex items-center gap-1.5 text-xs">
-                          <Icon className="h-3.5 w-3.5" />
-                          <span>{category}</span>
-                        </div>
-                        <div className="text-text-primary text-sm">{prompt}</div>
+                        {chip}
                       </button>
                     ))}
                   </div>
                 </div>
-              ))}
-            </div>
-          </div>
-        )}
-        {messages?.map((m: ChatMessage) => (
-          <ChatMessageView
-            key={m.id}
-            message={m}
-            sessionId={currentSessionId ?? ''}
-            onRetry={handleRetry}
-          />
-        ))}
-        {streamingTools.map((t) => (
-          <ToolCallCard
-            key={t.id}
-            toolName={t.name}
-            args={t.args}
-            result={t.result}
-            running={t.running}
-            thought={t.thought}
-          />
-        ))}
-        {isStreaming && (
-          <StreamingAssistantMessage content={streamText} running={true} thought={streamThought} />
-        )}
-      </div>
+              )}
 
-      <ChatComposer
-        disabled={!currentSessionId}
-        streaming={isStreaming}
-        attachments={attachments}
-        uploadingCount={isUploading ? 1 : 0}
-        onAddFiles={addFiles}
-        onRemoveAttachment={removeAttachment}
-        onSend={handleSend}
-        prefillValue={restoreValue}
-      />
+              <div className="space-y-3">
+                {promptCategories.map((group) => (
+                  <div key={group.label}>
+                    <p className="text-text-secondary mb-1.5 text-[11px] font-medium tracking-wide uppercase">
+                      {group.label}
+                    </p>
+                    <div className="grid grid-cols-1 gap-2">
+                      {group.items.map(({ icon: Icon, category, prompt }) => (
+                        <button
+                          key={category}
+                          type="button"
+                          onClick={() => handleSend(prompt)}
+                          disabled={isStreaming || !currentSessionId}
+                          className={cn(
+                            'border-border rounded-sm border p-3 text-left transition-colors',
+                            'hover:bg-accent-muted hover:border-accent',
+                            'focus:ring-accent focus:ring-1 focus:outline-none',
+                            'disabled:cursor-not-allowed disabled:opacity-40',
+                          )}
+                        >
+                          <div className="text-text-secondary mb-1 flex items-center gap-1.5 text-xs">
+                            <Icon className="h-3.5 w-3.5" />
+                            <span>{category}</span>
+                          </div>
+                          <div className="text-text-primary text-sm">{prompt}</div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {messages?.map((m: ChatMessage) => (
+            <ChatMessageView
+              key={m.id}
+              message={m}
+              sessionId={currentSessionId ?? ''}
+              onRetry={handleRetry}
+            />
+          ))}
+          {streamingTools.map((t) => (
+            <ToolCallCard
+              key={t.id}
+              toolName={t.name}
+              args={t.args}
+              result={t.result}
+              running={t.running}
+              thought={t.thought}
+            />
+          ))}
+          {isStreaming && (
+            <StreamingAssistantMessage
+              content={streamText}
+              running={true}
+              thought={streamThought}
+            />
+          )}
+        </div>
+
+        <ChatComposer
+          disabled={!currentSessionId}
+          streaming={isStreaming}
+          attachments={attachments}
+          uploadingCount={isUploading ? 1 : 0}
+          onAddFiles={addFiles}
+          onRemoveAttachment={removeAttachment}
+          onSend={handleSend}
+          prefillValue={restoreValue}
+        />
       </div>
     </div>
   )
