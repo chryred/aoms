@@ -25,9 +25,9 @@ import { ProcessTreemap } from '@/components/dashboard/ProcessTreemap'
 import { formatKST, cn } from '@/lib/utils'
 
 const severityConfig = {
-  critical: { color: 'text-red-500', bgColor: 'bg-red-500/10', icon: AlertCircle },
-  warning: { color: 'text-yellow-500', bgColor: 'bg-yellow-500/10', icon: AlertTriangle },
-  info: { color: 'text-blue-500', bgColor: 'bg-blue-500/10', icon: CheckCircle },
+  critical: { color: 'text-critical', bgColor: 'bg-critical/10', icon: AlertCircle },
+  warning: { color: 'text-warning', bgColor: 'bg-warning/10', icon: AlertTriangle },
+  info: { color: 'text-accent', bgColor: 'bg-accent/10', icon: CheckCircle },
 }
 
 export function DashboardSystemDetailPage() {
@@ -124,6 +124,8 @@ export function DashboardSystemDetailPage() {
         </div>
 
         <MetricChartGrid
+          systemId={numericId}
+          timeRange={timeRange}
           availableCollectors={availableCollectors}
           collectorConfigs={collectorConfigs}
           liveSummaryByCt={liveSummaryByCt}
@@ -179,16 +181,11 @@ export function DashboardSystemDetailPage() {
         ) : (
           <div className="grid gap-3">
             {detail.metric_alerts.map((alert) => (
-              <div
-                key={`${alert.alert_type}-${alert.id}`}
-                className="transition-all duration-150 hover:shadow-lg"
-              >
+              <div key={`${alert.alert_type}-${alert.id}`}>
                 <NeuCard
                   className={cn(
-                    'border-l-4 transition-all duration-150',
-                    alert.severity === 'critical'
-                      ? 'border-l-red-500/50'
-                      : 'border-l-yellow-500/50',
+                    'border-l-4',
+                    alert.severity === 'critical' ? 'border-l-critical/50' : 'border-l-warning/50',
                   )}
                 >
                   <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
@@ -240,26 +237,24 @@ export function DashboardSystemDetailPage() {
         </div>
 
         <div className="grid grid-cols-3 gap-3">
-          <div className="transition-all duration-150 hover:shadow-lg">
-            <NeuCard className="border-l-4 border-red-500/30 py-4 text-center transition-all duration-150">
+          <div>
+            <NeuCard className="border-critical/30 border-l-4 py-4 text-center">
               <p className="text-text-secondary mb-1 text-sm">Critical</p>
-              <p className="text-2xl font-bold text-red-500">
+              <p className="text-critical text-2xl font-bold">
                 {detail.log_analysis.critical_count}
               </p>
             </NeuCard>
           </div>
-          <div className="transition-all duration-150 hover:shadow-lg">
-            <NeuCard className="border-l-4 border-yellow-500/30 py-4 text-center transition-all duration-150">
+          <div>
+            <NeuCard className="border-warning/30 border-l-4 py-4 text-center">
               <p className="text-text-secondary mb-1 text-sm">Warning</p>
-              <p className="text-2xl font-bold text-yellow-500">
-                {detail.log_analysis.warning_count}
-              </p>
+              <p className="text-warning text-2xl font-bold">{detail.log_analysis.warning_count}</p>
             </NeuCard>
           </div>
-          <div className="transition-all duration-150 hover:shadow-lg">
-            <NeuCard className="border-l-4 border-blue-500/30 py-4 text-center transition-all duration-150">
+          <div>
+            <NeuCard className="border-accent/30 border-l-4 py-4 text-center">
               <p className="text-text-secondary mb-1 text-sm">전체</p>
-              <p className="text-2xl font-bold text-blue-500">{detail.log_analysis.latest_count}</p>
+              <p className="text-accent text-2xl font-bold">{detail.log_analysis.latest_count}</p>
             </NeuCard>
           </div>
         </div>
@@ -274,15 +269,15 @@ export function DashboardSystemDetailPage() {
               const config = severityConfig[incident.severity as keyof typeof severityConfig]
               const Icon = config.icon
               return (
-                <div key={incident.id} className="transition-all duration-150 hover:shadow-lg">
+                <div key={incident.id}>
                   <NeuCard
                     className={cn(
-                      'border-l-4 transition-all duration-150',
+                      'border-l-4',
                       incident.severity === 'critical'
-                        ? 'border-l-red-500/50'
+                        ? 'border-l-critical/50'
                         : incident.severity === 'warning'
-                          ? 'border-l-yellow-500/50'
-                          : 'border-l-blue-500/50',
+                          ? 'border-l-warning/50'
+                          : 'border-l-accent/50',
                     )}
                   >
                     <div className="space-y-3">
@@ -356,12 +351,12 @@ export function DashboardSystemDetailPage() {
         ) : (
           <div className="grid gap-3">
             {detail.proactive_alerts.map((alert) => (
-              <div key={alert.id} className="transition-all duration-150 hover:shadow-lg">
+              <div key={alert.id}>
                 <NeuCard
                   className={cn(
-                    'border-l-4 transition-all duration-150',
+                    'border-l-4',
                     alert.llm_severity === 'critical'
-                      ? 'border-l-red-500/40'
+                      ? 'border-l-critical/40'
                       : 'border-l-proactive/40',
                   )}
                 >
@@ -371,7 +366,7 @@ export function DashboardSystemDetailPage() {
                         <TrendingUp className="text-proactive-text mt-0.5 h-4 w-4 flex-shrink-0" />
                         <div className="min-w-0 flex-1">
                           <p className="text-text-primary line-clamp-2 text-sm font-semibold break-words">
-                            <span className="bg-btn-secondary mr-1 inline-block rounded px-1.5 py-0.5 font-mono text-xs">
+                            <span className="bg-btn-secondary mr-1 inline-block rounded-sm px-1.5 py-0.5 font-mono text-xs">
                               {alert.collector_type}
                             </span>
                             {alert.metric_group}
@@ -438,8 +433,8 @@ export function DashboardSystemDetailPage() {
         ) : (
           <div className="grid gap-3">
             {detail.contacts.map((contact) => (
-              <div key={contact.id} className="transition-all duration-150 hover:shadow-lg">
-                <NeuCard className="transition-all duration-150">
+              <div key={contact.id}>
+                <NeuCard>
                   <div className="flex items-start justify-between gap-3 sm:gap-4">
                     <div className="min-w-0 flex-1">
                       <h3 className="text-text-primary font-semibold break-words">

@@ -27,6 +27,7 @@ interface TrendMonitorSectionProps {
 const TREND_CHARTS = [
   {
     title: 'CPU 사용률',
+    aggLabel: 'MAX',
     collectorType: 'synapse_agent',
     metricGroup: 'cpu',
     metricKey: 'cpu_max',
@@ -34,13 +35,15 @@ const TREND_CHARTS = [
   },
   {
     title: '메모리 사용률',
+    aggLabel: 'MAX',
     collectorType: 'synapse_agent',
     metricGroup: 'memory',
-    metricKey: 'mem_used_pct',
+    metricKey: 'mem_max',
     unit: '%',
   },
   {
     title: '로그 에러 추이',
+    aggLabel: '합계',
     collectorType: 'synapse_agent',
     metricGroup: 'log',
     metricKey: 'log_errors',
@@ -48,6 +51,7 @@ const TREND_CHARTS = [
   },
   {
     title: '웹 응답시간',
+    aggLabel: 'AVG',
     collectorType: 'synapse_agent',
     metricGroup: 'web',
     metricKey: 'resp_avg_ms',
@@ -150,6 +154,7 @@ function ExpandedPanel({
   rects,
   isClosing,
   title,
+  aggLabel,
   unit,
   lineColors,
   gridColor,
@@ -163,6 +168,7 @@ function ExpandedPanel({
   rects: ExpandRects
   isClosing: boolean
   title: string
+  aggLabel?: string
   unit: string
   lineColors: string[]
   gridColor: string
@@ -221,7 +227,7 @@ function ExpandedPanel({
         <div className="mb-3 flex shrink-0 items-center justify-between">
           <h3 className="type-heading text-text-primary text-base font-semibold">
             {title}
-            {unit && ` (${unit})`}
+            {unit && ` (${unit}${aggLabel ? `, ${aggLabel}` : ''})`}
           </h3>
           <span className="text-text-disabled cursor-zoom-out text-[10px] select-none">
             더블클릭 또는 ESC로 닫기
@@ -305,6 +311,7 @@ function TrendChart({
   systemNames,
   systemStatuses,
   title,
+  aggLabel,
   unit,
   isExpanded,
   isClosing,
@@ -315,6 +322,7 @@ function TrendChart({
   systemNames: string[]
   systemStatuses: Record<string, string>
   title: string
+  aggLabel?: string
   unit: string
   isExpanded: boolean
   isClosing: boolean
@@ -346,7 +354,7 @@ function TrendChart({
         <div className="mb-3 flex items-center justify-between">
           <h3 className="type-heading text-text-primary text-sm font-semibold">
             {title}
-            {unit && ` (${unit})`}
+            {unit && ` (${unit}${aggLabel ? `, ${aggLabel}` : ''})`}
           </h3>
           <span className="text-text-disabled text-[10px]">더블클릭하여 확대</span>
         </div>
@@ -426,6 +434,7 @@ function TrendChart({
             rects={expandRects}
             isClosing={isClosing}
             title={title}
+            aggLabel={aggLabel}
             unit={unit}
             lineColors={lineColors}
             gridColor={gridColor}
@@ -628,6 +637,7 @@ export function TrendMonitorSection({ systems }: TrendMonitorSectionProps) {
                 systemNames={systemNames}
                 systemStatuses={systemStatuses}
                 title={chart.title}
+                aggLabel={chart.aggLabel}
                 unit={chart.unit}
                 isExpanded={expandedChart === chart.metricGroup}
                 isClosing={closingChart === chart.metricGroup}

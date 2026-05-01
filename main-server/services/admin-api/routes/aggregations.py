@@ -56,6 +56,7 @@ RANGE_PROMQL_MAP: dict[str, dict[str, dict[str, str]]] = {
         },
         "memory": {
             "mem_used_pct": 'avg(memory_used_bytes{{system_name="{sn}",type="used"}}) / ignoring(type) avg(memory_used_bytes{{system_name="{sn}",type="total"}}) * 100',
+            "mem_max":      'max(memory_used_bytes{{system_name="{sn}",type="used"}}) / ignoring(type) max(memory_used_bytes{{system_name="{sn}",type="total"}}) * 100',
             "mem_p95":      'quantile(0.95, memory_used_bytes{{system_name="{sn}",type="used"}}) / ignoring(type) avg(memory_used_bytes{{system_name="{sn}",type="total"}}) * 100',
             # 인스턴스별 메모리 사용률 — 양변 모두 by (instance_role) 으로 정확한 per-inst %
             "mem_max_by_inst": '(max by (instance_role) (memory_used_bytes{{system_name="{sn}",type="used"}}) / max by (instance_role) (memory_used_bytes{{system_name="{sn}",type="total"}})) * 100',
@@ -632,55 +633,81 @@ async def get_process_summary(
             _query(f'process_cpu_percent{{system_name="{sn}"}}'),
             _query(f'process_memory_bytes{{system_name="{sn}"}}'),
             _query(f'memory_used_bytes{{system_name="{sn}",type="total"}}'),
-            _query(f'count(cpu_usage_percent{{system_name="{sn}",core!="total"}})'),
+            _query(f'count by (instance_role) (cpu_usage_percent{{system_name="{sn}",core!="total"}})'),
         )
 
-    # CPU 코어 수 (process_cpu_percent 정규화용)
-    num_cores = 1
-    if cores_res:
+    # 인스턴스별 CPU 코어 수
+    cores_map: dict[str, int] = {}
+    for series in cores_res:
+        role = series.get("metric", {}).get("instance_role", "")
         try:
-            num_cores = max(1, int(float(cores_res[0].get("value", [None, "1"])[1])))
+            cores_map[role] = max(1, int(float(series.get("value", [None, "1"])[1])))
+        except (TypeError, ValueError, IndexError):
+            cores_map[role] = 1
+
+    # 인스턴스별 전체 메모리 (bytes)
+    total_mem_map: dict[str, float] = {}
+    for series in total_res:
+        role = series.get("metric", {}).get("instance_role", "")
+        try:
+            val = series.get("value", [None, None])[1]
+            if val is not None:
+                total_mem_map[role] = float(val)
         except (TypeError, ValueError, IndexError):
             pass
 
-    # 전체 메모리 (bytes)
-    total_mem = None
-    if total_res:
-        try:
-            total_mem = float(total_res[0].get("value", [None, None])[1])
-        except (TypeError, ValueError, IndexError):
-            pass
-
-    # CPU — process/service_name 기준으로 합산 후 코어 수로 정규화
+    # CPU — (instance_role, name) 복합키로 합산 후 인스턴스별 코어 수로 정규화
     proc_map: dict[str, dict] = {}
     for series in cpu_res:
         labels = series.get("metric", {})
         name = labels.get("service_display") or labels.get("service_name") or labels.get("process", "unknown")
+        instance_role = labels.get("instance_role", "unknown")
+        host = labels.get("host", "")
         val = series.get("value", [None, None])[1]
         if val is None:
             continue
         cpu_pct = float(val)
-        if name not in proc_map:
-            proc_map[name] = {"name": name, "cpu_percent": 0.0, "mem_percent": 0.0, "mem_bytes": 0}
-        proc_map[name]["cpu_percent"] = round(proc_map[name]["cpu_percent"] + cpu_pct, 2)
+        key = f"{instance_role}|{name}"
+        if key not in proc_map:
+            proc_map[key] = {
+                "name": name,
+                "instance_role": instance_role,
+                "host": host,
+                "cpu_percent": 0.0,
+                "mem_percent": 0.0,
+                "mem_bytes": 0,
+            }
+        proc_map[key]["cpu_percent"] = round(proc_map[key]["cpu_percent"] + cpu_pct, 2)
 
-    # 코어 수로 정규화 (전체 CPU 대비 비율로 변환)
+    # 인스턴스별 코어 수로 정규화
     for entry in proc_map.values():
+        num_cores = cores_map.get(entry["instance_role"], 1)
         entry["cpu_percent"] = round(entry["cpu_percent"] / num_cores, 2)
 
-    # 메모리 — 같은 키로 합산
+    # 메모리 — 같은 복합키로 합산
     for series in mem_res:
         labels = series.get("metric", {})
         name = labels.get("service_display") or labels.get("service_name") or labels.get("process", "unknown")
+        instance_role = labels.get("instance_role", "unknown")
+        host = labels.get("host", "")
         val = series.get("value", [None, None])[1]
         if val is None:
             continue
         mem_bytes = float(val)
-        if name not in proc_map:
-            proc_map[name] = {"name": name, "cpu_percent": 0.0, "mem_percent": 0.0, "mem_bytes": 0}
-        proc_map[name]["mem_bytes"] = round(proc_map[name]["mem_bytes"] + mem_bytes)
+        key = f"{instance_role}|{name}"
+        if key not in proc_map:
+            proc_map[key] = {
+                "name": name,
+                "instance_role": instance_role,
+                "host": host,
+                "cpu_percent": 0.0,
+                "mem_percent": 0.0,
+                "mem_bytes": 0,
+            }
+        proc_map[key]["mem_bytes"] = round(proc_map[key]["mem_bytes"] + mem_bytes)
+        total_mem = total_mem_map.get(instance_role)
         if total_mem and total_mem > 0:
-            proc_map[name]["mem_percent"] = round(proc_map[name]["mem_bytes"] / total_mem * 100, 2)
+            proc_map[key]["mem_percent"] = round(proc_map[key]["mem_bytes"] / total_mem * 100, 2)
 
-    # CPU% 내림차순 정렬
-    return sorted(proc_map.values(), key=lambda x: x["cpu_percent"], reverse=True)
+    # 인스턴스별로 묶고, 각 그룹 내 CPU% 내림차순 정렬
+    return sorted(proc_map.values(), key=lambda x: (x["instance_role"], -x["cpu_percent"]))

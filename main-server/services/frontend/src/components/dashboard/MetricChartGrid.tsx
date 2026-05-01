@@ -1,7 +1,9 @@
 import { useState, useMemo } from 'react'
-import { X } from 'lucide-react'
+import { useQueries } from '@tanstack/react-query'
+import { X, Info } from 'lucide-react'
 import {
   ComposedChart,
+  LineChart,
   Line,
   XAxis,
   YAxis,
@@ -11,15 +13,17 @@ import {
 } from 'recharts'
 import { NeuCard } from '@/components/neumorphic/NeuCard'
 import { MetricChart } from '@/components/charts/MetricChart'
+import { aggregationsApi } from '@/api/aggregations'
 import { getMetricKeys, extractInstanceSeries } from '@/lib/metrics-transform'
 import {
   COLLECTOR_SECTION_LABELS,
   CHART_TITLES,
   UNIT_MAP,
   DEFAULT_HIDDEN_KEYS_BY_GROUP,
+  METRIC_HINTS,
 } from '@/lib/metrics-config'
 import { cn } from '@/lib/utils'
-import { getMetricStatus, classifyByValue, STATUS_CFG } from '@/hooks/useMetricDashboard'
+import { getMetricStatus, classifyByValue, STATUS_CFG, HOURS_MAP } from '@/hooks/useMetricDashboard'
 import { useUiStore } from '@/store/uiStore'
 import type { TimeRange } from '@/hooks/useMetricDashboard'
 import type { HourlyAggregation } from '@/types/aggregation'
@@ -28,6 +32,29 @@ import type { HourlyAggregation } from '@/types/aggregation'
 const INST_WARNING_COLOR = { dark: '#F59E0B', light: '#D97706' }
 const INST_CRITICAL_COLOR = { dark: '#EF4444', light: '#DC2626' }
 const INST_MUTED_COLOR = { dark: '#8B97AD', light: '#6B7280' }
+
+// 상태별 스파크라인 선 색상
+const SPARK_LINE_COLOR: Record<string, { dark: string; light: string }> = {
+  critical: { dark: '#EF4444', light: '#F43F5E' },
+  warning: { dark: '#F59E0B', light: '#F97316' },
+  normal: { dark: '#8B97AD', light: '#6B7280' },
+  inactive: { dark: '#5A6478', light: '#9CA3AF' },
+  unconfigured: { dark: '#5A6478', light: '#9CA3AF' },
+}
+
+// 그룹별 대표 메트릭 키 (스파크라인용 단일 지표)
+const CARD_METRIC_KEY: Record<string, string> = {
+  cpu: 'cpu_max',
+  memory: 'mem_max',
+  disk: 'disk_io_ms',
+  network: 'net_rx_mb',
+  log: 'log_errors',
+  web: 'resp_avg_ms',
+  db_connections: 'conn_active_pct',
+  db_query: 'tps',
+  db_cache: 'cache_hit_rate',
+  db_replication: 'repl_lag_sec',
+}
 
 function getLatestValue(values: { ts: string; value: number | null }[]): number | null {
   for (let i = values.length - 1; i >= 0; i--) {
@@ -49,6 +76,20 @@ function resolveInstColor(
   return INST_MUTED_COLOR[theme]
 }
 
+function InfoTooltip({ text }: { text: string }) {
+  return (
+    <span
+      className="group/tip relative ml-1 inline-flex cursor-default items-center p-0.5 select-none"
+      onClick={(e) => e.stopPropagation()}
+    >
+      <Info className="text-text-disabled h-3 w-3 flex-shrink-0" />
+      <span className="shadow-neu-flat border-border bg-surface text-text-secondary pointer-events-none absolute bottom-full left-0 z-50 mb-1.5 w-56 rounded-sm border px-2.5 py-2 text-[10px] leading-relaxed whitespace-pre-line opacity-0 transition-opacity duration-150 group-hover/tip:opacity-100">
+        {text}
+      </span>
+    </span>
+  )
+}
+
 // 메트릭 그룹 → 인스턴스별 max 키 prefix 매핑 (backend RANGE_PROMQL_MAP 키와 일치해야 함)
 const INST_METRIC_BASE: Record<string, string> = {
   cpu: 'cpu_max_by_inst',
@@ -68,6 +109,8 @@ interface CollectorConfig {
 }
 
 interface MetricChartGridProps {
+  systemId: number
+  timeRange: TimeRange
   availableCollectors: string[]
   collectorConfigs: CollectorConfig[]
   liveSummaryByCt: Record<string, Record<string, number | null>>
@@ -86,7 +129,65 @@ interface ChartPopupProps {
   onClose: () => void
 }
 
+interface SparkPoint {
+  ts: string
+  v: number | null
+}
+
+function MiniSparkline({
+  data,
+  metricKey,
+  lineColor,
+  isLoading,
+}: {
+  data: HourlyAggregation[]
+  metricKey: string | undefined
+  lineColor: string
+  isLoading: boolean
+}) {
+  const points = useMemo<SparkPoint[]>(() => {
+    if (!metricKey || !data.length) return []
+    return data.map((d) => {
+      const parsed = JSON.parse(d.metrics_json) as Record<string, number>
+      return {
+        ts: d.hour_bucket,
+        v: typeof parsed[metricKey] === 'number' ? parsed[metricKey] : null,
+      }
+    })
+  }, [data, metricKey])
+
+  if (isLoading) {
+    return <div className="border-border/30 h-full animate-pulse rounded-sm bg-current opacity-5" />
+  }
+
+  if (points.length === 0) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <span className="text-text-disabled text-[10px]">추이 없음</span>
+      </div>
+    )
+  }
+
+  return (
+    <ResponsiveContainer width="100%" height="100%">
+      <LineChart data={points} margin={{ top: 3, right: 4, left: 4, bottom: 3 }}>
+        <Line
+          type="monotone"
+          dataKey="v"
+          stroke={lineColor}
+          dot={false}
+          strokeWidth={1.5}
+          connectNulls={false}
+          isAnimationActive={false}
+        />
+      </LineChart>
+    </ResponsiveContainer>
+  )
+}
+
 export function MetricChartGrid({
+  systemId,
+  timeRange,
   availableCollectors,
   collectorConfigs,
   liveSummaryByCt,
@@ -94,6 +195,58 @@ export function MetricChartGrid({
   getGroupsForCt,
   onOpenChart,
 }: MetricChartGridProps) {
+  const theme = useUiStore((s) => s.theme)
+
+  const groupPairs = useMemo(() => {
+    const pairs: { ct: string; group: string }[] = []
+    for (const ct of availableCollectors) {
+      for (const group of getGroupsForCt(ct)) {
+        pairs.push({ ct, group })
+      }
+    }
+    return pairs
+  }, [availableCollectors, getGroupsForCt])
+
+  const { fromDt, toDt, cardStep } = useMemo(() => {
+    const to = new Date()
+    const from = new Date(to.getTime() - HOURS_MAP[timeRange] * 3_600_000)
+    // ~72 data points regardless of time range
+    const step = Math.max(300, Math.round((HOURS_MAP[timeRange] * 3600) / 72))
+    return { fromDt: from.toISOString(), toDt: to.toISOString(), cardStep: step }
+  }, [timeRange])
+
+  const queries = useQueries({
+    queries: groupPairs.map(({ ct, group }) => ({
+      queryKey: ['metrics-range-card', systemId, ct, group, fromDt],
+      queryFn: () =>
+        aggregationsApi.getMetricsRange({
+          system_id: systemId,
+          collector_type: ct,
+          metric_group: group,
+          start_dt: fromDt,
+          end_dt: toDt,
+          step: cardStep,
+        }),
+      staleTime: 300_000,
+      gcTime: 600_000,
+    })),
+  })
+
+  const sparkByKey = useMemo(() => {
+    const map = new Map<string, HourlyAggregation[]>()
+    groupPairs.forEach(({ ct, group }, i) => {
+      const data = queries[i]?.data
+      if (data?.length) map.set(`${ct}::${group}`, data)
+    })
+    return map
+  }, [queries, groupPairs])
+
+  const sparkIndexByKey = useMemo(() => {
+    const map = new Map<string, number>()
+    groupPairs.forEach(({ ct, group }, i) => map.set(`${ct}::${group}`, i))
+    return map
+  }, [groupPairs])
+
   if (availableCollectors.length === 0) {
     return (
       <NeuCard className="text-text-secondary py-6 text-center text-sm">
@@ -131,27 +284,48 @@ export function MetricChartGrid({
                     isGroupConfigured,
                   )
                   const cfg = STATUS_CFG[status]
+                  const lineColor =
+                    (SPARK_LINE_COLOR[status] ?? SPARK_LINE_COLOR.normal)[theme]
+                  const key = `${ct}::${group}`
+                  const queryIdx = sparkIndexByKey.get(key) ?? -1
+                  const isSparkLoading = queryIdx >= 0 ? (queries[queryIdx]?.isLoading ?? false) : false
 
                   return (
                     <div
                       key={group}
+                      role="button"
+                      tabIndex={0}
                       onClick={() => onOpenChart(group, ct)}
-                      className="bg-bg-base shadow-neu-flat hover:bg-surface flex cursor-pointer items-center justify-between rounded-sm px-3 py-2 transition-[transform,background-color] duration-150 active:scale-[0.98]"
+                      onKeyDown={(e) => e.key === 'Enter' && onOpenChart(group, ct)}
+                      className="bg-bg-base shadow-neu-flat hover:bg-surface focus-visible:ring-accent focus-visible:ring-1 focus-visible:outline-none cursor-pointer rounded-sm p-3 transition-[transform,background-color] duration-150 active:scale-[0.98]"
                     >
-                      <span className="text-text-tertiary text-xs font-medium">
-                        {CHART_TITLES[group] ?? group}
-                      </span>
-                      <span
-                        className={cn('flex items-center gap-1 text-xs font-medium', cfg.color)}
-                      >
-                        <span className={cn('text-[8px]', cfg.dot)}>●</span>
-                        {cfg.label}
-                        {avg !== null && (
-                          <span className="font-mono text-[10px] opacity-80">
-                            ({avg.toFixed(0)}%)
-                          </span>
-                        )}
-                      </span>
+                      {/* 헤더: 그룹명 + 상태 배지 */}
+                      <div className="mb-2 flex items-center justify-between">
+                        <span className="text-text-secondary flex items-center text-xs font-medium">
+                          {CHART_TITLES[group] ?? group}
+                          {METRIC_HINTS[group] && <InfoTooltip text={METRIC_HINTS[group]} />}
+                        </span>
+                        <span
+                          className={cn('flex items-center gap-1 text-xs font-medium', cfg.color)}
+                        >
+                          <span className={cn('text-[8px]', cfg.dot)}>●</span>
+                          {cfg.label}
+                          {avg !== null && (
+                            <span className="font-mono text-[10px] opacity-80">
+                              ({avg.toFixed(0)}%)
+                            </span>
+                          )}
+                        </span>
+                      </div>
+                      {/* 미니 스파크라인 */}
+                      <div className="h-14">
+                        <MiniSparkline
+                          data={sparkByKey.get(key) ?? []}
+                          metricKey={CARD_METRIC_KEY[group]}
+                          lineColor={lineColor}
+                          isLoading={isSparkLoading}
+                        />
+                      </div>
                     </div>
                   )
                 })}
