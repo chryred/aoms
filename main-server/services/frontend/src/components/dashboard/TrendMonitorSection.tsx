@@ -4,6 +4,7 @@ import { createPortal } from 'react-dom'
 import { useQueries } from '@tanstack/react-query'
 import {
   ComposedChart,
+  Area,
   Line,
   XAxis,
   YAxis,
@@ -136,10 +137,11 @@ function TrendTooltip({
   unit?: string
 }) {
   if (!active || !payload?.length) return null
+  const visible = payload.filter((p) => !String(p.name).startsWith('__area_'))
   return (
     <div className="border-border bg-bg-base shadow-neu-flat max-w-xs rounded-sm border p-3 text-xs">
       <p className="text-text-primary mb-1 font-semibold">{label}</p>
-      {payload.map((p) => (
+      {visible.map((p) => (
         <p key={p.name} style={{ color: p.color }}>
           {p.name}: {typeof p.value === 'number' ? p.value.toFixed(1) : p.value}
           {unit ? ` ${unit}` : ''}
@@ -153,6 +155,7 @@ function TrendTooltip({
 function ExpandedPanel({
   rects,
   isClosing,
+  chartKey,
   title,
   aggLabel,
   unit,
@@ -167,6 +170,7 @@ function ExpandedPanel({
 }: {
   rects: ExpandRects
   isClosing: boolean
+  chartKey: string
   title: string
   aggLabel?: string
   unit: string
@@ -248,6 +252,24 @@ function ExpandedPanel({
             <div className="min-h-0 flex-1">
               <ResponsiveContainer width="100%" height="100%">
                 <ComposedChart data={data}>
+                  <defs>
+                    {systemNames.map((_, i) => {
+                      const color = lineColors[i % lineColors.length]
+                      return (
+                        <linearGradient
+                          key={i}
+                          id={`tge-${chartKey}-${i}`}
+                          x1="0"
+                          y1="0"
+                          x2="0"
+                          y2="1"
+                        >
+                          <stop offset="0%" stopColor={color} stopOpacity={0.3} />
+                          <stop offset="100%" stopColor={color} stopOpacity={0.02} />
+                        </linearGradient>
+                      )
+                    })}
+                  </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
                   <XAxis
                     dataKey="timestamp"
@@ -261,6 +283,20 @@ function ExpandedPanel({
                   />
                   <YAxis tick={{ fontSize: 12, fill: tickColor }} unit={unit} />
                   <Tooltip content={<TrendTooltip unit={unit} />} />
+                  {systemNames.map((name, i) => (
+                    <Area
+                      key={`area-${name}`}
+                      name={`__area_${name}`}
+                      type="monotone"
+                      dataKey={`__a_${name}`}
+                      stroke="none"
+                      fill={`url(#tge-${chartKey}-${i})`}
+                      dot={false}
+                      activeDot={false}
+                      isAnimationActive={false}
+                      legendType="none"
+                    />
+                  ))}
                   {systemNames.map((name, i) => {
                     const lineStyle = getLineStyle(systemStatuses[name] ?? 'normal')
                     return (
@@ -307,6 +343,7 @@ function ExpandedPanel({
 }
 
 function TrendChart({
+  chartKey,
   data,
   systemNames,
   systemStatuses,
@@ -318,6 +355,7 @@ function TrendChart({
   expandRects,
   onToggle,
 }: {
+  chartKey: string
   data: TrendDataPoint[]
   systemNames: string[]
   systemStatuses: Record<string, string>
@@ -372,6 +410,24 @@ function TrendChart({
           <>
             <ResponsiveContainer width="100%" height={180}>
               <ComposedChart data={data}>
+                <defs>
+                  {systemNames.map((_, i) => {
+                    const color = lineColors[i % lineColors.length]
+                    return (
+                      <linearGradient
+                        key={i}
+                        id={`tgc-${chartKey}-${i}`}
+                        x1="0"
+                        y1="0"
+                        x2="0"
+                        y2="1"
+                      >
+                        <stop offset="0%" stopColor={color} stopOpacity={0.3} />
+                        <stop offset="100%" stopColor={color} stopOpacity={0.02} />
+                      </linearGradient>
+                    )
+                  })}
+                </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
                 <XAxis
                   dataKey="timestamp"
@@ -385,6 +441,20 @@ function TrendChart({
                 />
                 <YAxis tick={{ fontSize: 11, fill: tickColor }} unit={unit} />
                 <Tooltip content={<TrendTooltip unit={unit} />} />
+                {systemNames.map((name, i) => (
+                  <Area
+                    key={`area-${name}`}
+                    name={`__area_${name}`}
+                    type="monotone"
+                    dataKey={`__a_${name}`}
+                    stroke="none"
+                    fill={`url(#tgc-${chartKey}-${i})`}
+                    dot={false}
+                    activeDot={false}
+                    isAnimationActive={false}
+                    legendType="none"
+                  />
+                ))}
                 {systemNames.map((name, i) => {
                   const lineStyle = getLineStyle(systemStatuses[name] ?? 'normal')
                   return (
@@ -433,6 +503,7 @@ function TrendChart({
           <ExpandedPanel
             rects={expandRects}
             isClosing={isClosing}
+            chartKey={chartKey}
             title={title}
             aggLabel={aggLabel}
             unit={unit}
@@ -579,9 +650,15 @@ export function TrendMonitorSection({ systems }: TrendMonitorSectionProps) {
       }
     }
 
-    const data = Array.from(timeMap.values()).sort((a, b) =>
-      (a.timestamp as string).localeCompare(b.timestamp as string),
-    )
+    const data = Array.from(timeMap.values())
+      .sort((a, b) => (a.timestamp as string).localeCompare(b.timestamp as string))
+      .map((point) => {
+        const mirrored: TrendDataPoint = { ...point }
+        for (const name of systemNames) {
+          mirrored[`__a_${name}`] = point[name]
+        }
+        return mirrored
+      })
     return { data, systemNames, systemStatuses }
   }
 
@@ -633,6 +710,7 @@ export function TrendMonitorSection({ systems }: TrendMonitorSectionProps) {
             return (
               <TrendChart
                 key={chart.metricGroup}
+                chartKey={chart.metricGroup}
                 data={data}
                 systemNames={systemNames}
                 systemStatuses={systemStatuses}
