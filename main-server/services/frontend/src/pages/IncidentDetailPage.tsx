@@ -44,11 +44,11 @@ const STATUS_LABELS: Record<string, string> = {
 const STATUS_NEXT: Record<string, { label: string; value: string }[]> = {
   open: [
     { label: '확인', value: 'acknowledged' },
-    { label: '조사 시작', value: 'investigating' },
+    { label: '원인파악 중', value: 'investigating' },
     { label: '해결 처리', value: 'resolved' },
   ],
   acknowledged: [
-    { label: '조사 시작', value: 'investigating' },
+    { label: '원인 파악 중', value: 'investigating' },
     { label: '해결 처리', value: 'resolved' },
   ],
   investigating: [{ label: '해결 처리', value: 'resolved' }],
