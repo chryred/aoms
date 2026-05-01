@@ -1,9 +1,11 @@
 import { useState, useMemo } from 'react'
 import { useQueries } from '@tanstack/react-query'
-import { X, Info } from 'lucide-react'
+import { Link } from 'react-router-dom'
+import { X, Info, Maximize2 } from 'lucide-react'
 import {
   ComposedChart,
-  LineChart,
+  AreaChart,
+  Area,
   Line,
   XAxis,
   YAxis,
@@ -23,6 +25,7 @@ import {
   METRIC_HINTS,
 } from '@/lib/metrics-config'
 import { cn } from '@/lib/utils'
+import { ROUTES } from '@/constants/routes'
 import { getMetricStatus, classifyByValue, STATUS_CFG, HOURS_MAP } from '@/hooks/useMetricDashboard'
 import { useUiStore } from '@/store/uiStore'
 import type { TimeRange } from '@/hooks/useMetricDashboard'
@@ -37,7 +40,7 @@ const INST_MUTED_COLOR = { dark: '#8B97AD', light: '#6B7280' }
 const SPARK_LINE_COLOR: Record<string, { dark: string; light: string }> = {
   critical: { dark: '#EF4444', light: '#F43F5E' },
   warning: { dark: '#F59E0B', light: '#F97316' },
-  normal: { dark: '#8B97AD', light: '#6B7280' },
+  normal: { dark: '#22C55E', light: '#10B981' },
   inactive: { dark: '#5A6478', light: '#9CA3AF' },
   unconfigured: { dark: '#5A6478', light: '#9CA3AF' },
 }
@@ -139,11 +142,13 @@ function MiniSparkline({
   metricKey,
   lineColor,
   isLoading,
+  sparkId,
 }: {
   data: HourlyAggregation[]
   metricKey: string | undefined
   lineColor: string
   isLoading: boolean
+  sparkId: string
 }) {
   const points = useMemo<SparkPoint[]>(() => {
     if (!metricKey || !data.length) return []
@@ -168,19 +173,43 @@ function MiniSparkline({
     )
   }
 
+  const gradId = `sg-${sparkId.replace(/[^a-zA-Z0-9]/g, '-')}`
+  const lastIdx = points.length - 1
+
   return (
     <ResponsiveContainer width="100%" height="100%">
-      <LineChart data={points} margin={{ top: 3, right: 4, left: 4, bottom: 3 }}>
-        <Line
+      <AreaChart data={points} margin={{ top: 4, right: 5, left: 5, bottom: 3 }}>
+        <defs>
+          <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={lineColor} stopOpacity={0.3} />
+            <stop offset="100%" stopColor={lineColor} stopOpacity={0.02} />
+          </linearGradient>
+        </defs>
+        <Area
           type="monotone"
           dataKey="v"
           stroke={lineColor}
-          dot={false}
+          fill={`url(#${gradId})`}
           strokeWidth={1.5}
+          dot={(props: { index: number; cx: number; cy: number }) => {
+            if (props.index !== lastIdx || props.cy == null)
+              return <g key={`d-${props.index}`} />
+            return (
+              <circle
+                key={`d-${props.index}`}
+                cx={props.cx}
+                cy={props.cy}
+                r={2.5}
+                fill={lineColor}
+                stroke="none"
+              />
+            )
+          }}
+          activeDot={false}
           connectNulls={false}
           isAnimationActive={false}
         />
-      </LineChart>
+      </AreaChart>
     </ResponsiveContainer>
   )
 }
@@ -284,11 +313,11 @@ export function MetricChartGrid({
                     isGroupConfigured,
                   )
                   const cfg = STATUS_CFG[status]
-                  const lineColor =
-                    (SPARK_LINE_COLOR[status] ?? SPARK_LINE_COLOR.normal)[theme]
+                  const lineColor = (SPARK_LINE_COLOR[status] ?? SPARK_LINE_COLOR.normal)[theme]
                   const key = `${ct}::${group}`
                   const queryIdx = sparkIndexByKey.get(key) ?? -1
-                  const isSparkLoading = queryIdx >= 0 ? (queries[queryIdx]?.isLoading ?? false) : false
+                  const isSparkLoading =
+                    queryIdx >= 0 ? (queries[queryIdx]?.isLoading ?? false) : false
 
                   return (
                     <div
@@ -297,34 +326,53 @@ export function MetricChartGrid({
                       tabIndex={0}
                       onClick={() => onOpenChart(group, ct)}
                       onKeyDown={(e) => e.key === 'Enter' && onOpenChart(group, ct)}
-                      className="bg-bg-base shadow-neu-flat hover:bg-surface focus-visible:ring-accent focus-visible:ring-1 focus-visible:outline-none cursor-pointer rounded-sm p-3 transition-[transform,background-color] duration-150 active:scale-[0.98]"
+                      className="group bg-bg-base shadow-neu-flat hover:bg-surface focus-visible:ring-accent cursor-pointer rounded-sm p-3 transition-[transform,background-color] duration-150 focus-visible:ring-1 focus-visible:outline-none active:scale-[0.98]"
                     >
                       {/* 헤더: 그룹명 + 상태 배지 */}
-                      <div className="mb-2 flex items-center justify-between">
-                        <span className="text-text-secondary flex items-center text-xs font-medium">
+                      <div className="mb-2 flex items-center justify-between gap-2">
+                        <span className="text-text-secondary flex min-w-0 items-center text-xs font-medium">
                           {CHART_TITLES[group] ?? group}
                           {METRIC_HINTS[group] && <InfoTooltip text={METRIC_HINTS[group]} />}
                         </span>
                         <span
-                          className={cn('flex items-center gap-1 text-xs font-medium', cfg.color)}
+                          className={cn(
+                            'flex flex-shrink-0 items-center gap-1.5 text-xs font-medium',
+                            cfg.color,
+                          )}
                         >
                           <span className={cn('text-[8px]', cfg.dot)}>●</span>
-                          {cfg.label}
+                          <span>{cfg.label}</span>
                           {avg !== null && (
-                            <span className="font-mono text-[10px] opacity-80">
-                              ({avg.toFixed(0)}%)
+                            <span className="font-mono font-semibold">
+                              {avg.toFixed(0)}
+                              {UNIT_MAP[group] ?? '%'}
                             </span>
                           )}
+                          <Maximize2 className="text-text-disabled ml-0.5 h-3 w-3 flex-shrink-0 opacity-0 transition-opacity duration-150 group-hover:opacity-40" />
                         </span>
                       </div>
                       {/* 미니 스파크라인 */}
                       <div className="h-14">
-                        <MiniSparkline
-                          data={sparkByKey.get(key) ?? []}
-                          metricKey={CARD_METRIC_KEY[group]}
-                          lineColor={lineColor}
-                          isLoading={isSparkLoading}
-                        />
+                        {status === 'inactive' && !isGroupConfigured ? (
+                          <div className="flex h-full flex-col items-center justify-center gap-1">
+                            <span className="text-text-disabled text-[10px]">수집기 미설정</span>
+                            <Link
+                              to={ROUTES.AGENTS}
+                              onClick={(e) => e.stopPropagation()}
+                              className="text-accent hover:text-accent/80 text-[10px] font-medium underline-offset-2 hover:underline"
+                            >
+                              에이전트 관리 →
+                            </Link>
+                          </div>
+                        ) : (
+                          <MiniSparkline
+                            data={sparkByKey.get(key) ?? []}
+                            metricKey={CARD_METRIC_KEY[group]}
+                            lineColor={lineColor}
+                            isLoading={isSparkLoading}
+                            sparkId={key}
+                          />
+                        )}
                       </div>
                     </div>
                   )
