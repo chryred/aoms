@@ -9,8 +9,9 @@ from sqlalchemy import func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
-from models import AlertExclusion, AlertHistory, IncidentTimeline, LogAnalysisHistory, System, Contact, SystemContact, User
+from models import AlertExclusion, AlertHistory, IncidentTimeline, LogAnalysisHistory
 from schemas import AlertHistoryOut, AlertmanagerPayload, AcknowledgeRequest, AlertsBulkExcludeRequest, BulkExcludeResult
+from services.alert_utils import get_system_and_contacts
 from services.cooldown import is_in_cooldown, make_alert_key, record_sent
 from services.incident_service import get_or_create_incident
 from services.notification import TeamsNotifier
@@ -25,30 +26,6 @@ router = APIRouter(prefix="/api/v1/alerts", tags=["alerts"])
 DEFAULT_WEBHOOK_URL = os.getenv("TEAMS_WEBHOOK_URL", "")
 notifier = TeamsNotifier(default_webhook_url=DEFAULT_WEBHOOK_URL)
 
-
-
-async def _get_system_and_contacts(db: AsyncSession, system_name: str):
-    """system_name으로 시스템 + 담당자 목록 조회 (name은 User 테이블에서)"""
-    result = await db.execute(
-        select(System).where(System.system_name == system_name)
-    )
-    system = result.scalar_one_or_none()
-    if not system:
-        return None, []
-
-    contacts_result = await db.execute(
-        select(Contact, User.name.label("user_name"), User.email.label("user_email"))
-        .join(SystemContact, SystemContact.contact_id == Contact.id)
-        .join(User, Contact.user_id == User.id)
-        .where(SystemContact.system_id == system.id)
-    )
-    # dict 형태로 변환해 notification.py의 c['name'] 패턴과 호환
-    contacts = [
-        {"id": c.id, "name": user_name, "email": user_email,
-         "teams_upn": c.teams_upn, "webhook_url": c.webhook_url}
-        for c, user_name, user_email in contacts_result.all()
-    ]
-    return system, contacts
 
 
 @router.post("/receive", status_code=status.HTTP_200_OK)
@@ -72,7 +49,7 @@ async def receive_alertmanager(
 
         # ── 정상 복구 처리 ────────────────────────────────────────────────
         if alert.status == "resolved":
-            system, contacts = await _get_system_and_contacts(db, system_name)
+            system, contacts = await get_system_and_contacts(db, system_name)
 
             # 매칭 키는 쿨다운 키와 동일 정밀도 — (system_id, alertname, instance_role, severity)
             # host 차원은 제외해 같은 group 내 다중 host firing 행을 한 번에 복구 처리
@@ -141,7 +118,7 @@ async def receive_alertmanager(
             processed.append({"alertname": alertname, "status": "resolved"})
             continue
 
-        system, contacts = await _get_system_and_contacts(db, system_name)
+        system, contacts = await get_system_and_contacts(db, system_name)
 
         # 쿨다운 체크 (시스템 없어도 글로벌 키로 체크)
         system_id = system.id if system else None

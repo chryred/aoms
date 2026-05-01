@@ -50,8 +50,10 @@ synapse_agent → Prometheus 로그 메트릭 수집 → LLM 분석 → Teams �
 
 ```
 log-analyzer/
-├── main.py                        # FastAPI 앱, 백그라운드 스케줄러, 모든 엔드포인트
-├── analyzer.py                    # 핵심 분석 로직 (Loki 조회 → PII 마스킹 → LLM 호출 → admin-api 전송)
+├── main.py                        # FastAPI 앱 초기화, lifespan, 모든 엔드포인트
+├── scheduler_tasks.py             # 백그라운드 스케줄러 9종 + 공유 상태(_running/_agg_running 등) + Jira/Confluence 동기화 로직
+├── analyzer.py                    # 핵심 분석 로직 (Prometheus 조회 → LLM 호출 → admin-api 전송)
+├── log_normalizer.py              # 순수 유틸: mask_sensitive_data, _sample_logs_by_type, _format_logs_by_type
 ├── aggregation_processor.py       # Phase 5: 집계 스케줄러 코어 (asyncio 병렬, semaphore=20)
 ├── vector_client.py               # log_incidents / metric_baselines 컬렉션 관리
 ├── aggregation_vector_client.py   # metric_hourly_patterns / aggregation_summaries 컬렉션 관리

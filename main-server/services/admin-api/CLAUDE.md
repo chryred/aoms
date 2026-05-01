@@ -43,13 +43,16 @@ admin-api/
 │   ├── collector_config.py  # /api/v1/collector-config (Phase 5)
 │   ├── aggregations.py      # /api/v1/aggregations (Phase 5)
 │   ├── reports.py           # /api/v1/reports (Phase 5)
-│   ├── agents.py            # /api/v1/ssh/session, /api/v1/agents (Phase 6)
+│   ├── agents.py            # /api/v1/ssh/session, /api/v1/agents CRUD + health-summary (Phase 6)
+│   ├── agents_control.py    # /api/v1/agents 제어·설치·OTel — start/stop/restart/status/install/config/live-status (Phase 6)
 │   ├── dashboard.py         # /api/v1/dashboard (통합 대시보드 API - Phase 8)
 │   ├── websocket.py         # /ws/dashboard (실시간 알림 스트리밍 - Phase 8)
 │   └── oauth.py             # OIDC IdP (ADR-014): /.well-known/openid-configuration, /oauth/jwks, /oauth/authorize, /oauth/token, /oauth/userinfo, /api/v1/oauth/clients
 └── services/
+    ├── agent_utils.py           # sanitize_promql_label — PromQL 레이블 인젝션 방지 공유 유틸
     ├── cooldown.py              # 알림 중복 발송 방지 (5분 쿨다운)
-    ├── notification.py          # TeamsNotifier — Adaptive Card 생성·발송
+    ├── notification.py          # TeamsNotifier — Webhook POST 전송 + SSL CA 처리 (카드 빌드는 adaptive_card_builder에 위임)
+    ├── adaptive_card_builder.py # Teams Adaptive Card JSON 빌더 — build_metric_alert_card / build_log_analysis_card / build_recovery_card / build_vector_context_block
     ├── ssh_session.py           # SSH 세션 인메모리 관리 (5분 슬라이딩 TTL, DB 저장 금지)
     ├── llm_client.py            # LLM Strategy (ADR-001, log-analyzer와 SYNC) — devx/claude/openai (ADR-012: ollama 제거)
     ├── prometheus_analyzer.py   # Prometheus PromQL 이상 감지 → LLM 분석 → Teams 알림 (Phase F, ADR-001 반영)

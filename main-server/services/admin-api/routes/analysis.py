@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
 from models import AlertHistory, AlertExclusion, IncidentTimeline, LogAnalysisHistory, System
-from routes.alerts import _get_system_and_contacts
+from services.alert_utils import get_system_and_contacts
 from services.exclusion_filter import is_excluded, mark_skipped
 from services.incident_service import get_or_create_incident
 from routes.websocket import notify_log_analysis
@@ -126,7 +126,7 @@ async def create_analysis(payload: LogAnalysisCreate, db: AsyncSession = Depends
         ))
 
     if will_send_teams:
-        _, contacts = await _get_system_and_contacts(db, system.system_name)
+        _, contacts = await get_system_and_contacts(db, system.system_name)
         contacts_data = [{"name": c["name"], "teams_upn": c["teams_upn"]} for c in contacts]
 
         webhook_url = system.teams_webhook_url or DEFAULT_WEBHOOK_URL
