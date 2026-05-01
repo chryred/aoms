@@ -1,6 +1,13 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { adminApi } from '@/lib/ky-client'
 
+export interface InstanceHealth {
+  instance_role: string
+  server_type: string | null
+  status: 'normal' | 'warning' | 'critical' | 'inactive'
+  worst_metric: string | null
+}
+
 export interface SystemHealthData {
   system_id: string
   display_name: string
@@ -9,6 +16,7 @@ export interface SystemHealthData {
   reason: string
   proactive_count: number // 예방 패턴 감지 건수
   has_otel?: boolean
+  instances?: InstanceHealth[]
 }
 
 export interface DashboardSummary {

@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback, useEffect, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
@@ -65,6 +65,7 @@ export function AgentDetailPage() {
   const [configDirty, setConfigDirty] = useState(false)
   const [configDisplayPath, setConfigDisplayPath] = useState<string | null>(null)
   const [actionLoading, setActionLoading] = useState<string | null>(null)
+  const [applying, setApplying] = useState(false)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [installJobId, setInstallJobId] = useState<string | null>(null)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
@@ -83,7 +84,7 @@ export function AgentDetailPage() {
 
   const supportsLive = agent?.agent_type === 'synapse_agent' || agent?.agent_type === 'db'
 
-  const { data: liveStatus } = useQuery({
+  const { data: liveStatus, refetch: refetchLiveStatus } = useQuery({
     queryKey: qk.agentLiveStatus(agentId),
     queryFn: () => agentsApi.getLiveStatus(agentId),
     enabled: supportsLive,
@@ -104,6 +105,32 @@ export function AgentDetailPage() {
 
   const isDbAgent = agent?.agent_type === 'db'
   const isOtelAgent = agent?.agent_type === 'otel_javaagent'
+
+  // synapse_agent 수집항목 (label_info.collectors 파싱)
+  const labelInfo = useMemo(() => {
+    try {
+      return typeof agent?.label_info === 'string'
+        ? (JSON.parse(agent.label_info) as Record<string, unknown>)
+        : (agent?.label_info ?? {})
+    } catch {
+      return {}
+    }
+  }, [agent?.label_info])
+
+  const configuredCollectors = (labelInfo.collectors ?? {}) as Record<string, boolean>
+
+  const COLLECTOR_KEYS = [
+    'cpu',
+    'memory',
+    'disk',
+    'network',
+    'process',
+    'tcp_connections',
+    'log_monitor',
+    'heartbeat',
+    'web_servers',
+    'preprocessor',
+  ] as const
 
   // OTel 전용: service_type별 inject 파일 경로 계산 (service_path + install_path 기반)
   const otelInjectInfo = (() => {
@@ -202,8 +229,45 @@ export function AgentDetailPage() {
 
   async function handleUploadConfig() {
     if (!token || configContent === null) return
-    await runAction('설정 업로드', () => agentsApi.uploadConfig(agentId, token, configContent))
-    setConfigDirty(false)
+    setActionLoading('설정 업로드')
+    try {
+      await agentsApi.uploadConfig(agentId, token, configContent)
+      setConfigDirty(false)
+      refreshExpiry()
+      // 에이전트 재시작 대기 후 상태 갱신
+      await new Promise((r) => setTimeout(r, 3000))
+      void refetchLiveStatus()
+      showMsg('success', '설정 파일이 업로드되었습니다.')
+    } catch (err) {
+      if (err instanceof HTTPError && err.response.status === 401) {
+        handleSSHExpired()
+      } else {
+        showMsg('error', '설정 업로드 실패')
+      }
+    } finally {
+      setActionLoading(null)
+    }
+  }
+
+  async function handleApplyConfig() {
+    if (!token) return
+    setApplying(true)
+    try {
+      await agentsApi.applyConfig(agentId, token)
+      refreshExpiry()
+      showMsg('success', '설정이 재적용되었습니다.')
+      // 에이전트 재시작 대기 후 상태 갱신
+      await new Promise((r) => setTimeout(r, 3000))
+      void refetchLiveStatus()
+    } catch (err) {
+      if (err instanceof HTTPError && err.response.status === 401) {
+        handleSSHExpired()
+      } else {
+        showMsg('error', '설정 재적용 실패')
+      }
+    } finally {
+      setApplying(false)
+    }
   }
 
   async function handleRefreshStatus() {
@@ -564,6 +628,46 @@ export function AgentDetailPage() {
                 {(!liveStatus.collectors_active || liveStatus.collectors_active.length === 0) && (
                   <p className="text-text-secondary text-xs">활성 수집기 정보 없음</p>
                 )}
+                {agent.agent_type === 'synapse_agent' && (
+                  <div className="border-border mt-4 border-t pt-3">
+                    <p className="text-text-secondary mb-2 text-xs font-semibold">수집항목 설정</p>
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 sm:grid-cols-3">
+                      {COLLECTOR_KEYS.map((key) => {
+                        const isConfigured = !!configuredCollectors[key]
+                        const isActive = (liveStatus.collectors_active ?? []).includes(key)
+                        return (
+                          <label
+                            key={key}
+                            className={cn(
+                              'flex items-center gap-2 transition-opacity',
+                              isConfigured ? 'opacity-100' : 'opacity-40',
+                            )}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isConfigured}
+                              disabled
+                              className="accent-accent rounded-sm"
+                            />
+                            <span className="text-text-primary text-xs">
+                              {COLLECTOR_LABELS[key] ?? key}
+                            </span>
+                            {isActive && (
+                              <span
+                                className="bg-normal h-1.5 w-1.5 rounded-full"
+                                aria-label="수집 중"
+                                title="Prometheus에서 실시간 수신 중"
+                              />
+                            )}
+                          </label>
+                        )
+                      })}
+                    </div>
+                    <p className="text-text-disabled mt-2 text-[10px]">
+                      체크된 항목 = 설정됨 / 초록 점 = 실시간 수집 중
+                    </p>
+                  </div>
+                )}
               </div>
             ) : (
               <p className="text-text-secondary text-xs">Prometheus에서 상태를 조회 중입니다...</p>
@@ -738,15 +842,33 @@ export function AgentDetailPage() {
                   <RefreshCw className="h-3.5 w-3.5" />
                   다시 불러오기
                 </NeuButton>
-                <NeuButton
-                  size="sm"
-                  onClick={handleUploadConfig}
-                  loading={actionLoading === '설정 업로드'}
-                  disabled={!sessionActive || !configDirty}
-                >
-                  <Upload className="h-3.5 w-3.5" />
-                  업로드 및 Reload
-                </NeuButton>
+                <div className="flex items-center gap-2">
+                  {agent.agent_type === 'synapse_agent' && (
+                    <NeuButton
+                      size="sm"
+                      variant="secondary"
+                      onClick={handleApplyConfig}
+                      loading={applying}
+                      disabled={!sessionActive || applying}
+                      title={
+                        !sessionActive
+                          ? 'SSH 세션 등록 후 사용 가능'
+                          : 'label_info에서 config.toml 재생성 후 적용'
+                      }
+                    >
+                      설정 재적용
+                    </NeuButton>
+                  )}
+                  <NeuButton
+                    size="sm"
+                    onClick={handleUploadConfig}
+                    loading={actionLoading === '설정 업로드'}
+                    disabled={!sessionActive || !configDirty}
+                  >
+                    <Upload className="h-3.5 w-3.5" />
+                    업로드 및 Reload
+                  </NeuButton>
+                </div>
               </div>
               {configDirty && (
                 <p className="text-warning text-xs">저장되지 않은 변경사항이 있습니다.</p>

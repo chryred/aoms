@@ -7,7 +7,11 @@ import { ErrorCard } from '@/components/common/ErrorCard'
 import { EmptyState } from '@/components/common/EmptyState'
 import { SystemMultiSelect } from '@/components/chat/SystemMultiSelect'
 import { OperatorNoteFormModal } from './OperatorNoteFormModal'
-import { SearchVerifyModeToggle, CollectionCheckboxGroup, RerankerToggle } from './SearchVerifyModeToggle'
+import {
+  SearchVerifyModeToggle,
+  CollectionCheckboxGroup,
+  RerankerToggle,
+} from './SearchVerifyModeToggle'
 import { ResultCard } from './SearchVerifyResultsList'
 import { SearchResultDetailPanel } from './SearchVerifyDetailPanel'
 import { useSystems } from '@/hooks/queries/useSystems'

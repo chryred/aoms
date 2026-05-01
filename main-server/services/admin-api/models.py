@@ -268,26 +268,7 @@ class AlertExclusion(Base):
 
 
 # ── Phase 5: 계층적 집계 & 장애 예방 ────────────────────────────────────────
-
-class SystemCollectorConfig(Base):
-    """수집기 유연 레지스트리 — 시스템별로 어떤 exporter의 어떤 metric_group을 집계할지 등록"""
-    __tablename__ = "system_collector_config"
-
-    id             = Column(Integer, primary_key=True)
-    system_id      = Column(Integer, ForeignKey("systems.id", ondelete="CASCADE"), nullable=False)
-    collector_type = Column(String(50), nullable=False)   # node_exporter | jmx_exporter | db_exporter | custom
-    metric_group   = Column(String(100), nullable=False)  # cpu | memory | disk | network | jvm_heap | thread_pool | ...
-    enabled        = Column(Boolean, default=True)
-    prometheus_job = Column(String(200))                  # Prometheus job label (쿼리 범위 한정)
-    custom_config  = Column(Text)                         # JSON 형태 파라미터 (선택)
-    created_at     = Column(DateTime, default=func.now())
-    updated_at     = Column(DateTime, default=func.now(), onupdate=func.now())
-
-    __table_args__ = (
-        UniqueConstraint("system_id", "collector_type", "metric_group"),
-        Index("idx_collector_config_system", "system_id", "collector_type"),
-    )
-
+# SystemCollectorConfig 제거됨 (D4 결정) — agent_instances + label_info에서 derive
 
 class MetricHourlyAggregation(Base):
     """1시간 단위 메트릭 집계 — WF6이 매 시간 Prometheus 쿼리 후 저장"""

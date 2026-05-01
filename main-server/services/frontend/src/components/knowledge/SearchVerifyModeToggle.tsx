@@ -188,4 +188,3 @@ export function RerankerToggle({ enabled, active, onToggle }: RerankerToggleProp
     </div>
   )
 }
-

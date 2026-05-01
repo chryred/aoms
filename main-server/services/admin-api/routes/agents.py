@@ -22,12 +22,12 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
-from sqlalchemy import delete, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth import get_current_user
 from database import get_db
-from models import AgentInstance, System, SystemCollectorConfig
+from models import AgentInstance, System
 from schemas import (
     AgentInstanceCreate,
     AgentInstanceOut,
@@ -339,12 +339,5 @@ async def delete_agent(
     agent = await db.get(AgentInstance, agent_id)
     if not agent:
         raise HTTPException(404, "에이전트를 찾을 수 없습니다.")
-    collector_type = "db_exporter" if agent.agent_type == "db" else "synapse_agent"
-    await db.execute(
-        delete(SystemCollectorConfig).where(
-            SystemCollectorConfig.system_id == agent.system_id,
-            SystemCollectorConfig.collector_type == collector_type,
-        )
-    )
     await db.delete(agent)
     await db.commit()

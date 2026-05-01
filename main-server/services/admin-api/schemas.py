@@ -14,6 +14,15 @@ UtcDatetime = Annotated[
 ]
 
 
+# ── Dashboard — 인스턴스별 상태 ──────────────────────────────────────────
+class InstanceStatusOut(BaseModel):
+    """대시보드 시스템 상태 응답의 인스턴스별 상태 항목"""
+    instance_role: str                   # Prometheus 레이블 (was1, db1, …)
+    server_type: Optional[str] = None   # agent_instances.server_type (web/was/db/middleware/other)
+    status: str                          # normal | warning | critical | inactive
+    worst_metric: Optional[str] = None  # 상태를 유발한 메트릭 그룹 (예: cpu, memory)
+
+
 # ── System ──────────────────────────────────────────────────────────────
 class SystemCreate(BaseModel):
     system_name: str

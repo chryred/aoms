@@ -7,12 +7,13 @@ import {
 } from '@/hooks/mutations/useCreateChatSession'
 import { usePatchChatSession } from '@/hooks/mutations/usePatchChatSession'
 import type { ActiveMenuSession } from './useChatPageState'
+import type { ChatSession } from '@/types/chat'
 
 interface UseChatSessionManagerOptions {
   currentSessionId: string | null
   setCurrentSessionId: (id: string | null) => void
   filterSystemIds: number[]
-  sessions: import('@/types/chat').ChatSession[] | undefined
+  sessions: ChatSession[] | undefined
   debouncedQ: string
   activeMenuSession: ActiveMenuSession | null
   setActiveMenuSession: (s: ActiveMenuSession | null) => void

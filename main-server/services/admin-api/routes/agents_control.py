@@ -35,12 +35,11 @@ logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 from sqlalchemy import select, update
-from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth import get_current_user
 from database import get_db
-from models import AgentInstance, AgentInstallJob, System, SystemCollectorConfig
+from models import AgentInstance, AgentInstallJob, System
 from schemas import (
     AgentConfigUpload,
     AgentInstallJobOut,
@@ -386,9 +385,9 @@ async def upload_agent_config(
     reload_cmd: str
     if agent.pid_file:
         pf = _shell_path(agent.pid_file)
-        stop = f"kill $(cat {pf}) 2>/dev/null; rm -f {pf}; sleep 1"
+        stop = f"kill $(cat {pf} 2>/dev/null) 2>/dev/null || true; rm -f {pf}; sleep 2"
         start = _make_start_cmd(agent)
-        reload_cmd = f"{stop} && {start}"
+        reload_cmd = f"{stop}; {start}"
     else:
         return AgentStatusOut(
             agent_id=agent_id, status="unknown", pid=None,
@@ -588,11 +587,122 @@ async def _run_cli_install(job_id: str, agent: AgentInstance, session: dict) -> 
             await db.commit()
 
 
+def _build_config_toml(label_info: dict, agent_host: str, config_path: str) -> str:
+    """
+    label_info + agent_host + config_path → synapse_agent config.toml 문자열 생성.
+    wal_dir / log_dir는 config_path의 dirname 기준으로 자동 결정.
+    """
+    system_name = label_info.get("system_name", "unknown")
+    display_name = label_info.get("display_name", system_name)
+    instance_role = label_info.get("instance_role", "default")
+    prometheus_url = os.environ.get(
+        "AGENT_PROMETHEUS_URL",
+        os.environ.get("PROMETHEUS_URL", "http://prometheus:9090"),
+    )
+    wal_dir = os.path.dirname(config_path) + "/wal"
+    log_dir = os.path.dirname(config_path) + "/logs"
+
+    default_collectors: dict = {
+        "cpu": True,
+        "memory": True,
+        "disk": True,
+        "network": True,
+        "process": True,
+        "tcp_connections": True,
+        "log_monitor": True,
+        "web_servers": False,
+        "preprocessor": False,
+        "heartbeat": True,
+    }
+    for k, v in label_info.get("collectors", {}).items():
+        if k in default_collectors:
+            default_collectors[k] = bool(v)
+    collectors_toml = "\n".join(
+        f"{k} = {'true' if v else 'false'}" for k, v in default_collectors.items()
+    )
+
+    def _toml_escape(s: str) -> str:
+        return str(s).replace("\\", "\\\\").replace('"', '\\"')
+
+    # 다중 log_monitor 지원: label_info.log_monitors 배열 우선, 없으면 기본값
+    log_monitors = label_info.get("log_monitors", [])
+    if not log_monitors:
+        log_monitors = [{
+            "paths": ["/var/log/messages"],
+            "keywords": ["ERROR", "CRITICAL", "PANIC", "Fatal", "Exception"],
+            "log_type": "app",
+        }]
+
+    log_monitor_toml = ""
+    for lm in log_monitors:
+        paths_str = ", ".join(f'"{_toml_escape(p)}"' for p in lm.get("paths", []))
+        kw_str = ", ".join(f'"{_toml_escape(k)}"' for k in lm.get("keywords", ["ERROR", "CRITICAL", "PANIC", "Fatal", "Exception"]))
+        log_monitor_toml += (
+            f"\n[[log_monitor]]\n"
+            f"paths = [{paths_str}]\n"
+            f"keywords = [{kw_str}]\n"
+            f'log_type = "{_toml_escape(lm.get("log_type", "app"))}"\n'
+        )
+
+    # web_servers 섹션 — label_info.web_servers 배열이 있을 때만 렌더링
+    web_servers_list = label_info.get("web_servers", []) or []
+    web_servers_toml = ""
+    for ws in web_servers_list:
+        if not isinstance(ws, dict):
+            continue
+        ws_name = (ws.get("name") or "").strip()
+        ws_log_path = (ws.get("log_path") or "").strip()
+        if not ws_name or not ws_log_path:
+            continue
+        ws_display = (ws.get("display_name") or ws_name).strip()
+        ws_format = (ws.get("log_format") or "combined").strip() or "combined"
+        try:
+            ws_slow = int(ws.get("slow_threshold_ms", 1000))
+        except (TypeError, ValueError):
+            ws_slow = 1000
+        if ws_slow < 1:
+            ws_slow = 1
+        svc_raw = ws.get("was_services") or []
+        if isinstance(svc_raw, list):
+            svc_items = [str(s).strip() for s in svc_raw if str(s).strip()]
+        else:
+            svc_items = []
+        svc_str = ", ".join(f'"{_toml_escape(s)}"' for s in svc_items)
+        web_servers_toml += (
+            f"\n[[web_servers]]\n"
+            f'name = "{_toml_escape(ws_name)}"\n'
+            f'display_name = "{_toml_escape(ws_display)}"\n'
+            f'log_path = "{_toml_escape(ws_log_path)}"\n'
+            f'log_format = "{_toml_escape(ws_format)}"\n'
+            f'slow_threshold_ms = {ws_slow}\n'
+            f'was_services = [{svc_str}]\n'
+        )
+
+    return (
+        f'[agent]\n'
+        f'system_name = "{system_name}"\n'
+        f'display_name = "{display_name}"\n'
+        f'instance_role = "{instance_role}"\n'
+        f'host = "{agent_host}"\n'
+        f'collect_interval_secs = 15\n'
+        f'top_process_count = 5\n'
+        f'log_dir = "{log_dir}"\n'
+        f'log_retention_days = 7\n'
+        f'\n'
+        f'[remote_write]\n'
+        f'endpoint = "{prometheus_url}/api/v1/write"\n'
+        f'batch_size = 500\n'
+        f'timeout_secs = 10\n'
+        f'wal_dir = "{wal_dir}"\n'
+        f'wal_retention_hours = 2\n'
+        f'\n'
+        f'[collectors]\n'
+        f'{collectors_toml}\n'
+    ) + log_monitor_toml + web_servers_toml
+
+
 async def _run_db_connect(job_id: str, agent: AgentInstance) -> None:
-    """
-    db 에이전트 '설치' = DB 연결 테스트 후 status 업데이트.
-    성공 시 db_exporter system_collector_config 4개 자동 등록.
-    """
+    """db 에이전트 '설치' = DB 연결 테스트 후 status 업데이트."""
     from services.crypto import decrypt_password
     from services.db_backends import BACKENDS, DB_TYPE_PORTS, get_db_identifier_key
     from database import AsyncSessionLocal
@@ -625,16 +735,6 @@ async def _run_db_connect(job_id: str, agent: AgentInstance) -> None:
             await db.execute(
                 update(AgentInstance).where(AgentInstance.id == agent.id).values(status="installed")
             )
-            # db_exporter collector_config 4개 자동 upsert
-            for group in ["db_connections", "db_query", "db_cache", "db_replication"]:
-                await db.execute(
-                    pg_insert(SystemCollectorConfig)
-                    .values(system_id=agent.system_id, collector_type="db_exporter", metric_group=group, enabled=True)
-                    .on_conflict_do_update(
-                        index_elements=["system_id", "collector_type", "metric_group"],
-                        set_={"enabled": True, "updated_at": datetime.now(timezone.utc).replace(tzinfo=None)},
-                    )
-                )
             await db.execute(
                 update(AgentInstallJob)
                 .where(AgentInstallJob.job_id == job_id)
@@ -778,22 +878,12 @@ async def _run_install(
             # synapse_agent 타입: config.toml 자동생성 및 SFTP 업로드
             if agent.agent_type == "synapse_agent" and config_path:
                 _log("[3.5/4] synapse_agent config.toml 생성 중...")
-                label_info = {}
+                label_info: dict = {}
                 if agent.label_info:
                     try:
                         label_info = json.loads(agent.label_info)
                     except Exception:
                         pass
-                system_name = label_info.get("system_name", "unknown")
-                display_name = label_info.get("display_name", system_name)
-                instance_role = label_info.get("instance_role", "default")
-                # synapse_agent config.toml remote_write.endpoint에는 AGENT_PROMETHEUS_URL 사용
-                # (Docker 컨테이너가 호스트 Prometheus에 쓸 때 host.docker.internal 필요)
-                # 미설정 시 PROMETHEUS_URL → 최종 기본값 http://prometheus:9090 순으로 폴백
-                prometheus_url = os.environ.get(
-                    "AGENT_PROMETHEUS_URL",
-                    os.environ.get("PROMETHEUS_URL", "http://prometheus:9090"),
-                )
                 wal_dir = os.path.dirname(config_path) + "/wal"
                 log_dir = os.path.dirname(config_path) + "/logs"
 
@@ -804,104 +894,7 @@ async def _run_install(
                     f"mkdir -p {wal_dir} {log_dir}",
                 )
 
-                # 수집기 설정: label_info.collectors 우선, 없으면 기본값
-                default_collectors: dict = {
-                    "cpu": True,
-                    "memory": True,
-                    "disk": True,
-                    "network": True,
-                    "process": True,
-                    "tcp_connections": True,
-                    "log_monitor": True,
-                    "web_servers": False,
-                    "preprocessor": False,
-                    "heartbeat": True,
-                }
-                for k, v in label_info.get("collectors", {}).items():
-                    if k in default_collectors:
-                        default_collectors[k] = bool(v)
-                collectors_toml = "\n".join(
-                    f"{k} = {'true' if v else 'false'}" for k, v in default_collectors.items()
-                )
-
-                # 다중 log_monitor 지원: label_info.log_monitors 배열 우선, 없으면 기본값
-                log_monitors = label_info.get("log_monitors", [])
-                if not log_monitors:
-                    log_monitors = [{
-                        "paths": ["/var/log/messages"],
-                        "keywords": ["ERROR", "CRITICAL", "PANIC", "Fatal", "Exception"],
-                        "log_type": "app",
-                    }]
-
-                def _toml_escape(s: str) -> str:
-                    return str(s).replace("\\", "\\\\").replace('"', '\\"')
-
-                log_monitor_toml = ""
-                for lm in log_monitors:
-                    paths_str = ", ".join(f'"{_toml_escape(p)}"' for p in lm.get("paths", []))
-                    kw_str = ", ".join(f'"{_toml_escape(k)}"' for k in lm.get("keywords", ["ERROR", "CRITICAL", "PANIC", "Fatal", "Exception"]))
-                    log_monitor_toml += (
-                        f"\n[[log_monitor]]\n"
-                        f"paths = [{paths_str}]\n"
-                        f"keywords = [{kw_str}]\n"
-                        f'log_type = "{_toml_escape(lm.get("log_type", "app"))}"\n'
-                    )
-
-                # web_servers 섹션 — label_info.web_servers 배열이 있을 때만 렌더링
-                web_servers_list = label_info.get("web_servers", []) or []
-                web_servers_toml = ""
-                for ws in web_servers_list:
-                    if not isinstance(ws, dict):
-                        continue
-                    ws_name = (ws.get("name") or "").strip()
-                    ws_log_path = (ws.get("log_path") or "").strip()
-                    if not ws_name or not ws_log_path:
-                        continue
-                    ws_display = (ws.get("display_name") or ws_name).strip()
-                    ws_format = (ws.get("log_format") or "combined").strip() or "combined"
-                    try:
-                        ws_slow = int(ws.get("slow_threshold_ms", 1000))
-                    except (TypeError, ValueError):
-                        ws_slow = 1000
-                    if ws_slow < 1:
-                        ws_slow = 1
-                    svc_raw = ws.get("was_services") or []
-                    if isinstance(svc_raw, list):
-                        svc_items = [str(s).strip() for s in svc_raw if str(s).strip()]
-                    else:
-                        svc_items = []
-                    svc_str = ", ".join(f'"{_toml_escape(s)}"' for s in svc_items)
-                    web_servers_toml += (
-                        f"\n[[web_servers]]\n"
-                        f'name = "{_toml_escape(ws_name)}"\n'
-                        f'display_name = "{_toml_escape(ws_display)}"\n'
-                        f'log_path = "{_toml_escape(ws_log_path)}"\n'
-                        f'log_format = "{_toml_escape(ws_format)}"\n'
-                        f'slow_threshold_ms = {ws_slow}\n'
-                        f'was_services = [{svc_str}]\n'
-                    )
-
-                config_content = (
-                    f'[agent]\n'
-                    f'system_name = "{system_name}"\n'
-                    f'display_name = "{display_name}"\n'
-                    f'instance_role = "{instance_role}"\n'
-                    f'host = "{agent.host}"\n'
-                    f'collect_interval_secs = 15\n'
-                    f'top_process_count = 5\n'
-                    f'log_dir = "{log_dir}"\n'
-                    f'log_retention_days = 7\n'
-                    f'\n'
-                    f'[remote_write]\n'
-                    f'endpoint = "{prometheus_url}/api/v1/write"\n'
-                    f'batch_size = 500\n'
-                    f'timeout_secs = 10\n'
-                    f'wal_dir = "{wal_dir}"\n'
-                    f'wal_retention_hours = 2\n'
-                    f'\n'
-                    f'[collectors]\n'
-                    f'{collectors_toml}\n'
-                ) + log_monitor_toml + web_servers_toml
+                config_content = _build_config_toml(label_info, agent.host, config_path)
                 await asyncio.to_thread(
                     ssh_put_file,
                     session["host"], session["port"], session["username"], session["password"],
@@ -913,18 +906,6 @@ async def _run_install(
             await db.execute(
                 update(AgentInstance).where(AgentInstance.id == agent.id).values(status="installed")
             )
-
-            # synapse_agent 설치 완료 시 system_collector_config 자동 upsert
-            if agent.agent_type == "synapse_agent":
-                for group in ["cpu", "memory", "disk", "network", "log", "web"]:
-                    await db.execute(
-                        pg_insert(SystemCollectorConfig)
-                        .values(system_id=agent.system_id, collector_type="synapse_agent", metric_group=group, enabled=True)
-                        .on_conflict_do_update(
-                            index_elements=["system_id", "collector_type", "metric_group"],
-                            set_={"enabled": True, "updated_at": datetime.now(timezone.utc).replace(tzinfo=None)},
-                        )
-                    )
 
             await db.execute(
                 update(AgentInstallJob)
@@ -1133,6 +1114,108 @@ async def get_agent_live_status(
 
     # ── 기타 타입 (SSH 기반 제어 에이전트) ────────────────────────────────────
     return {"agent_id": agent_id, "type": agent.agent_type, "status": agent.status, "live": False}
+
+
+# ── apply-config: label_info에서 config.toml 재생성 + SSH 업로드 + Reload ────────
+
+@router.post("/agents/{agent_id}/apply-config", response_model=AgentStatusOut)
+async def apply_config(
+    agent_id: int,
+    db: AsyncSession = Depends(get_db),
+    session: dict = Depends(_require_session),
+    current_user=Depends(get_current_user),
+):
+    """
+    agent.label_info에서 config.toml을 재생성하여 원격 서버에 업로드하고 에이전트를 Reload한다.
+    synapse_agent 전용. config_path / pid_file 이 설정되어 있어야 한다.
+    """
+    agent = await _get_agent_or_404(agent_id, db)
+    if agent.agent_type != "synapse_agent":
+        raise HTTPException(400, "apply-config는 synapse_agent 타입만 지원합니다.")
+    if not agent.config_path:
+        raise HTTPException(400, "config_path가 설정되어 있지 않습니다.")
+    if not agent.pid_file:
+        raise HTTPException(400, "pid_file이 설정되어 있지 않습니다.")
+
+    _check_host_match(agent, session)
+
+    label_info: dict = {}
+    if agent.label_info:
+        try:
+            label_info = json.loads(agent.label_info)
+        except Exception:
+            pass
+
+    config_path = agent.config_path
+    # tilde 처리
+    if "~" in config_path:
+        _, home_out, _ = await asyncio.to_thread(
+            ssh_exec,
+            session["host"], session["port"], session["username"], session["password"],
+            "echo $HOME",
+        )
+        home_dir = home_out.strip()
+        if home_dir:
+            config_path = config_path.replace("~", home_dir)
+
+    # WAL + 로그 디렉터리 생성
+    wal_dir = os.path.dirname(config_path) + "/wal"
+    log_dir = os.path.dirname(config_path) + "/logs"
+    try:
+        await asyncio.to_thread(
+            ssh_exec,
+            session["host"], session["port"], session["username"], session["password"],
+            f"mkdir -p {wal_dir} {log_dir}",
+        )
+    except SSHError as exc:
+        raise HTTPException(502, f"디렉터리 생성 실패: {exc}")
+
+    # config.toml 생성 + 업로드
+    config_content = _build_config_toml(label_info, agent.host, config_path)
+    try:
+        await asyncio.to_thread(
+            ssh_put_file,
+            session["host"], session["port"], session["username"], session["password"],
+            config_path, config_content,
+        )
+    except SSHError as exc:
+        raise HTTPException(502, f"설정 파일 업로드 실패: {exc}")
+
+    # Reload (PID 파일 기반 재시작)
+    pid_file_path = agent.pid_file
+    if "~" in pid_file_path:
+        _, home_out, _ = await asyncio.to_thread(
+            ssh_exec,
+            session["host"], session["port"], session["username"], session["password"],
+            "echo $HOME",
+        )
+        home_dir = home_out.strip()
+        if home_dir:
+            pid_file_path = pid_file_path.replace("~", home_dir)
+
+    pf = _shell_path(pid_file_path)
+    stop = f"kill $(cat {pf} 2>/dev/null) 2>/dev/null || true; rm -f {pf}; sleep 2"
+    start = _make_start_cmd(agent)
+    reload_cmd = f"{stop}; {start}"
+
+    try:
+        code, _, stderr = await asyncio.to_thread(
+            ssh_exec,
+            session["host"], session["port"], session["username"], session["password"],
+            reload_cmd,
+        )
+    except SSHError as exc:
+        raise HTTPException(502, f"Reload 실패: {exc}")
+
+    if code != 0:
+        raise HTTPException(502, f"Reload 실패: {stderr.strip()}")
+
+    return AgentStatusOut(
+        agent_id=agent_id,
+        status="running",
+        pid=None,
+        message="설정 재적용 및 Reload 완료.",
+    )
 
 
 # ── OTel Java Agent 설치 ────────────────────────────────────────────────────────

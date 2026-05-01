@@ -51,35 +51,49 @@ RANGE_PROMQL_MAP: dict[str, dict[str, dict[str, str]]] = {
             "cpu_p95": 'quantile(0.95, cpu_usage_percent{{system_name="{sn}",core="total"}})',
             "load1":   'avg(cpu_load_avg{{system_name="{sn}",interval="1m"}})',
             "load5":   'avg(cpu_load_avg{{system_name="{sn}",interval="5m"}})',
+            # 인스턴스별 max — 시스템 상세 카드 차트용 (instance_role 레이블 보존)
+            "cpu_max_by_inst": 'max by (instance_role) (cpu_usage_percent{{system_name="{sn}",core="total"}})',
         },
         "memory": {
             "mem_used_pct": 'avg(memory_used_bytes{{system_name="{sn}",type="used"}}) / ignoring(type) avg(memory_used_bytes{{system_name="{sn}",type="total"}}) * 100',
             "mem_p95":      'quantile(0.95, memory_used_bytes{{system_name="{sn}",type="used"}}) / ignoring(type) avg(memory_used_bytes{{system_name="{sn}",type="total"}}) * 100',
+            # 인스턴스별 메모리 사용률 — 양변 모두 by (instance_role) 으로 정확한 per-inst %
+            "mem_max_by_inst": '(max by (instance_role) (memory_used_bytes{{system_name="{sn}",type="used"}}) / max by (instance_role) (memory_used_bytes{{system_name="{sn}",type="total"}})) * 100',
         },
         "disk": {
             "disk_read_mb":  'avg(rate(disk_bytes_total{{system_name="{sn}",direction="read"}}[5m])) / 1048576',
             "disk_write_mb": 'avg(rate(disk_bytes_total{{system_name="{sn}",direction="write"}}[5m])) / 1048576',
             "disk_io_ms":    'avg(disk_io_time_ms{{system_name="{sn}"}})',
+            # 인스턴스별 디스크 I/O 지연
+            "disk_io_max_by_inst": 'max by (instance_role) (disk_io_time_ms{{system_name="{sn}"}})',
         },
         "network": {
             "net_rx_mb":   'avg(rate(network_bytes_total{{system_name="{sn}",direction="rx"}}[5m])) / 1048576',
             "net_tx_mb":   'avg(rate(network_bytes_total{{system_name="{sn}",direction="tx"}}[5m])) / 1048576',
             "net_max_mbps": 'max(network_speed_mbps{{system_name="{sn}"}}) / 8',
+            # 인스턴스별 수신 트래픽 (MB/s)
+            "net_rx_max_by_inst": 'max by (instance_role) (rate(network_bytes_total{{system_name="{sn}",direction="rx"}}[5m])) / 1048576',
         },
         "log": {
             "log_errors":     'count(log_error_total{{system_name="{sn}"}})',
             "log_errors_err": 'count(log_error_total{{system_name="{sn}",level="ERROR"}})',
+            # 인스턴스별 에러 로그 수
+            "log_max_by_inst": 'count by (instance_role) (log_error_total{{system_name="{sn}"}})',
         },
         "web": {
             "req_total":   'increase(http_request_total{{system_name="{sn}"}}[5m])',
             "req_slow":    'increase(http_request_slow_total{{system_name="{sn}"}}[5m])',
             "resp_avg_ms": 'avg(http_request_duration_ms{{system_name="{sn}"}})',
+            # 인스턴스별 평균 응답시간
+            "resp_max_by_inst": 'max by (instance_role) (http_request_duration_ms{{system_name="{sn}"}})',
         },
     },
     "db_exporter": {
         "db_connections": {
             "conn_active_pct": 'avg(db_connections_active_percent{{system_name="{sn}"}})',
             "conn_max":        'max(db_connections_active{{system_name="{sn}"}})',
+            # 인스턴스별 커넥션 사용률
+            "conn_max_by_inst": 'max by (instance_role) (db_connections_active_percent{{system_name="{sn}"}})',
         },
         "db_query": {
             "tps":          'avg(db_transactions_per_second{{system_name="{sn}"}})',
@@ -87,6 +101,8 @@ RANGE_PROMQL_MAP: dict[str, dict[str, dict[str, str]]] = {
         },
         "db_cache": {
             "cache_hit_rate": 'avg(db_cache_hit_rate_percent{{system_name="{sn}"}})',
+            # 인스턴스별 캐시 히트율 (direction=-1, 낮을수록 나쁨)
+            "cache_min_by_inst": 'min by (instance_role) (db_cache_hit_rate_percent{{system_name="{sn}"}})',
         },
         "db_replication": {
             "repl_lag_sec": 'max(db_replication_lag_seconds{{system_name="{sn}"}})',
@@ -100,17 +116,20 @@ RANGE_PROMQL_MAP: dict[str, dict[str, dict[str, str]]] = {
 # 나머지 그룹: 데이터 유무 확인용 쿼리
 PCT_PROMQL: dict[str, dict[str, str]] = {
     "synapse_agent": {
-        "cpu":     'avg(avg_over_time(cpu_usage_percent{{system_name="{sn}",core="total"}}[5m]))',
-        "memory":  'avg(avg_over_time(memory_used_bytes{{system_name="{sn}",type="used"}}[5m])) / ignoring(type) avg(memory_used_bytes{{system_name="{sn}",type="total"}}) * 100',
-        "disk":    'avg(disk_io_time_ms{{system_name="{sn}"}})',
-        "network": 'avg(rate(network_bytes_total{{system_name="{sn}",direction="rx"}}[5m]))',
+        # 최악 케이스 기준 — max(max_over_time[5m]) : 5분 내 가장 나쁜 인스턴스의 최고값
+        "cpu":     'max(max_over_time(cpu_usage_percent{{system_name="{sn}",core="total"}}[5m]))',
+        "memory":  '(max(max_over_time(memory_used_bytes{{system_name="{sn}",type="used"}}[5m])) / ignoring(type) max(memory_used_bytes{{system_name="{sn}",type="total"}})) * 100',
+        "disk":    'max(max_over_time(disk_io_time_ms{{system_name="{sn}"}}[5m]))',
+        "network": 'max(max_over_time(rate(network_bytes_total{{system_name="{sn}",direction="rx"}}[1m])[5m:1m]))',
         "log":     'count(log_error_total{{system_name="{sn}"}})',
         "web":     'increase(http_request_total{{system_name="{sn}"}}[5m])',
     },
     "db_exporter": {
-        "db_connections": 'avg(avg_over_time(db_connections_active_percent{{system_name="{sn}"}}[5m]))',
+        # db_connections: max(max_over_time) — 가장 부하가 높은 DB 인스턴스 기준
+        "db_connections": 'max(max_over_time(db_connections_active_percent{{system_name="{sn}"}}[5m]))',
         "db_query":       'avg(db_transactions_per_second{{system_name="{sn}"}})',
-        "db_cache":       'avg(db_cache_hit_rate_percent{{system_name="{sn}"}})',
+        # db_cache: min — 캐시 히트율은 낮을수록 나쁨 (direction=-1)
+        "db_cache":       'min(db_cache_hit_rate_percent{{system_name="{sn}"}})',
         "db_replication": 'max(db_replication_lag_seconds{{system_name="{sn}"}})',
     },
 }
@@ -484,6 +503,10 @@ async def get_metrics_range(
 
     for key, results in results_list:
         for series in results:
+            # instance_role 레이블이 있으면 "{key}__{instance_role}" 로 키를 분기
+            # (예: cpu_max_by_inst__was1, cpu_max_by_inst__was2)
+            instance_role = series.get("metric", {}).get("instance_role")
+            merge_key = f"{key}__{instance_role}" if instance_role else key
             for ts_raw, val_raw in series.get("values", []):
                 ts_iso = datetime.fromtimestamp(
                     float(ts_raw), tz=timezone.utc
@@ -491,7 +514,7 @@ async def get_metrics_range(
                 if ts_iso not in merged:
                     merged[ts_iso] = {}
                 try:
-                    merged[ts_iso][key] = round(float(val_raw), 4)
+                    merged[ts_iso][merge_key] = round(float(val_raw), 4)
                 except (ValueError, TypeError):
                     pass
 

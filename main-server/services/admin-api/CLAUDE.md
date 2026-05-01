@@ -78,7 +78,7 @@ admin-api/
 | `alert_history` | 모든 알림 발송 이력. `alert_type`: `metric` / `log_analysis`. 메트릭 복구 시 원본 row 의 `resolved_at` 만 업데이트 (별도 row 생성 안 함). `error_message` 컬럼(ADR-002) 포함 |
 | `log_analysis_history` | LLM 분석 결과 저장. log-analyzer 서비스가 POST로 전달. `error_message`(실패 사유)·`model_used`(LLM_TYPE) 컬럼 포함(ADR-001/002) |
 | `alert_cooldown` | 중복 알림 방지용 쿨다운 추적. key: `{system}:{role}:{alertname}:{severity}` |
-| `system_collector_config` | 수집기 유연 레지스트리. 시스템별 collector_type + metric_group 등록 (Phase 5) |
+| ~~`system_collector_config`~~ | **삭제됨 (D4 결정, 2026-05-01)**. `GET /api/v1/collector-config`는 `agent_instances.label_info`에서 on-the-fly derive. POST/PATCH/DELETE → 410 Gone. |
 | `metric_hourly_aggregations` | 1시간 집계 + LLM 이상 분석 결과 (Phase 5) |
 | `metric_daily_aggregations` | 1일 집계 롤업 (Phase 5) |
 | `metric_weekly_aggregations` | 7일 집계 롤업 (Phase 5) |
@@ -144,13 +144,15 @@ docker exec -it aoms-admin-api \
 - `GET /` — 이력 조회 (필터: `system_id`, `severity`, `limit`)
 - `GET /{id}` — 단건 조회
 
-### 수집기 설정 `/api/v1/collector-config` (Phase 5)
-- `GET /` — 시스템별/타입별 수집기 설정 목록 조회
-- `POST /` — 수집기 설정 등록 (`system_id`, `collector_type`, `metric_group`, `custom_config`)
-- `PATCH /{id}` — 설정 수정 (활성화/비활성화 포함)
-- `DELETE /{id}` — 설정 삭제
+### 수집기 설정 `/api/v1/collector-config` (D4 이후 — derive 전용)
+- `GET /` — **agent_instances.label_info에서 on-the-fly derive** (system_collector_config 테이블 삭제됨). 하위 호환 응답 형식 유지.
+  - synapse_agent(running/installed) → 6개 metric_group(cpu/memory/disk/network/log/web)
+  - db(running/installed) → 4개 metric_group(db_connections/db_query/db_cache/db_replication)
+- `POST /` — **410 Gone** (테이블 삭제)
+- `PATCH /{id}` — **410 Gone** (테이블 삭제)
+- `DELETE /{id}` — **410 Gone** (테이블 삭제)
 - `GET /templates/{collector_type}` — 타입별 기본 metric_group 템플릿 반환
-  - 지원 타입: `synapse_agent`, `db_exporter`, `custom` (node_exporter/jmx_exporter Phase 9에서 제거)
+  - 지원 타입: `synapse_agent`, `db_exporter`, `custom`
 
 ### 집계 데이터 `/api/v1/aggregations` (Phase 5)
 - `GET /hourly`, `POST /hourly` — 1시간 집계 조회·저장 (log-analyzer `_hourly_agg_scheduler` 호출)
@@ -181,6 +183,7 @@ docker exec -it aoms-admin-api \
 - `GET /{id}/status` — 프로세스 상태 확인 (DB 상태 동기화)
 - `GET /{id}/config` — 원격 설정파일 내용 조회 (SFTP)
 - `POST /{id}/config` — 설정 업로드 + Reload (재시작)
+- `POST /{id}/apply-config` — **label_info에서 config.toml 재생성** → SSH 업로드 → Reload (synapse_agent 전용)
 
 **제어 공통 규칙:**
 - 모든 제어 요청은 `X-SSH-Session: {token}` 헤더 필수 (`db` 타입 예외 — SSH 불필요)
@@ -240,15 +243,30 @@ docker exec -it aoms-admin-api \
 
 레이블: `system_name`, `instance_role`
 
-### 통합 대시보드 `/api/v1/dashboard` (Phase 8)
+### 통합 대시보드 `/api/v1/dashboard` (Phase 8 + Phase 2A 확장)
 - `GET /system-health` — 전체 시스템 상태 종합 조회
   - 응답: `{ summary: { total_systems, critical_systems, warning_systems, normal_systems, total_metric_alerts, total_log_critical, total_log_warning, last_updated }, systems: [...] }`
-  - 상태 판정 기준: 메트릭 알림 (critical/warning) + 로그분석 (critical/warning) — **조회 기간: 최근 10분**
+  - `systems[*]` 항목에 **`instances: InstanceStatusOut[]`** 추가 (Phase 2A). PROMETHEUS_URL 미설정 시 `[]`.
+  - 상태 판정 기준: Prometheus 라이브(max_over_time[5m]) + 메트릭 알림 + 로그분석 — **조회 기간: 최근 10분**. 라이브 메트릭은 **worst-case(max)** 기준 (Phase 2A: avg → max 변경)
   - `total_log_critical` / `total_log_warning`: 전체 시스템 최근 10분 로그분석 건수 합계
   - 시스템 카드 reason 텍스트: "수집 알림 N개" (메트릭 알림) / "로그 이상 감지|경고"
 - `GET /systems/{id}/detailed` — 시스템 상세 정보 조회
-  - 응답: `{ system_id, display_name, metric_alerts: [...], log_analysis: { latest_count, critical_count, warning_count, incidents: [...] }, contacts: [...], last_updated }`
+  - 응답: `{ system_id, display_name, metric_alerts: [...], log_analysis: { ... }, contacts: [...], instances: InstanceStatusOut[], last_updated }`
+  - **`instances`**: 인스턴스별 상태 배열 추가 (Phase 2A). PROMETHEUS_URL 미설정 시 `[]`.
   - 메트릭 알림, 로그분석 결과 (최근 10분, 5개), 담당자 정보 포함
+
+**`InstanceStatusOut` 스키마 (schemas.py)**:
+```python
+class InstanceStatusOut(BaseModel):
+    instance_role: str                   # Prometheus 레이블 (was1, db1, …)
+    server_type: Optional[str] = None   # agent_instances.server_type (web/was/db/middleware/other)
+    status: str                          # normal | warning | critical | inactive
+    worst_metric: Optional[str] = None  # 상태 유발 메트릭 그룹 (cpu, memory 등)
+```
+
+**RANGE_PROMQL_MAP `*_by_inst` 키 (Phase 2A)**:
+- merge 루프에서 `instance_role` 레이블이 있으면 `{key}__{instance_role}` 형식 (예: `cpu_max_by_inst__was1`) 으로 `metrics_json` 에 저장됨 (`__` 구분자 convention)
+- 추가된 키: `cpu_max_by_inst`, `mem_max_by_inst`, `disk_io_max_by_inst`, `net_rx_max_by_inst`, `log_max_by_inst`, `resp_max_by_inst` (synapse_agent), `conn_max_by_inst`, `cache_min_by_inst` (db_exporter)
 
 ### WebSocket 실시간 알림 `/ws/dashboard` (Phase 8)
 - **연결**: `WebSocket ws://host:8080/api/v1/ws/dashboard`

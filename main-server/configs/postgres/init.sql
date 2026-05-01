@@ -258,21 +258,7 @@ CREATE TABLE IF NOT EXISTS alert_feedback (
 
 CREATE INDEX IF NOT EXISTS idx_alert_feedback_system ON alert_feedback(system_id, created_at DESC);
 
--- ── Phase 5: 수집기 유연 레지스트리 ──────────────────────────────────
-CREATE TABLE IF NOT EXISTS system_collector_config (
-    id             SERIAL PRIMARY KEY,
-    system_id      INTEGER NOT NULL REFERENCES systems(id) ON DELETE CASCADE,
-    collector_type VARCHAR(50)  NOT NULL,   -- node_exporter | jmx_exporter | db_exporter | custom
-    metric_group   VARCHAR(100) NOT NULL,   -- cpu | memory | disk | network | jvm_heap | thread_pool | ...
-    enabled        BOOLEAN DEFAULT TRUE,
-    prometheus_job VARCHAR(200),            -- Prometheus job label (쿼리 범위 한정)
-    custom_config  TEXT,                    -- JSON 형태 파라미터 (선택)
-    created_at     TIMESTAMP DEFAULT NOW(),
-    updated_at     TIMESTAMP DEFAULT NOW(),
-    UNIQUE(system_id, collector_type, metric_group)
-);
-
-CREATE INDEX IF NOT EXISTS idx_collector_config_system ON system_collector_config(system_id, collector_type);
+-- system_collector_config 제거됨 (D4 결정, 2026-05-01): agent_instances.label_info에서 derive
 
 -- ── Phase 5: 1시간 메트릭 집계 ───────────────────────────────────────
 CREATE TABLE IF NOT EXISTS metric_hourly_aggregations (

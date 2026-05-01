@@ -113,6 +113,58 @@ export function aggregateCrossSystems(
   return result.sort((a, b) => a.hour_bucket.localeCompare(b.hour_bucket))
 }
 
+/**
+ * metrics_json에서 `{metricBase}__{instance_role}` 패턴 키를 추출하여
+ * 인스턴스별 타임시리즈로 변환 (팝업 차트 인스턴스 선택용).
+ *
+ * 예: metricBase="cpu_max_by_inst" → "cpu_max_by_inst__was1", "cpu_max_by_inst__db2" 키 인식
+ */
+export function extractInstanceSeries(
+  rows: HourlyAggregation[],
+  metricBase: string,
+): { instance_role: string; values: { ts: string; value: number | null }[] }[] {
+  const byInstance = new Map<string, { ts: string; value: number | null }[]>()
+  for (const row of rows) {
+    let parsed: Record<string, number | null>
+    try {
+      parsed = JSON.parse(row.metrics_json) as Record<string, number | null>
+    } catch {
+      continue
+    }
+    for (const [key, val] of Object.entries(parsed)) {
+      if (!key.startsWith(metricBase + '__')) continue
+      const role = key.slice(metricBase.length + 2)
+      if (!byInstance.has(role)) byInstance.set(role, [])
+      byInstance.get(role)!.push({
+        ts: formatKST(row.hour_bucket, 'HH:mm'),
+        value: typeof val === 'number' ? val : null,
+      })
+    }
+  }
+  return [...byInstance.entries()].map(([instance_role, values]) => ({ instance_role, values }))
+}
+
+/**
+ * 주어진 metrics_json 샘플에서 `{metricBase}__` 패턴을 가진 instance_role 목록 추출.
+ */
+export function getAvailableInstances(rows: HourlyAggregation[], metricBase: string): string[] {
+  const roles = new Set<string>()
+  for (const row of rows) {
+    let parsed: Record<string, unknown>
+    try {
+      parsed = JSON.parse(row.metrics_json) as Record<string, unknown>
+    } catch {
+      continue
+    }
+    for (const key of Object.keys(parsed)) {
+      if (key.startsWith(metricBase + '__')) {
+        roles.add(key.slice(metricBase.length + 2))
+      }
+    }
+  }
+  return [...roles].sort()
+}
+
 export function transformToChartData(
   aggregations: HourlyAggregation[],
   metricKeys: string[],

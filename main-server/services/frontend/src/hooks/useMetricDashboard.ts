@@ -32,6 +32,25 @@ const STATUS_BY_VALUE: Record<string, Record<string, 'high_bad' | 'low_bad'>> = 
   db_exporter: { db_connections: 'high_bad', db_cache: 'low_bad' },
 }
 
+/** 수치만으로 임계치 분류 — liveness 판단 없이 순수 비교. 임계치 미등록 그룹은 'unknown'. */
+export function classifyByValue(
+  value: number,
+  collectorType: string,
+  group: string,
+): 'normal' | 'warning' | 'critical' | 'unknown' {
+  const direction = STATUS_BY_VALUE[collectorType]?.[group]
+  if (!direction) return 'unknown'
+  if (direction === 'high_bad') {
+    if (value <= 60) return 'normal'
+    if (value <= 80) return 'warning'
+    return 'critical'
+  }
+  // low_bad
+  if (value >= 95) return 'normal'
+  if (value >= 80) return 'warning'
+  return 'critical'
+}
+
 /**
  * Prometheus live-summary 값을 기반으로 카드 상태 판정.
  *
@@ -47,27 +66,13 @@ export function getMetricStatus(
   isGroupConfigured: boolean,
 ): { status: MetricStatus; avg: number | null } {
   if (!isSystemLive) return { status: 'inactive', avg: null }
-
-  if (liveValue === null) {
-    return { status: 'inactive', avg: null }
-  }
-
+  if (liveValue === null) return { status: 'inactive', avg: null }
   if (liveValue === undefined) {
     return { status: isGroupConfigured ? 'collecting' : 'inactive', avg: null }
   }
-
-  const direction = STATUS_BY_VALUE[collectorType]?.[group]
-  if (!direction) return { status: 'collecting', avg: null }
-
-  if (direction === 'high_bad') {
-    if (liveValue <= 60) return { status: 'normal', avg: liveValue }
-    if (liveValue <= 80) return { status: 'warning', avg: liveValue }
-    return { status: 'critical', avg: liveValue }
-  } else {
-    if (liveValue >= 95) return { status: 'normal', avg: liveValue }
-    if (liveValue >= 80) return { status: 'warning', avg: liveValue }
-    return { status: 'critical', avg: liveValue }
-  }
+  const cls = classifyByValue(liveValue, collectorType, group)
+  if (cls === 'unknown') return { status: 'collecting', avg: null }
+  return { status: cls, avg: liveValue }
 }
 
 const COLLECTOR_ORDER = ['synapse_agent', 'db_exporter']

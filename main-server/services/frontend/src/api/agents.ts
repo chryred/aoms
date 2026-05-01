@@ -90,6 +90,14 @@ export const agentsApi = {
       })
       .json<AgentStatusOut>(),
 
+  applyConfig: (id: number, token: string) =>
+    adminApi
+      .post(`api/v1/agents/${id}/apply-config`, {
+        json: {},
+        ...withSession(token),
+      })
+      .json<AgentStatusOut>(),
+
   // ── 설치 Job (비동기) ─────────────────────────────────────
   installAgent: (body: AgentInstallRequest, token: string) =>
     adminApi

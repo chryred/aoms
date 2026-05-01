@@ -19,6 +19,7 @@ interface MetricChartProps {
   metricKeys: string[]
   title: string
   unit?: string
+  defaultHiddenKeys?: string[]
   onPointClick?: (hourBucket: string) => void
 }
 
@@ -102,6 +103,7 @@ export function MetricChart({
   metricKeys,
   title,
   unit,
+  defaultHiddenKeys,
   onPointClick,
 }: MetricChartProps) {
   const theme = useUiStore((s) => s.theme)
@@ -115,8 +117,10 @@ export function MetricChart({
   const criticalColor = theme === 'dark' ? '#EF4444' : '#F43F5E'
   const disabledColor = theme === 'dark' ? '#555' : '#9CA3AF'
 
-  // 숨긴 범례 키 관리 — 기본은 전부 표시
-  const [hiddenKeys, setHiddenKeys] = useState<Set<string>>(new Set())
+  // 숨긴 범례 키 관리 — defaultHiddenKeys로 초기값 지정 가능
+  const [hiddenKeys, setHiddenKeys] = useState<Set<string>>(
+    () => new Set(defaultHiddenKeys ?? []),
+  )
 
   const toggleKey = useCallback((key: string) => {
     setHiddenKeys((prev) => {
@@ -136,10 +140,12 @@ export function MetricChart({
 
   return (
     <div className="bg-bg-base shadow-neu-flat rounded-sm p-4">
-      <h3 className="text-text-primary mb-3 text-sm font-semibold">
-        {title}
-        {unit && ` (${unit})`}
-      </h3>
+      {title && (
+        <h3 className="text-text-primary mb-3 text-sm font-semibold">
+          {title}
+          {unit && ` (${unit})`}
+        </h3>
+      )}
       {data.length === 0 ? (
         <div className="text-text-secondary flex h-32 items-center justify-center text-sm">
           데이터 없음

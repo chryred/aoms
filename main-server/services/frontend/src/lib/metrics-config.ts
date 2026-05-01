@@ -46,3 +46,8 @@ export const UNIT_MAP: Record<string, string | undefined> = {
   db_cache: '%',
   db_replication: 's',
 }
+
+/** 집계 뷰에서 기본으로 숨길 서브메트릭 키 (인스턴스 뷰에는 미적용) */
+export const DEFAULT_HIDDEN_KEYS_BY_GROUP: Record<string, string[]> = {
+  cpu: ['cpu_avg', 'cpu_p95', 'load1', 'load5'],
+}

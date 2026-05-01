@@ -29,7 +29,7 @@ const TREND_CHARTS = [
     title: 'CPU 사용률',
     collectorType: 'synapse_agent',
     metricGroup: 'cpu',
-    metricKey: 'cpu_avg',
+    metricKey: 'cpu_max',
     unit: '%',
   },
   {
@@ -55,8 +55,49 @@ const TREND_CHARTS = [
   },
 ] as const
 
-const LINE_COLORS_DARK = ['#00D4FF', '#22C55E', '#F59E0B', '#EC4899', '#14B8A6']
-const LINE_COLORS_LIGHT = ['#0891B2', '#059669', '#D97706', '#DB2777', '#0D9488']
+// 13색 팔레트 — 색상 변별성 우선 (Tableau 10 + 추가)
+const LINE_COLORS_DARK = [
+  '#00D4FF',
+  '#22C55E',
+  '#F59E0B',
+  '#EC4899',
+  '#14B8A6',
+  '#A855F7',
+  '#EAB308',
+  '#06B6D4',
+  '#84CC16',
+  '#F472B6',
+  '#FB923C',
+  '#10B981',
+  '#6366F1',
+]
+const LINE_COLORS_LIGHT = [
+  '#0891B2',
+  '#059669',
+  '#D97706',
+  '#DB2777',
+  '#0D9488',
+  '#7C3AED',
+  '#CA8A04',
+  '#0E7490',
+  '#65A30D',
+  '#E11D48',
+  '#EA580C',
+  '#047857',
+  '#4F46E5',
+]
+
+// 상태 기반 시각 강조 (D6 결정: 정상=0.3, 경고=0.7, 위험=1.0+굵은 선)
+function getLineStyle(status: string): { strokeOpacity: number; strokeWidth: number } {
+  switch (status) {
+    case 'critical':
+      return { strokeOpacity: 1.0, strokeWidth: 2.5 }
+    case 'warning':
+      return { strokeOpacity: 0.7, strokeWidth: 1.5 }
+    default:
+      return { strokeOpacity: 0.3, strokeWidth: 1.0 }
+  }
+}
 
 const HOURS = 6
 const STEP = 60
@@ -115,6 +156,7 @@ function ExpandedPanel({
   tickColor,
   data,
   systemNames,
+  systemStatuses,
   showLegend,
   onClose,
 }: {
@@ -127,6 +169,7 @@ function ExpandedPanel({
   tickColor: string
   data: TrendDataPoint[]
   systemNames: string[]
+  systemStatuses: Record<string, string>
   showLegend: boolean
   onClose: () => void
 }) {
@@ -212,31 +255,42 @@ function ExpandedPanel({
                   />
                   <YAxis tick={{ fontSize: 12, fill: tickColor }} unit={unit} />
                   <Tooltip content={<TrendTooltip unit={unit} />} />
-                  {systemNames.map((name, i) => (
-                    <Line
-                      key={name}
-                      name={name}
-                      type="monotone"
-                      dataKey={name}
-                      stroke={lineColors[i % lineColors.length]}
-                      dot={false}
-                      strokeWidth={2}
-                    />
-                  ))}
+                  {systemNames.map((name, i) => {
+                    const lineStyle = getLineStyle(systemStatuses[name] ?? 'normal')
+                    return (
+                      <Line
+                        key={name}
+                        name={name}
+                        type="monotone"
+                        dataKey={name}
+                        stroke={lineColors[i % lineColors.length]}
+                        dot={false}
+                        strokeOpacity={lineStyle.strokeOpacity}
+                        strokeWidth={lineStyle.strokeWidth}
+                      />
+                    )
+                  })}
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
             {showLegend && (
               <div className="mt-3 flex shrink-0 flex-wrap items-center justify-center gap-x-4 gap-y-1">
-                {systemNames.map((name, i) => (
-                  <div key={name} className="flex items-center gap-1.5 py-0.5">
-                    <span
-                      className="inline-block h-2.5 w-2.5 rounded-full"
-                      style={{ backgroundColor: lineColors[i % lineColors.length] }}
-                    />
-                    <span className="text-text-secondary text-[11px]">{name}</span>
-                  </div>
-                ))}
+                {systemNames.map((name, i) => {
+                  const lineStyle = getLineStyle(systemStatuses[name] ?? 'normal')
+                  return (
+                    <div
+                      key={name}
+                      className="flex items-center gap-1.5 py-0.5"
+                      style={{ opacity: lineStyle.strokeOpacity < 0.5 ? 0.5 : 1 }}
+                    >
+                      <span
+                        className="inline-block h-2.5 w-2.5 rounded-full"
+                        style={{ backgroundColor: lineColors[i % lineColors.length] }}
+                      />
+                      <span className="text-text-secondary text-[11px]">{name}</span>
+                    </div>
+                  )
+                })}
               </div>
             )}
           </>
@@ -249,6 +303,7 @@ function ExpandedPanel({
 function TrendChart({
   data,
   systemNames,
+  systemStatuses,
   title,
   unit,
   isExpanded,
@@ -258,6 +313,7 @@ function TrendChart({
 }: {
   data: TrendDataPoint[]
   systemNames: string[]
+  systemStatuses: Record<string, string>
   title: string
   unit: string
   isExpanded: boolean
@@ -268,7 +324,7 @@ function TrendChart({
   const cardRef = useRef<HTMLDivElement>(null)
   const theme = useUiStore((s) => s.theme)
   const lineColors = theme === 'dark' ? LINE_COLORS_DARK : LINE_COLORS_LIGHT
-  const gridColor = theme === 'dark' ? '#2B2F37' : '#E5E7EB'
+  const gridColor = theme === 'dark' ? '#2B2F37' : '#D1D5DB'
   const tickColor = theme === 'dark' ? '#8B97AD' : '#6B7280'
   const showLegend = systemNames.length > 1
 
@@ -321,30 +377,41 @@ function TrendChart({
                 />
                 <YAxis tick={{ fontSize: 11, fill: tickColor }} unit={unit} />
                 <Tooltip content={<TrendTooltip unit={unit} />} />
-                {systemNames.map((name, i) => (
-                  <Line
-                    key={name}
-                    name={name}
-                    type="monotone"
-                    dataKey={name}
-                    stroke={lineColors[i % lineColors.length]}
-                    dot={false}
-                    strokeWidth={1.5}
-                  />
-                ))}
+                {systemNames.map((name, i) => {
+                  const lineStyle = getLineStyle(systemStatuses[name] ?? 'normal')
+                  return (
+                    <Line
+                      key={name}
+                      name={name}
+                      type="monotone"
+                      dataKey={name}
+                      stroke={lineColors[i % lineColors.length]}
+                      dot={false}
+                      strokeOpacity={lineStyle.strokeOpacity}
+                      strokeWidth={lineStyle.strokeWidth}
+                    />
+                  )
+                })}
               </ComposedChart>
             </ResponsiveContainer>
             {showLegend && (
               <div className="mt-2 flex flex-wrap items-center justify-center gap-x-4 gap-y-1">
-                {systemNames.map((name, i) => (
-                  <div key={name} className="flex items-center gap-1.5 py-0.5">
-                    <span
-                      className="inline-block h-2.5 w-2.5 rounded-full"
-                      style={{ backgroundColor: lineColors[i % lineColors.length] }}
-                    />
-                    <span className="text-text-secondary text-[11px]">{name}</span>
-                  </div>
-                ))}
+                {systemNames.map((name, i) => {
+                  const lineStyle = getLineStyle(systemStatuses[name] ?? 'normal')
+                  return (
+                    <div
+                      key={name}
+                      className="flex items-center gap-1.5 py-0.5"
+                      style={{ opacity: lineStyle.strokeOpacity < 0.5 ? 0.5 : 1 }}
+                    >
+                      <span
+                        className="inline-block h-2.5 w-2.5 rounded-full"
+                        style={{ backgroundColor: lineColors[i % lineColors.length] }}
+                      />
+                      <span className="text-text-secondary text-[11px]">{name}</span>
+                    </div>
+                  )
+                })}
               </div>
             )}
           </>
@@ -365,6 +432,7 @@ function TrendChart({
             tickColor={tickColor}
             data={data}
             systemNames={systemNames}
+            systemStatuses={systemStatuses}
             showLegend={showLegend}
             onClose={handleDoubleClick}
           />,
@@ -420,6 +488,13 @@ export function TrendMonitorSection({ systems }: TrendMonitorSectionProps) {
     return map
   }, [systems])
 
+  // displayName → status 매핑 (상태 기반 opacity 계산에 사용)
+  const systemStatusMap = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const s of systems) map.set(s.display_name, s.status)
+    return map
+  }, [systems])
+
   const { startDt, endDt } = useMemo(() => {
     const now = new Date()
     return {
@@ -469,16 +544,18 @@ export function TrendMonitorSection({ systems }: TrendMonitorSectionProps) {
   const buildChartData = (
     metricGroup: string,
     metricKey: string,
-  ): { data: TrendDataPoint[]; systemNames: string[] } => {
+  ): { data: TrendDataPoint[]; systemNames: string[]; systemStatuses: Record<string, string> } => {
     const groupData = perSystemData.get(metricGroup)
-    if (!groupData || groupData.size === 0) return { data: [], systemNames: [] }
+    if (!groupData || groupData.size === 0) return { data: [], systemNames: [], systemStatuses: {} }
 
     const systemNames: string[] = []
+    const systemStatuses: Record<string, string> = {}
     const timeMap = new Map<string, TrendDataPoint>()
 
     for (const [sysId, aggs] of groupData) {
       const name = systemNameMap.get(sysId) ?? `시스템 ${sysId}`
       systemNames.push(name)
+      systemStatuses[name] = systemStatusMap.get(name) ?? 'normal'
       for (const agg of aggs) {
         const ts = formatKST(agg.hour_bucket, 'HH:mm')
         let point = timeMap.get(ts)
@@ -496,7 +573,7 @@ export function TrendMonitorSection({ systems }: TrendMonitorSectionProps) {
     const data = Array.from(timeMap.values()).sort((a, b) =>
       (a.timestamp as string).localeCompare(b.timestamp as string),
     )
-    return { data, systemNames }
+    return { data, systemNames, systemStatuses }
   }
 
   const selectOptions = useMemo(
@@ -540,12 +617,16 @@ export function TrendMonitorSection({ systems }: TrendMonitorSectionProps) {
       ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           {TREND_CHARTS.map((chart) => {
-            const { data, systemNames } = buildChartData(chart.metricGroup, chart.metricKey)
+            const { data, systemNames, systemStatuses } = buildChartData(
+              chart.metricGroup,
+              chart.metricKey,
+            )
             return (
               <TrendChart
                 key={chart.metricGroup}
                 data={data}
                 systemNames={systemNames}
+                systemStatuses={systemStatuses}
                 title={chart.title}
                 unit={chart.unit}
                 isExpanded={expandedChart === chart.metricGroup}

@@ -4,6 +4,7 @@
 - 시스템별 상세 정보 조회 (활성 알림, 로그분석, 권장조치, 예방 패턴)
 """
 
+import json
 import logging
 import os
 from datetime import datetime, timedelta, timezone
@@ -17,12 +18,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from auth import get_current_user
 from database import get_db
 from models import (
+    AgentInstance,
     AlertHistory,
     Contact,
     LogAnalysisHistory,
     MetricHourlyAggregation,
     System,
-    SystemCollectorConfig,
     SystemContact,
     User,
 )
@@ -45,6 +46,7 @@ class _SystemHealth:
         self.proactive_count: int = 0        # 예방 패턴 감지 건수
         self.live_metric_severity: Optional[str] = None  # Prometheus 라이브 판정
         self.live_metric_reasons: list[str] = []
+        self.instances: list[dict] = []      # 인스턴스별 상태 (InstanceStatusOut 직렬화용 dict)
 
 
 # ==================== 헬퍼 ====================
@@ -53,38 +55,84 @@ async def _query_live_metric_status(
     system_name: str,
     db: AsyncSession,
     system_id: int,
-) -> tuple[Optional[str], list[str]]:
-    """Prometheus live-summary로 시스템 메트릭 상태 판정 (avg_over_time[5m])
+) -> tuple[Optional[str], list[str], list[dict]]:
+    """Prometheus live-summary로 시스템 메트릭 상태 판정 (max_over_time[5m])
 
-    Returns: (severity, reasons) — severity: None | "warning" | "critical"
+    Returns: (severity, reasons, instances)
+      - severity: None | "warning" | "critical"
+      - reasons: 사람이 읽을 수 있는 판정 사유 목록
+      - instances: 인스턴스별 상태 dict 목록 (InstanceStatusOut 구조)
     """
     if not _PROMETHEUS_URL:
-        return None, []
+        return None, [], []
 
     from routes.aggregations import PCT_PROMQL, METRIC_THRESHOLDS
 
-    # 시스템에 등록된 collector_config 조회
+    # agent_instances에서 collector_type을 derive
     result = await db.execute(
-        select(SystemCollectorConfig).where(
-            and_(
-                SystemCollectorConfig.system_id == system_id,
-                SystemCollectorConfig.enabled == True,
-            )
-        )
+        select(AgentInstance.agent_type)
+        .where(AgentInstance.system_id == system_id)
+        .where(AgentInstance.status.in_(["running", "installed"]))
     )
-    configs = result.scalars().all()
-    collector_types = {c.collector_type for c in configs}
+    agent_types = {row[0] for row in result.fetchall()}
+    collector_types: set[str] = set()
+    if "synapse_agent" in agent_types:
+        collector_types.add("synapse_agent")
+    if "db" in agent_types:
+        collector_types.add("db_exporter")
     if not collector_types:
         collector_types = {"synapse_agent"}  # 기본값
 
+    # instance_role → server_type 매핑 구축 (DB 조회 1회)
+    inst_result = await db.execute(
+        select(AgentInstance.label_info, AgentInstance.server_type)
+        .where(AgentInstance.system_id == system_id)
+        .where(AgentInstance.status.in_(["running", "installed"]))
+    )
+    role_to_server_type: dict[str, Optional[str]] = {}
+    for label_info_raw, server_type in inst_result.fetchall():
+        if not label_info_raw:
+            continue
+        try:
+            label_info = json.loads(label_info_raw) if isinstance(label_info_raw, str) else label_info_raw
+            role = label_info.get("instance_role")
+            if role:
+                role_to_server_type[role] = server_type
+        except (json.JSONDecodeError, AttributeError):
+            pass
+
     worst: Optional[str] = None
     reasons: list[str] = []
+    # instance_role → {"status": ..., "worst_metric": ...}
+    inst_status: dict[str, dict] = {}
+
+    GROUP_LABELS = {
+        "cpu": "CPU", "memory": "메모리",
+        "db_connections": "DB 커넥션", "db_cache": "DB 캐시",
+    }
+
+    # per-instance PromQL 키 매핑 (RANGE_PROMQL_MAP의 *_by_inst 키 사용)
+    INST_PROMQL_KEYS: dict[str, dict[str, str]] = {
+        "synapse_agent": {
+            "cpu":    "cpu_max_by_inst",
+            "memory": "mem_max_by_inst",
+        },
+        "db_exporter": {
+            "db_connections": "conn_max_by_inst",
+            "db_cache":       "cache_min_by_inst",
+        },
+    }
+
+    from routes.aggregations import RANGE_PROMQL_MAP
 
     async with httpx.AsyncClient(timeout=5.0) as client:
         for ct in collector_types:
             thresholds = METRIC_THRESHOLDS.get(ct, {})
             promql_map = PCT_PROMQL.get(ct, {})
+            range_map = RANGE_PROMQL_MAP.get(ct, {})
+
             for group, thresh in thresholds.items():
+                # ── 1) 시스템 전체 판정 (PCT_PROMQL) ─────────────────────
                 query = promql_map.get(group)
                 if not query:
                     continue
@@ -107,28 +155,90 @@ async def _query_live_metric_status(
                     elif value > thresh["warning"]:
                         severity = "warning"
                     else:
-                        continue
+                        severity = None
                 else:  # low_bad (lower is worse)
                     if value < thresh["warning"]:
                         severity = "critical"
                     elif value < thresh["critical"]:
                         severity = "warning"
                     else:
+                        severity = None
+
+                if severity:
+                    label = GROUP_LABELS.get(group, group)
+                    reasons.append(f"{label} {value:.0f}%")
+                    if severity == "critical":
+                        worst = "critical"
+                    elif worst != "critical":
+                        worst = "warning"
+
+                # ── 2) 인스턴스별 판정 (RANGE_PROMQL_MAP *_by_inst) ──────
+                inst_key = INST_PROMQL_KEYS.get(ct, {}).get(group)
+                if not inst_key:
+                    continue
+                # 해당 group의 metric_group 디렉토리에서 쿼리 찾기
+                group_map = range_map.get(group, {})
+                inst_query_tpl = group_map.get(inst_key)
+                if not inst_query_tpl:
+                    continue
+                try:
+                    inst_resp = await client.get(
+                        f"{_PROMETHEUS_URL}/api/v1/query",
+                        params={"query": inst_query_tpl.format(sn=system_name)},
+                    )
+                    inst_data = inst_resp.json().get("data", {}).get("result", [])
+                except Exception:
+                    continue
+
+                for series in inst_data:
+                    role = series.get("metric", {}).get("instance_role")
+                    if not role:
+                        continue
+                    try:
+                        inst_val = float(series["value"][1])
+                    except (KeyError, ValueError, TypeError):
                         continue
 
-                GROUP_LABELS = {
-                    "cpu": "CPU", "memory": "메모리",
-                    "db_connections": "DB 커넥션", "db_cache": "DB 캐시",
-                }
-                label = GROUP_LABELS.get(group, group)
-                reasons.append(f"{label} {value:.0f}%")
+                    # 인스턴스 단위 심각도 판정
+                    if direction == 1:
+                        if inst_val > thresh["critical"]:
+                            inst_sev = "critical"
+                        elif inst_val > thresh["warning"]:
+                            inst_sev = "warning"
+                        else:
+                            inst_sev = "normal"
+                    else:
+                        if inst_val < thresh["warning"]:
+                            inst_sev = "critical"
+                        elif inst_val < thresh["critical"]:
+                            inst_sev = "warning"
+                        else:
+                            inst_sev = "normal"
 
-                if severity == "critical":
-                    worst = "critical"
-                elif worst != "critical":
-                    worst = "warning"
+                    prev = inst_status.get(role, {"status": "normal", "worst_metric": None})
+                    # worst-wins: critical > warning > normal
+                    if inst_sev == "critical" or (inst_sev == "warning" and prev["status"] != "critical"):
+                        inst_status[role] = {"status": inst_sev, "worst_metric": group}
+                    elif role not in inst_status:
+                        inst_status[role] = {"status": "normal", "worst_metric": None}
 
-    return worst, reasons
+    # inactive 인스턴스 추가 (Prometheus 데이터가 없는 agent_instances)
+    for role in role_to_server_type:
+        if role not in inst_status:
+            inst_status[role] = {"status": "inactive", "worst_metric": None}
+
+    # instances 직렬화 (InstanceStatusOut 구조)
+    instances = [
+        {
+            "instance_role": role,
+            "server_type":   role_to_server_type.get(role),
+            "status":        info["status"],
+            "worst_metric":  info["worst_metric"],
+        }
+        for role, info in sorted(inst_status.items())
+    ]
+
+    return worst, reasons, instances
 
 async def _get_system_health(
     db: AsyncSession, system_id: int, system_name: str = "",
@@ -196,14 +306,15 @@ async def _get_system_health(
     proactive_rows = result.scalars().all()
     health.proactive_count = len(proactive_rows)
 
-    # 4. Prometheus 라이브 메트릭 판정 (avg_over_time[5m])
+    # 4. Prometheus 라이브 메트릭 판정 (max_over_time[5m])
     if system_name:
         try:
-            live_sev, live_reasons = await _query_live_metric_status(
+            live_sev, live_reasons, live_instances = await _query_live_metric_status(
                 system_name, db, system_id,
             )
             health.live_metric_severity = live_sev
             health.live_metric_reasons = live_reasons
+            health.instances = live_instances
         except Exception as exc:
             logger.warning("라이브 메트릭 조회 실패 (system_id=%s): %s", system_id, exc)
 
@@ -309,6 +420,7 @@ async def get_dashboard_health(
             "reason":         health.reason,
             "proactive_count": health.proactive_count,
             "has_otel":       sys.id in otel_system_ids,
+            "instances":      health.instances,
         })
 
         summary["total_systems"] += 1
@@ -422,6 +534,16 @@ async def get_system_detail_health(
                 "role":       sc.role,
             })
 
+    # 5. 인스턴스별 상태 (Prometheus 라이브 판정)
+    instances: list[dict] = []
+    if system.system_name:
+        try:
+            _, _, instances = await _query_live_metric_status(
+                system.system_name, db, system_id,
+            )
+        except Exception as exc:
+            logger.warning("상세 페이지 인스턴스 상태 조회 실패 (system_id=%s): %s", system_id, exc)
+
     return {
         "system_id":    system.id,
         "display_name": system.display_name,
@@ -488,5 +610,6 @@ async def get_system_detail_health(
         ],
 
         "contacts":     contacts,
+        "instances":    instances,
         "last_updated": datetime.now(timezone.utc).replace(tzinfo=None).isoformat() + "Z",
     }
