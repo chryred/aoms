@@ -128,9 +128,9 @@ do_export_models() {
 
   echo ""
   echo "서버 배포 명령어 (최초 1회):"
-  echo "  mkdir -p /opt/synapse/models"
-  echo "  pigz -d -c synapse-models.tar.gz | tar -xf - -C /opt/synapse/models"
-  echo "  # pigz 없으면: tar -xzf synapse-models.tar.gz -C /opt/synapse/models"
+  echo "  mkdir -p /app/synapse/models"
+  echo "  pigz -d -c synapse-models.tar.gz | tar -xf - -C /app/synapse/models"
+  echo "  # pigz 없으면: tar -xzf synapse-models.tar.gz -C /app/synapse/models"
 }
 
 # ── 삭제 ────────────────────────────────────────────────────
