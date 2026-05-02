@@ -32,6 +32,7 @@ export function useLiveStatus(agentId: number, agentType: AgentType) {
     enabled,
     staleTime: 55_000,
     refetchInterval: enabled ? 60_000 : false,
+    refetchIntervalInBackground: true,
   })
 }
 
@@ -43,6 +44,7 @@ export function useSystemLiveStatus(systemId: number | undefined) {
     enabled: !!systemId,
     staleTime: 55_000,
     refetchInterval: 60_000,
+    refetchIntervalInBackground: true,
   })
 }
 
@@ -53,6 +55,7 @@ export function useAgentHealthSummary() {
     queryFn: () => agentsApi.getHealthSummary(),
     staleTime: 55_000,
     refetchInterval: 60_000,
+    refetchIntervalInBackground: true,
   })
 }
 

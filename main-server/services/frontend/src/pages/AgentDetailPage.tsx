@@ -87,6 +87,7 @@ export function AgentDetailPage() {
     queryFn: () => agentsApi.getLiveStatus(agentId),
     enabled: supportsLive,
     refetchInterval: 60_000,
+    refetchIntervalInBackground: true,
     staleTime: 55_000,
   })
 
