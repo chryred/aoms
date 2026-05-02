@@ -95,9 +95,15 @@ export function AgentListPage() {
   const visibleAgents = useMemo(() => {
     if (!agents) return []
     const q = searchQuery.toLowerCase()
+    const systemNameMap = new Map(systems?.map((s) => [s.id, s.display_name.toLowerCase()]) ?? [])
     return agents.filter((a) => {
       if (a.agent_type === 'cli') return false
-      if (q && !a.host.toLowerCase().includes(q)) return false
+      if (
+        q &&
+        !a.host.toLowerCase().includes(q) &&
+        !systemNameMap.get(a.system_id ?? -1)?.includes(q)
+      )
+        return false
       if (filterType !== 'all' && a.agent_type !== filterType) return false
       if (healthFilter === 'stale' && liveCollectingMap) {
         // live-status 조회 대상이 아닌 타입은 제외 (예: 미지원 타입)
@@ -107,7 +113,7 @@ export function AgentListPage() {
       }
       return true
     })
-  }, [agents, filterType, healthFilter, liveCollectingMap, searchQuery])
+  }, [agents, systems, filterType, healthFilter, liveCollectingMap, searchQuery])
 
   const grouped = useMemo(() => {
     if (!systems) return []
@@ -286,7 +292,7 @@ export function AgentListPage() {
         <div className="w-full sm:w-52">
           <NeuInput
             type="search"
-            placeholder="호스트 검색..."
+            placeholder="호스트 / 시스템명 검색..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             leftIcon={<Search className="h-3.5 w-3.5" />}
@@ -347,7 +353,7 @@ export function AgentListPage() {
                   {systemAgents.length}개
                 </span>
               </div>
-              <div className="flex flex-col gap-2">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 {systemAgents.map((agent) => (
                   <AgentCard key={agent.id} agent={agent} />
                 ))}
