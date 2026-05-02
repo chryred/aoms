@@ -1039,7 +1039,9 @@ async def get_agent_live_status(
         host = sanitize_promql_label(agent.host)
 
         role_filter = f',instance_role="{instance_role}"' if instance_role else ""
-        query = f'agent_up{{system_name="{system_name}",host="{host}"{role_filter}}}'
+        # timestamp() 함수로 실제 샘플 수집 시각을 value[1]에서 추출.
+        # 일반 instant query의 value[0]은 평가 시각(지금)이라 age 계산이 항상 0이 됨.
+        query = f'timestamp(agent_up{{system_name="{system_name}",host="{host}"{role_filter}}})'
         results = []
         try:
             async with httpx.AsyncClient(timeout=5.0) as client:
@@ -1052,7 +1054,7 @@ async def get_agent_live_status(
             pass
 
         if results:
-            ts = float(results[0]["value"][0])
+            ts = float(results[0]["value"][1])  # value[1] = 실제 샘플 Unix timestamp
             last_seen = datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
             age_secs = time.time() - ts
             live_status = _calc_live_status(age_secs)
@@ -1062,16 +1064,19 @@ async def get_agent_live_status(
 
         collectors_active = []
         try:
-            hb_query = f'agent_heartbeat{{system_name="{system_name}",host="{host}"{role_filter}}}'
+            hb_query = f'timestamp(agent_heartbeat{{system_name="{system_name}",host="{host}"{role_filter}}})'
             async with httpx.AsyncClient(timeout=5.0) as client:
                 resp = await client.get(
                     f"{prometheus_url}/api/v1/query",
                     params={"query": hb_query},
                 )
+            now = time.time()
             for r in resp.json().get("data", {}).get("result", []):
-                collector = r.get("metric", {}).get("collector", "")
-                if collector:
-                    collectors_active.append(collector)
+                hb_ts = float(r.get("value", [0, "0"])[1])
+                if now - hb_ts < 60:
+                    collector = r.get("metric", {}).get("collector", "")
+                    if collector:
+                        collectors_active.append(collector)
         except Exception:
             pass
 
@@ -1092,7 +1097,7 @@ async def get_agent_live_status(
         system = sys_result.scalar_one_or_none()
         system_name = sanitize_promql_label(system.system_name if system else "")
 
-        query = f'db_connections_active{{system_name="{system_name}"}}'
+        query = f'timestamp(db_connections_active{{system_name="{system_name}"}})'
         results = []
         try:
             async with httpx.AsyncClient(timeout=5.0) as client:
@@ -1105,7 +1110,7 @@ async def get_agent_live_status(
             pass
 
         if results:
-            ts = float(results[0]["value"][0])
+            ts = float(results[0]["value"][1])  # value[1] = 실제 샘플 Unix timestamp
             last_seen = datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
             age_secs = time.time() - ts
             live_status = _calc_live_status(age_secs)
