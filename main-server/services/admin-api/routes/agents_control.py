@@ -1035,9 +1035,11 @@ async def get_agent_live_status(
             except Exception:
                 pass
         system_name = sanitize_promql_label(label_info.get("system_name", ""))
+        instance_role = sanitize_promql_label(label_info.get("instance_role", ""))
         host = sanitize_promql_label(agent.host)
 
-        query = f'agent_up{{system_name="{system_name}",host="{host}"}}'
+        role_filter = f',instance_role="{instance_role}"' if instance_role else ""
+        query = f'agent_up{{system_name="{system_name}",host="{host}"{role_filter}}}'
         results = []
         try:
             async with httpx.AsyncClient(timeout=5.0) as client:
@@ -1060,7 +1062,7 @@ async def get_agent_live_status(
 
         collectors_active = []
         try:
-            hb_query = f'agent_heartbeat{{system_name="{sanitize_promql_label(system_name)}",host="{sanitize_promql_label(host)}"}}'
+            hb_query = f'agent_heartbeat{{system_name="{system_name}",host="{host}"{role_filter}}}'
             async with httpx.AsyncClient(timeout=5.0) as client:
                 resp = await client.get(
                     f"{prometheus_url}/api/v1/query",
