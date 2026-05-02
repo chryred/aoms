@@ -73,6 +73,8 @@ export const aggregationsApi = {
 
 export interface ProcessSummary {
   name: string
+  instance_role: string
+  host: string
   cpu_percent: number
   mem_percent: number
   mem_bytes: number

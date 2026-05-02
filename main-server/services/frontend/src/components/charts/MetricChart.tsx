@@ -118,9 +118,7 @@ export function MetricChart({
   const disabledColor = theme === 'dark' ? '#555' : '#9CA3AF'
 
   // 숨긴 범례 키 관리 — defaultHiddenKeys로 초기값 지정 가능
-  const [hiddenKeys, setHiddenKeys] = useState<Set<string>>(
-    () => new Set(defaultHiddenKeys ?? []),
-  )
+  const [hiddenKeys, setHiddenKeys] = useState<Set<string>>(() => new Set(defaultHiddenKeys ?? []))
 
   const toggleKey = useCallback((key: string) => {
     setHiddenKeys((prev) => {

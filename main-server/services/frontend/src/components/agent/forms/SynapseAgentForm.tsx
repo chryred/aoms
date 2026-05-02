@@ -132,7 +132,7 @@ export function SynapseAgentForm({ form }: SynapseAgentFormProps) {
         >
           {logMonitors.map((lm: LogMonitorForm, idx: number) => (
             <div
-              key={`lm-${lm.log_type ?? ''}-${idx}`}
+              key={`lm-${idx}`}
               className="border-border bg-bg-deep space-y-2 rounded-sm border p-2"
             >
               <div className="flex items-center justify-between">
@@ -208,7 +208,7 @@ export function SynapseAgentForm({ form }: SynapseAgentFormProps) {
         <div className="space-y-2">
           {webServers.map((ws: WebServerForm, idx: number) => (
             <div
-              key={`ws-${ws.name ?? ''}-${idx}`}
+              key={`ws-${idx}`}
               className="border-border bg-bg-deep space-y-2 rounded-sm border p-2"
             >
               <div className="flex items-center justify-between">

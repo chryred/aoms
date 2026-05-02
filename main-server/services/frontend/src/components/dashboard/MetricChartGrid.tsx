@@ -192,8 +192,7 @@ function MiniSparkline({
           fill={`url(#${gradId})`}
           strokeWidth={1.5}
           dot={(props: { index: number; cx: number; cy: number }) => {
-            if (props.index !== lastIdx || props.cy == null)
-              return <g key={`d-${props.index}`} />
+            if (props.index !== lastIdx || props.cy == null) return <g key={`d-${props.index}`} />
             return (
               <circle
                 key={`d-${props.index}`}

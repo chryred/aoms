@@ -51,3 +51,19 @@ export const UNIT_MAP: Record<string, string | undefined> = {
 export const DEFAULT_HIDDEN_KEYS_BY_GROUP: Record<string, string[]> = {
   cpu: ['cpu_avg', 'cpu_p95', 'load1', 'load5'],
 }
+
+/** 수집 현황 카드 도움말 — 집계 기준 및 임계치 설명 */
+export const METRIC_HINTS: Record<string, string> = {
+  cpu: '집계 기준: 인스턴스 중 최고 CPU 사용률 (5분 max)\n정상 ≤60% / 경고 ≤80% / 위험 >80%',
+  memory: '집계 기준: 인스턴스 중 최고 메모리 사용률 (5분 max)\n정상 ≤60% / 경고 ≤80% / 위험 >80%',
+  disk: '디스크 I/O 응답시간 수집 여부\n임계치 판정 없음 — 수집 중/미수집만 표시',
+  network: '네트워크 수신 트래픽 수집 여부\n임계치 판정 없음 — 수집 중/미수집만 표시',
+  log: '로그 에러 발생 건수 수집 여부\n임계치 판정 없음 — 수집 중/미수집만 표시',
+  web: 'HTTP 요청 수 수집 여부\n임계치 판정 없음 — 수집 중/미수집만 표시',
+  db_connections:
+    '집계 기준: DB 인스턴스 중 최고 활성 커넥션 비율 (5분 max)\n정상 ≤60% / 경고 ≤80% / 위험 >80%',
+  db_query: 'DB TPS(초당 트랜잭션) 수집 여부\n임계치 판정 없음 — 수집 중/미수집만 표시',
+  db_cache:
+    '집계 기준: DB 인스턴스 중 최저 캐시 히트율 (낮을수록 나쁨)\n정상 ≥95% / 경고 ≥80% / 위험 <80%',
+  db_replication: '복제 지연 시간 수집 여부\n임계치 판정 없음 — 수집 중/미수집만 표시',
+}
