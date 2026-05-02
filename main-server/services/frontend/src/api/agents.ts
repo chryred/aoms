@@ -48,6 +48,9 @@ export const agentsApi = {
 
   deleteAgent: (id: number) => adminApi.delete(`api/v1/agents/${id}`),
 
+  purgeAgent: (id: number, token: string) =>
+    adminApi.delete(`api/v1/agents/${id}/purge`, { ...withSession(token) }),
+
   // ── 제어 (동기) ───────────────────────────────────────────
   startAgent: (id: number, token?: string) =>
     adminApi
@@ -86,14 +89,6 @@ export const agentsApi = {
     adminApi
       .post(`api/v1/agents/${id}/config`, {
         json: { config_content: content },
-        ...withSession(token),
-      })
-      .json<AgentStatusOut>(),
-
-  applyConfig: (id: number, token: string) =>
-    adminApi
-      .post(`api/v1/agents/${id}/apply-config`, {
-        json: {},
         ...withSession(token),
       })
       .json<AgentStatusOut>(),

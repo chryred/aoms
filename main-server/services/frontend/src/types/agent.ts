@@ -125,7 +125,7 @@ export interface AgentConfigResponse {
   content: string
 }
 
-export type AgentLiveStatus = 'collecting' | 'delayed' | 'stale' | 'no_data'
+export type AgentLiveStatus = 'collecting' | 'stale' | 'no_data'
 
 export interface AgentLiveStatusOut {
   agent_id: number

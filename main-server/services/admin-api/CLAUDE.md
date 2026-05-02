@@ -182,8 +182,7 @@ docker exec -it aoms-admin-api \
 - `POST /{id}/restart` — 종료 후 재실행
 - `GET /{id}/status` — 프로세스 상태 확인 (DB 상태 동기화)
 - `GET /{id}/config` — 원격 설정파일 내용 조회 (SFTP)
-- `POST /{id}/config` — 설정 업로드 + Reload (재시작)
-- `POST /{id}/apply-config` — **label_info에서 config.toml 재생성** → SSH 업로드 → Reload (synapse_agent 전용)
+- `POST /{id}/config` — 설정 업로드 + Reload (재시작) + label_info DB 동기화 (synapse_agent: collectors/log_monitors/web_servers 업데이트)
 
 **제어 공통 규칙:**
 - 모든 제어 요청은 `X-SSH-Session: {token}` 헤더 필수 (`db` 타입 예외 — SSH 불필요)

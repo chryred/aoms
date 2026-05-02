@@ -32,7 +32,6 @@ import { cn, formatKST, getAgentTypeLabel } from '@/lib/utils'
 
 const LIVE_STATUS_CONFIG: Record<AgentLiveStatus, { label: string; color: string; dot: string }> = {
   collecting: { label: '수집 중', color: 'text-normal', dot: 'bg-normal' },
-  delayed: { label: '데이터 지연', color: 'text-warning', dot: 'bg-warning' },
   stale: { label: '수집 중단', color: 'text-critical', dot: 'bg-critical' },
   no_data: { label: '데이터 없음', color: 'text-text-secondary', dot: 'bg-text-secondary' },
 }
@@ -65,10 +64,9 @@ export function AgentDetailPage() {
   const [configDirty, setConfigDirty] = useState(false)
   const [configDisplayPath, setConfigDisplayPath] = useState<string | null>(null)
   const [actionLoading, setActionLoading] = useState<string | null>(null)
-  const [applying, setApplying] = useState(false)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [installJobId, setInstallJobId] = useState<string | null>(null)
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [deleteMode, setDeleteMode] = useState<null | 'db' | 'purge'>(null)
   const [liveProcessStatus, setLiveProcessStatus] = useState<AgentStatus | null>(null)
 
   const {
@@ -84,12 +82,19 @@ export function AgentDetailPage() {
 
   const supportsLive = agent?.agent_type === 'synapse_agent' || agent?.agent_type === 'db'
 
-  const { data: liveStatus, refetch: refetchLiveStatus } = useQuery({
+  const { data: liveStatus } = useQuery({
     queryKey: qk.agentLiveStatus(agentId),
     queryFn: () => agentsApi.getLiveStatus(agentId),
     enabled: supportsLive,
     refetchInterval: 60_000,
     staleTime: 55_000,
+  })
+
+  const { data: allAgents } = useQuery({
+    queryKey: qk.agents(),
+    queryFn: () => agentsApi.getAgents(),
+    staleTime: 60_000,
+    enabled: agent?.agent_type !== 'db',
   })
 
   function showMsg(type: 'success' | 'error', text: string) {
@@ -118,6 +123,15 @@ export function AgentDetailPage() {
   }, [agent?.label_info])
 
   const configuredCollectors = (labelInfo.collectors ?? {}) as Record<string, boolean>
+
+  const installPathConflict = useMemo(() => {
+    if (!allAgents || !agent?.install_path) return null
+    return (
+      allAgents.find(
+        (a) => a.id !== agentId && a.host === agent.host && a.install_path === agent.install_path,
+      ) ?? null
+    )
+  }, [allAgents, agent, agentId])
 
   const COLLECTOR_KEYS = [
     'cpu',
@@ -234,9 +248,7 @@ export function AgentDetailPage() {
       await agentsApi.uploadConfig(agentId, token, configContent)
       setConfigDirty(false)
       refreshExpiry()
-      // 에이전트 재시작 대기 후 상태 갱신
-      await new Promise((r) => setTimeout(r, 3000))
-      void refetchLiveStatus()
+      void refetch()
       showMsg('success', '설정 파일이 업로드되었습니다.')
     } catch (err) {
       if (err instanceof HTTPError && err.response.status === 401) {
@@ -249,28 +261,7 @@ export function AgentDetailPage() {
     }
   }
 
-  async function handleApplyConfig() {
-    if (!token) return
-    setApplying(true)
-    try {
-      await agentsApi.applyConfig(agentId, token)
-      refreshExpiry()
-      showMsg('success', '설정이 재적용되었습니다.')
-      // 에이전트 재시작 대기 후 상태 갱신
-      await new Promise((r) => setTimeout(r, 3000))
-      void refetchLiveStatus()
-    } catch (err) {
-      if (err instanceof HTTPError && err.response.status === 401) {
-        handleSSHExpired()
-      } else {
-        showMsg('error', '설정 재적용 실패')
-      }
-    } finally {
-      setApplying(false)
-    }
-  }
-
-  async function handleRefreshStatus() {
+async function handleRefreshStatus() {
     if (isDbAgent) {
       await refetch()
       return
@@ -338,7 +329,32 @@ export function AgentDetailPage() {
       navigate(ROUTES.AGENTS)
     } catch {
       showMsg('error', '삭제 실패')
-      setShowDeleteConfirm(false)
+      setDeleteMode(null)
+    }
+  }
+
+  async function handlePurge() {
+    if (!token) return
+    setActionLoading('완전 삭제')
+    try {
+      await agentsApi.purgeAgent(agentId, token)
+      await qc.invalidateQueries({ queryKey: qk.agents() })
+      navigate(ROUTES.AGENTS)
+    } catch (err) {
+      if (err instanceof HTTPError) {
+        if (err.response.status === 401) {
+          handleSSHExpired()
+        } else {
+          const body = await err.response.json().catch(() => null)
+          const detail = (body as { detail?: string } | null)?.detail
+          showMsg('error', detail ? `완전 삭제 실패: ${detail}` : '완전 삭제 실패')
+        }
+      } else {
+        showMsg('error', '완전 삭제 실패')
+      }
+      setDeleteMode(null)
+    } finally {
+      setActionLoading(null)
     }
   }
 
@@ -398,11 +414,28 @@ export function AgentDetailPage() {
         <p className="text-text-secondary mb-3 text-xs">
           바이너리 다운로드 + 디렉터리 구성. SSH 세션이 등록되어 있어야 합니다.
         </p>
+        {installPathConflict && (
+          <div className="border-warning/40 bg-warning/10 text-warning mb-3 rounded-sm border px-3 py-2 text-xs">
+            <b>설치 경로 충돌</b> — 같은 호스트의 다른 에이전트(
+            {(() => {
+              try {
+                const info = JSON.parse(installPathConflict.label_info ?? '{}') as {
+                  instance_role?: string
+                }
+                return info.instance_role ?? `ID ${installPathConflict.id}`
+              } catch {
+                return `ID ${installPathConflict.id}`
+              }
+            })()}
+            )가 동일한 설치 경로({agent.install_path})를 사용 중입니다. 설치 시 설정 파일이
+            덮어써집니다. 에이전트별로 고유한 경로를 지정해 주세요.
+          </div>
+        )}
         <NeuButton
           size="sm"
           variant="glass"
           onClick={handleInstall}
-          disabled={!sessionActive || hostMismatch}
+          disabled={!sessionActive || hostMismatch || !!installPathConflict}
         >
           <Download className="h-3.5 w-3.5" />
           설치 실행
@@ -421,14 +454,7 @@ export function AgentDetailPage() {
         <NeuCard>
           <div className="mb-4 flex items-center justify-between">
             <h2 className="text-text-primary text-sm font-semibold">상태 및 제어</h2>
-            {(() => {
-              const headerStatus: AgentStatus = liveStatus
-                ? liveStatus.live
-                  ? 'running'
-                  : 'stopped'
-                : agent.status
-              return <AgentStatusBadge status={headerStatus} />
-            })()}
+            <AgentStatusBadge status={liveProcessStatus ?? agent.status} />
           </div>
 
           <dl className="mb-6 space-y-2 text-sm">
@@ -454,7 +480,6 @@ export function AgentDetailPage() {
                 </>
               )
             })()}
-            <InfoRow label="포트" value={agent.port ? String(agent.port) : '-'} />
             {agent.agent_type !== 'db' && (
               <>
                 <InfoRow label="설치 경로" value={agent.install_path ?? '-'} />
@@ -557,19 +582,52 @@ export function AgentDetailPage() {
 
           {/* 삭제 */}
           <div className="border-border mt-4 border-t pt-4">
-            {!showDeleteConfirm ? (
-              <NeuButton size="sm" variant="danger" onClick={() => setShowDeleteConfirm(true)}>
-                <Trash2 className="h-3.5 w-3.5" />
-                에이전트 삭제
-              </NeuButton>
-            ) : (
+            {deleteMode === null ? (
+              <div className="flex flex-wrap gap-2">
+                <NeuButton size="sm" variant="danger" onClick={() => setDeleteMode('db')}>
+                  <Trash2 className="h-3.5 w-3.5" />
+                  에이전트 삭제
+                </NeuButton>
+                {!isDbAgent && !isOtelAgent && (
+                  <NeuButton
+                    size="sm"
+                    variant="danger"
+                    onClick={() => setDeleteMode('purge')}
+                    disabled={!sessionActive}
+                    title={!sessionActive ? 'SSH 세션 등록 후 사용 가능' : '원격 파일 포함 완전 삭제'}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    완전 삭제 (원격 포함)
+                  </NeuButton>
+                )}
+              </div>
+            ) : deleteMode === 'db' ? (
               <div className="space-y-2">
-                <p className="text-critical text-xs">정말 삭제하시겠습니까?</p>
+                <p className="text-critical text-xs">DB에서만 삭제됩니다. 원격 파일은 유지됩니다.</p>
                 <div className="flex gap-2">
                   <NeuButton size="sm" variant="danger" onClick={handleDelete}>
                     삭제 확인
                   </NeuButton>
-                  <NeuButton size="sm" variant="ghost" onClick={() => setShowDeleteConfirm(false)}>
+                  <NeuButton size="sm" variant="ghost" onClick={() => setDeleteMode(null)}>
+                    취소
+                  </NeuButton>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <p className="text-critical text-xs font-medium">
+                  프로세스 종료 + 설치 디렉터리 삭제 + DB 삭제가 모두 실행됩니다.
+                </p>
+                <div className="flex gap-2">
+                  <NeuButton
+                    size="sm"
+                    variant="danger"
+                    onClick={handlePurge}
+                    loading={actionLoading === '완전 삭제'}
+                  >
+                    완전 삭제 확인
+                  </NeuButton>
+                  <NeuButton size="sm" variant="ghost" onClick={() => setDeleteMode(null)}>
                     취소
                   </NeuButton>
                 </div>
@@ -585,7 +643,7 @@ export function AgentDetailPage() {
             <div className="mb-4 flex items-center gap-2">
               <Activity className="text-accent h-4 w-4" />
               <h2 className="text-text-primary text-sm font-semibold">
-                수집 상태 (Prometheus · 최근 10분)
+                수집 상태 (Prometheus · 최근 1분)
               </h2>
               {liveStatus?.live_status && (
                 <span className="ml-auto flex items-center gap-1.5">
@@ -664,7 +722,9 @@ export function AgentDetailPage() {
                       })}
                     </div>
                     <p className="text-text-disabled mt-2 text-[10px]">
-                      체크된 항목 = 설정됨 / 초록 점 = 실시간 수집 중
+                      체크된 항목 = DB 등록 설정 / 초록 점 = Prometheus 실시간 수집 중
+                      <br />
+                      설정 파일 직접 수정 시 체크 상태와 불일치할 수 있음
                     </p>
                   </div>
                 )}
@@ -843,22 +903,6 @@ export function AgentDetailPage() {
                   다시 불러오기
                 </NeuButton>
                 <div className="flex items-center gap-2">
-                  {agent.agent_type === 'synapse_agent' && (
-                    <NeuButton
-                      size="sm"
-                      variant="secondary"
-                      onClick={handleApplyConfig}
-                      loading={applying}
-                      disabled={!sessionActive || applying}
-                      title={
-                        !sessionActive
-                          ? 'SSH 세션 등록 후 사용 가능'
-                          : 'label_info에서 config.toml 재생성 후 적용'
-                      }
-                    >
-                      설정 재적용
-                    </NeuButton>
-                  )}
                   <NeuButton
                     size="sm"
                     onClick={handleUploadConfig}
@@ -866,7 +910,7 @@ export function AgentDetailPage() {
                     disabled={!sessionActive || !configDirty}
                   >
                     <Upload className="h-3.5 w-3.5" />
-                    업로드 및 Reload
+                    업로드
                   </NeuButton>
                 </div>
               </div>

@@ -354,6 +354,44 @@ async def get_agent_config(
     return {"agent_id": agent_id, "config_path": config_path, "content": content}
 
 
+def _extract_full_label_info_from_toml(toml_content: str) -> dict | None:
+    """config.toml에서 label_info 관련 필드 전체 파싱 (collectors + log_monitors + web_servers)."""
+    try:
+        import tomllib
+        data = tomllib.loads(toml_content)
+        result: dict = {}
+        if "collectors" in data:
+            result["collectors"] = {k: bool(v) for k, v in data["collectors"].items()}
+        if "log_monitor" in data:
+            lms = data["log_monitor"]
+            if isinstance(lms, list):
+                result["log_monitors"] = [
+                    {
+                        "paths": lm.get("paths", []),
+                        "keywords": lm.get("keywords", []),
+                        "log_type": lm.get("log_type", "app"),
+                    }
+                    for lm in lms
+                ]
+        if "web_servers" in data:
+            wss = data["web_servers"]
+            if isinstance(wss, list):
+                result["web_servers"] = [
+                    {
+                        "name": ws.get("name", ""),
+                        "display_name": ws.get("display_name", ""),
+                        "log_path": ws.get("log_path", ""),
+                        "log_format": ws.get("log_format", "combined"),
+                        "slow_threshold_ms": ws.get("slow_threshold_ms", 1000),
+                        "was_services": ws.get("was_services", []),
+                    }
+                    for ws in wss
+                ]
+        return result if result else None
+    except Exception:
+        return None
+
+
 @router.post("/agents/{agent_id}/config", response_model=AgentStatusOut)
 async def upload_agent_config(
     agent_id: int,
@@ -381,31 +419,28 @@ async def upload_agent_config(
         logger.warning("SSH operation failed: %s", exc)
         raise HTTPException(502, "원격 서버 연결에 실패했습니다.")
 
-    # Reload: PID 파일이 있으면 재시작 (synapse_agent는 inotify 자동 감지 지원, 재시작이 더 안정적)
-    reload_cmd: str
-    if agent.pid_file:
-        pf = _shell_path(agent.pid_file)
-        stop = f"kill $(cat {pf} 2>/dev/null) 2>/dev/null || true; rm -f {pf}; sleep 2"
-        start = _make_start_cmd(agent)
-        reload_cmd = f"{stop}; {start}"
-    else:
-        return AgentStatusOut(
-            agent_id=agent_id, status="unknown", pid=None,
-            message="설정 파일 업로드 완료. pid_file 미설정으로 reload를 건너뜁니다."
-        )
+    # synapse_agent: 업로드된 TOML에서 전체 label_info 동기화 (collectors + log_monitors + web_servers)
+    if agent.agent_type == "synapse_agent":
+        parsed = _extract_full_label_info_from_toml(body.config_content)
+        if parsed is not None:
+            try:
+                label_info: dict = json.loads(agent.label_info or "{}")
+            except Exception:
+                label_info = {}
+            label_info.update(parsed)
+            await db.execute(
+                update(AgentInstance)
+                .where(AgentInstance.id == agent_id)
+                .values(label_info=json.dumps(label_info, ensure_ascii=False))
+            )
+            await db.commit()
 
-    try:
-        code, _, stderr = await asyncio.to_thread(
-            ssh_exec, session["host"], session["port"], session["username"], session["password"], reload_cmd
-        )
-    except SSHError as exc:
-        logger.warning("SSH operation failed: %s", exc)
-        raise HTTPException(502, "원격 서버 연결에 실패했습니다.")
-
-    if code != 0:
-        raise HTTPException(502, f"Reload 실패: {stderr.strip()}")
-
-    return AgentStatusOut(agent_id=agent_id, status="running", pid=None, message="설정 업로드 및 Reload 완료.")
+    return AgentStatusOut(
+        agent_id=agent_id,
+        status=agent.status,
+        pid=None,
+        message="설정 파일 업로드 완료.",
+    )
 
 
 # ── 설치 Job (비동기) ─────────────────────────────────────────────────────────
@@ -828,6 +863,28 @@ async def _run_install(
                 else:
                     _log("  경고: 홈 디렉터리를 확인할 수 없습니다. ~ 경로를 그대로 사용합니다.")
 
+            # 설치 경로 충돌 검사 — tilde 확장 후 절대경로 기준으로 비교
+            if install_path:
+                conflict_result = await db.execute(
+                    select(AgentInstance).where(
+                        AgentInstance.id != agent.id,
+                        AgentInstance.host == agent.host,
+                        AgentInstance.install_path == install_path,
+                    )
+                )
+                conflicting = conflict_result.scalar_one_or_none()
+                if conflicting:
+                    try:
+                        conflict_info = json.loads(conflicting.label_info or "{}")
+                        conflict_role = conflict_info.get("instance_role", f"ID {conflicting.id}")
+                    except Exception:
+                        conflict_role = f"ID {conflicting.id}"
+                    raise RuntimeError(
+                        f"설치 경로 충돌: 같은 호스트의 다른 에이전트({conflict_role})가 "
+                        f"동일한 경로({install_path})를 사용 중입니다. "
+                        "에이전트별로 고유한 설치 경로를 지정하세요."
+                    )
+
             _log("[1/4] 디렉터리 생성 중...")
             install_dir = install_path.rsplit("/", 1)[0]
             code, _, stderr = await asyncio.to_thread(
@@ -940,11 +997,9 @@ async def _run_install(
 # ── Live Status (Prometheus heartbeat 기반) ───────────────────────────────────
 
 def _calc_live_status(age_secs: float) -> str:
-    """경과 시간(초) → live_status 문자열. 10분(600s) 기준."""
+    """경과 시간(초) → live_status 문자열. 1분(60s) 기준."""
     if age_secs < 60:
         return "collecting"
-    elif age_secs < 600:
-        return "delayed"
     else:
         return "stale"
 
@@ -957,7 +1012,7 @@ async def get_agent_live_status(
 ):
     """
     synapse_agent / db: Prometheus에서 메트릭 수신 여부를 조회하여
-    최근 10분 내 데이터가 있으면 live=True를 반환한다.
+    최근 1분 내 데이터가 있으면 live=True를 반환한다.
     다른 타입은 DB status를 그대로 반환한다.
     """
     import httpx
@@ -1022,7 +1077,7 @@ async def get_agent_live_status(
             "agent_id": agent_id,
             "type": "synapse_agent",
             "status": agent.status,
-            "live": live_status in ("collecting", "delayed"),
+            "live": live_status == "collecting",
             "live_status": live_status,
             "last_seen": last_seen,
             "collectors_active": collectors_active,
@@ -1060,7 +1115,7 @@ async def get_agent_live_status(
             "agent_id": agent_id,
             "type": "db",
             "status": agent.status,
-            "live": live_status in ("collecting", "delayed"),
+            "live": live_status == "collecting",
             "live_status": live_status,
             "last_seen": last_seen,
             "collectors_active": [],
@@ -1116,106 +1171,67 @@ async def get_agent_live_status(
     return {"agent_id": agent_id, "type": agent.agent_type, "status": agent.status, "live": False}
 
 
-# ── apply-config: label_info에서 config.toml 재생성 + SSH 업로드 + Reload ────────
+# ── 완전 삭제 (원격 포함) ─────────────────────────────────────────────────────────
 
-@router.post("/agents/{agent_id}/apply-config", response_model=AgentStatusOut)
-async def apply_config(
+_PURGE_BLOCKED_DIRS = frozenset({"/", "/home", "/usr", "/opt", "/etc", "/var", "/tmp", "/root"})
+
+
+@router.delete("/agents/{agent_id}/purge", status_code=204)
+async def purge_agent(
     agent_id: int,
     db: AsyncSession = Depends(get_db),
     session: dict = Depends(_require_session),
     current_user=Depends(get_current_user),
 ):
     """
-    agent.label_info에서 config.toml을 재생성하여 원격 서버에 업로드하고 에이전트를 Reload한다.
-    synapse_agent 전용. config_path / pid_file 이 설정되어 있어야 한다.
+    프로세스 종료 + 원격 설치 디렉터리 삭제 + DB 삭제를 한 번에 수행한다.
+    synapse_agent 전용. SSH 세션 필수.
     """
     agent = await _get_agent_or_404(agent_id, db)
     if agent.agent_type != "synapse_agent":
-        raise HTTPException(400, "apply-config는 synapse_agent 타입만 지원합니다.")
-    if not agent.config_path:
-        raise HTTPException(400, "config_path가 설정되어 있지 않습니다.")
-    if not agent.pid_file:
-        raise HTTPException(400, "pid_file이 설정되어 있지 않습니다.")
-
+        raise HTTPException(400, "완전 삭제는 synapse_agent 타입만 지원합니다.")
     _check_host_match(agent, session)
 
-    label_info: dict = {}
-    if agent.label_info:
-        try:
-            label_info = json.loads(agent.label_info)
-        except Exception:
-            pass
-
-    config_path = agent.config_path
-    # tilde 처리
-    if "~" in config_path:
-        _, home_out, _ = await asyncio.to_thread(
-            ssh_exec,
-            session["host"], session["port"], session["username"], session["password"],
-            "echo $HOME",
-        )
-        home_dir = home_out.strip()
-        if home_dir:
-            config_path = config_path.replace("~", home_dir)
-
-    # WAL + 로그 디렉터리 생성
-    wal_dir = os.path.dirname(config_path) + "/wal"
-    log_dir = os.path.dirname(config_path) + "/logs"
-    try:
-        await asyncio.to_thread(
-            ssh_exec,
-            session["host"], session["port"], session["username"], session["password"],
-            f"mkdir -p {wal_dir} {log_dir}",
-        )
-    except SSHError as exc:
-        raise HTTPException(502, f"디렉터리 생성 실패: {exc}")
-
-    # config.toml 생성 + 업로드
-    config_content = _build_config_toml(label_info, agent.host, config_path)
-    try:
-        await asyncio.to_thread(
-            ssh_put_file,
-            session["host"], session["port"], session["username"], session["password"],
-            config_path, config_content,
-        )
-    except SSHError as exc:
-        raise HTTPException(502, f"설정 파일 업로드 실패: {exc}")
-
-    # Reload (PID 파일 기반 재시작)
-    pid_file_path = agent.pid_file
-    if "~" in pid_file_path:
-        _, home_out, _ = await asyncio.to_thread(
-            ssh_exec,
-            session["host"], session["port"], session["username"], session["password"],
-            "echo $HOME",
-        )
-        home_dir = home_out.strip()
-        if home_dir:
-            pid_file_path = pid_file_path.replace("~", home_dir)
-
-    pf = _shell_path(pid_file_path)
-    stop = f"kill $(cat {pf} 2>/dev/null) 2>/dev/null || true; rm -f {pf}; sleep 2"
-    start = _make_start_cmd(agent)
-    reload_cmd = f"{stop}; {start}"
-
-    try:
-        code, _, stderr = await asyncio.to_thread(
-            ssh_exec,
-            session["host"], session["port"], session["username"], session["password"],
-            reload_cmd,
-        )
-    except SSHError as exc:
-        raise HTTPException(502, f"Reload 실패: {exc}")
-
-    if code != 0:
-        raise HTTPException(502, f"Reload 실패: {stderr.strip()}")
-
-    return AgentStatusOut(
-        agent_id=agent_id,
-        status="running",
-        pid=None,
-        message="설정 재적용 및 Reload 완료.",
+    host, port, username, password = (
+        session["host"], session["port"], session["username"], session["password"]
     )
+
+    # 1. tilde 확장 (install_path, pid_file 공통)
+    home_dir = ""
+    if (agent.install_path and "~" in agent.install_path) or (agent.pid_file and "~" in agent.pid_file):
+        try:
+            _, home_out, _ = await asyncio.to_thread(ssh_exec, host, port, username, password, "echo $HOME")
+            home_dir = home_out.strip()
+        except SSHError as exc:
+            raise HTTPException(502, f"SSH 연결 실패: {exc}")
+
+    def expand(p: str) -> str:
+        return p.replace("~", home_dir) if home_dir else p
+
+    # 2. 프로세스 종료
+    if agent.pid_file:
+        pf = _shell_path(expand(agent.pid_file))
+        stop_cmd = f"kill $(cat {pf} 2>/dev/null) 2>/dev/null || true; sleep 1; rm -f {pf}"
+        try:
+            await asyncio.to_thread(ssh_exec, host, port, username, password, stop_cmd)
+        except SSHError:
+            pass  # 이미 중지 상태여도 계속 진행
+
+    # 3. 설치 디렉터리 전체 삭제 (binary + config + wal + logs)
+    if agent.install_path:
+        install_dir = os.path.dirname(expand(agent.install_path))
+        if install_dir and install_dir not in _PURGE_BLOCKED_DIRS:
+            rm_cmd = f"rm -rf {shlex.quote(install_dir)}"
+            try:
+                code, _, stderr = await asyncio.to_thread(ssh_exec, host, port, username, password, rm_cmd)
+            except SSHError as exc:
+                raise HTTPException(502, f"원격 파일 삭제 실패: {exc}")
+            if code != 0:
+                raise HTTPException(502, f"원격 파일 삭제 실패: {stderr.strip()}")
+
+    # 4. DB 삭제
+    await db.delete(agent)
+    await db.commit()
 
 
 # ── OTel Java Agent 설치 ────────────────────────────────────────────────────────
