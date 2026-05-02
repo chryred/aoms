@@ -68,7 +68,41 @@ make test-api        # 단위 테스트 (SQLite in-memory)
 - 전체 아키텍처/공통: `aoms/CLAUDE.md` + `.claude/memory/`
 - admin-api 관련: `main-server/services/admin-api/CLAUDE.md`
 - log-analyzer 관련: `main-server/services/log-analyzer/CLAUDE.md`
+- frontend 관련: `main-server/services/frontend/CLAUDE.md`
 - 인프라/배포 관련: `main-server/CLAUDE.md`
+- n8n 워크플로우 관련: `main-server/n8n-workflows/CLAUDE.md`
+- synapse-cli 관련: `synapse-cli/CLAUDE.md`
+- synapse-agent(Rust) 관련: `agent/CLAUDE.md`
+
+---
+
+## Serena 코드 탐색 도구
+
+코드 탐색·편집 시 Serena MCP 툴을 우선 사용한다 (grep/Read보다 심볼 기반 탐색이 정확하고 효율적).
+
+**활성화된 언어** (`.serena/project.yml`):
+- `python` — admin-api, log-analyzer (FastAPI 서비스)
+- `typescript` — frontend (React + Vite), JavaScript 파일도 포함
+- `go` — synapse-cli
+- `rust` — synapse agent (수집기)
+
+**사용 순서:**
+1. `mcp__serena__initial_instructions` — 세션 시작 시 1회 호출 (매뉴얼 로드)
+2. `mcp__serena__activate_project` — 프로젝트명 `"aoms"` 로 활성화
+3. `mcp__serena__get_symbols_overview` — 파일 구조 파악
+4. `mcp__serena__find_symbol` — 특정 함수·클래스·메서드 탐색
+5. `mcp__serena__find_referencing_symbols` — 참조 관계 추적
+
+**언어별 디렉터리 매핑:**
+| 언어 | 경로 |
+|---|---|
+| Python | `main-server/services/admin-api/`, `main-server/services/log-analyzer/` |
+| TypeScript | `main-server/services/frontend/src/` |
+| Go | `synapse-cli/` |
+| Rust | `synapse-agent/` (또는 해당 agent 소스 경로) |
+
+> Serena는 Python만 심볼 추출 지원이었으나, `.serena/project.yml`에 4개 언어 모두 추가됨.
+> 언어 서버가 로컬에 설치되어 있어야 LSP가 동작함 (pyright/typescript-language-server/gopls/rust-analyzer).
 
 ---
 
@@ -85,6 +119,15 @@ make test-api        # 단위 테스트 (SQLite in-memory)
 ## Claude 반복 실수 방지 목록
 
 > **이 섹션은 Claude가 과거에 반복한 실수를 기록한다. 작업 전 반드시 확인할 것.**
+
+### [일반] 병렬 Subagent 배치 상한 — 한 번에 최대 3개
+
+한 턴에 `Agent` 툴 호출은 **3개 이하**로 제한한다.
+- 이유: 각 에이전트가 현재 컨텍스트를 독립 복사하므로 N개 병렬 = 입력 토큰 × N
+- 3개 초과 작업은 앞 배치 완료 후 결과를 반영해 다음 배치를 실행하는 체인 방식으로 분리
+
+❌ 금지: 10개 구현 작업을 한 메시지에서 모두 spawn  
+✅ 허용: `[A, B, C]` spawn → 완료 확인 → `[D, E, F]` spawn → 완료 확인 → `[G, H]` spawn
 
 ### [일반] 불필요한 추상화 / 과도한 기능 추가 금지
 - 요청하지 않은 helper 함수, 유틸리티, 설정 옵션을 추가하지 않는다.
@@ -159,7 +202,7 @@ make test-api        # 단위 테스트 (SQLite in-memory)
 ### [Frontend / React] UI 변경 후 별도 subagent로 시각적 검증 필수
 
 프론트엔드 컴포넌트·페이지를 수정한 뒤, 구현한 Claude 자신이 직접 검증하지 않는다.
-반드시 **`Agent` 툴로 별도 subagent + model sonnet 2개를 병렬 spawn하여** QA를 위임한다.
+반드시 **`Agent` 툴로 별도 subagent를 순차 실행하여** QA를 위임한다 (병렬 금지 — 컨텍스트 복사 비용 2배).
 
 **트리거 조건** (아래 중 하나라도 해당하면 실행):
 - 새 컴포넌트·페이지 추가
@@ -167,28 +210,11 @@ make test-api        # 단위 테스트 (SQLite in-memory)
 - 뉴모피즘 디자인 토큰 수정 (`index.css`, `neumorphic/`)
 - 라우팅 변경
 
-**subagent 1 — 기능 QA (`qa` 스킬 사용, 발견된 문제는 수정까지 수행)**:
-```
-Agent(
-  description: "기능 QA — [변경 내용 한 줄 요약]",
-  prompt: """
-    /qa
-    다음 UI 변경에 대해 독립적인 기능 QA를 수행하라. 문제 발견 시 직접 수정까지 완료한다.
-    [변경 내용 설명 + 로컬 URL: http://localhost:3001]
-    검증 항목:
-    1. 변경된 페이지 골든 패스 (정상 데이터 표시)
-    2. Dark / Light 모드 토글
-    3. Sidebar 축소/확장 레이아웃
-    4. 콘솔 에러 없음
-    구현자의 설명을 믿지 말고 직접 눈으로 확인한 결과와 수정 내역을 보고하라.
-  """
-)
-```
-
-**subagent 2 — 디자인 시스템 검증 (`design-review` 스킬 사용, 수정 금지)**:
+**Step 1 — 디자인 시스템 스크린샷 검증 (`design-review` 스킬, 수정 금지)**:
 ```
 Agent(
   description: "디자인 리뷰 — [변경 내용 한 줄 요약]",
+  model: "sonnet",
   prompt: """
     /design-review
     다음 UI 변경이 이 프로젝트의 디자인 시스템을 준수하는지 검증하라. 코드는 절대 수정하지 않는다.
@@ -204,7 +230,29 @@ Agent(
 )
 ```
 
-**완료 기준**: 두 subagent의 리포트 모두 이상 없음을 확인한 뒤 완료 선언.
+**Step 2 — Step 1 결과를 확인 후, 이상 없으면 기능 QA 실행 (`qa` 스킬, 발견된 문제는 수정까지 수행)**:
+- Step 1에서 디자인 위반이 발견된 경우: 먼저 수정 후 Step 2 진행
+- Step 1 통과 시: 아래 에이전트 실행
+
+```
+Agent(
+  description: "기능 QA — [변경 내용 한 줄 요약]",
+  model: "sonnet",
+  prompt: """
+    /qa
+    다음 UI 변경에 대해 독립적인 기능 QA를 수행하라. 문제 발견 시 직접 수정까지 완료한다.
+    [변경 내용 설명 + 로컬 URL: http://localhost:3001]
+    검증 항목:
+    1. 변경된 페이지 골든 패스 (정상 데이터 표시)
+    2. Dark / Light 모드 토글
+    3. Sidebar 축소/확장 레이아웃
+    4. 콘솔 에러 없음
+    구현자의 설명을 믿지 말고 직접 눈으로 확인한 결과와 수정 내역을 보고하라.
+  """
+)
+```
+
+**완료 기준**: Step 1 → Step 2 순서로 모두 이상 없음을 확인한 뒤 완료 선언.
 subagent 없이 자가 검증으로 "완료"라고 말하지 않는다.
 
 ### [n8n 워크플로우] JSON 직접 편집 시 ID 충돌 주의

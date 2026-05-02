@@ -33,7 +33,7 @@ docker compose -f docker-compose.dev.yml up -d n8n
 | `DEVX_CLIENT_ID` / `DEVX_CLIENT_SECRET` | admin-api, log-analyzer | DevX OAuth 인증 |
 | `DENSE_EMBED_MODEL` / `SPARSE_EMBED_MODEL` | log-analyzer | FastEmbed ONNX 임베딩 (ADR-011). 기본값: `BAAI/bge-m3` (1024 dim) + `Qdrant/bm25` |
 | `FASTEMBED_CACHE_PATH` / `HF_HUB_OFFLINE` | log-analyzer | 폐쇄망 ONNX 사전 스테이징 경로 + 오프라인 모드 (ADR-011) |
-| `QDRANT_URL` | log-analyzer | 벡터 DB. 컬렉션 차원 768 (ADR-003) |
+| `QDRANT_URL` | log-analyzer | 벡터 DB. 컬렉션 차원 1024 (ADR-011) |
 | `LLM_TYPE` | admin-api, log-analyzer | `devx`/`claude`/`openai` — `llm_client.py` Strategy가 라우팅 (ADR-001). ADR-012: ollama 폐지 |
 
 ---

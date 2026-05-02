@@ -26,6 +26,18 @@ synapse_agent → Prometheus 로그 메트릭 수집 → LLM 분석 → Teams �
 
 모든 스케줄러는 실행 완료 후 `_record_run()` 헬퍼가 admin-api `POST /api/v1/scheduler-runs`로 결과(성공/실패 포함)를 기록한다. 실패해도 fire-and-forget이라 스케줄러 동작에 영향 없음.
 
+## 로컬 개발 커맨드
+
+```bash
+make run-analyzer    # log-analyzer 핫리로드 (8000)
+make install-analyzer  # 의존성 설치 (venv 경유)
+make test-api        # 단위 테스트 (SQLite in-memory, admin-api와 공유)
+```
+
+> Python 실행 시 반드시 `./venv/bin/python` 또는 `make` 타겟 경유 (글로벌 pip 사용 금지).
+
+---
+
 ## 기술 스택
 
 - **Runtime**: Python 3.11, FastAPI (async)

@@ -305,62 +305,9 @@ cargo build --release --target x86_64-unknown-linux-musl
 
 ---
 
-## 설정 파일 예시 (`config.example.toml`)
+## 설정 파일 예시
 
-```toml
-[agent]
-system_name    = "crm"
-display_name   = "고객관리시스템"
-instance_role  = "web"
-host           = "192.168.x.x"
-collect_interval_secs = 15
-
-[remote_write]
-endpoint          = "http://<main-server>:9090/api/v1/write"
-wal_dir           = "/var/lib/aoms-agent/wal"
-wal_retention_hours = 2
-
-[collectors]
-cpu              = true
-memory           = true
-disk             = true
-network          = true
-process          = true
-tcp_connections  = true
-log_monitor      = true
-web_servers      = true
-preprocessor     = false   # LLM 전처리 — 기본 OFF
-heartbeat        = true
-
-[log_monitor]
-paths    = ["/var/log/messages", "/jeus/logs/JeusServer.log"]
-keywords = ["ERROR", "CRITICAL", "PANIC", "Fatal", "Exception"]
-log_type = "app"
-
-[[services]]
-name          = "jeus-was1"
-display_name  = "업무서버-1"
-process_match = "was1"    # /proc/[pid]/cmdline 포함 문자열
-
-[[web_servers]]
-name             = "nginx-main"
-display_name     = "메인 웹서버"
-type             = "nginx"           # nginx | apache | webtob
-log_path         = "/var/log/nginx/access.log"
-log_format       = "nginx_json"      # nginx_json | combined | clf
-was_services     = ["jeus-was1"]
-slow_threshold_ms = 2000
-url_patterns     = [
-  { pattern = "/api/customers", display = "고객조회" },
-]
-
-[preprocessor]
-summary_intervals_secs = [60, 300]
-corr_window_secs       = 300
-cpu_threshold          = 80.0
-memory_threshold       = 85.0
-log_error_min          = 1.0
-```
+전체 설정 항목과 주석은 `config.example.toml` 참조.
 
 ---
 

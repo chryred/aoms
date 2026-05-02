@@ -10,6 +10,18 @@
 - log-analyzer 서비스로부터 **LLM 로그 분석 결과** 수신 → Teams 발송
 - 알림 이력 조회 및 **acknowledge** 처리
 
+## 로컬 개발 커맨드
+
+```bash
+make run-api         # admin-api 핫리로드 (8080)
+make install-api     # 의존성 설치 (venv 경유)
+make test-api        # 단위 테스트 (SQLite in-memory)
+```
+
+> Python 실행 시 반드시 `./venv/bin/python` 또는 `make` 타겟 경유 (글로벌 pip 사용 금지).
+
+---
+
 ## 기술 스택
 
 - **Runtime**: Python 3.11, FastAPI (async)
