@@ -192,17 +192,7 @@ export function AgentDetailPage() {
     try {
       await fn()
       if (postStatus !== undefined) setLiveProcessStatus(postStatus)
-      if (postStatus === 'stopped') {
-        qc.setQueryData(qk.agentLiveStatus(agentId), {
-          agent_id: agentId,
-          type: agent.agent_type,
-          status: 'stopped' as const,
-          live: false,
-          live_status: 'stale' as const,
-          last_seen: null,
-          collectors_active: [],
-        })
-      }
+
       if (token) refreshExpiry()
       showMsg('success', `${action} 완료`)
       await refetch()
