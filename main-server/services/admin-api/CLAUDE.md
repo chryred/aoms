@@ -438,8 +438,8 @@ log-analyzer → POST /api/v1/analysis
 | `TEAMS_WEBHOOK_URL` | `""` | 전역 Teams webhook URL |
 | `SECRET_KEY` | `change-me-in-production` | JWT 서명 키 — **운영 배포 시 반드시 변경** |
 | `CORS_ORIGINS` | `http://localhost:3000,http://localhost:5173` | 허용 프론트엔드 도메인 (콤마 구분) |
-| `ACCESS_TOKEN_EXPIRE_MINUTES` | `15` | Access Token 만료 시간(분) |
-| `REFRESH_TOKEN_EXPIRE_DAYS` | `7` | Refresh Token 만료 시간(일) |
+| `ACCESS_TOKEN_EXPIRE_MINUTES` | `60` | Access Token 만료 시간(분) |
+| `REFRESH_TOKEN_EXPIRE_DAYS` | `1` | Refresh Token 만료 시간(일) |
 | `COOKIE_SECURE` | `false` | HTTPS 환경에서 `true`로 설정 |
 | `PROMETHEUS_URL` | `""` | Prometheus HTTP API URL (설정 시 Phase F 자동 분석 활성화) |
 | `PROMETHEUS_ANALYZE_INTERVAL_SECONDS` | `300` | Prometheus 이상 감지 주기(초) |

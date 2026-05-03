@@ -23,8 +23,8 @@ if not SECRET_KEY or SECRET_KEY == "change-me-in-production":
         stacklevel=1,
     )
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "15"))
-REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "7"))
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "60"))
+REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "1"))
 
 # ── OIDC IdP 설정 (ADR-014) ─────────────────────────────────────────────────
 OAUTH_ISSUER = os.getenv("OAUTH_ISSUER", "http://localhost:8080")

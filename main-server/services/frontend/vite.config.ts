@@ -42,6 +42,12 @@ export default defineConfig({
         ws: true,
       },
       '/api': 'http://localhost:8080',
+      // OIDC IdP endpoints (백엔드). /oauth/login 은 프론트엔드 SPA 라우트라 제외.
+      '/oauth/authorize': 'http://localhost:8080',
+      '/oauth/token': 'http://localhost:8080',
+      '/oauth/userinfo': 'http://localhost:8080',
+      '/oauth/jwks': 'http://localhost:8080',
+      '/.well-known/openid-configuration': 'http://localhost:8080',
       '/analyze': 'http://localhost:8000',
       '/aggregation': 'http://localhost:8000',
       '/grafana/': 'http://localhost:3000',
