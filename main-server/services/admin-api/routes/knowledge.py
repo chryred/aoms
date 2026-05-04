@@ -418,7 +418,6 @@ async def get_sync_status(
 async def update_sync_status(
     body: SyncStatusUpdate,
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(get_current_user),
 ) -> dict[str, Any]:
     """log-analyzer 스케줄러가 호출 — last_sync_at, total_synced, is_syncing 업데이트 (UPSERT)."""
     now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
@@ -627,6 +626,7 @@ async def get_sync_status_v2(
             "last_sync_at": r.last_sync_at.isoformat() if r.last_sync_at else None,
             "total_synced": r.total_synced,
             "last_error": r.last_error,
+            "is_syncing": r.is_syncing,
             "updated_at": r.updated_at.isoformat() if r.updated_at else None,
         }
         for r in rows
@@ -636,11 +636,27 @@ async def get_sync_status_v2(
 @router.post("/sync/{source}")
 async def trigger_sync(
     source: str,
+    db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
 ) -> dict[str, Any]:
     """Jira/Confluence 동기화 즉시 트리거 (log-analyzer 프록시)."""
     if source not in ("jira", "confluence"):
         raise HTTPException(status_code=400, detail="source는 jira 또는 confluence여야 합니다")
+
+    # 버튼 클릭 즉시 DB에 is_syncing=True 기록 — log-analyzer 콜백과 무관하게 UI가 즉시 비활성화됨
+    now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
+    row = (
+        await db.execute(
+            select(KnowledgeSyncStatus).where(KnowledgeSyncStatus.source == source)
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        db.add(KnowledgeSyncStatus(source=source, is_syncing=True, updated_at=now_utc))
+    else:
+        row.is_syncing = True
+        row.updated_at = now_utc
+    await db.commit()
+
     result = await knowledge_service.call_trigger_sync(source)
     return result
 
