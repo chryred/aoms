@@ -23,7 +23,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import AsyncSessionLocal
-from models import AlertHistory, Contact, IncidentTimeline, LlmAgentConfig, LogAnalysisHistory, System, SystemContact
+from models import AlertHistory, Contact, IncidentTimeline, LlmAgentConfig, LogAnalysisHistory, System, SystemContact, User
 from services.incident_service import get_or_create_incident
 from services.llm_client import call_llm_text, LLM_TYPE
 
@@ -163,19 +163,20 @@ async def _get_system_info(db: AsyncSession, system_name: str) -> Optional[dict]
     if not system:
         return None
     contacts_result = await db.execute(
-        select(Contact)
+        select(Contact, User.name)
         .join(SystemContact, SystemContact.contact_id == Contact.id)
+        .join(User, User.id == Contact.user_id)
         .where(SystemContact.system_id == system.id)
     )
-    contacts = contacts_result.scalars().all()
+    contacts = contacts_result.all()
     return {
         "id": system.id,
         "system_name": system.system_name,
         "display_name": system.display_name,
         "teams_webhook_url": system.teams_webhook_url,
         "contacts": [
-            {"name": c.name, "teams_upn": c.teams_upn}
-            for c in contacts
+            {"name": user_name, "teams_upn": c.teams_upn}
+            for c, user_name in contacts
         ],
     }
 
