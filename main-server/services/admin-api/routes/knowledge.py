@@ -385,8 +385,9 @@ async def list_frequent_questions(
 class SyncStatusUpdate(BaseModel):
     source: str
     last_sync_at: datetime | None = None
-    total_synced: int = 0
+    total_synced: int | None = None  # None = 업데이트하지 않음
     last_error: str | None = None
+    is_syncing: bool | None = None   # None = 업데이트하지 않음
 
 
 @router.get("/sync-status")
@@ -406,6 +407,7 @@ async def get_sync_status(
             "last_sync_at": r.last_sync_at.isoformat() if r.last_sync_at else None,
             "total_synced": r.total_synced,
             "last_error": r.last_error,
+            "is_syncing": r.is_syncing,
             "updated_at": r.updated_at.isoformat() if r.updated_at else None,
         }
         for r in rows
@@ -418,7 +420,7 @@ async def update_sync_status(
     db: AsyncSession = Depends(get_db),
     _user: User = Depends(get_current_user),
 ) -> dict[str, Any]:
-    """log-analyzer 스케줄러가 호출 — last_sync_at, total_synced 업데이트 (UPSERT)."""
+    """log-analyzer 스케줄러가 호출 — last_sync_at, total_synced, is_syncing 업데이트 (UPSERT)."""
     now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
 
     # UPSERT: source가 PK
@@ -432,16 +434,21 @@ async def update_sync_status(
         row = KnowledgeSyncStatus(
             source=body.source,
             last_sync_at=body.last_sync_at.replace(tzinfo=None) if body.last_sync_at else None,
-            total_synced=body.total_synced,
+            total_synced=body.total_synced or 0,
             last_error=body.last_error,
+            is_syncing=body.is_syncing if body.is_syncing is not None else False,
             updated_at=now_utc,
         )
         db.add(row)
     else:
         if body.last_sync_at is not None:
             row.last_sync_at = body.last_sync_at.replace(tzinfo=None)
-        row.total_synced = body.total_synced
-        row.last_error = body.last_error
+            # 동기화 완료 시에만 결과 필드 갱신
+            row.last_error = body.last_error
+        if body.total_synced is not None:
+            row.total_synced = body.total_synced
+        if body.is_syncing is not None:
+            row.is_syncing = body.is_syncing
         row.updated_at = now_utc
 
     await db.commit()

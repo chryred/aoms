@@ -33,6 +33,7 @@ export interface KnowledgeSyncStatus {
   last_sync_at: string | null
   total_synced: number
   last_error: string | null
+  is_syncing: boolean
   updated_at: string | null
 }
 

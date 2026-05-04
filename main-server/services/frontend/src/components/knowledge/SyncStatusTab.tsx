@@ -1,16 +1,16 @@
-import { RefreshCw, CheckCircle, AlertCircle, Clock } from 'lucide-react'
+import { RefreshCw, CheckCircle, AlertCircle, Clock, Loader2 } from 'lucide-react'
 import { NeuCard } from '@/components/neumorphic/NeuCard'
 import { NeuButton } from '@/components/neumorphic/NeuButton'
 import { LoadingSkeleton } from '@/components/common/LoadingSkeleton'
 import { ErrorCard } from '@/components/common/ErrorCard'
 import { useSyncStatus } from '@/hooks/queries/useKnowledgeQueries'
 import { useTriggerSync } from '@/hooks/mutations/useKnowledgeMutations'
-import { formatKST, formatRelative } from '@/lib/utils'
+import { cn, formatKST, formatRelative } from '@/lib/utils'
 import type { KnowledgeSyncStatus } from '@/types/knowledge'
 
 const DEFAULT_SOURCES: KnowledgeSyncStatus[] = [
-  { source: 'jira', last_sync_at: null, total_synced: 0, last_error: null, updated_at: null },
-  { source: 'confluence', last_sync_at: null, total_synced: 0, last_error: null, updated_at: null },
+  { source: 'jira', last_sync_at: null, total_synced: 0, last_error: null, is_syncing: false, updated_at: null },
+  { source: 'confluence', last_sync_at: null, total_synced: 0, last_error: null, is_syncing: false, updated_at: null },
 ]
 
 const SOURCE_LABEL: Record<string, string> = {
@@ -35,7 +35,12 @@ export function SyncStatusTab() {
   return (
     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
       {allStatuses.map((s) => (
-        <SyncCard key={s.source} status={s} onTrigger={triggerSync.mutate} />
+        <SyncCard
+          key={s.source}
+          status={s}
+          onTrigger={triggerSync.mutate}
+          isPending={triggerSync.isPending && triggerSync.variables === s.source}
+        />
       ))}
     </div>
   )
@@ -44,12 +49,15 @@ export function SyncStatusTab() {
 function SyncCard({
   status,
   onTrigger,
+  isPending,
 }: {
   status: KnowledgeSyncStatus
   onTrigger: (source: 'jira' | 'confluence') => void
+  isPending: boolean
 }) {
   const canTrigger = status.source === 'jira' || status.source === 'confluence'
   const hasError = !!status.last_error
+  const isActive = isPending || status.is_syncing
 
   return (
     <NeuCard severity={hasError ? 'warning' : undefined} className="space-y-3 p-4">
@@ -57,7 +65,9 @@ function SyncCard({
         <span className="text-text-primary text-sm font-semibold">
           {SOURCE_LABEL[status.source] ?? status.source}
         </span>
-        {hasError ? (
+        {status.is_syncing ? (
+          <Loader2 className="text-text-secondary h-4 w-4 shrink-0 animate-spin" aria-hidden="true" />
+        ) : hasError ? (
           <AlertCircle className="text-warning h-4 w-4 shrink-0" aria-hidden="true" />
         ) : (
           <CheckCircle className="text-normal h-4 w-4 shrink-0" aria-hidden="true" />
@@ -88,10 +98,14 @@ function SyncCard({
           variant="secondary"
           size="sm"
           className="w-full"
-          onClick={() => onTrigger(status.source as 'jira' | 'confluence')}
+          onClick={() => !isActive && onTrigger(status.source as 'jira' | 'confluence')}
+          disabled={isActive}
+          loading={isPending}
         >
-          <RefreshCw className="h-3.5 w-3.5" />
-          수동 동기화
+          {!isPending && (
+            <RefreshCw className={cn('h-3.5 w-3.5', status.is_syncing && 'animate-spin')} />
+          )}
+          {isPending ? '요청 중...' : status.is_syncing ? '동기화 중...' : '수동 동기화'}
         </NeuButton>
       )}
     </NeuCard>

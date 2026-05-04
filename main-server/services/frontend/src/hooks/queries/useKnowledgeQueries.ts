@@ -32,7 +32,11 @@ export function useSyncStatus(source?: string) {
     queryKey: qk.knowledge.syncStatus(source),
     queryFn: () => knowledgeApi.getSyncStatus(source),
     staleTime: 30_000,
-    refetchInterval: 60_000,
+    refetchInterval: (query) => {
+      const statuses = query.state.data
+      const anySyncing = Array.isArray(statuses) && statuses.some((s) => s.is_syncing)
+      return anySyncing ? 10_000 : 60_000
+    },
   })
 }
 

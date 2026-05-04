@@ -564,6 +564,7 @@ class KnowledgeSyncStatus(Base):
     last_sync_at  = Column(DateTime)                        # NULL = 아직 동기화 미실행
     total_synced  = Column(Integer, nullable=False, default=0)
     last_error    = Column(Text)                            # NULL = 마지막 동기화 성공
+    is_syncing    = Column(Boolean, nullable=False, default=False)  # 동기화 진행 중 여부
     updated_at    = Column(DateTime, nullable=False, default=func.now())
 
 

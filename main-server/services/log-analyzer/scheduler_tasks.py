@@ -79,6 +79,18 @@ async def _record_run(scheduler_type: str, started_at: str, finished_at: str, re
         logger.debug("스케줄러 이력 기록 실패 (무시): %s", exc)
 
 
+async def _set_syncing_flag(source: str, is_syncing: bool) -> None:
+    """knowledge_sync_status.is_syncing 플래그 업데이트 (fire-and-forget, 실패해도 무시)."""
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            await client.post(
+                f"{ADMIN_API_URL}/api/v1/knowledge/sync-status",
+                json={"source": source, "is_syncing": is_syncing},
+            )
+    except Exception as exc:
+        logger.warning("is_syncing 플래그 설정 실패 [source=%s, is_syncing=%s]: %s", source, is_syncing, exc)
+
+
 async def _run_analysis_task() -> None:
     global _running, _last_run
     if _running:
@@ -362,91 +374,96 @@ async def _jira_sync_run() -> dict:
         logger.info("Jira 동기화 환경변수 미설정 (JIRA_URL/JIRA_TOKEN/JIRA_PROJECTS) — 건너뜀")
         return {"skipped": True, "reason": "env not configured"}
 
+    await _set_syncing_flag("jira", True)
     projects = [p.strip() for p in JIRA_PROJECTS.split(",") if p.strip()]
     synced = 0
     errors = 0
-
-    # admin-api에서 last_sync_at 조회
-    last_sync_at: str | None = None
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(
-                f"{ADMIN_API_URL}/api/v1/knowledge/sync-status",
-                params={"source": "jira"},
-            )
-            if resp.status_code == 200:
-                last_sync_at = resp.json().get("last_sync_at")
-    except Exception as exc:
-        logger.warning("Jira last_sync_at 조회 실패: %s → 전체 동기화 진행", exc)
+        # admin-api에서 last_sync_at 조회
+        last_sync_at: str | None = None
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.get(
+                    f"{ADMIN_API_URL}/api/v1/knowledge/sync-status",
+                    params={"source": "jira"},
+                )
+                if resp.status_code == 200:
+                    last_sync_at = resp.json().get("last_sync_at")
+        except Exception as exc:
+            logger.warning("Jira last_sync_at 조회 실패: %s → 전체 동기화 진행", exc)
 
-    jql_date = f" AND updated >= \"{last_sync_at[:10]}\"" if last_sync_at else ""
+        jql_date = f" AND updated >= \"{last_sync_at[:10]}\"" if last_sync_at else ""
 
-    rate_sem = asyncio.Semaphore(1)
-    interval = 1.0 / max(KNOWLEDGE_SYNC_RATE_LIMIT, 1)
+        rate_sem = asyncio.Semaphore(1)
+        interval = 1.0 / max(KNOWLEDGE_SYNC_RATE_LIMIT, 1)
 
-    async with httpx.AsyncClient(
-        timeout=30.0,
-        headers={
-            "Authorization": f"Bearer {JIRA_TOKEN}",
-            "Accept":        "application/json",
-        },
-    ) as jira_client:
-        for project in projects:
-            jql = f"project = {project} AND issuetype not in (subTaskIssueTypes()){jql_date} ORDER BY updated ASC"
-            start_at = 0
-            max_results = 50
+        async with httpx.AsyncClient(
+            timeout=30.0,
+            headers={
+                "Authorization": f"Bearer {JIRA_TOKEN}",
+                "Accept":        "application/json",
+            },
+        ) as jira_client:
+            for project in projects:
+                jql = f"project = {project} AND issuetype not in (subTaskIssueTypes()){jql_date} ORDER BY updated ASC"
+                start_at = 0
+                max_results = 50
 
-            while True:
-                try:
-                    resp = await jira_client.get(
-                        f"{JIRA_URL}/rest/api/2/search",
-                        params={"jql": jql, "startAt": start_at, "maxResults": max_results,
-                                "fields": _JIRA_FIELDS},
-                    )
-                    resp.raise_for_status()
-                    data = resp.json()
-                except Exception as exc:
-                    logger.warning("Jira 이슈 조회 실패 [project=%s, start=%d]: %s", project, start_at, exc)
-                    errors += 1
-                    break
+                while True:
+                    try:
+                        resp = await jira_client.get(
+                            f"{JIRA_URL}/rest/api/2/search",
+                            params={"jql": jql, "startAt": start_at, "maxResults": max_results,
+                                    "fields": _JIRA_FIELDS},
+                        )
+                        resp.raise_for_status()
+                        data = resp.json()
+                    except Exception as exc:
+                        logger.warning("Jira 이슈 조회 실패 [project=%s, start=%d]: %s", project, start_at, exc)
+                        errors += 1
+                        break
 
-                issues = data.get("issues", [])
-                if not issues:
-                    break
+                    issues = data.get("issues", [])
+                    if not issues:
+                        break
 
-                for issue in issues:
-                    async with rate_sem:
-                        try:
-                            await knowledge_vector_client.upsert_jira_issue(
-                                **_issue_to_upsert_kwargs(issue)
-                            )
-                            synced += 1
-                        except Exception as exc:
-                            logger.warning("Jira upsert 실패 [%s]: %s", issue.get("key"), exc)
-                            errors += 1
-                        await asyncio.sleep(interval)
+                    for issue in issues:
+                        async with rate_sem:
+                            try:
+                                await knowledge_vector_client.upsert_jira_issue(
+                                    **_issue_to_upsert_kwargs(issue)
+                                )
+                                synced += 1
+                            except Exception as exc:
+                                logger.warning("Jira upsert 실패 [%s]: %s", issue.get("key"), exc)
+                                errors += 1
+                            await asyncio.sleep(interval)
 
-                total = data.get("total", 0)
-                start_at += len(issues)
-                if start_at >= total:
-                    break
+                    total = data.get("total", 0)
+                    start_at += len(issues)
+                    if start_at >= total:
+                        break
 
-    # admin-api에 sync-status 업데이트
-    try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            await client.post(
-                f"{ADMIN_API_URL}/api/v1/knowledge/sync-status",
-                json={
-                    "source":       "jira",
-                    "last_sync_at": datetime.now(timezone.utc).isoformat(),
-                    "synced_count": synced,
-                },
-            )
-    except Exception as exc:
-        logger.warning("Jira sync-status 업데이트 실패: %s", exc)
+        # admin-api에 sync-status 업데이트 (is_syncing=False 포함)
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                await client.post(
+                    f"{ADMIN_API_URL}/api/v1/knowledge/sync-status",
+                    json={
+                        "source":       "jira",
+                        "last_sync_at": datetime.now(timezone.utc).isoformat(),
+                        "synced_count": synced,
+                        "is_syncing":   False,
+                    },
+                )
+        except Exception as exc:
+            logger.warning("Jira sync-status 업데이트 실패: %s", exc)
 
-    logger.info("Jira 동기화 완료: synced=%d, errors=%d", synced, errors)
-    return {"synced": synced, "errors": errors}
+        logger.info("Jira 동기화 완료: synced=%d, errors=%d", synced, errors)
+        return {"synced": synced, "errors": errors}
+    finally:
+        # 예외 발생 시에도 반드시 플래그 해제
+        await _set_syncing_flag("jira", False)
 
 
 async def _jira_sync_scheduler() -> None:
@@ -466,119 +483,124 @@ async def _confluence_sync_run() -> dict:
         logger.info("Confluence 환경변수 미설정 (CONFLUENCE_URL/CONFLUENCE_TOKEN/CONFLUENCE_SPACES) — 건너뜀")
         return {"skipped": True, "reason": "env not configured"}
 
+    await _set_syncing_flag("confluence", True)
     import chunking
 
     spaces = [s.strip() for s in CONFLUENCE_SPACES.split(",") if s.strip()]
     synced_pages = 0
     synced_chunks = 0
     errors = 0
-
-    # admin-api에서 last_sync_at 조회
-    last_sync_at: str | None = None
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(
-                f"{ADMIN_API_URL}/api/v1/knowledge/sync-status",
-                params={"source": "confluence"},
-            )
-            if resp.status_code == 200:
-                last_sync_at = resp.json().get("last_sync_at")
-    except Exception as exc:
-        logger.warning("Confluence last_sync_at 조회 실패: %s → 전체 동기화 진행", exc)
+        # admin-api에서 last_sync_at 조회
+        last_sync_at: str | None = None
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                resp = await client.get(
+                    f"{ADMIN_API_URL}/api/v1/knowledge/sync-status",
+                    params={"source": "confluence"},
+                )
+                if resp.status_code == 200:
+                    last_sync_at = resp.json().get("last_sync_at")
+        except Exception as exc:
+            logger.warning("Confluence last_sync_at 조회 실패: %s → 전체 동기화 진행", exc)
 
-    rate_sem = asyncio.Semaphore(1)
-    interval = 1.0 / max(KNOWLEDGE_SYNC_RATE_LIMIT, 1)
+        rate_sem = asyncio.Semaphore(1)
+        interval = 1.0 / max(KNOWLEDGE_SYNC_RATE_LIMIT, 1)
 
-    auth_header = f"Bearer {CONFLUENCE_TOKEN}"
+        auth_header = f"Bearer {CONFLUENCE_TOKEN}"
 
-    async with httpx.AsyncClient(
-        timeout=30.0,
-        headers={"Authorization": auth_header, "Accept": "application/json"},
-    ) as conf_client:
-        for space_key in spaces:
-            start = 0
-            limit_per_page = 25
-            cql_date = f" AND lastModified >= \"{last_sync_at[:10]}\"" if last_sync_at else ""
-            cql = f"space = {space_key} AND type = page{cql_date} ORDER BY lastModified ASC"
+        async with httpx.AsyncClient(
+            timeout=30.0,
+            headers={"Authorization": auth_header, "Accept": "application/json"},
+        ) as conf_client:
+            for space_key in spaces:
+                start = 0
+                limit_per_page = 25
+                cql_date = f" AND lastModified >= \"{last_sync_at[:10]}\"" if last_sync_at else ""
+                cql = f"space = {space_key} AND type = page{cql_date} ORDER BY lastModified ASC"
 
-            while True:
-                try:
-                    resp = await conf_client.get(
-                        f"{CONFLUENCE_URL}/rest/api/content/search",
-                        params={
-                            "cql":    cql,
-                            "start":  start,
-                            "limit":  limit_per_page,
-                            "expand": "body.storage,space,version",
-                        },
-                    )
-                    resp.raise_for_status()
-                    data = resp.json()
-                except Exception as exc:
-                    logger.warning("Confluence 페이지 조회 실패 [space=%s, start=%d]: %s", space_key, start, exc)
-                    errors += 1
-                    break
-
-                results = data.get("results", [])
-                if not results:
-                    break
-
-                for page in results:
-                    page_id = page["id"]
-                    page_title = page.get("title", "")
-                    html_content = page.get("body", {}).get("storage", {}).get("value", "") or ""
-                    page_url = f"{CONFLUENCE_URL}/pages/{page_id}"
-
+                while True:
                     try:
-                        chunks = chunking.chunk_confluence_page(
-                            content=html_content,
-                            page_id=page_id,
-                            page_title=page_title,
-                            space=space_key,
+                        resp = await conf_client.get(
+                            f"{CONFLUENCE_URL}/rest/api/content/search",
+                            params={
+                                "cql":    cql,
+                                "start":  start,
+                                "limit":  limit_per_page,
+                                "expand": "body.storage,space,version",
+                            },
                         )
+                        resp.raise_for_status()
+                        data = resp.json()
                     except Exception as exc:
-                        logger.warning("Confluence 청킹 실패 [page_id=%s]: %s", page_id, exc)
+                        logger.warning("Confluence 페이지 조회 실패 [space=%s, start=%d]: %s", space_key, start, exc)
                         errors += 1
-                        continue
+                        break
 
-                    async with rate_sem:
+                    results = data.get("results", [])
+                    if not results:
+                        break
+
+                    for page in results:
+                        page_id = page["id"]
+                        page_title = page.get("title", "")
+                        html_content = page.get("body", {}).get("storage", {}).get("value", "") or ""
+                        page_url = f"{CONFLUENCE_URL}/pages/{page_id}"
+
                         try:
-                            await knowledge_vector_client.delete_confluence_chunks_by_page_id(page_id)
-                            n = await knowledge_vector_client.upsert_confluence_chunks(
+                            chunks = chunking.chunk_confluence_page(
+                                content=html_content,
                                 page_id=page_id,
                                 page_title=page_title,
                                 space=space_key,
-                                chunks=chunks,
-                                url=page_url,
                             )
-                            synced_pages += 1
-                            synced_chunks += n
                         except Exception as exc:
-                            logger.warning("Confluence upsert 실패 [page_id=%s]: %s", page_id, exc)
+                            logger.warning("Confluence 청킹 실패 [page_id=%s]: %s", page_id, exc)
                             errors += 1
-                        await asyncio.sleep(interval)
+                            continue
 
-                start += len(results)
-                if len(results) < limit_per_page:
-                    break
+                        async with rate_sem:
+                            try:
+                                await knowledge_vector_client.delete_confluence_chunks_by_page_id(page_id)
+                                n = await knowledge_vector_client.upsert_confluence_chunks(
+                                    page_id=page_id,
+                                    page_title=page_title,
+                                    space=space_key,
+                                    chunks=chunks,
+                                    url=page_url,
+                                )
+                                synced_pages += 1
+                                synced_chunks += n
+                            except Exception as exc:
+                                logger.warning("Confluence upsert 실패 [page_id=%s]: %s", page_id, exc)
+                                errors += 1
+                            await asyncio.sleep(interval)
 
-    # admin-api에 sync-status 업데이트
-    try:
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            await client.post(
-                f"{ADMIN_API_URL}/api/v1/knowledge/sync-status",
-                json={
-                    "source":        "confluence",
-                    "last_sync_at":  datetime.now(timezone.utc).isoformat(),
-                    "synced_count":  synced_pages,
-                    "synced_chunks": synced_chunks,
-                },
-            )
-    except Exception as exc:
-        logger.warning("Confluence sync-status 업데이트 실패: %s", exc)
+                    start += len(results)
+                    if len(results) < limit_per_page:
+                        break
 
-    logger.info("Confluence 동기화 완료: pages=%d, chunks=%d, errors=%d", synced_pages, synced_chunks, errors)
-    return {"synced_pages": synced_pages, "synced_chunks": synced_chunks, "errors": errors}
+        # admin-api에 sync-status 업데이트 (is_syncing=False 포함)
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                await client.post(
+                    f"{ADMIN_API_URL}/api/v1/knowledge/sync-status",
+                    json={
+                        "source":        "confluence",
+                        "last_sync_at":  datetime.now(timezone.utc).isoformat(),
+                        "synced_count":  synced_pages,
+                        "synced_chunks": synced_chunks,
+                        "is_syncing":    False,
+                    },
+                )
+        except Exception as exc:
+            logger.warning("Confluence sync-status 업데이트 실패: %s", exc)
+
+        logger.info("Confluence 동기화 완료: pages=%d, chunks=%d, errors=%d", synced_pages, synced_chunks, errors)
+        return {"synced_pages": synced_pages, "synced_chunks": synced_chunks, "errors": errors}
+    finally:
+        # 예외 발생 시에도 반드시 플래그 해제
+        await _set_syncing_flag("confluence", False)
 
 
 async def _confluence_sync_scheduler() -> None:

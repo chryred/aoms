@@ -567,6 +567,7 @@ CREATE TABLE IF NOT EXISTS knowledge_sync_status (
     last_sync_at  TIMESTAMP,                               -- NULL = 아직 동기화 미실행
     total_synced  INTEGER      NOT NULL DEFAULT 0,
     last_error    TEXT,                                    -- NULL = 마지막 동기화 성공
+    is_syncing    BOOLEAN      NOT NULL DEFAULT FALSE,     -- 동기화 진행 중 여부
     updated_at    TIMESTAMP    NOT NULL DEFAULT NOW()
 );
 
