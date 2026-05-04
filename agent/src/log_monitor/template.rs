@@ -6,6 +6,16 @@ static PATTERNS: OnceLock<Vec<(Regex, &'static str)>> = OnceLock::new();
 fn get_patterns() -> &'static Vec<(Regex, &'static str)> {
     PATTERNS.get_or_init(|| {
         vec![
+            // 타임스탬프 (대괄호 포함) e.g. [2026-05-04 19:07:00,005]
+            (
+                Regex::new(r"\[\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}[.,]\d{1,6}\]").unwrap(),
+                "<DATETIME>",
+            ),
+            // 타임스탬프 (대괄호 없음) e.g. 2026-05-04 19:07:00,005 or 2026-05-04T19:07:00.000Z
+            (
+                Regex::new(r"\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:[.,]\d{1,6})?(?:Z|[+-]\d{2}:?\d{2})?").unwrap(),
+                "<DATETIME>",
+            ),
             // IPv4 주소
             (
                 Regex::new(r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(:\d+)?\b").unwrap(),
@@ -165,6 +175,35 @@ mod tests {
         let t = extract_template("오류: 사용자 900101-1234567 접근");
         assert!(t.contains("오류"));
         assert!(t.contains("<JUMINNO>"), "got: {}", t);
+    }
+
+    // T-DT-01: 대괄호 포함 타임스탬프 정규화 (log4j 스타일)
+    #[test]
+    fn test_mask_datetime_bracketed() {
+        let t = extract_template("[2026-05-04 19:07:00,005] DEBUG BatchJobVocAnswer : BATCH_ERROR");
+        assert_eq!(t, "<DATETIME> DEBUG BatchJobVocAnswer : BATCH_ERROR");
+    }
+
+    // T-DT-02: 대괄호 없는 타임스탬프 정규화
+    #[test]
+    fn test_mask_datetime_plain() {
+        let t = extract_template("2026-05-04 19:07:00,005 ERROR something failed");
+        assert_eq!(t, "<DATETIME> ERROR something failed");
+    }
+
+    // T-DT-03: ISO 8601 (T 구분자, Z suffix)
+    #[test]
+    fn test_mask_datetime_iso8601() {
+        let t = extract_template("2026-05-04T19:07:00.005Z ERROR something failed");
+        assert_eq!(t, "<DATETIME> ERROR something failed");
+    }
+
+    // T-DT-04: 동일 에러, 다른 타임스탬프 → 같은 template 생성
+    #[test]
+    fn test_same_template_different_timestamps() {
+        let t1 = extract_template("[2026-05-04 19:05:00,006] DEBUG BatchJobVocAnswer : BATCH_ERROR");
+        let t2 = extract_template("[2026-05-04 19:07:00,005] DEBUG BatchJobVocAnswer : BATCH_ERROR");
+        assert_eq!(t1, t2, "서로 다른 타임스탬프가 같은 template으로 정규화되어야 함");
     }
 
     // T-F-01: 빈 문자열
