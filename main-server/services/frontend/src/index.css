@@ -743,6 +743,64 @@ pre {
   animation: chat-pulse 4s ease-out infinite;
 }
 
+/* ── 시냅이 움직임 & 말풍선 ───────────────────────── */
+@keyframes synap-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-4px);
+  }
+}
+
+@keyframes synap-bubble-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes synap-bubble-out {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+.animate-synap-float {
+  animation: synap-float 3s ease-in-out infinite;
+}
+
+.animate-synap-bubble-in {
+  animation: synap-bubble-in 0.2s ease-out both;
+}
+
+.animate-synap-bubble-out {
+  animation: synap-bubble-out 0.28s ease-in both;
+}
+
+/* 말풍선 꼬리 (우하단 삼각형) */
+.synap-bubble::after {
+  content: '';
+  position: absolute;
+  bottom: -6px;
+  right: 14px;
+  width: 0;
+  height: 0;
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-top: 6px solid var(--t-surface);
+}
+
 /* ── 타이포그래피 유틸리티 ───────────────────────── */
 
 /* 대문자 섹션 레이블 (반복 패턴 토큰화) */
