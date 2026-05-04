@@ -231,7 +231,14 @@ async def _longperiod_agg_scheduler() -> None:
 
 _JIRA_FIELDS = (
     "summary,description,status,comment,"
-    "issuetype,priority,components,resolutiondate,project,"
+    "issuetype,priority,components,resolutiondate,resolution,project,"
+    "assignee,reporter,created,updated,issuelinks,attachment,"
+    "customfield_11500,"                                    # JSM요청자
+    "customfield_17903,"                                    # 시스템명
+    "customfield_10437,customfield_10403,"                  # 완료희망일, 합의완료일
+    "customfield_11008,customfield_11009,"                  # 시작일(cal), 종료예정일(cal)
+    "customfield_10723,customfield_16830,"                  # 요청생성일, 접수일
+    "customfield_16403,customfield_16600,"                  # 요건정의서, 변경대상
     "customfield_18370,customfield_11011,customfield_17901,"
     "customfield_15315,customfield_15316,customfield_14403,"
     "customfield_11351,customfield_11718,customfield_11343,"
@@ -243,6 +250,26 @@ _JIRA_FIELDS = (
     "customfield_11311,customfield_11362,customfield_11363,"
     "customfield_11366"
 )
+
+
+def _parse_issue_links(links: list) -> list[dict]:
+    """issuelinks 배열 → [{"type": ..., "direction": ..., "key": ..., "issue_type": ..., "summary": ...}]"""
+    result = []
+    for link in links:
+        link_type = link.get("type", {}).get("name", "")
+        for direction in ("inward", "outward"):
+            linked = link.get(f"{direction}Issue")
+            if not linked:
+                continue
+            lf = linked.get("fields", {})
+            result.append({
+                "type":       link_type,
+                "direction":  direction,
+                "key":        linked.get("key", ""),
+                "issue_type": (lf.get("issuetype") or {}).get("name", ""),
+                "summary":    lf.get("summary", ""),
+            })
+    return result
 
 
 def _issue_to_upsert_kwargs(issue: dict) -> dict:
@@ -257,27 +284,48 @@ def _issue_to_upsert_kwargs(issue: dict) -> dict:
         return str(v) if v is not None else None
 
     def _cl(key: str) -> list[str]:
+        import re
         v = f.get(key)
         if not isinstance(v, list):
             return []
-        return [
-            (item.get("name") or item.get("value") or str(item))
-            if isinstance(item, dict) else str(item)
-            for item in v
-        ]
+        result = []
+        for item in v:
+            raw = (item.get("name") or item.get("value") or str(item)) if isinstance(item, dict) else str(item)
+            # Jira가 name에 붙이는 내부 ID 제거 — 예: "백화점CX팀 (SINCAS-130)" → "백화점CX팀"
+            cleaned = re.sub(r'\s*\([A-Z]+-\d+\)\s*$', '', raw).strip()
+            if cleaned:
+                result.append(cleaned)
+        return result
 
     return dict(
-        project=f.get("project", {}).get("key", ""),
+        project=(f.get("project") or {}).get("key", ""),
         issue_id=issue["id"],
         issue_key=issue.get("key"),
         title=f.get("summary", ""),
         description=f.get("description") or "",
-        status=f.get("status", {}).get("name", ""),
+        status=(f.get("status") or {}).get("name", ""),
         comments=comments,
-        issue_type=f.get("issuetype", {}).get("name"),
-        priority=f.get("priority", {}).get("name"),
-        components=[c["name"] for c in f.get("components", []) if c.get("name")],
+        issue_type=(f.get("issuetype") or {}).get("name"),
+        priority=(f.get("priority") or {}).get("name"),
+        components=[c["name"] for c in (f.get("components") or []) if c.get("name")],
         resolution_date=f.get("resolutiondate"),
+        resolution=(f.get("resolution") or {}).get("name"),
+        assignee=(f.get("assignee") or {}).get("displayName"),
+        created_at=f.get("created"),
+        updated_at=f.get("updated"),
+        jsm_requester=(f.get("customfield_11500") or {}).get("displayName"),
+        jira_systems=_cl("customfield_17903"),
+        due_date=f.get("customfield_10437"),
+        agreed_date=f.get("customfield_10403"),
+        start_date=f.get("customfield_11008"),
+        end_date=f.get("customfield_11009"),
+        request_created_at=f.get("customfield_10723"),
+        received_at=f.get("customfield_16830"),
+        issue_links=_parse_issue_links(f.get("issuelinks") or []),
+        reporter=(f.get("reporter") or {}).get("displayName"),
+        attachments=[a["filename"] for a in (f.get("attachment") or []) if a.get("filename")],
+        requirements=f.get("customfield_16403") or None,
+        change_targets=f.get("customfield_16600") or None,
         company=_cl("customfield_18370"),
         system_dept=_cl("customfield_11011"),
         service=_cl("customfield_17901"),
@@ -344,7 +392,7 @@ async def _jira_sync_run() -> dict:
         },
     ) as jira_client:
         for project in projects:
-            jql = f"project = {project}{jql_date} ORDER BY updated ASC"
+            jql = f"project = {project} AND issuetype not in (subTaskIssueTypes()){jql_date} ORDER BY updated ASC"
             start_at = 0
             max_results = 50
 

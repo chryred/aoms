@@ -139,6 +139,23 @@ async def upsert_jira_issue(
     priority: str | None = None,
     components: list[str] | None = None,
     resolution_date: str | None = None,
+    resolution: str | None = None,
+    assignee: str | None = None,
+    created_at: str | None = None,
+    updated_at: str | None = None,
+    jsm_requester: str | None = None,
+    jira_systems: list[str] | None = None,
+    due_date: str | None = None,
+    agreed_date: str | None = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
+    request_created_at: str | None = None,
+    received_at: str | None = None,
+    issue_links: list[dict] | None = None,
+    reporter: str | None = None,
+    attachments: list[str] | None = None,
+    requirements: str | None = None,
+    change_targets: str | None = None,
     # SR통계 공통 필드 (변경관리·서비스요청 공통)
     company: list[str] | None = None,           # customfield_18370 관계사
     system_dept: list[str] | None = None,       # customfield_11011 시스템부서
@@ -178,10 +195,18 @@ async def upsert_jira_issue(
 
     # 임베딩 대상 텍스트 구성
     text_parts = [f"[{project}] {title}"]
+    if assignee:
+        text_parts.append(f"[담당자] {assignee}")
+    if reporter:
+        text_parts.append(f"[등록자] {reporter}")
+    if jsm_requester:
+        text_parts.append(f"[요청자] {jsm_requester}")
     if company:
         text_parts.append(f"[관계사] {', '.join(company)}")
     if system_dept:
         text_parts.append(f"[시스템부서] {', '.join(system_dept)}")
+    if jira_systems:
+        text_parts.append(f"[시스템명] {', '.join(jira_systems)}")
     if service:
         text_parts.append(f"[서비스] {', '.join(service)}")
     if issue_type:
@@ -198,6 +223,10 @@ async def upsert_jira_issue(
         text_parts.append(f"[난이도] {difficulty}")
     if incident_summary:
         text_parts.append(f"[장애개요] {incident_summary}")
+    if requirements:
+        text_parts.append(f"[요건정의] {requirements}")
+    if change_targets:
+        text_parts.append(f"[변경대상] {change_targets}")
     if description:
         text_parts.append(description)
     if root_cause:
@@ -237,6 +266,40 @@ async def upsert_jira_issue(
         payload["components"] = components
     if resolution_date:
         payload["resolution_date"] = resolution_date
+    if resolution:
+        payload["resolution"] = resolution
+    if assignee:
+        payload["assignee"] = assignee
+    if created_at:
+        payload["created_at"] = created_at
+    if updated_at:
+        payload["updated_at"] = updated_at
+    if jsm_requester:
+        payload["jsm_requester"] = jsm_requester
+    if jira_systems:
+        payload["jira_systems"] = jira_systems
+    if due_date:
+        payload["due_date"] = due_date
+    if agreed_date:
+        payload["agreed_date"] = agreed_date
+    if start_date:
+        payload["start_date"] = start_date
+    if end_date:
+        payload["end_date"] = end_date
+    if request_created_at:
+        payload["request_created_at"] = request_created_at
+    if received_at:
+        payload["received_at"] = received_at
+    if issue_links:
+        payload["issue_links"] = issue_links
+    if reporter:
+        payload["reporter"] = reporter
+    if attachments:
+        payload["attachments"] = attachments
+    if requirements:
+        payload["requirements"] = requirements[:2000]
+    if change_targets:
+        payload["change_targets"] = change_targets[:2000]
     # SR통계 공통
     if company:
         payload["company"] = company
