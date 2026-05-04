@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
 from models import AlertExclusion, AlertHistory, IncidentTimeline, LogAnalysisHistory
-from schemas import AlertHistoryOut, AlertmanagerPayload, AcknowledgeRequest, AlertsBulkExcludeRequest, BulkExcludeResult
+from schemas import AlertHistoryOut, AlertmanagerPayload, AcknowledgeRequest, AlertsBulkExcludeRequest, AlertsTemplatesRequest, AlertTemplatesOut, BulkExcludeResult
 from services.alert_utils import get_system_and_contacts
 from services.cooldown import is_in_cooldown, make_alert_key, record_sent
 from services.incident_service import get_or_create_incident
@@ -439,6 +439,31 @@ async def bulk_exclude_alerts(
 
     await db.commit()
     return BulkExcludeResult(succeeded=succeeded, failed=failed)
+
+
+@router.post("/templates", response_model=list[AlertTemplatesOut])
+async def get_alert_templates(
+    payload: AlertsTemplatesRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """선택된 log_analysis 알림들의 templates_json 조회 — 예외 처리 모달용."""
+    result: list[AlertTemplatesOut] = []
+    for alert_id in payload.alert_ids:
+        alert = await db.get(AlertHistory, alert_id)
+        if not alert or alert.alert_type != "log_analysis":
+            continue
+        templates: list[str] = []
+        if alert.log_analysis_id:
+            log_rec = await db.get(LogAnalysisHistory, alert.log_analysis_id)
+            if log_rec and log_rec.templates_json:
+                templates = log_rec.templates_json
+        result.append(AlertTemplatesOut(
+            alert_id=alert_id,
+            system_id=alert.system_id,
+            instance_role=alert.instance_role,
+            templates=templates,
+        ))
+    return result
 
 
 # 장애보고서 자동 생성 엔드포인트는 routes/incidents.py::generate_incident_report 로 이관됨

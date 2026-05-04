@@ -16,7 +16,11 @@ import { AlertTable } from '@/components/alert/AlertTable'
 import { AlertDetailPanel } from '@/components/alert/AlertDetailPanel'
 import { cn, kstDateToUtcStart, kstDateToUtcEnd, formatKST } from '@/lib/utils'
 import type { AlertHistory, Severity } from '@/types/alert'
-import { alertExclusionsApi, type AlertExclusion } from '@/api/alertExclusions'
+import {
+  alertExclusionsApi,
+  type AlertExclusion,
+  type TemplateSelectItem,
+} from '@/api/alertExclusions'
 import { useAuthStore } from '@/store/authStore'
 
 const PAGE_SIZE = 20
@@ -61,6 +65,10 @@ export function AlertHistoryPage() {
   const [customExpiryDate, setCustomExpiryDate] = useState('') // YYYY-MM-DD (KST)
   const [isExcluding, setIsExcluding] = useState(false)
   const [excludeResultMsg, setExcludeResultMsg] = useState<string | null>(null)
+  // 템플릿 선택 상태
+  const [templateItems, setTemplateItems] = useState<TemplateSelectItem[]>([])
+  const [selectedTemplateKeys, setSelectedTemplateKeys] = useState<Set<string>>(new Set())
+  const [isLoadingTemplates, setIsLoadingTemplates] = useState(false)
 
   // 예외 처리됨 탭 데이터
   const [exclusions, setExclusions] = useState<AlertExclusion[]>([])
@@ -247,13 +255,49 @@ export function AlertHistoryPage() {
     return target.toISOString()
   }
 
+  // 모달 오픈 + 템플릿 조회
+  const openExcludeModal = async () => {
+    setShowExcludeModal(true)
+    setTemplateItems([])
+    setSelectedTemplateKeys(new Set())
+    setIsLoadingTemplates(true)
+    try {
+      const alertIds = currentAlerts
+        .filter((a) => selectedIds.has(a.id) && a.alert_type === 'log_analysis')
+        .map((a) => a.id)
+      const infos = await alertExclusionsApi.fetchAlertTemplates(alertIds)
+      const seen = new Set<string>()
+      const items: TemplateSelectItem[] = []
+      for (const info of infos) {
+        if (!info.system_id) continue
+        for (const tmpl of info.templates) {
+          const key = `${info.system_id}:${info.instance_role ?? ''}:${tmpl}`
+          if (seen.has(key)) continue
+          seen.add(key)
+          items.push({
+            key,
+            system_id: info.system_id,
+            instance_role: info.instance_role,
+            template: tmpl,
+          })
+        }
+      }
+      setTemplateItems(items)
+      setSelectedTemplateKeys(new Set(items.map((i) => i.key)))
+    } catch {
+      // 템플릿 로드 실패 시 빈 목록으로 진행
+    } finally {
+      setIsLoadingTemplates(false)
+    }
+  }
+
   // 예외 처리 실행
   const handleBulkExclude = async () => {
-    const alertIds = currentAlerts
-      .filter((a) => selectedIds.has(a.id) && a.alert_type === 'log_analysis')
-      .map((a) => a.id)
-
-    if (alertIds.length === 0) return
+    const selected = templateItems.filter((i) => selectedTemplateKeys.has(i.key))
+    if (selected.length === 0) {
+      setExcludeResultMsg('등록할 템플릿을 1개 이상 선택하세요.')
+      return
+    }
     setIsExcluding(true)
     try {
       const maxCount = maxCountInput.trim() === '' ? null : Number(maxCountInput)
@@ -262,13 +306,17 @@ export function AlertHistoryPage() {
         setIsExcluding(false)
         return
       }
-      const result = await alertExclusionsApi.bulkExcludeAlerts({
-        alert_ids: alertIds,
-        reason: excludeReason || null,
-        include_instance_role: includeRole,
+      const expiresAt = computeExpiresAt()
+      const result = await alertExclusionsApi.createExclusions({
+        items: selected.map((i) => ({
+          system_id: i.system_id,
+          instance_role: includeRole ? i.instance_role : null,
+          template: i.template,
+          reason: excludeReason || null,
+          max_count_per_window: maxCount,
+          expires_at: expiresAt,
+        })),
         created_by: user?.name ?? null,
-        max_count_per_window: maxCount,
-        expires_at: computeExpiresAt(),
       })
       const msg = `예외 처리 완료: 규칙 ${result.succeeded.length}건 등록${result.failed.length > 0 ? `, ${result.failed.length}건 실패` : ''}`
       setExcludeResultMsg(msg)
@@ -660,7 +708,7 @@ export function AlertHistoryPage() {
                 size="sm"
                 onClick={() => {
                   if (hasNonLogAnalysisSelected || selectedLogAnalysisCount === 0) return
-                  setShowExcludeModal(true)
+                  openExcludeModal()
                 }}
                 disabled={selectedLogAnalysisCount === 0 || hasNonLogAnalysisSelected}
                 title={
@@ -789,9 +837,78 @@ export function AlertHistoryPage() {
               예외 처리 등록
             </h3>
             <p className="text-text-secondary mb-4 text-sm">
-              선택한 로그분석 알림 {selectedLogAnalysisCount}건의 template을 예외 목록에 등록합니다.
-              이후 동일한 에러 패턴은 알림/인시던트가 생성되지 않습니다.
+              예외로 등록할 template을 선택하세요. 이후 동일한 에러 패턴은 알림/인시던트가 생성되지
+              않습니다.
             </p>
+
+            {/* 템플릿 선택 */}
+            <div className="mb-4">
+              <div className="mb-1.5 flex items-center justify-between">
+                <span className="text-text-secondary text-xs font-medium">
+                  Templates{' '}
+                  {!isLoadingTemplates && templateItems.length > 0 && (
+                    <span className="text-text-disabled">
+                      ({selectedTemplateKeys.size}/{templateItems.length} 선택)
+                    </span>
+                  )}
+                </span>
+                {!isLoadingTemplates && templateItems.length > 1 && (
+                  <div className="flex gap-2">
+                    <button
+                      className="text-accent hover:text-accent/80 text-xs"
+                      onClick={() =>
+                        setSelectedTemplateKeys(new Set(templateItems.map((i) => i.key)))
+                      }
+                    >
+                      전체 선택
+                    </button>
+                    <button
+                      className="text-text-secondary hover:text-text-primary text-xs"
+                      onClick={() => setSelectedTemplateKeys(new Set())}
+                    >
+                      전체 해제
+                    </button>
+                  </div>
+                )}
+              </div>
+              <div className="bg-bg-base shadow-neu-inset max-h-40 overflow-y-auto rounded-sm p-2">
+                {isLoadingTemplates ? (
+                  <p className="text-text-disabled py-2 text-center text-xs">불러오는 중...</p>
+                ) : templateItems.length === 0 ? (
+                  <p className="text-text-disabled py-2 text-center text-xs">
+                    조회된 템플릿이 없습니다
+                  </p>
+                ) : (
+                  templateItems.map((item) => (
+                    <label
+                      key={item.key}
+                      className="hover:bg-surface flex cursor-pointer items-start gap-2 rounded-sm px-2 py-1.5"
+                    >
+                      <input
+                        type="checkbox"
+                        className="accent-accent mt-0.5 shrink-0"
+                        checked={selectedTemplateKeys.has(item.key)}
+                        onChange={(e) => {
+                          setSelectedTemplateKeys((prev) => {
+                            const next = new Set(prev)
+                            if (e.target.checked) next.add(item.key)
+                            else next.delete(item.key)
+                            return next
+                          })
+                        }}
+                      />
+                      <span className="text-text-primary min-w-0 font-mono text-xs break-all">
+                        {item.template}
+                        {item.instance_role && (
+                          <span className="text-text-disabled ml-1">({item.instance_role})</span>
+                        )}
+                      </span>
+                    </label>
+                  ))
+                )}
+              </div>
+            </div>
+
             <div className="mb-4">
               <label className="text-text-secondary mb-1.5 block text-xs font-medium">
                 사유 (선택)
@@ -864,6 +981,8 @@ export function AlertHistoryPage() {
                   setMaxCountInput('')
                   setExpiryOption('30')
                   setCustomExpiryDate('')
+                  setTemplateItems([])
+                  setSelectedTemplateKeys(new Set())
                 }}
               >
                 취소

@@ -359,6 +359,17 @@ class AlertsBulkExcludeRequest(BaseModel):
     expires_at: Optional[datetime] = None
 
 
+class AlertsTemplatesRequest(BaseModel):
+    alert_ids: list[int]
+
+
+class AlertTemplatesOut(BaseModel):
+    alert_id: int
+    system_id: Optional[int]
+    instance_role: Optional[str]
+    templates: list[str]
+
+
 # ── LogAnalysis ──────────────────────────────────────────────────────────
 class LogAnalysisCreate(BaseModel):
     model_config = {"protected_namespaces": ()}

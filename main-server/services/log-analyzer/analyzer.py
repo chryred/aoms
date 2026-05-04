@@ -468,6 +468,8 @@ async def _analyze_one_role(
                     root_cause="LLM 분석 실패 — 재시도 필요",
                     recommendation="",
                     error_message=f"{type(e).__name__}: {str(e)[:300]}",
+                    templates=analysis_templates or None,
+                    template_counts=analysis_template_counts or None,
                 )
             except Exception as submit_e:
                 logger.error(f"[{label}] 분석 실패 레코드 저장도 실패: {submit_e}")

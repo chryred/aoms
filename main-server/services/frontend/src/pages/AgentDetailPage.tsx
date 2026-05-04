@@ -263,7 +263,7 @@ export function AgentDetailPage() {
     }
   }
 
-async function handleRefreshStatus() {
+  async function handleRefreshStatus() {
     if (isDbAgent) {
       await refetch()
       return
@@ -596,7 +596,9 @@ async function handleRefreshStatus() {
                     variant="danger"
                     onClick={() => setDeleteMode('purge')}
                     disabled={!sessionActive}
-                    title={!sessionActive ? 'SSH 세션 등록 후 사용 가능' : '원격 파일 포함 완전 삭제'}
+                    title={
+                      !sessionActive ? 'SSH 세션 등록 후 사용 가능' : '원격 파일 포함 완전 삭제'
+                    }
                   >
                     <Trash2 className="h-3.5 w-3.5" />
                     완전 삭제 (원격 포함)
@@ -605,7 +607,9 @@ async function handleRefreshStatus() {
               </div>
             ) : deleteMode === 'db' ? (
               <div className="space-y-2">
-                <p className="text-critical text-xs">DB에서만 삭제됩니다. 원격 파일은 유지됩니다.</p>
+                <p className="text-critical text-xs">
+                  DB에서만 삭제됩니다. 원격 파일은 유지됩니다.
+                </p>
                 <div className="flex gap-2">
                   <NeuButton size="sm" variant="danger" onClick={handleDelete}>
                     삭제 확인
