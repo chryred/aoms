@@ -14,6 +14,7 @@ venv/
 agent/target/
 docs/security/*
 main-server/.env.local
+main-server/env.prod
 main-server/services/attaches/knowledge-docs/*
 !main-server/services/attaches/knowledge-docs/.gitkeep
 main-server/services/attaches/chat-attachments/*

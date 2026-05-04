@@ -5,7 +5,7 @@ from sqlalchemy import (
     String, Text, UniqueConstraint, func
 )
 from sqlalchemy import JSON as JSONB
-from sqlalchemy.dialects.postgresql import ARRAY
+from sqlalchemy.dialects.postgresql import ARRAY, UUID as PG_UUID
 from sqlalchemy.orm import relationship
 from database import Base
 
@@ -493,7 +493,7 @@ class ChatSession(Base):
     """사용자 챗봇 세션. 닫아도 대화 유지. user_id=NULL 이면 게스트 세션."""
     __tablename__ = "chat_sessions"
 
-    id                  = Column(String(36), primary_key=True, default=_uuid_str)
+    id                  = Column(PG_UUID(as_uuid=False).with_variant(String(36), "sqlite"), primary_key=True, default=_uuid_str)
     user_id             = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True)
     title               = Column(String(200), nullable=False, default="새 대화")
     area_code           = Column(String(50), nullable=False, default="chat_assistant")
@@ -515,8 +515,8 @@ class ChatMessage(Base):
     """세션 내 메시지. role ∈ user|assistant|tool."""
     __tablename__ = "chat_messages"
 
-    id                = Column(String(36), primary_key=True, default=_uuid_str)
-    session_id        = Column(String(36), ForeignKey("chat_sessions.id", ondelete="CASCADE"), nullable=False)
+    id                = Column(PG_UUID(as_uuid=False).with_variant(String(36), "sqlite"), primary_key=True, default=_uuid_str)
+    session_id        = Column(PG_UUID(as_uuid=False).with_variant(String(36), "sqlite"), ForeignKey("chat_sessions.id", ondelete="CASCADE"), nullable=False)
     role              = Column(String(20), nullable=False)
     content           = Column(Text, nullable=False, default="")
     thought           = Column(Text)

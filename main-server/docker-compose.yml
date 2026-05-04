@@ -151,6 +151,10 @@ services:
       - SYNAPSE_CLI_BINARY_PATH=${SYNAPSE_CLI_BINARY_PATH:-/app/bin/synapse}
       # OTel / Tempo
       - TEMPO_URL=${TEMPO_URL:-http://tempo:3200}
+      # chat 
+      - CHAT_ATTACHMENT_DIR=${CHAT_ATTACHMENT_DIR:-/attaches/chat-attachments}
+      # Knowledge
+      - KNOWLEDGE_DOCS_DIR=${KNOWLEDGE_DOCS_DIR:-/attaches/knowledge-docs}
     mem_limit: 256m
     cpus: '0.3'
     depends_on:
@@ -197,6 +201,8 @@ services:
       - CONFLUENCE_URL=${CONFLUENCE_URL}                                                                                  
       - CONFLUENCE_TOKEN=${CONFLUENCE_TOKEN}                                                                                      
       - CONFLUENCE_SPACES=${CONFLUENCE_SPACES}
+      # Knowledge 
+      - KNOWLEDGE_DOCS_DIR=${KNOWLEDGE_DOCS_DIR:-/attaches/knowledge-docs}
     mem_limit: 2048m   # ADR-011: bge-m3 ONNX(~1.2GB) 로드를 위해 상향 (기존 256m)
     cpus: '1.0'
     depends_on: [admin-api]

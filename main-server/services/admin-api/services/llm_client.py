@@ -318,5 +318,5 @@ async def call_llm_text(
         )
         return text or None
     except Exception as exc:
-        logger.warning("LLM 호출 실패: %s", exc)
+        logger.warning("LLM 호출 실패: %s", exc, exc_info=True)
         return None
