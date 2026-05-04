@@ -54,6 +54,8 @@ export interface MetricAlert {
   severity: string
   value: string | null
   created_at: string
+  instance_role?: string | null
+  occurrence_count?: number | null
 }
 
 export interface LogAnalysisIncident {
@@ -69,6 +71,7 @@ export interface LogAnalysisSummary {
   latest_count: number
   critical_count: number
   warning_count: number
+  thirty_min_count: number
   incidents: LogAnalysisIncident[]
 }
 

@@ -7,12 +7,13 @@
 import json
 import logging
 import os
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import and_, desc, select, text
+from sqlalchemy import and_, desc, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth import get_current_user
@@ -30,6 +31,15 @@ from models import (
 
 logger = logging.getLogger(__name__)
 _PROMETHEUS_URL = os.getenv("PROMETHEUS_URL", "").rstrip("/")
+
+_OCCURRENCE_RE = re.compile(r"^\[(\d+)x\]")
+
+
+def _parse_occurrence_count(log_content: str | None) -> int | None:
+    if not log_content:
+        return None
+    m = _OCCURRENCE_RE.match(log_content)
+    return int(m.group(1)) if m else None
 
 router = APIRouter(prefix="/api/v1/dashboard", tags=["dashboard"])
 
@@ -458,6 +468,7 @@ async def get_system_detail_health(
         raise HTTPException(status_code=404, detail="System not found")
 
     ten_minutes_ago = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=10)
+    thirty_min_ago = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=30)
     eight_hours_ago = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=8)
 
     # 1. 활성 알림 (최근 10분, 미복구분만) — 메트릭 알림
@@ -473,7 +484,7 @@ async def get_system_detail_health(
     )
     metric_alerts = result.scalars().all()
 
-    # 1-b. 로그 분석 알림 (최근 10분, critical/warning 건만)
+    # 1-b. 로그 분석 알림 (최근 10분, critical/warning 건만, 예외 처리된 항목 제외)
     result = await db.execute(
         select(LogAnalysisHistory).where(
             and_(
@@ -481,21 +492,35 @@ async def get_system_detail_health(
                 LogAnalysisHistory.severity.in_(["critical", "warning"]),
                 LogAnalysisHistory.alert_sent == True,
                 LogAnalysisHistory.created_at >= ten_minutes_ago,
+                LogAnalysisHistory.excluded == False,
             )
         ).order_by(desc(LogAnalysisHistory.created_at))
     )
     log_alerts = result.scalars().all()
 
-    # 2. 최근 로그분석 결과 (최근 10분, 5건)
+    # 2. 최근 로그분석 결과 (최근 10분, 5건, 예외 처리된 항목 제외)
     result = await db.execute(
         select(LogAnalysisHistory).where(
             and_(
                 LogAnalysisHistory.system_id == system_id,
                 LogAnalysisHistory.created_at >= ten_minutes_ago,
+                LogAnalysisHistory.excluded == False,
             )
         ).order_by(desc(LogAnalysisHistory.created_at)).limit(5)
     )
     log_analyses = result.scalars().all()
+
+    # 2-b. 최근 30분 로그분석 건수
+    result_30m = await db.execute(
+        select(func.count(LogAnalysisHistory.id)).where(
+            and_(
+                LogAnalysisHistory.system_id == system_id,
+                LogAnalysisHistory.created_at >= thirty_min_ago,
+                LogAnalysisHistory.excluded == False,
+            )
+        )
+    )
+    thirty_min_count = result_30m.scalar() or 0
 
     # 3. 예방적 패턴 (최근 8h, llm_prediction 있는 항목)
     result = await db.execute(
@@ -552,24 +577,27 @@ async def get_system_detail_health(
         "metric_alerts": sorted(
             [
                 {
-                    "id":          a.id,
-                    "alert_type":  "metric",
-                    "alertname":   a.alertname,
-                    "title":       a.title,
-                    "severity":    a.severity,
-                    "value":       a.metric_value,
-                    "created_at":  a.created_at.isoformat() + "Z",
+                    "id":            a.id,
+                    "alert_type":    "metric",
+                    "alertname":     a.alertname,
+                    "title":         a.title,
+                    "severity":      a.severity,
+                    "value":         a.metric_value,
+                    "created_at":    a.created_at.isoformat() + "Z",
+                    "instance_role": a.instance_role,
                 }
                 for a in metric_alerts
             ] + [
                 {
-                    "id":          a.id,
-                    "alert_type":  "log_analysis",
-                    "alertname":   (a.log_content or "")[:80],
-                    "title":       (a.log_content or "")[:80],
-                    "severity":    a.severity,
-                    "value":       None,
-                    "created_at":  a.created_at.isoformat() + "Z",
+                    "id":               a.id,
+                    "alert_type":       "log_analysis",
+                    "alertname":        (a.log_content or "")[:80],
+                    "title":            (a.log_content or "")[:80],
+                    "severity":         a.severity,
+                    "value":            None,
+                    "created_at":       a.created_at.isoformat() + "Z",
+                    "instance_role":    a.instance_role,
+                    "occurrence_count": _parse_occurrence_count(a.log_content),
                 }
                 for a in log_alerts
             ],
@@ -578,9 +606,10 @@ async def get_system_detail_health(
         ),
 
         "log_analysis": {
-            "latest_count":   len(log_analyses),
-            "critical_count": sum(1 for a in log_analyses if a.severity == "critical"),
-            "warning_count":  sum(1 for a in log_analyses if a.severity == "warning"),
+            "latest_count":    len(log_analyses),
+            "critical_count":  sum(1 for a in log_analyses if a.severity == "critical"),
+            "warning_count":   sum(1 for a in log_analyses if a.severity == "warning"),
+            "thirty_min_count": thirty_min_count,
             "incidents": [
                 {
                     "id":              a.id,

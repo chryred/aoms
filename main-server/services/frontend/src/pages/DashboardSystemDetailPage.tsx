@@ -9,6 +9,7 @@ import {
   Clock,
   ShieldAlert,
   TrendingUp,
+  CheckCheck,
 } from 'lucide-react'
 import { useSystemDetailHealth } from '@/hooks/queries/useDashboardHealth'
 import { useMetricDashboard, HOURS_MAP } from '@/hooks/useMetricDashboard'
@@ -22,7 +23,9 @@ import { NeuCard } from '@/components/neumorphic/NeuCard'
 import { NeuBadge } from '@/components/neumorphic/NeuBadge'
 import { MetricChartGrid, MetricChartPopup } from '@/components/dashboard/MetricChartGrid'
 import { ProcessTreemap } from '@/components/dashboard/ProcessTreemap'
-import { formatKST, cn } from '@/lib/utils'
+import { formatKST, formatRelative, cn } from '@/lib/utils'
+import { useAcknowledgeAlert } from '@/hooks/mutations/useAcknowledgeAlert'
+import { useAuthStore } from '@/store/authStore'
 
 const severityConfig = {
   critical: { color: 'text-critical', bgColor: 'bg-critical/10', icon: AlertCircle },
@@ -39,6 +42,8 @@ export function DashboardSystemDetailPage() {
   const [selectedTraceId, setSelectedTraceId] = useState<string | null>(null)
 
   const { data: detail, isLoading, error, refetch } = useSystemDetailHealth(systemId)
+  const acknowledgeAlert = useAcknowledgeAlert()
+  const currentUser = useAuthStore((s) => s.user)
 
   const numericId = Number(systemId)
 
@@ -179,31 +184,31 @@ export function DashboardSystemDetailPage() {
         {detail.metric_alerts.length === 0 ? (
           <NeuCard className="text-text-secondary py-8 text-center">활성 알림이 없습니다</NeuCard>
         ) : (
-          <div className="grid gap-3">
+          <div className="grid gap-2">
             {detail.metric_alerts.map((alert) => (
               <div key={`${alert.alert_type}-${alert.id}`}>
                 <NeuCard
                   className={cn(
-                    'border-l-4',
+                    'border-l-4 py-3',
                     alert.severity === 'critical' ? 'border-l-critical/50' : 'border-l-warning/50',
                   )}
                 >
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
-                    <div className="min-w-0 flex-1">
-                      <div className="mb-1 flex items-center gap-2">
-                        <span className="bg-btn-secondary text-text-secondary rounded-sm px-1.5 py-0.5 font-mono text-[10px]">
-                          {alert.alert_type === 'log_analysis' ? '로그분석' : '메트릭'}
-                        </span>
-                      </div>
-                      <h3 className="text-text-primary line-clamp-2 leading-tight font-semibold break-words">
-                        {alert.title || alert.alertname}
-                      </h3>
-                      <div className="text-text-secondary mt-1.5 flex items-center gap-2 text-xs">
-                        <Clock className="h-3 w-3 flex-shrink-0" />
-                        <span>{formatKST(alert.created_at, 'HH:mm:ss')}</span>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2 sm:flex-col sm:items-end">
+                  {/* 상단 행: 배지들 + 심각도 */}
+                  <div className="mb-1.5 flex items-center gap-1.5 flex-wrap pr-2">
+                    <span className="bg-btn-secondary text-text-secondary rounded-sm px-1.5 py-0.5 font-mono text-[10px] flex-shrink-0">
+                      {alert.alert_type === 'log_analysis' ? '로그분석' : '메트릭'}
+                    </span>
+                    {alert.instance_role && (
+                      <span className="bg-btn-secondary text-text-secondary rounded-sm px-1.5 py-0.5 font-mono text-[10px] flex-shrink-0">
+                        {alert.instance_role}
+                      </span>
+                    )}
+                    {alert.occurrence_count != null && alert.occurrence_count > 1 && (
+                      <span className="bg-warning/10 text-warning rounded-sm px-1.5 py-0.5 font-mono text-[10px] flex-shrink-0">
+                        {alert.occurrence_count}회
+                      </span>
+                    )}
+                    <div className="ml-auto flex-shrink-0">
                       <NeuBadge
                         variant={
                           alert.severity === 'critical'
@@ -215,10 +220,43 @@ export function DashboardSystemDetailPage() {
                       >
                         {alert.severity.toUpperCase()}
                       </NeuBadge>
+                    </div>
+                  </div>
+
+                  {/* 알림 제목 */}
+                  <h3 className="text-text-primary line-clamp-2 text-sm leading-snug font-semibold break-words">
+                    {alert.title || alert.alertname}
+                  </h3>
+
+                  {/* 하단 행: 시각 + 값 + 액션 */}
+                  <div className="mt-2 flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5 text-xs text-text-secondary min-w-0">
+                      <Clock className="h-3 w-3 flex-shrink-0" />
+                      <span className="font-medium">{formatRelative(alert.created_at)}</span>
+                      <span className="text-text-disabled">({formatKST(alert.created_at, 'HH:mm:ss')})</span>
                       {alert.value && (
-                        <p className="text-text-tertiary font-mono text-sm">{alert.value}</p>
+                        <>
+                          <span className="text-text-disabled">·</span>
+                          <span className="font-mono text-text-secondary">{alert.value}</span>
+                        </>
                       )}
                     </div>
+                    {alert.alert_type === 'metric' && (
+                      <button
+                        onClick={() =>
+                          acknowledgeAlert.mutate({
+                            id: Number(alert.id),
+                            by: currentUser?.name || currentUser?.email || 'unknown',
+                          })
+                        }
+                        disabled={acknowledgeAlert.isPending}
+                        className="flex items-center gap-1 text-[10px] text-text-disabled hover:text-normal transition-colors flex-shrink-0"
+                        title="확인 처리"
+                      >
+                        <CheckCheck className="h-3 w-3" />
+                        확인
+                      </button>
+                    )}
                   </div>
                 </NeuCard>
               </div>
@@ -236,28 +274,28 @@ export function DashboardSystemDetailPage() {
           )}
         </div>
 
-        <div className="grid grid-cols-3 gap-3">
-          <div>
-            <NeuCard className="border-critical/30 border-l-4 py-4 text-center">
-              <p className="text-text-secondary mb-1 text-sm">Critical</p>
-              <p className="text-critical text-2xl font-bold">
+        <NeuCard className="py-3">
+          <div className="grid grid-cols-3 text-center">
+            <div className="border-r border-border flex flex-col items-center gap-0.5 px-2">
+              <span className="text-text-secondary text-xs">Critical</span>
+              <span className="text-critical font-bold text-xl leading-none">
                 {detail.log_analysis.critical_count}
-              </p>
-            </NeuCard>
+              </span>
+            </div>
+            <div className="border-r border-border flex flex-col items-center gap-0.5 px-2">
+              <span className="text-text-secondary text-xs">Warning</span>
+              <span className="text-warning font-bold text-xl leading-none">
+                {detail.log_analysis.warning_count}
+              </span>
+            </div>
+            <div className="flex flex-col items-center gap-0.5 px-2">
+              <span className="text-text-secondary text-xs">최근 30분</span>
+              <span className="text-accent font-bold text-xl leading-none">
+                {detail.log_analysis.thirty_min_count}
+              </span>
+            </div>
           </div>
-          <div>
-            <NeuCard className="border-warning/30 border-l-4 py-4 text-center">
-              <p className="text-text-secondary mb-1 text-sm">Warning</p>
-              <p className="text-warning text-2xl font-bold">{detail.log_analysis.warning_count}</p>
-            </NeuCard>
-          </div>
-          <div>
-            <NeuCard className="border-accent/30 border-l-4 py-4 text-center">
-              <p className="text-text-secondary mb-1 text-sm">전체</p>
-              <p className="text-accent text-2xl font-bold">{detail.log_analysis.latest_count}</p>
-            </NeuCard>
-          </div>
-        </div>
+        </NeuCard>
 
         {detail.log_analysis.incidents.length === 0 ? (
           <NeuCard className="text-text-secondary py-8 text-center">
