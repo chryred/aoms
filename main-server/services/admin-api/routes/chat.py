@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from datetime import datetime, timezone
 from pathlib import Path
@@ -15,12 +16,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth import get_current_user, require_admin
 from database import AsyncSessionLocal, get_db
-from models import ChatMessage, ChatSession, System
+from models import ChatMessage, ChatSession, GuideImage, System
 from schemas import (
     ChatMessageOut, ChatSendIn, ChatSessionOut, ChatSessionPatchIn,
     ScreenContext,
 )
 from services.chat_agent import run_react_stream
+from services.qdrant_guides import search_guides
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/chat", tags=["chat"])
 
@@ -169,12 +173,64 @@ async def send_message(
                         "size": p.stat().st_size,
                     }
                 )
+
+            # ── 가이드 사전 검색 (Qdrant) ─────────────────────────────────
+            # system_ids가 단일 시스템이면 필터 적용, 복수면 전체(None)
+            guide_system_id: Optional[int] = None
+            if session.system_ids and len(session.system_ids) == 1:
+                guide_system_id = session.system_ids[0]
+
+            guide_hits: list[dict] = []
+            try:
+                guide_hits = await search_guides(
+                    query=payload.content,
+                    system_id=guide_system_id,
+                    limit=3,
+                )
+            except Exception as _exc:  # noqa: BLE001
+                logger.warning("가이드 검색 오류 (무시): %s", str(_exc)[:200])
+
+            # 상위 가이드의 이미지를 DB에서 조회
+            meta_images: list[dict] = []
+            meta_guide_ids: list[str] = [h["guide_id"] for h in guide_hits if h.get("guide_id")]
+            if meta_guide_ids:
+                try:
+                    # 가장 관련성 높은 가이드 1개의 이미지만 표시 (UI 과부하 방지)
+                    top_guide_id = meta_guide_ids[0]
+                    img_rows = (
+                        await db.execute(
+                            select(GuideImage)
+                            .where(GuideImage.guide_id == top_guide_id)
+                            .order_by(GuideImage.sort_order)
+                            .limit(5)
+                        )
+                    ).scalars().all()
+                    for img in img_rows:
+                        filename = Path(img.file_path).name
+                        meta_images.append(
+                            {
+                                "url": f"/api/v1/guides/static/{filename}",
+                                "alt": img.alt_text or "",
+                            }
+                        )
+                except Exception as _exc:  # noqa: BLE001
+                    logger.warning("가이드 이미지 조회 오류 (무시): %s", str(_exc)[:200])
+
             try:
                 async for event in run_react_stream(
                     db, session, payload.content,
                     attachments=attachments,
                     screen_context=payload.screen_context,
                 ):
+                    # final 이벤트 직전에 meta 이벤트 삽입 (이미지·가이드 ID 전달)
+                    if event["type"] == "final" and (meta_images or meta_guide_ids):
+                        yield _sse(
+                            "meta",
+                            {
+                                "images": meta_images,
+                                "guide_ids": meta_guide_ids,
+                            },
+                        )
                     yield _sse(event["type"], event.get("data", {}))
             except Exception as e:  # noqa: BLE001
                 yield _sse("error", {"message": f"서버 오류: {str(e)[:200]}"})

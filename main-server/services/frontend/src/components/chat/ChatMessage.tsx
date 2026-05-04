@@ -4,9 +4,10 @@ import { SynapMini } from '@/components/mascot'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { Components } from 'react-markdown'
-import type { ChatMessage as ChatMessageType } from '@/types/chat'
+import type { ChatMessage as ChatMessageType, MessageImage } from '@/types/chat'
 import { chatApi } from '@/api/chat'
 import { ToolCallCard } from './ToolCallCard'
+import { MessageImages } from './MessageImages'
 
 const markdownComponents: Components = {
   h1: ({ children }) => (
@@ -90,7 +91,7 @@ interface ChatMessageProps {
 }
 
 export function ChatMessageView({ message, sessionId, onRetry }: ChatMessageProps) {
-  const { role, content, thought, attachments } = message
+  const { role, content, thought, attachments, images } = message
 
   const isFailedAssistant = useMemo(() => {
     if (role !== 'assistant') return false
@@ -146,6 +147,7 @@ export function ChatMessageView({ message, sessionId, onRetry }: ChatMessageProp
         ) : (
           <span className="text-text-primary text-sm">…</span>
         )}
+        {images && images.length > 0 && <MessageImages images={images} />}
         {isFailedAssistant && onRetry && (
           <button
             type="button"
@@ -211,10 +213,12 @@ export function StreamingAssistantMessage({
   content,
   running,
   thought,
+  images,
 }: {
   content: string
   running: boolean
   thought?: string
+  images?: MessageImage[]
 }) {
   return (
     <div className="animate-fade-in-up-subtle flex">
@@ -234,6 +238,7 @@ export function StreamingAssistantMessage({
             <span className="text-text-primary animate-pulse text-sm">▋</span>
           )}
         </div>
+        {images && images.length > 0 && <MessageImages images={images} />}
       </div>
     </div>
   )

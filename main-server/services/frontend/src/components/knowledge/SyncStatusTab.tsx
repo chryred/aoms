@@ -9,8 +9,22 @@ import { cn, formatKST, formatRelative } from '@/lib/utils'
 import type { KnowledgeSyncStatus } from '@/types/knowledge'
 
 const DEFAULT_SOURCES: KnowledgeSyncStatus[] = [
-  { source: 'jira', last_sync_at: null, total_synced: 0, last_error: null, is_syncing: false, updated_at: null },
-  { source: 'confluence', last_sync_at: null, total_synced: 0, last_error: null, is_syncing: false, updated_at: null },
+  {
+    source: 'jira',
+    last_sync_at: null,
+    total_synced: 0,
+    last_error: null,
+    is_syncing: false,
+    updated_at: null,
+  },
+  {
+    source: 'confluence',
+    last_sync_at: null,
+    total_synced: 0,
+    last_error: null,
+    is_syncing: false,
+    updated_at: null,
+  },
 ]
 
 const SOURCE_LABEL: Record<string, string> = {
@@ -66,7 +80,10 @@ function SyncCard({
           {SOURCE_LABEL[status.source] ?? status.source}
         </span>
         {status.is_syncing ? (
-          <Loader2 className="text-text-secondary h-4 w-4 shrink-0 animate-spin" aria-hidden="true" />
+          <Loader2
+            className="text-text-secondary h-4 w-4 shrink-0 animate-spin"
+            aria-hidden="true"
+          />
         ) : hasError ? (
           <AlertCircle className="text-warning h-4 w-4 shrink-0" aria-hidden="true" />
         ) : (

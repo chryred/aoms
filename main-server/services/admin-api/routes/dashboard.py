@@ -7,13 +7,12 @@
 import json
 import logging
 import os
-import re
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import and_, desc, func, select, text
+from sqlalchemy import and_, desc, func, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth import get_current_user
@@ -32,14 +31,6 @@ from models import (
 logger = logging.getLogger(__name__)
 _PROMETHEUS_URL = os.getenv("PROMETHEUS_URL", "").rstrip("/")
 
-_OCCURRENCE_RE = re.compile(r"^\[(\d+)x\]")
-
-
-def _parse_occurrence_count(log_content: str | None) -> int | None:
-    if not log_content:
-        return None
-    m = _OCCURRENCE_RE.match(log_content)
-    return int(m.group(1)) if m else None
 
 router = APIRouter(prefix="/api/v1/dashboard", tags=["dashboard"])
 
@@ -484,19 +475,27 @@ async def get_system_detail_health(
     )
     metric_alerts = result.scalars().all()
 
-    # 1-b. 로그 분석 알림 (최근 10분, critical/warning 건만, 예외 처리된 항목 제외)
+    # 1-b. 로그 분석 알림 — alert_history(alert_type=log_analysis) 조회
+    #      log_analysis_history 직접 조회 시 title 없어 log_content가 노출되는 버그 수정.
+    #      alert_history.title에 이미 한국어 타이틀(root_cause / 시스템명)이 있음.
+    #      outerjoin으로 excluded 항목 필터링 유지.
     result = await db.execute(
-        select(LogAnalysisHistory).where(
+        select(AlertHistory, LogAnalysisHistory)
+        .outerjoin(LogAnalysisHistory, AlertHistory.log_analysis_id == LogAnalysisHistory.id)
+        .where(
             and_(
-                LogAnalysisHistory.system_id == system_id,
-                LogAnalysisHistory.severity.in_(["critical", "warning"]),
-                LogAnalysisHistory.alert_sent == True,
-                LogAnalysisHistory.created_at >= ten_minutes_ago,
-                LogAnalysisHistory.excluded == False,
+                AlertHistory.system_id == system_id,
+                AlertHistory.alert_type == "log_analysis",
+                AlertHistory.severity.in_(["critical", "warning"]),
+                AlertHistory.created_at >= ten_minutes_ago,
+                or_(
+                    AlertHistory.log_analysis_id.is_(None),
+                    LogAnalysisHistory.excluded.is_(False),
+                ),
             )
-        ).order_by(desc(LogAnalysisHistory.created_at))
+        ).order_by(desc(AlertHistory.created_at))
     )
-    log_alerts = result.scalars().all()
+    log_alerts = result.all()  # list of (AlertHistory, LogAnalysisHistory | None)
 
     # 2. 최근 로그분석 결과 (최근 10분, 5건, 예외 처리된 항목 제외)
     result = await db.execute(
@@ -581,6 +580,7 @@ async def get_system_detail_health(
                     "alert_type":    "metric",
                     "alertname":     a.alertname,
                     "title":         a.title,
+                    "description":   a.description,
                     "severity":      a.severity,
                     "value":         a.metric_value,
                     "created_at":    a.created_at.isoformat() + "Z",
@@ -591,15 +591,17 @@ async def get_system_detail_health(
                 {
                     "id":               a.id,
                     "alert_type":       "log_analysis",
-                    "alertname":        (a.log_content or "")[:80],
-                    "title":            (a.log_content or "")[:80],
+                    "alertname":        a.alertname,
+                    "title":            a.title,
+                    "log_content":      la.log_content if la else None,
+                    "analysis_result":  la.analysis_result if la else None,
                     "severity":         a.severity,
                     "value":            None,
                     "created_at":       a.created_at.isoformat() + "Z",
                     "instance_role":    a.instance_role,
-                    "occurrence_count": _parse_occurrence_count(a.log_content),
+                    "occurrence_count": None,
                 }
-                for a in log_alerts
+                for a, la in log_alerts
             ],
             key=lambda x: x["created_at"],
             reverse=True,
@@ -613,8 +615,8 @@ async def get_system_detail_health(
             "incidents": [
                 {
                     "id":              a.id,
-                    "log_message":     (a.log_content or "")[:500],
-                    "analysis_result": (a.analysis_result or "")[:300],
+                    "log_message":     a.log_content or "",
+                    "analysis_result": a.analysis_result or "",
                     "severity":        a.severity,
                     "anomaly_type":    a.anomaly_type,
                     "recommendation":  a.recommendation,

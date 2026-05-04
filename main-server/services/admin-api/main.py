@@ -20,7 +20,12 @@ from routes import knowledge as knowledge_router
 from routes import knowledge_verify as knowledge_verify_router
 from routes import help as help_router
 from routes import oauth as oauth_router
+from routes import guides as guides_router
 from services.ssh_session import run_cleanup_loop
+try:
+    from services.qdrant_guides import ensure_collection as _ensure_guides_collection  # type: ignore
+except ImportError:
+    _ensure_guides_collection = None  # type: ignore
 from services.prometheus_analyzer import run_prometheus_analyzer_loop
 from services.db_collector import db_collection_loop
 from services.chat_tools.executors.ems import aclose_client as ems_aclose
@@ -31,6 +36,9 @@ async def lifespan(app: FastAPI):
     # 테이블 자동 생성 (운영에서는 init.sql / Alembic 사용 권장)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+    # Knowledge Guides Qdrant 컬렉션 초기화 (qdrant_guides 임포트된 경우에만)
+    if _ensure_guides_collection is not None:
+        asyncio.create_task(_ensure_guides_collection())
     # SSH 세션 만료 정리 루프 시작
     cleanup_task = asyncio.create_task(run_cleanup_loop())
     # Prometheus 메트릭 자동 분석 루프 (PROMETHEUS_URL 설정 시 활성화)
@@ -66,7 +74,7 @@ ALLOWED_ORIGINS = [o.strip() for o in _raw_origins.split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
-    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "X-SSH-Session"],
     allow_credentials=True,
 )
@@ -99,6 +107,7 @@ app.include_router(knowledge_router.router)
 app.include_router(knowledge_verify_router.router, prefix="/api/v1/knowledge")
 app.include_router(help_router.router)
 app.include_router(oauth_router.router)  # OIDC IdP (ADR-014): /.well-known, /oauth/*, /api/v1/oauth/*
+app.include_router(guides_router.router)
 
 
 @app.get("/health")

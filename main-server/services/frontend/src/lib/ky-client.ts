@@ -27,8 +27,10 @@ const afterResponse: AfterResponseHook = async (request, _options, response) => 
       refreshPromise = ky
         .post(`${base}/api/v1/auth/refresh`, { credentials: 'include' })
         .json<{ access_token: string }>()
-        .then(r => r.access_token)
-        .finally(() => { refreshPromise = null })
+        .then((r) => r.access_token)
+        .finally(() => {
+          refreshPromise = null
+        })
     }
 
     const newToken = await refreshPromise

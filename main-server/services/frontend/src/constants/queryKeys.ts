@@ -3,6 +3,7 @@ import type { HourlyParams } from '@/api/aggregations'
 import type { PeriodType } from '@/types/aggregation'
 import type { ReportType } from '@/types/report'
 import type { OperatorNoteListParams, FeedbackListParams } from '@/api/knowledge'
+import type { GuideListParams } from '@/types/guide'
 
 export const qk = {
   systems: () => ['systems'] as const,
@@ -61,5 +62,10 @@ export const qk = {
       ['knowledge', 'frequent-questions', days, threshold] as const,
     syncStatus: (source?: string) => ['knowledge', 'sync-status', source] as const,
     uploadStatus: (jobId: string) => ['knowledge', 'upload', jobId] as const,
+  },
+
+  guides: {
+    list: (params?: GuideListParams) => ['guides', 'list', params] as const,
+    detail: (id: string) => ['guides', id] as const,
   },
 }

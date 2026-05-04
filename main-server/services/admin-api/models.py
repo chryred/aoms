@@ -570,6 +570,54 @@ class KnowledgeSyncStatus(Base):
 
 # ── OIDC IdP (ADR-014) ────────────────────────────────────────────────────────
 
+# ── Knowledge Guides (챗봇 이미지+텍스트 응답) ────────────────────────────────
+
+class KnowledgeGuide(Base):
+    """가이드 문서 — 챗봇 이미지+텍스트 응답을 위한 관리자/담당자 등록 가이드 (B방식, C 확장 준비)"""
+    __tablename__ = "knowledge_guides"
+
+    id         = Column(PG_UUID(as_uuid=False).with_variant(String(36), "sqlite"), primary_key=True, default=_uuid_str)
+    system_id  = Column(Integer, ForeignKey("systems.id", ondelete="SET NULL"), nullable=True, index=True)
+    title      = Column(String(255), nullable=False)
+    content    = Column(Text, nullable=False)
+    category   = Column(String(50), nullable=True, index=True)
+    tags       = Column(ARRAY(Text).with_variant(JSONB, "sqlite"), nullable=False, server_default="{}")
+    steps      = Column(JSONB, nullable=True)   # C 확장용: [{step, text, image_id}]
+    created_by = Column(Integer, ForeignKey("contacts.id", ondelete="SET NULL"), nullable=True, index=True)
+    is_active  = Column(Boolean, nullable=False, server_default="true")
+    created_at = Column(DateTime, nullable=False, default=func.now())
+    updated_at = Column(DateTime, nullable=False, default=func.now(), onupdate=func.now())
+
+    images  = relationship("GuideImage", back_populates="guide", cascade="all, delete-orphan",
+                           order_by="GuideImage.sort_order")
+    system  = relationship("System", lazy="joined")
+    creator = relationship("Contact", foreign_keys=[created_by], lazy="joined")
+
+    __table_args__ = (
+        Index("idx_knowledge_guides_system", "system_id"),
+        Index("idx_knowledge_guides_category", "category"),
+        Index("idx_knowledge_guides_created_by", "created_by"),
+    )
+
+
+class GuideImage(Base):
+    """가이드 첨부 이미지 — sort_order 순으로 표시, step_number로 C 확장 준비"""
+    __tablename__ = "guide_images"
+
+    id           = Column(PG_UUID(as_uuid=False).with_variant(String(36), "sqlite"), primary_key=True, default=_uuid_str)
+    guide_id     = Column(PG_UUID(as_uuid=False).with_variant(String(36), "sqlite"),
+                          ForeignKey("knowledge_guides.id", ondelete="CASCADE"), nullable=False, index=True)
+    file_path    = Column(String(500), nullable=False)   # SYNAPSE_ATTACHMENT_PATH 기준 상대 경로
+    alt_text     = Column(String(255), nullable=True)
+    sort_order   = Column(Integer, nullable=False, server_default="0")
+    step_number  = Column(Integer, nullable=True)        # NULL=문서 첨부, 값 있으면 특정 스텝 (C 확장용)
+    created_at   = Column(DateTime, nullable=False, default=func.now())
+
+    guide = relationship("KnowledgeGuide", back_populates="images")
+
+
+# ── OIDC IdP (ADR-014) ────────────────────────────────────────────────────────
+
 class OAuthClient(Base):
     """OIDC 클라이언트 등록 — 타시스템이 Synapse SSO를 사용하기 위한 자격증명"""
     __tablename__ = "oauth_clients"

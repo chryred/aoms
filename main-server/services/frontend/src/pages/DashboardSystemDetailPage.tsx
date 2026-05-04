@@ -1,17 +1,8 @@
-import { useState } from 'react'
+import { useState, useRef, useEffect, memo } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useRegisterScreenContext } from '@/store/chatContextStore'
-import {
-  ArrowLeft,
-  AlertCircle,
-  AlertTriangle,
-  CheckCircle,
-  Clock,
-  ShieldAlert,
-  TrendingUp,
-  CheckCheck,
-} from 'lucide-react'
-import { useSystemDetailHealth } from '@/hooks/queries/useDashboardHealth'
+import { ArrowLeft, ArrowRight, Clock, ShieldAlert, TrendingUp, CheckCheck, ChevronDown } from 'lucide-react'
+import { useSystemDetailHealth, type MetricAlert } from '@/hooks/queries/useDashboardHealth'
 import { useMetricDashboard, HOURS_MAP } from '@/hooks/useMetricDashboard'
 import type { TimeRange } from '@/hooks/useMetricDashboard'
 import { TraceDotChart } from '@/components/dashboard/TraceDotChart'
@@ -26,12 +17,178 @@ import { ProcessTreemap } from '@/components/dashboard/ProcessTreemap'
 import { formatKST, formatRelative, cn } from '@/lib/utils'
 import { useAcknowledgeAlert } from '@/hooks/mutations/useAcknowledgeAlert'
 import { useAuthStore } from '@/store/authStore'
+import type { User } from '@/types/auth'
 
-const severityConfig = {
-  critical: { color: 'text-critical', bgColor: 'bg-critical/10', icon: AlertCircle },
-  warning: { color: 'text-warning', bgColor: 'bg-warning/10', icon: AlertTriangle },
-  info: { color: 'text-accent', bgColor: 'bg-accent/10', icon: CheckCircle },
-}
+const ActiveIssueItem = memo(function ActiveIssueItem({
+  alert,
+  acknowledgeAlert,
+  currentUser,
+}: {
+  alert: MetricAlert
+  acknowledgeAlert: ReturnType<typeof useAcknowledgeAlert>
+  currentUser: User | null
+}) {
+  const [logExpanded, setLogExpanded] = useState(false)
+  const [analysisExpanded, setAnalysisExpanded] = useState(false)
+  const [isTruncated, setIsTruncated] = useState(false)
+  const logRef = useRef<HTMLParagraphElement>(null)
+  const isLog = alert.alert_type === 'log_analysis'
+  const hasAnalysis = isLog && (alert.analysis_result || alert.log_content)
+  const analysisIsError =
+    !alert.analysis_result || alert.analysis_result.trimStart().startsWith('{"error"')
+
+  useEffect(() => {
+    const el = logRef.current
+    if (el) setIsTruncated(el.scrollHeight > el.clientHeight)
+  }, [])
+
+  return (
+    <NeuCard
+      severity={
+        alert.severity === 'critical'
+          ? 'critical'
+          : alert.severity === 'warning'
+            ? 'warning'
+            : undefined
+      }
+      className="py-3"
+    >
+      {/* 상단 행: 배지들 + 심각도 */}
+      <div className="mb-1.5 flex flex-wrap items-center gap-1.5 pr-2">
+        <span className="bg-btn-secondary text-text-secondary flex-shrink-0 rounded-sm px-1.5 py-0.5 font-mono text-[10px]">
+          {isLog ? '로그분석' : '메트릭'}
+        </span>
+        {alert.instance_role && (
+          <span className="bg-btn-secondary text-text-secondary flex-shrink-0 rounded-sm px-1.5 py-0.5 font-mono text-[10px]">
+            {alert.instance_role}
+          </span>
+        )}
+        {alert.occurrence_count != null && alert.occurrence_count > 1 && (
+          <span className="bg-warning/10 text-warning flex-shrink-0 rounded-sm px-1.5 py-0.5 font-mono text-[10px]">
+            {alert.occurrence_count}회
+          </span>
+        )}
+        <div className="ml-auto flex-shrink-0">
+          <NeuBadge
+            variant={
+              alert.severity === 'critical'
+                ? 'critical'
+                : alert.severity === 'warning'
+                  ? 'warning'
+                  : 'info'
+            }
+          >
+            {alert.severity.toUpperCase()}
+          </NeuBadge>
+        </div>
+      </div>
+
+      {/* 제목 */}
+      <h3 className="text-text-primary text-sm leading-snug font-semibold break-words">
+        {alert.title || alert.alertname}
+      </h3>
+
+      {/* 로그 미리보기 (log_analysis only) */}
+      {isLog && alert.log_content && (
+        <>
+          {logExpanded ? (
+            <div className="bg-bg-deep shadow-neu-inset mt-1.5 max-h-[28rem] overflow-y-auto rounded-sm p-2">
+              <pre className="text-text-secondary m-0 font-mono text-[11px] leading-snug break-all whitespace-pre-wrap">
+                {alert.log_content}
+              </pre>
+            </div>
+          ) : (
+            <p
+              ref={logRef}
+              className="text-text-secondary mt-1 line-clamp-2 font-mono text-[11px] leading-snug break-words whitespace-pre-wrap"
+            >
+              {alert.log_content}
+            </p>
+          )}
+          {(isTruncated || logExpanded) && (
+            <button
+              type="button"
+              aria-expanded={logExpanded}
+              aria-label={`${alert.title || alert.alertname} 로그 ${logExpanded ? '접기' : '전체 보기'}`}
+              className="text-text-disabled hover:text-accent mt-1 flex min-h-[1.5rem] items-center gap-0.5 px-1 text-[10px] transition-colors duration-150"
+              onClick={() => setLogExpanded((v) => !v)}
+            >
+              <ChevronDown
+                className={cn(
+                  'h-3 w-3 transition-transform duration-150',
+                  logExpanded && 'rotate-180',
+                )}
+              />
+              {logExpanded ? '접기' : '전체 보기'}
+            </button>
+          )}
+        </>
+      )}
+
+      {/* 분석 결과 토글 (log_analysis only) */}
+      {hasAnalysis && (
+        <div className="border-border mt-2 border-t pt-2">
+          <button
+            type="button"
+            aria-expanded={analysisExpanded}
+            aria-label={`${alert.title || alert.alertname} 분석 결과 ${analysisExpanded ? '접기' : '펼치기'}`}
+            className="text-text-secondary hover:text-text-primary flex min-h-[1.5rem] items-center gap-1 px-1 text-[11px] font-semibold transition-colors duration-150"
+            onClick={() => setAnalysisExpanded((v) => !v)}
+          >
+            <span>💡</span>
+            <span>분석 결과</span>
+            <ChevronDown
+              className={cn(
+                'h-3 w-3 transition-transform duration-150',
+                analysisExpanded && 'rotate-180',
+              )}
+            />
+          </button>
+          {analysisExpanded &&
+            (analysisIsError ? (
+              <p className="text-text-disabled mt-1.5 text-xs">분석 일시 실패 — 재시도 중</p>
+            ) : (
+              <p className="text-text-secondary mt-1.5 text-xs leading-relaxed break-words">
+                {alert.analysis_result}
+              </p>
+            ))}
+        </div>
+      )}
+
+      {/* 하단 행: 시각 + 값 + 액션 */}
+      <div className="mt-2 flex items-center justify-between gap-2">
+        <div className="text-text-secondary flex min-w-0 items-center gap-1.5 text-xs">
+          <Clock className="h-3 w-3 flex-shrink-0" />
+          <span className="font-medium">{formatRelative(alert.created_at)}</span>
+          <span className="text-text-disabled">({formatKST(alert.created_at, 'HH:mm:ss')})</span>
+          {!isLog && alert.value && (
+            <>
+              <span className="text-text-disabled">·</span>
+              <span className="text-text-secondary font-mono">{alert.value}</span>
+            </>
+          )}
+        </div>
+        {!isLog && (
+          <button
+            type="button"
+            onClick={() =>
+              acknowledgeAlert.mutate({
+                id: Number(alert.id),
+                by: currentUser?.name || currentUser?.email || 'unknown',
+              })
+            }
+            disabled={acknowledgeAlert.isPending}
+            aria-label={`${alert.title || alert.alertname} 확인 처리`}
+            className="text-text-disabled hover:text-normal flex min-h-[1.5rem] flex-shrink-0 items-center gap-1 px-1 text-[10px] transition-colors"
+          >
+            <CheckCheck className="h-3 w-3" />
+            확인
+          </button>
+        )}
+      </div>
+    </NeuCard>
+  )
+})
 
 export function DashboardSystemDetailPage() {
   const { systemId } = useParams<{ systemId: string }>()
@@ -172,199 +329,71 @@ export function DashboardSystemDetailPage() {
         )}
       </section>
 
-      {/* 활성 알림 */}
-      <section className="space-y-4">
+      {/* 활성 이슈 (메트릭 + 로그분석 통합) */}
+      <section className="space-y-3">
         <div className="flex items-center justify-between">
-          <h2 className="text-text-primary text-lg font-semibold">활성 알림</h2>
-          {detail.metric_alerts.length > 0 && (
-            <NeuBadge variant="critical">{detail.metric_alerts.length}개</NeuBadge>
-          )}
+          <div className="flex items-center gap-3">
+            <h2 className="text-text-primary text-lg font-semibold">활성 이슈</h2>
+            <Link
+              to={`${ROUTES.ALERTS}?system_id=${systemId}`}
+              className="text-text-disabled hover:text-accent flex items-center gap-0.5 text-xs transition-colors duration-150"
+              title="이 시스템의 알림 이력 보기"
+            >
+              <span>이력</span>
+              <ArrowRight className="h-3 w-3" />
+            </Link>
+          </div>
+          <div className="flex flex-wrap items-center gap-1.5">
+            {/* 위험 카운터 */}
+            <div
+              className={cn(
+                'flex items-center gap-1 rounded-sm px-2 py-1 font-mono text-sm transition-colors',
+                detail.log_analysis.critical_count > 0
+                  ? 'bg-critical/10 text-critical border-critical/30 border'
+                  : 'border-border text-text-disabled border opacity-50',
+              )}
+            >
+              <span aria-hidden="true" className={cn('text-[10px]', detail.log_analysis.critical_count > 0 ? 'text-critical' : 'text-text-disabled')}>●</span>
+              <span className={detail.log_analysis.critical_count > 0 ? 'font-bold' : ''}>
+                위험 {detail.log_analysis.critical_count}
+              </span>
+            </div>
+            {/* 경고 카운터 */}
+            <div
+              className={cn(
+                'flex items-center gap-1 rounded-sm px-2 py-1 font-mono text-sm transition-colors',
+                detail.log_analysis.warning_count > 0
+                  ? 'bg-warning/10 text-warning border-warning/30 border'
+                  : 'border-border text-text-disabled border opacity-50',
+              )}
+            >
+              <span aria-hidden="true" className={cn('text-[10px]', detail.log_analysis.warning_count > 0 ? 'text-warning' : 'text-text-disabled')}>●</span>
+              <span className={detail.log_analysis.warning_count > 0 ? 'font-bold' : ''}>
+                경고 {detail.log_analysis.warning_count}
+              </span>
+            </div>
+            {/* 30분 최근 건수 */}
+            {detail.log_analysis.thirty_min_count > 0 && (
+              <div className="border-border text-text-secondary flex items-center gap-1 rounded-sm border px-2 py-1 font-mono text-sm">
+                <span className="text-text-disabled text-[10px]">↑</span>
+                <span>30분 {detail.log_analysis.thirty_min_count}건</span>
+              </div>
+            )}
+          </div>
         </div>
 
         {detail.metric_alerts.length === 0 ? (
-          <NeuCard className="text-text-secondary py-8 text-center">활성 알림이 없습니다</NeuCard>
+          <NeuCard className="text-text-secondary py-8 text-center">활성 이슈가 없습니다</NeuCard>
         ) : (
           <div className="grid gap-2">
             {detail.metric_alerts.map((alert) => (
-              <div key={`${alert.alert_type}-${alert.id}`}>
-                <NeuCard
-                  className={cn(
-                    'border-l-4 py-3',
-                    alert.severity === 'critical' ? 'border-l-critical/50' : 'border-l-warning/50',
-                  )}
-                >
-                  {/* 상단 행: 배지들 + 심각도 */}
-                  <div className="mb-1.5 flex items-center gap-1.5 flex-wrap pr-2">
-                    <span className="bg-btn-secondary text-text-secondary rounded-sm px-1.5 py-0.5 font-mono text-[10px] flex-shrink-0">
-                      {alert.alert_type === 'log_analysis' ? '로그분석' : '메트릭'}
-                    </span>
-                    {alert.instance_role && (
-                      <span className="bg-btn-secondary text-text-secondary rounded-sm px-1.5 py-0.5 font-mono text-[10px] flex-shrink-0">
-                        {alert.instance_role}
-                      </span>
-                    )}
-                    {alert.occurrence_count != null && alert.occurrence_count > 1 && (
-                      <span className="bg-warning/10 text-warning rounded-sm px-1.5 py-0.5 font-mono text-[10px] flex-shrink-0">
-                        {alert.occurrence_count}회
-                      </span>
-                    )}
-                    <div className="ml-auto flex-shrink-0">
-                      <NeuBadge
-                        variant={
-                          alert.severity === 'critical'
-                            ? 'critical'
-                            : alert.severity === 'warning'
-                              ? 'warning'
-                              : 'info'
-                        }
-                      >
-                        {alert.severity.toUpperCase()}
-                      </NeuBadge>
-                    </div>
-                  </div>
-
-                  {/* 알림 제목 */}
-                  <h3 className="text-text-primary line-clamp-2 text-sm leading-snug font-semibold break-words">
-                    {alert.title || alert.alertname}
-                  </h3>
-
-                  {/* 하단 행: 시각 + 값 + 액션 */}
-                  <div className="mt-2 flex items-center justify-between gap-2">
-                    <div className="flex items-center gap-1.5 text-xs text-text-secondary min-w-0">
-                      <Clock className="h-3 w-3 flex-shrink-0" />
-                      <span className="font-medium">{formatRelative(alert.created_at)}</span>
-                      <span className="text-text-disabled">({formatKST(alert.created_at, 'HH:mm:ss')})</span>
-                      {alert.value && (
-                        <>
-                          <span className="text-text-disabled">·</span>
-                          <span className="font-mono text-text-secondary">{alert.value}</span>
-                        </>
-                      )}
-                    </div>
-                    {alert.alert_type === 'metric' && (
-                      <button
-                        onClick={() =>
-                          acknowledgeAlert.mutate({
-                            id: Number(alert.id),
-                            by: currentUser?.name || currentUser?.email || 'unknown',
-                          })
-                        }
-                        disabled={acknowledgeAlert.isPending}
-                        className="flex items-center gap-1 text-[10px] text-text-disabled hover:text-normal transition-colors flex-shrink-0"
-                        title="확인 처리"
-                      >
-                        <CheckCheck className="h-3 w-3" />
-                        확인
-                      </button>
-                    )}
-                  </div>
-                </NeuCard>
-              </div>
+              <ActiveIssueItem
+                key={`${alert.alert_type}-${alert.id}`}
+                alert={alert}
+                acknowledgeAlert={acknowledgeAlert}
+                currentUser={currentUser}
+              />
             ))}
-          </div>
-        )}
-      </section>
-
-      {/* 최근 로그분석 결과 */}
-      <section className="space-y-4">
-        <div className="flex items-center justify-between">
-          <h2 className="text-text-primary text-lg font-semibold">로그분석 결과 (최근 1시간)</h2>
-          {detail.log_analysis.latest_count > 0 && (
-            <NeuBadge variant="info">{detail.log_analysis.latest_count}건</NeuBadge>
-          )}
-        </div>
-
-        <NeuCard className="py-3">
-          <div className="grid grid-cols-3 text-center">
-            <div className="border-r border-border flex flex-col items-center gap-0.5 px-2">
-              <span className="text-text-secondary text-xs">Critical</span>
-              <span className="text-critical font-bold text-xl leading-none">
-                {detail.log_analysis.critical_count}
-              </span>
-            </div>
-            <div className="border-r border-border flex flex-col items-center gap-0.5 px-2">
-              <span className="text-text-secondary text-xs">Warning</span>
-              <span className="text-warning font-bold text-xl leading-none">
-                {detail.log_analysis.warning_count}
-              </span>
-            </div>
-            <div className="flex flex-col items-center gap-0.5 px-2">
-              <span className="text-text-secondary text-xs">최근 30분</span>
-              <span className="text-accent font-bold text-xl leading-none">
-                {detail.log_analysis.thirty_min_count}
-              </span>
-            </div>
-          </div>
-        </NeuCard>
-
-        {detail.log_analysis.incidents.length === 0 ? (
-          <NeuCard className="text-text-secondary py-8 text-center">
-            최근 로그 이상이 없습니다
-          </NeuCard>
-        ) : (
-          <div className="grid gap-3">
-            {detail.log_analysis.incidents.map((incident) => {
-              const config = severityConfig[incident.severity as keyof typeof severityConfig]
-              const Icon = config.icon
-              return (
-                <div key={incident.id}>
-                  <NeuCard
-                    className={cn(
-                      'border-l-4',
-                      incident.severity === 'critical'
-                        ? 'border-l-critical/50'
-                        : incident.severity === 'warning'
-                          ? 'border-l-warning/50'
-                          : 'border-l-accent/50',
-                    )}
-                  >
-                    <div className="space-y-3">
-                      <div className="flex items-start gap-2">
-                        <Icon className={cn('mt-1 h-4 w-4 flex-shrink-0', config.color)} />
-                        <div className="min-w-0 flex-1">
-                          <div className="mb-1 flex flex-wrap items-center gap-2">
-                            <p className="text-text-secondary text-xs font-semibold uppercase">
-                              {incident.anomaly_type === 'duplicate' && '🔄 반복 이상'}
-                              {incident.anomaly_type === 'recurring' && '⚠️ 반복 이상'}
-                              {incident.anomaly_type === 'related' && '🔗 유사 이상'}
-                              {incident.anomaly_type === 'new' && '⚡ 신규 이상'}
-                            </p>
-                            <NeuBadge
-                              variant={
-                                incident.severity === 'critical'
-                                  ? 'critical'
-                                  : incident.severity === 'warning'
-                                    ? 'warning'
-                                    : 'info'
-                              }
-                            >
-                              {incident.severity.toUpperCase()}
-                            </NeuBadge>
-                          </div>
-                          <p className="text-text-primary line-clamp-2 text-sm leading-snug font-semibold break-words">
-                            {incident.log_message}
-                          </p>
-                        </div>
-                      </div>
-
-                      <div className="border-btn-secondary bg-btn-secondary/50 rounded-sm border p-3">
-                        <p className="text-text-secondary mb-2 flex items-center gap-1 text-xs font-semibold">
-                          <span>💡</span>
-                          분석 결과
-                        </p>
-                        <p className="text-text-tertiary line-clamp-4 text-sm leading-relaxed break-words">
-                          {incident.analysis_result}
-                        </p>
-                      </div>
-
-                      <div className="text-text-secondary text-xs">
-                        {formatKST(incident.created_at, 'datetime')}
-                      </div>
-                    </div>
-                  </NeuCard>
-                </div>
-              )
-            })}
           </div>
         )}
       </section>
@@ -389,70 +418,64 @@ export function DashboardSystemDetailPage() {
         ) : (
           <div className="grid gap-3">
             {detail.proactive_alerts.map((alert) => (
-              <div key={alert.id}>
-                <NeuCard
-                  className={cn(
-                    'border-l-4',
-                    alert.llm_severity === 'critical'
-                      ? 'border-l-critical/40'
-                      : 'border-l-proactive/40',
-                  )}
-                >
-                  <div className="space-y-3">
-                    <div className="flex items-start justify-between gap-3 sm:gap-4">
-                      <div className="flex min-w-0 flex-1 items-start gap-2">
-                        <TrendingUp className="text-proactive-text mt-0.5 h-4 w-4 flex-shrink-0" />
-                        <div className="min-w-0 flex-1">
-                          <p className="text-text-primary line-clamp-2 text-sm font-semibold break-words">
-                            <span className="bg-btn-secondary mr-1 inline-block rounded-sm px-1.5 py-0.5 font-mono text-xs">
-                              {alert.collector_type}
-                            </span>
-                            {alert.metric_group}
-                          </p>
-                          <p className="text-text-secondary mt-1 text-xs">
-                            {formatKST(alert.hour_bucket, 'datetime')} 집계
-                          </p>
-                        </div>
-                      </div>
-                      <div className="flex-shrink-0">
-                        <NeuBadge
-                          variant={
-                            alert.llm_severity === 'critical'
-                              ? 'critical'
-                              : alert.llm_severity === 'warning'
-                                ? 'warning'
-                                : 'info'
-                          }
-                        >
-                          {alert.llm_severity?.toUpperCase()}
-                        </NeuBadge>
+              <NeuCard
+                key={alert.id}
+                severity={alert.llm_severity === 'critical' ? 'critical' : 'warning'}
+              >
+                <div className="space-y-3">
+                  <div className="flex items-start justify-between gap-3 sm:gap-4">
+                    <div className="flex min-w-0 flex-1 items-start gap-2">
+                      <TrendingUp className="text-proactive-text mt-0.5 h-4 w-4 flex-shrink-0" />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-text-primary line-clamp-2 text-sm font-semibold break-words">
+                          <span className="bg-btn-secondary mr-1 inline-block rounded-sm px-1.5 py-0.5 font-mono text-xs">
+                            {alert.collector_type}
+                          </span>
+                          {alert.metric_group}
+                        </p>
+                        <p className="text-text-secondary mt-1 text-xs">
+                          {formatKST(alert.hour_bucket, 'datetime')} 집계
+                        </p>
                       </div>
                     </div>
-
-                    {alert.llm_trend && (
-                      <div className="border-btn-secondary bg-btn-secondary/50 rounded-sm border p-3">
-                        <p className="text-text-secondary mb-2 flex items-center gap-1 text-xs font-semibold">
-                          <span>📈</span>
-                          트렌드
-                        </p>
-                        <p className="text-text-tertiary text-sm leading-relaxed break-words">
-                          {alert.llm_trend}
-                        </p>
-                      </div>
-                    )}
-
-                    <div className="border-proactive-border bg-proactive-card-bg rounded-sm border p-3">
-                      <p className="text-proactive-text mb-2 flex items-center gap-1 text-xs font-semibold">
-                        <span>⚡</span>
-                        예측
-                      </p>
-                      <p className="text-text-primary max-h-32 overflow-y-auto text-sm leading-relaxed break-words">
-                        {alert.llm_prediction}
-                      </p>
+                    <div className="flex-shrink-0">
+                      <NeuBadge
+                        variant={
+                          alert.llm_severity === 'critical'
+                            ? 'critical'
+                            : alert.llm_severity === 'warning'
+                              ? 'warning'
+                              : 'info'
+                        }
+                      >
+                        {alert.llm_severity?.toUpperCase()}
+                      </NeuBadge>
                     </div>
                   </div>
-                </NeuCard>
-              </div>
+
+                  {alert.llm_trend && (
+                    <div className="border-btn-secondary bg-btn-secondary/50 rounded-sm border p-3">
+                      <p className="text-text-secondary mb-2 flex items-center gap-1 text-xs font-semibold">
+                        <span>📈</span>
+                        트렌드
+                      </p>
+                      <p className="text-text-tertiary text-sm leading-relaxed break-words">
+                        {alert.llm_trend}
+                      </p>
+                    </div>
+                  )}
+
+                  <div className="border-proactive-border bg-proactive-card-bg rounded-sm border p-3">
+                    <p className="text-proactive-text mb-2 flex items-center gap-1 text-xs font-semibold">
+                      <span>⚡</span>
+                      예측
+                    </p>
+                    <p className="text-text-primary max-h-32 overflow-y-auto text-sm leading-relaxed break-words">
+                      {alert.llm_prediction}
+                    </p>
+                  </div>
+                </div>
+              </NeuCard>
             ))}
           </div>
         )}
@@ -471,28 +494,26 @@ export function DashboardSystemDetailPage() {
         ) : (
           <div className="grid gap-3">
             {detail.contacts.map((contact) => (
-              <div key={contact.id}>
-                <NeuCard>
-                  <div className="flex items-start justify-between gap-3 sm:gap-4">
-                    <div className="min-w-0 flex-1">
-                      <h3 className="text-text-primary font-semibold break-words">
-                        {contact.name}
-                      </h3>
-                      <p className="text-text-secondary mt-1 font-mono text-xs break-all sm:text-sm">
-                        {contact.teams_upn}
+              <NeuCard key={contact.id}>
+                <div className="flex items-start justify-between gap-3 sm:gap-4">
+                  <div className="min-w-0 flex-1">
+                    <h3 className="text-text-primary font-semibold break-words">
+                      {contact.name}
+                    </h3>
+                    <p className="text-text-secondary mt-1 font-mono text-xs break-all sm:text-sm">
+                      {contact.teams_upn}
+                    </p>
+                    {contact.phone && (
+                      <p className="text-text-secondary mt-1 text-xs sm:text-sm">
+                        {contact.phone}
                       </p>
-                      {contact.phone && (
-                        <p className="text-text-secondary mt-1 text-xs sm:text-sm">
-                          {contact.phone}
-                        </p>
-                      )}
-                    </div>
-                    <div className="flex-shrink-0">
-                      <NeuBadge variant="info">{contact.role}</NeuBadge>
-                    </div>
+                    )}
                   </div>
-                </NeuCard>
-              </div>
+                  <div className="flex-shrink-0">
+                    <NeuBadge variant="info">{contact.role}</NeuBadge>
+                  </div>
+                </div>
+              </NeuCard>
             ))}
           </div>
         )}

@@ -23,6 +23,7 @@ import {
   Wrench,
   Siren,
   BookOpen,
+  BookMarked,
   KeyRound,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -247,6 +248,15 @@ export function Sidebar() {
             collapsed={collapsed}
             onNavigate={closeMobileSidebar}
           />
+          {(user?.role === 'admin' || user?.role === 'operator') && (
+            <NavItem
+              to={ROUTES.ADMIN_GUIDES}
+              icon={<BookMarked className="h-4 w-4" />}
+              label="가이드 관리"
+              collapsed={collapsed}
+              onNavigate={closeMobileSidebar}
+            />
+          )}
           <NavItem
             to={ROUTES.AGENTS}
             icon={<Terminal className="h-4 w-4" />}

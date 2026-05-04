@@ -1,5 +1,10 @@
 export type ChatRole = 'user' | 'assistant' | 'tool'
 
+export interface MessageImage {
+  url: string
+  alt?: string
+}
+
 export interface ScreenContext {
   screen?: string
   screen_label?: string
@@ -26,6 +31,7 @@ export interface ChatMessage {
   tool_args?: Record<string, unknown> | null
   tool_result?: Record<string, unknown> | null
   attachments: ChatAttachment[]
+  images?: MessageImage[]
   created_at: string
 }
 
@@ -76,6 +82,7 @@ export type ChatStreamEventType =
   | 'tool_call'
   | 'tool_result'
   | 'token'
+  | 'meta'
   | 'final'
   | 'error'
 

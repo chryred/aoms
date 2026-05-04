@@ -60,6 +60,7 @@ export function ChatPage() {
     streamText,
     streamThought,
     streamingTools,
+    streamImages,
     isStreaming,
     isStreamingRef,
     lastSentContentRef,
@@ -439,6 +440,7 @@ export function ChatPage() {
                 content={streamText}
                 running={true}
                 thought={streamThought}
+                images={streamImages}
               />
             )}
           </div>

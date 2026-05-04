@@ -4,7 +4,7 @@ import { describeChatError } from '@/lib/chatErrorMessage'
 import { useQueryClient } from '@tanstack/react-query'
 import { streamChatMessage } from '@/api/chat'
 import { qk } from '@/constants/queryKeys'
-import type { ChatMessage, ChatStreamEvent, ScreenContext } from '@/types/chat'
+import type { ChatMessage, ChatStreamEvent, MessageImage, ScreenContext } from '@/types/chat'
 
 export interface StreamingToolState {
   id: string
@@ -35,6 +35,7 @@ export function useChatStreaming({
   const [streamText, setStreamText] = useState('')
   const [streamThought, setStreamThought] = useState<string | undefined>()
   const [streamingTools, setStreamingTools] = useState<StreamingToolState[]>([])
+  const [streamImages, setStreamImages] = useState<MessageImage[]>([])
   const [isStreaming, setIsStreaming] = useState(false)
 
   const abortRef = useRef<AbortController | null>(null)
@@ -51,6 +52,7 @@ export function useChatStreaming({
     setStreamText('')
     setStreamThought(undefined)
     setStreamingTools([])
+    setStreamImages([])
     updateIsStreaming(false)
     if (currentSessionId) {
       qc.invalidateQueries({ queryKey: qk.chat.messages(currentSessionId) })
@@ -112,6 +114,13 @@ export function useChatStreaming({
           setStreamText((prev) => prev + chunk)
           break
         }
+        case 'meta': {
+          const data = event.data as { images?: MessageImage[]; guide_ids?: string[] }
+          if (Array.isArray(data.images) && data.images.length > 0) {
+            setStreamImages(data.images)
+          }
+          break
+        }
         case 'final':
           break
         case 'error': {
@@ -141,6 +150,7 @@ export function useChatStreaming({
       setStreamText('')
       setStreamThought(undefined)
       setStreamingTools([])
+      setStreamImages([])
 
       const controller = new AbortController()
       abortRef.current = controller
@@ -209,6 +219,7 @@ export function useChatStreaming({
     streamText,
     streamThought,
     streamingTools,
+    streamImages,
     isStreaming,
     isStreamingRef,
     lastSentContentRef,

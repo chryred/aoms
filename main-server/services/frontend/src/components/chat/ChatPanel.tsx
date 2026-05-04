@@ -12,7 +12,7 @@ import { useChatAttachments } from '@/hooks/useChatAttachments'
 import { useChatStore } from '@/store/chatStore'
 import { useSystems } from '@/hooks/queries/useSystems'
 import { qk } from '@/constants/queryKeys'
-import type { ChatMessage, ChatStreamEvent, ScreenContext } from '@/types/chat'
+import type { ChatMessage, ChatStreamEvent, MessageImage, ScreenContext } from '@/types/chat'
 import { cn } from '@/lib/utils'
 import { SCREEN_PROMPTS } from '@/config/chatPrompts'
 import { ChatComposer } from './ChatComposer'
@@ -86,6 +86,7 @@ export function ChatPanel() {
   const [streamText, setStreamText] = useState('')
   const [streamThought, setStreamThought] = useState<string | undefined>()
   const [streamingTools, setStreamingTools] = useState<StreamingToolState[]>([])
+  const [streamImages, setStreamImages] = useState<MessageImage[]>([])
   const [isStreaming, setIsStreaming] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
   const lastSentContentRef = useRef<string>('')
@@ -117,6 +118,7 @@ export function ChatPanel() {
     setStreamText('')
     setStreamThought(undefined)
     setStreamingTools([])
+    setStreamImages([])
     setIsStreaming(false)
     if (currentSessionId) {
       qc.invalidateQueries({ queryKey: qk.chat.messages(currentSessionId) })
@@ -138,6 +140,7 @@ export function ChatPanel() {
       setStreamText('')
       setStreamThought(undefined)
       setStreamingTools([])
+      setStreamImages([])
 
       // optimistic user 메시지는 서버가 user_saved 이벤트로 DB 반영 후 invalidate → 화면 표시되도록 유지
       const controller = new AbortController()
@@ -215,6 +218,13 @@ export function ChatPanel() {
       case 'token': {
         const chunk = String((event.data as { chunk?: string }).chunk ?? '')
         setStreamText((prev) => prev + chunk)
+        break
+      }
+      case 'meta': {
+        const data = event.data as { images?: MessageImage[]; guide_ids?: string[] }
+        if (Array.isArray(data.images) && data.images.length > 0) {
+          setStreamImages(data.images)
+        }
         break
       }
       case 'final':
@@ -492,6 +502,7 @@ export function ChatPanel() {
               content={streamText}
               running={true}
               thought={streamThought}
+              images={streamImages}
             />
           )}
         </div>

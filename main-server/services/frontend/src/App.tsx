@@ -92,6 +92,9 @@ const OAuthLoginPage = lazy(() =>
 const OAuthClientsPage = lazy(() =>
   import('@/pages/admin/OAuthClientsPage').then((m) => ({ default: m.OAuthClientsPage })),
 )
+const KnowledgeGuidesPage = lazy(() =>
+  import('@/pages/admin/KnowledgeGuides').then((m) => ({ default: m.KnowledgeGuidesPage })),
+)
 
 export function App() {
   return (
@@ -314,6 +317,16 @@ export function App() {
             element={
               <Suspense fallback={<LoadingSkeleton shape="table" />}>
                 <CliManagerPage />
+              </Suspense>
+            }
+          />
+
+          {/* 가이드 관리 — admin + operator 접근 가능 (내부 권한 체크) */}
+          <Route
+            path={ROUTES.ADMIN_GUIDES}
+            element={
+              <Suspense fallback={<LoadingSkeleton shape="table" />}>
+                <KnowledgeGuidesPage />
               </Suspense>
             }
           />
