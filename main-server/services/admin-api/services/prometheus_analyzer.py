@@ -15,7 +15,7 @@ import asyncio
 import logging
 import os
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import httpx
@@ -53,6 +53,7 @@ _MEM_CRITICAL = float(os.getenv("PROM_ALERT_MEM_CRITICAL", "90.0"))
 # ── 쿨다운 (인메모리, 재시작 시 초기화) ──────────────────────────────────────
 _COOLDOWN_SECONDS = int(os.getenv("PROM_ALERT_COOLDOWN_SECONDS", "1800"))  # 30분
 _host_cooldown: dict[str, datetime] = {}
+_KST = timezone(timedelta(hours=9))
 
 
 def _is_in_cooldown(host: str) -> bool:
@@ -522,7 +523,7 @@ async def _notify_host(hc: HostContext, analysis: str, severity: str, db: AsyncS
                         ),
                         {
                             "type": "TextBlock",
-                            "text": f"감지 시각: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}",
+                            "text": f"감지 시각: {datetime.now(_KST).strftime('%Y-%m-%d %H:%M KST')}",
                             "size": "Small",
                             "isSubtle": True,
                         },

@@ -6,8 +6,10 @@ Webhook 전송이나 IO를 수행하지 않으며 dict만 반환한다.
 """
 
 import os
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Optional
+
+_KST = timezone(timedelta(hours=9))
 
 from .llm_client import LLM_TYPE as _LLM_TYPE
 
@@ -122,7 +124,7 @@ def build_metric_alert_card(
                             {"title": "서버", "value": f"{instance_role} ({host})" if instance_role else host},
                             {"title": "심각도", "value": severity.upper()},
                             {"title": "내용", "value": alert["annotations"].get("description", "-")},
-                            {"title": "발생 시각", "value": datetime.now().strftime("%Y-%m-%d %H:%M:%S")},
+                            {"title": "발생 시각", "value": datetime.now(_KST).strftime("%Y-%m-%d %H:%M:%S")},
                         ]
                     },
                     *([build_vector_context_block(
@@ -200,7 +202,7 @@ def build_log_analysis_card(
     facts.extend([
         {"title": "원인 추정", "value": analysis.get("root_cause") or "-"},
         {"title": "권장 조치", "value": analysis.get("recommendation") or "-"},
-        {"title": "분석 시각", "value": datetime.now().strftime("%Y-%m-%d %H:%M:%S")},
+        {"title": "분석 시각", "value": datetime.now(_KST).strftime("%Y-%m-%d %H:%M:%S")},
     ])
 
     card_body = [
@@ -289,7 +291,7 @@ def build_recovery_card(
             "facts": [
                 {"title": "시스템",   "value": f"{system_display_name} ({system_name})"},
                 {"title": "서버",     "value": f"{instance_role} ({host})" if instance_role else host},
-                {"title": "복구 시각", "value": datetime.now().strftime("%Y-%m-%d %H:%M:%S")},
+                {"title": "복구 시각", "value": datetime.now(_KST).strftime("%Y-%m-%d %H:%M:%S")},
             ],
         },
     ]
