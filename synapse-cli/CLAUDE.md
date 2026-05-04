@@ -42,7 +42,7 @@ synapse-cli/
 
 ## 인증 흐름
 
-1. `synapse login` → `POST {base_url}/api/v1/auth/login` → AccessToken(15분) + RefreshToken(7일) 저장
+1. `synapse login` → `POST {base_url}/api/v1/auth/login` → AccessToken(60분) + RefreshToken(1일) 저장
 2. 매 명령 실행 시 `GetValidToken()` 호출:
    - `expires_at - 60초` 이내면 → `POST /api/v1/auth/refresh` 자동 갱신
    - Refresh 실패 시 기존 토큰 반환 (서버가 최종 판단)
