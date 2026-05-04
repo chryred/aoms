@@ -318,7 +318,12 @@ export function AlertHistoryPage() {
         })),
         created_by: user?.name ?? null,
       })
-      const msg = `예외 처리 완료: 규칙 ${result.succeeded.length}건 등록${result.failed.length > 0 ? `, ${result.failed.length}건 실패` : ''}`
+      const duplicates = result.failed.filter((f) => f.reason === '이미 활성 예외 규칙이 존재합니다')
+      const errors = result.failed.filter((f) => f.reason !== '이미 활성 예외 규칙이 존재합니다')
+      const parts = [`규칙 ${result.succeeded.length}건 등록`]
+      if (duplicates.length > 0) parts.push(`${duplicates.length}건 중복(기등록)`)
+      if (errors.length > 0) parts.push(`${errors.length}건 실패`)
+      const msg = `예외 처리 완료: ${parts.join(', ')}`
       setExcludeResultMsg(msg)
       setSelectedIds(new Set())
       setShowExcludeModal(false)
