@@ -318,7 +318,7 @@ function DocumentListGrid({ systems }: { systems: System[] }) {
                     </th>
                     <th
                       scope="col"
-                      className="text-text-secondary min-w-[120px] px-4 py-2.5 text-left text-xs font-medium whitespace-nowrap"
+                      className="text-text-secondary hidden min-w-[120px] px-4 py-2.5 text-left text-xs font-medium whitespace-nowrap sm:table-cell"
                     >
                       Point IDs
                     </th>
@@ -346,8 +346,8 @@ function DocumentListGrid({ systems }: { systems: System[] }) {
                   {items.map((item) => (
                     <tr
                       key={item.file_hash}
-                      role="button"
                       tabIndex={0}
+                      aria-label={`${item.file_name} 상세 보기`}
                       className="hover:bg-surface focus-visible:ring-accent cursor-pointer transition-colors focus-visible:ring-1 focus-visible:outline-none focus-visible:ring-inset"
                       onClick={() => setSelectedDoc(item)}
                       onKeyDown={(e) => {
@@ -366,7 +366,7 @@ function DocumentListGrid({ systems }: { systems: System[] }) {
                       <td className="text-text-secondary px-4 py-2.5 text-xs whitespace-nowrap">
                         {getSystemName(item.system_id)}
                       </td>
-                      <td className="px-4 py-2.5">
+                      <td className="hidden px-4 py-2.5 sm:table-cell">
                         <PointIdsBadge pointIds={item.point_ids ?? []} />
                       </td>
                       <td className="text-text-secondary px-4 py-2.5 text-right text-xs whitespace-nowrap">
@@ -402,11 +402,10 @@ function DocumentListGrid({ systems }: { systems: System[] }) {
                             variant="ghost"
                             size="sm"
                             onClick={() => setConfirmingHash(item.file_hash)}
-                            className="text-critical hover:text-critical gap-1 px-2 text-xs"
+                            className="text-critical hover:text-critical p-1"
                             aria-label={`${item.file_name} 전체 삭제`}
                           >
-                            <Trash2 className="h-3 w-3" />
-                            전체 삭제
+                            <Trash2 className="h-3.5 w-3.5" />
                           </NeuButton>
                         )}
                       </td>
@@ -432,19 +431,14 @@ function DocumentListGrid({ systems }: { systems: System[] }) {
 
 function PointIdsBadge({ pointIds }: { pointIds: string[] }) {
   if (pointIds.length === 0) return <span className="text-text-disabled text-xs">—</span>
-  const preview = pointIds.slice(0, 2)
-  const rest = pointIds.length - preview.length
   return (
-    <div className="flex flex-wrap items-center gap-1">
-      {preview.map((id) => (
-        <code
-          key={id}
-          className="bg-bg-base text-text-secondary rounded-sm px-1 py-0.5 font-mono text-[10px]"
-        >
-          {id.slice(0, 8)}…
-        </code>
-      ))}
-      {rest > 0 && <span className="text-text-disabled text-xs">외 {rest}개</span>}
+    <div className="flex items-center gap-1 overflow-hidden">
+      <code className="bg-bg-base text-text-secondary min-w-0 truncate rounded-sm px-1 py-0.5 font-mono text-[10px]">
+        {pointIds[0].slice(0, 8)}…
+      </code>
+      {pointIds.length > 1 && (
+        <span className="text-text-disabled shrink-0 text-xs">+{pointIds.length - 1}</span>
+      )}
     </div>
   )
 }

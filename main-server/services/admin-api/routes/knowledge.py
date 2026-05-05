@@ -12,7 +12,6 @@ import os
 import time
 import uuid
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Any
 
 from fastapi import (
@@ -54,7 +53,7 @@ _ALLOWED_MIMES = {
 }
 
 # 문서 저장 루트 (운영: Docker 볼륨 마운트)
-_DOCS_ROOT = os.getenv("KNOWLEDGE_DOCS_DIR", str(Path(__file__).parent.parent.parent / "attaches" / "knowledge-docs"))
+_DOCS_ROOT = os.getenv("KNOWLEDGE_DOCS_DIR", "/attaches/knowledge-docs")
 
 # 인메모리 job 추적 (단일 프로세스, MVP 단순화)
 _jobs: dict[str, dict[str, Any]] = {}

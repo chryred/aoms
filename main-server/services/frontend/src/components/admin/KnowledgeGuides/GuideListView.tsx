@@ -50,22 +50,28 @@ export function GuideListView({
 
   if (isLoading) {
     return (
-      <div className="bg-bg-base shadow-neu-flat rounded-sm">
+      <div
+        className="bg-bg-base shadow-neu-flat rounded-sm"
+        aria-busy="true"
+        aria-label="가이드 목록 로딩 중"
+      >
         <div className="overflow-x-auto">
           <table className="w-full min-w-[480px] text-sm">
             <thead>
               <tr className="border-border border-b">
-                {['제목', '시스템', '카테고리', '태그', '이미지', '등록일', '액션'].map((h) => (
-                  <th key={h} className="type-label px-4 py-3 text-left whitespace-nowrap">
-                    {h}
-                  </th>
-                ))}
+                {['제목', '시스템', '카테고리', '태그', '이미지', '등록일', '작성자', '액션'].map(
+                  (h) => (
+                    <th key={h} className="type-label px-4 py-3 text-left whitespace-nowrap">
+                      {h}
+                    </th>
+                  ),
+                )}
               </tr>
             </thead>
             <tbody>
               {Array.from({ length: 5 }).map((_, i) => (
                 <tr key={i} className="border-border border-b">
-                  {Array.from({ length: 7 }).map((_, j) => (
+                  {Array.from({ length: 8 }).map((_, j) => (
                     <td key={j} className="px-4 py-3">
                       <div className="bg-bg-deep h-4 animate-pulse rounded-sm" />
                     </td>
@@ -111,6 +117,9 @@ export function GuideListView({
               <th className="type-label hidden px-4 py-3 text-left whitespace-nowrap md:table-cell">
                 등록일
               </th>
+              <th className="type-label hidden px-4 py-3 text-left whitespace-nowrap md:table-cell">
+                작성자
+              </th>
               <th className="type-label px-4 py-3 text-left whitespace-nowrap">액션</th>
             </tr>
           </thead>
@@ -126,11 +135,6 @@ export function GuideListView({
                     <span className="truncate font-medium" title={guide.title}>
                       {guide.title}
                     </span>
-                    {guide.created_by_name && (
-                      <span className="text-text-disabled ml-1.5 text-xs">
-                        by {guide.created_by_name}
-                      </span>
-                    )}
                   </td>
                   <td className="text-text-secondary hidden px-4 py-3 whitespace-nowrap md:table-cell">
                     {guide.system_name ?? <span className="text-text-disabled italic">공통</span>}
@@ -179,6 +183,9 @@ export function GuideListView({
                   <td className="text-text-secondary hidden px-4 py-3 whitespace-nowrap md:table-cell">
                     {formatKST(guide.created_at, 'date')}
                   </td>
+                  <td className="text-text-secondary hidden px-4 py-3 whitespace-nowrap md:table-cell">
+                    {guide.created_by_name ?? <span className="text-text-disabled">—</span>}
+                  </td>
                   <td className="px-4 py-3 whitespace-nowrap">
                     <div className="flex items-center gap-2">
                       {editable ? (
@@ -186,14 +193,16 @@ export function GuideListView({
                           <button
                             onClick={() => onEdit(guide)}
                             title="수정"
-                            className="focus:ring-accent text-text-secondary hover:text-accent rounded-sm p-1 focus:ring-1 focus:outline-none"
+                            aria-label={`${guide.title} 수정`}
+                            className="focus:ring-accent text-text-secondary hover:text-accent rounded-sm p-1.5 focus:ring-1 focus:outline-none"
                           >
                             <Pencil className="h-3.5 w-3.5" />
                           </button>
                           <button
                             onClick={() => onDelete(guide)}
                             title="삭제"
-                            className="focus:ring-critical text-text-secondary hover:text-critical rounded-sm p-1 focus:ring-1 focus:outline-none"
+                            aria-label={`${guide.title} 삭제`}
+                            className="focus:ring-critical text-text-secondary hover:text-critical rounded-sm p-1.5 focus:ring-1 focus:outline-none"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                           </button>
@@ -202,7 +211,8 @@ export function GuideListView({
                         <button
                           onClick={() => onView(guide)}
                           title="보기"
-                          className="focus:ring-accent text-text-secondary hover:text-accent rounded-sm p-1 focus:ring-1 focus:outline-none"
+                          aria-label={`${guide.title} 보기`}
+                          className="focus:ring-accent text-text-secondary hover:text-accent rounded-sm p-1.5 focus:ring-1 focus:outline-none"
                         >
                           <Eye className="h-3.5 w-3.5" />
                         </button>

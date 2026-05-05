@@ -1,7 +1,7 @@
 """Knowledge Guides API — 챗봇 이미지+텍스트 응답을 위한 가이드 문서 관리.
 
 엔드포인트 목록 (/api/v1/guides prefix):
-  GET    /static/{filename}          — 정적 이미지 서빙 (path traversal 방지)
+  GET    /static/{guide_id}/{filename} — 정적 이미지 서빙 (path traversal 방지)
   GET    /                           — 가이드 리스트 (system_id/category/search 필터)
   GET    /{guide_id}                 — 가이드 상세 + 이미지 배열
   POST   /                           — 가이드 생성 (multipart, 이미지 0-5장)
@@ -18,6 +18,7 @@ import json
 import logging
 import os
 import re
+import shutil
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -60,11 +61,11 @@ class _GuideUpdateBody(BaseModel):
     is_active: Optional[bool] = None
 
 # ── 환경 설정 ──────────────────────────────────────────────────────────────────
-# 이미지는 KNOWLEDGE_DOCS_DIR/images/ 폴더에 저장 (문서 파일과 분리).
-# 파일명은 {guide_id}_{uuid}.{ext} — 가이드 삭제 시 패턴 매칭으로 일괄 정리 가능.
+# 이미지는 KNOWLEDGE_DOCS_DIR/images/{guide_id}/ 서브디렉토리에 저장 (문서 파일과 분리).
+# 파일명은 {uuid}.{ext} — 가이드 삭제 시 서브디렉토리 통째로 정리.
 
 _KNOWLEDGE_DOCS_DIR = Path(
-    os.getenv("KNOWLEDGE_DOCS_DIR", "/app/synapse/knowledge-docs")
+    os.getenv("KNOWLEDGE_DOCS_DIR", "/attaches/knowledge-docs")
 )
 _IMAGES_DIR = _KNOWLEDGE_DOCS_DIR / "images"
 
@@ -84,8 +85,9 @@ except ImportError:
 # ── 내부 헬퍼 ──────────────────────────────────────────────────────────────────
 
 def _file_path_to_url(file_path: str) -> str:
-    """저장된 상대 경로 (예: 'images/{guide_id}_{uuid}.png') → /api/v1/guides/static/{filename} URL."""
-    return f"/api/v1/guides/static/{Path(file_path).name}"
+    """저장된 상대 경로 (예: 'images/{guide_id}/{uuid}.png') → /api/v1/guides/static/{guide_id}/{uuid} URL."""
+    rel = file_path[len("images/"):]  # '{guide_id}/{uuid}.ext'
+    return f"/api/v1/guides/static/{rel}"
 
 
 def _parse_tags(raw: str | None) -> list[str]:
@@ -206,9 +208,8 @@ async def _check_can_delete_guide(
 async def _save_image_file(upload: UploadFile, guide_id: str) -> tuple[str, str]:
     """이미지 파일을 디스크에 저장하고 (file_path, filename) 반환.
 
-    저장 경로: KNOWLEDGE_DOCS_DIR/images/{guide_id}_{uuid}.{ext}
-    file_path는 KNOWLEDGE_DOCS_DIR 기준 상대 경로 (예: 'images/{guide_id}_{uuid}.png').
-    파일명에 guide_id를 prefix로 두어 가이드 삭제 시 패턴 매칭으로 일괄 정리 가능.
+    저장 경로: KNOWLEDGE_DOCS_DIR/images/{guide_id}/{uuid}.{ext}
+    file_path는 KNOWLEDGE_DOCS_DIR 기준 상대 경로 (예: 'images/{guide_id}/{uuid}.png').
     """
     # MIME 검증
     mime = upload.content_type or ""
@@ -230,15 +231,16 @@ async def _save_image_file(upload: UploadFile, guide_id: str) -> tuple[str, str]
     ext_map = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp"}
     ext = ext_map[mime]
 
-    # 파일명: {guide_id}_{uuid}.{ext} — 가이드 삭제 시 일괄 정리용 패턴
-    filename = f"{guide_id}_{uuid.uuid4()}.{ext}"
-    _IMAGES_DIR.mkdir(parents=True, exist_ok=True)
-    dest = _IMAGES_DIR / filename
+    # 저장: images/{guide_id}/{uuid}.{ext}
+    filename = f"{uuid.uuid4()}.{ext}"
+    guide_dir = _IMAGES_DIR / guide_id
+    guide_dir.mkdir(parents=True, exist_ok=True)
+    dest = guide_dir / filename
 
     with open(dest, "wb") as f:
         f.write(content)
 
-    return f"images/{filename}", filename
+    return f"images/{guide_id}/{filename}", filename
 
 
 def _delete_image_file(file_path: str) -> None:
@@ -252,19 +254,15 @@ def _delete_image_file(file_path: str) -> None:
 
 
 def _delete_guide_images_by_pattern(guide_id: str) -> None:
-    """가이드 삭제 시 안전망 — guide_id 패턴으로 디스크에 남은 모든 이미지 일괄 삭제.
+    """가이드 삭제 시 안전망 — images/{guide_id}/ 디렉토리 전체 삭제.
 
     DB row 기반의 _delete_image_file 후에도 (예: DB-디스크 동기화 실패 등으로) 잔존
-    파일이 남을 수 있으므로 glob 패턴으로 정리.
+    파일이 남을 수 있으므로 서브디렉토리 통째로 정리.
     """
     try:
-        if not _IMAGES_DIR.exists():
-            return
-        for path in _IMAGES_DIR.glob(f"{guide_id}_*"):
-            try:
-                path.unlink()
-            except Exception as exc:
-                logger.warning("이미지 파일 삭제 실패 (%s): %s", path, exc)
+        guide_dir = _IMAGES_DIR / guide_id
+        if guide_dir.exists():
+            shutil.rmtree(guide_dir)
     except Exception as exc:
         logger.warning("가이드 이미지 일괄 삭제 실패 (guide_id=%s): %s", guide_id, exc)
 
@@ -311,21 +309,22 @@ async def _qdrant_delete_background(guide_id: str) -> None:
 
 # ── 정적 이미지 서빙 ── (가이드 라우트보다 먼저 등록해야 함) ──────────────────
 
-@router.get("/static/{filename}")
-async def serve_guide_image(filename: str) -> FileResponse:
+@router.get("/static/{file_path:path}")
+async def serve_guide_image(file_path: str) -> FileResponse:
     """가이드 첨부 이미지 서빙.
 
-    보안: 영문자/숫자/대시/언더스코어/점만 허용 + resolve()로 path traversal 방지.
+    경로 형식: {guide_id}/{uuid}.{ext}
+    보안: guide_id와 파일명 각각 영문자/숫자/대시/언더스코어/점만 허용 + resolve()로 path traversal 방지.
     """
-    if not re.match(r'^[a-zA-Z0-9._-]+$', filename):
-        raise HTTPException(status_code=400, detail="유효하지 않은 파일명입니다")
+    if not re.match(r'^[a-zA-Z0-9-]+/[a-zA-Z0-9._-]+$', file_path):
+        raise HTTPException(status_code=400, detail="유효하지 않은 파일 경로입니다")
     base = _IMAGES_DIR.resolve()
-    file_path = (base / filename).resolve()
-    if not str(file_path).startswith(str(base)):
+    dest = (base / file_path).resolve()
+    if not str(dest).startswith(str(base)):
         raise HTTPException(status_code=400, detail="경로 탐색이 감지되었습니다")
-    if not file_path.exists():
+    if not dest.exists():
         raise HTTPException(status_code=404, detail="이미지를 찾을 수 없습니다")
-    return FileResponse(file_path)
+    return FileResponse(dest)
 
 
 # ── 가이드 리스트 ──────────────────────────────────────────────────────────────
