@@ -4,8 +4,8 @@ import { cn } from '@/lib/utils'
 import type { LocalImage } from '@/types/guide'
 
 const ALLOWED_TYPES = ['image/png', 'image/jpeg', 'image/webp']
-const MAX_SIZE_BYTES = 5 * 1024 * 1024 // 5MB
-const MAX_IMAGES = 5
+const MAX_SIZE_BYTES = 10 * 1024 * 1024 // 10MB
+const MAX_IMAGES = 10
 
 interface ImageUploadDropzoneProps {
   images: LocalImage[]
@@ -43,7 +43,7 @@ export function ImageUploadDropzone({
           continue
         }
         if (file.size > MAX_SIZE_BYTES) {
-          onError?.(`${file.name}: 파일 크기가 5MB를 초과합니다.`)
+          onError?.(`${file.name}: 파일 크기가 10MB를 초과합니다.`)
           continue
         }
         toAdd.push({
@@ -125,7 +125,7 @@ export function ImageUploadDropzone({
           onKeyDown={(e) => e.key === 'Enter' && inputRef.current?.click()}
         >
           <Upload className="h-5 w-5" />
-          <p className="text-sm">클릭 또는 드래그&amp;드롭 (PNG / JPEG / WebP, 최대 5MB)</p>
+          <p className="text-sm">클릭 또는 드래그&amp;드롭 (PNG / JPEG / WebP, 최대 10MB)</p>
         </div>
       )}
 
