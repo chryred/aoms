@@ -4,7 +4,7 @@
   GET    /static/{guide_id}/{filename} — 정적 이미지 서빙 (path traversal 방지)
   GET    /                           — 가이드 리스트 (system_id/category/search 필터)
   GET    /{guide_id}                 — 가이드 상세 + 이미지 배열
-  POST   /                           — 가이드 생성 (multipart, 이미지 0-5장)
+  POST   /                           — 가이드 생성 (multipart, 이미지 0-10장)
   PUT    /{guide_id}                 — 가이드 수정
   DELETE /{guide_id}                 — 가이드 삭제 (soft 기본, ?hard=true admin only)
   POST   /{guide_id}/images          — 이미지 추가 업로드
@@ -69,17 +69,18 @@ _KNOWLEDGE_DOCS_DIR = Path(
 )
 _IMAGES_DIR = _KNOWLEDGE_DOCS_DIR / "images"
 
-_MAX_IMAGE_BYTES = 5 * 1024 * 1024  # 5MB
-_MAX_IMAGES_PER_GUIDE = 5
+_MAX_IMAGE_BYTES = 10 * 1024 * 1024  # 10MB
+_MAX_IMAGES_PER_GUIDE = 10
 _ALLOWED_IMAGE_MIMES = {"image/png", "image/jpeg", "image/webp"}
 
 # ── Agent B (Qdrant) 콜백 훅 — ImportError swallow ─────────────────────────
 
 try:
-    from services.qdrant_guides import index_guide, delete_guide_index  # type: ignore
+    from services.qdrant_guides import index_guide, delete_guide_index, update_image_count  # type: ignore
 except ImportError:
     index_guide = None  # type: ignore
     delete_guide_index = None  # type: ignore
+    update_image_count = None  # type: ignore
 
 
 # ── 내부 헬퍼 ──────────────────────────────────────────────────────────────────
@@ -224,7 +225,7 @@ async def _save_image_file(upload: UploadFile, guide_id: str) -> tuple[str, str]
     if len(content) > _MAX_IMAGE_BYTES:
         raise HTTPException(
             status_code=413,
-            detail=f"이미지 크기가 5MB를 초과합니다 ({len(content) // 1024 // 1024}MB)",
+            detail=f"이미지 크기가 10MB를 초과합니다 ({len(content) // 1024 // 1024}MB)",
         )
 
     # 확장자 결정
@@ -305,6 +306,16 @@ async def _qdrant_delete_background(guide_id: str) -> None:
         await delete_guide_index(guide_id)
     except Exception as exc:
         logger.warning("Qdrant guide 인덱스 삭제 실패 (guide_id=%s): %s", guide_id, exc)
+
+
+async def _qdrant_update_image_count_background(guide_id: str, image_count: int) -> None:
+    """Qdrant payload image_count 업데이트 — 재임베딩 없음. 실패 시 swallow."""
+    if update_image_count is None:
+        return
+    try:
+        await update_image_count(guide_id, image_count)
+    except Exception as exc:
+        logger.warning("Qdrant image_count 업데이트 실패 (guide_id=%s): %s", guide_id, exc)
 
 
 # ── 정적 이미지 서빙 ── (가이드 라우트보다 먼저 등록해야 함) ──────────────────
@@ -516,7 +527,7 @@ async def create_guide(
 ) -> dict[str, Any]:
     """가이드 생성 (multipart/form-data).
 
-    이미지는 0-5장, 파일당 최대 5MB, MIME = image/png|jpeg|webp.
+    이미지는 0-10장, 파일당 최대 10MB, MIME = image/png|jpeg|webp.
     created_by = 현재 로그인 user의 contact_id.
     """
     # 권한 체크
@@ -625,7 +636,12 @@ async def update_guide(
     await db.commit()
     await db.refresh(guide)
 
-    # Qdrant 재인덱싱
+    # Qdrant 재인덱싱 (실제 image_count 조회)
+    actual_image_count: int = (
+        await db.execute(
+            select(func.count(GuideImage.id)).where(GuideImage.guide_id == guide_id)
+        )
+    ).scalar_one()
     background_tasks.add_task(
         _qdrant_index_background,
         guide.id,
@@ -634,7 +650,7 @@ async def update_guide(
         guide.system_id,
         guide.category,
         guide.tags or [],
-        0,  # image_count: 수정 시 이미지는 별도 엔드포인트로 관리
+        actual_image_count,
     )
 
     return {
@@ -702,6 +718,7 @@ async def delete_guide(
 @router.post("/{guide_id}/images", status_code=201)
 async def add_guide_image(
     guide_id: str,
+    background_tasks: BackgroundTasks,
     image: UploadFile = File(...),
     alt_text: Optional[str] = Form(None),
     sort_order: int = Form(0),
@@ -744,6 +761,9 @@ async def add_guide_image(
     await db.commit()
     await db.refresh(img)
 
+    background_tasks.add_task(
+        _qdrant_update_image_count_background, guide_id, existing_count + 1
+    )
     return _guide_image_to_dict(img)
 
 
@@ -753,6 +773,7 @@ async def add_guide_image(
 async def delete_guide_image(
     guide_id: str,
     image_id: str,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ) -> Response:
@@ -774,8 +795,17 @@ async def delete_guide_image(
     if img is None:
         raise HTTPException(status_code=404, detail="이미지를 찾을 수 없습니다")
 
+    current_count: int = (
+        await db.execute(
+            select(func.count(GuideImage.id)).where(GuideImage.guide_id == guide_id)
+        )
+    ).scalar_one()
+
     _delete_image_file(img.file_path)
     await db.delete(img)
     await db.commit()
 
+    background_tasks.add_task(
+        _qdrant_update_image_count_background, guide_id, max(0, current_count - 1)
+    )
     return Response(status_code=204)

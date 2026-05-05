@@ -151,6 +151,28 @@ async def index_guide(
         logger.warning("guide %s Qdrant upsert 오류: %s", guide_id, str(exc)[:200])
 
 
+# ── payload 부분 업데이트 ───────────────────────────────────────────────────
+
+async def update_image_count(guide_id: str, image_count: int) -> None:
+    """Qdrant payload의 image_count만 업데이트 (재임베딩 없음)."""
+    try:
+        resp = await _qdrant_http.post(
+            f"/collections/{COLLECTION_NAME}/points/payload",
+            json={"payload": {"image_count": image_count}, "points": [guide_id]},
+        )
+        if resp.status_code >= 400:
+            logger.warning(
+                "guide %s image_count 업데이트 실패 %d: %s",
+                guide_id,
+                resp.status_code,
+                resp.text[:200],
+            )
+        else:
+            logger.debug("guide %s image_count=%d 업데이트 완료", guide_id, image_count)
+    except Exception as exc:
+        logger.warning("guide %s image_count 업데이트 오류: %s", guide_id, str(exc)[:200])
+
+
 # ── 삭제 ────────────────────────────────────────────────────────────────────
 
 async def delete_guide_index(guide_id: str) -> None:
