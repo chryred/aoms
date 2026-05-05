@@ -167,9 +167,13 @@ export function GuideEditModal({
       const fd = new FormData()
       fd.append('title', title.trim())
       fd.append('content', content.trim())
-      fd.append('system_id', systemId === 'null' ? '' : String(parsedSystemId ?? ''))
+      // system_id=null(공통)이면 FormData에 포함하지 않음 — 빈 문자열 전송 시 422 발생
+      if (systemId !== 'null' && parsedSystemId != null) {
+        fd.append('system_id', String(parsedSystemId))
+      }
       if (category) fd.append('category', category)
-      tags.forEach((t) => fd.append('tags', t))
+      // tags는 콤마 구분 단일 문자열로 전송 — FastAPI Form(str) 파라미터가 마지막 값만 수신하는 문제 방지
+      if (tags.length > 0) fd.append('tags', tags.join(','))
       localImages.forEach((img, idx) => {
         if (img.file) {
           fd.append('images', img.file)
@@ -242,17 +246,17 @@ export function GuideEditModal({
 
   return (
     <>
-      {/* Overlay */}
-      <div className="bg-overlay fixed inset-0 z-40" onClick={onClose} aria-hidden="true" />
+      {/* Overlay — CriticalBanner(z-50) 위에 덮기 위해 z-[60] */}
+      <div className="bg-overlay fixed inset-0 z-[60]" onClick={onClose} aria-hidden="true" />
 
-      {/* Drawer */}
+      {/* Drawer — Overlay 위 z-[70] */}
       <div
         ref={modalRef}
         role="dialog"
         aria-modal="true"
         aria-label={drawerTitle}
         className={cn(
-          'border-border bg-bg-base fixed top-0 right-0 bottom-0 z-50 flex w-full max-w-[560px] flex-col border-l',
+          'border-border bg-bg-base fixed top-0 right-0 bottom-0 z-[70] flex w-full max-w-[560px] flex-col border-l',
           'shadow-[-8px_0_32px_rgba(0,0,0,0.4)]',
         )}
       >

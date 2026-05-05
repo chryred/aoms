@@ -14,6 +14,7 @@ from schemas import (
     IncidentAiAnalyzeOut,
     IncidentCommentCreate,
     IncidentDetailOut,
+    IncidentCreate,
     IncidentOut,
     IncidentReportOut,
     IncidentTimelineItemOut,
@@ -80,6 +81,50 @@ async def list_incidents(
 
     rows = (await db.execute(stmt)).all()
     return [_to_out(row.Incident, row.system_display_name) for row in rows]
+
+
+@router.post("", response_model=IncidentOut, status_code=201)
+async def create_incident(
+    payload: IncidentCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """수동 인시던트 등록 — 자동 알림 없이 운영자가 직접 생성."""
+    _VALID_SEVERITIES = {"critical", "warning", "info"}
+    if payload.severity not in _VALID_SEVERITIES:
+        raise HTTPException(status_code=422, detail=f"유효하지 않은 심각도: {payload.severity}")
+
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    incident = Incident(
+        system_id=payload.system_id,
+        title=payload.title,
+        severity=payload.severity,
+        status="open",
+        detected_at=now,
+        root_cause=payload.notes,
+        alert_count=0,
+        source="manual",
+    )
+    db.add(incident)
+    await db.flush()
+
+    db.add(IncidentTimeline(
+        incident_id=incident.id,
+        event_type="created",
+        description=f"수동 등록",
+        actor_name=current_user.name,
+    ))
+
+    await db.commit()
+    await db.refresh(incident)
+
+    system_display_name = None
+    if incident.system_id:
+        system = await db.get(System, incident.system_id)
+        if system:
+            system_display_name = system.display_name
+
+    return _to_out(incident, system_display_name)
 
 
 @router.get("/{incident_id}", response_model=IncidentDetailOut)
@@ -149,6 +194,13 @@ async def update_incident(
         elif payload.status == "closed" and not incident.closed_at:
             incident.closed_at = now
 
+    if payload.title is not None:
+        incident.title = payload.title
+    if payload.severity is not None:
+        _VALID_SEVERITIES = {"critical", "warning", "info"}
+        if payload.severity not in _VALID_SEVERITIES:
+            raise HTTPException(status_code=422, detail=f"유효하지 않은 심각도: {payload.severity}")
+        incident.severity = payload.severity
     if payload.root_cause is not None:
         incident.root_cause = payload.root_cause
     if payload.resolution is not None:

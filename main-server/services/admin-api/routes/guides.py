@@ -60,11 +60,13 @@ class _GuideUpdateBody(BaseModel):
     is_active: Optional[bool] = None
 
 # ── 환경 설정 ──────────────────────────────────────────────────────────────────
+# 이미지는 KNOWLEDGE_DOCS_DIR/images/ 폴더에 저장 (문서 파일과 분리).
+# 파일명은 {guide_id}_{uuid}.{ext} — 가이드 삭제 시 패턴 매칭으로 일괄 정리 가능.
 
-_ATTACHMENT_PATH = Path(
-    os.getenv("SYNAPSE_ATTACHMENT_PATH", "/data/attachments")
+_KNOWLEDGE_DOCS_DIR = Path(
+    os.getenv("KNOWLEDGE_DOCS_DIR", "/app/synapse/knowledge-docs")
 )
-_GUIDES_DIR = _ATTACHMENT_PATH / "guides"
+_IMAGES_DIR = _KNOWLEDGE_DOCS_DIR / "images"
 
 _MAX_IMAGE_BYTES = 5 * 1024 * 1024  # 5MB
 _MAX_IMAGES_PER_GUIDE = 5
@@ -82,7 +84,7 @@ except ImportError:
 # ── 내부 헬퍼 ──────────────────────────────────────────────────────────────────
 
 def _file_path_to_url(file_path: str) -> str:
-    """저장된 상대 경로 → /api/v1/guides/static/{filename} URL 변환."""
+    """저장된 상대 경로 (예: 'images/{guide_id}_{uuid}.png') → /api/v1/guides/static/{filename} URL."""
     return f"/api/v1/guides/static/{Path(file_path).name}"
 
 
@@ -201,10 +203,12 @@ async def _check_can_delete_guide(
         raise HTTPException(status_code=403, detail="본인이 등록한 가이드만 삭제할 수 있습니다")
 
 
-async def _save_image_file(upload: UploadFile) -> tuple[str, str]:
+async def _save_image_file(upload: UploadFile, guide_id: str) -> tuple[str, str]:
     """이미지 파일을 디스크에 저장하고 (file_path, filename) 반환.
 
-    file_path는 SYNAPSE_ATTACHMENT_PATH 기준 상대 경로 (예: 'guides/{uuid}.png').
+    저장 경로: KNOWLEDGE_DOCS_DIR/images/{guide_id}_{uuid}.{ext}
+    file_path는 KNOWLEDGE_DOCS_DIR 기준 상대 경로 (예: 'images/{guide_id}_{uuid}.png').
+    파일명에 guide_id를 prefix로 두어 가이드 삭제 시 패턴 매칭으로 일괄 정리 가능.
     """
     # MIME 검증
     mime = upload.content_type or ""
@@ -226,25 +230,43 @@ async def _save_image_file(upload: UploadFile) -> tuple[str, str]:
     ext_map = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp"}
     ext = ext_map[mime]
 
-    # UUID로 파일명 rename (원본 파일명 폐기)
-    filename = f"{uuid.uuid4()}.{ext}"
-    _GUIDES_DIR.mkdir(parents=True, exist_ok=True)
-    dest = _GUIDES_DIR / filename
+    # 파일명: {guide_id}_{uuid}.{ext} — 가이드 삭제 시 일괄 정리용 패턴
+    filename = f"{guide_id}_{uuid.uuid4()}.{ext}"
+    _IMAGES_DIR.mkdir(parents=True, exist_ok=True)
+    dest = _IMAGES_DIR / filename
 
     with open(dest, "wb") as f:
         f.write(content)
 
-    return f"guides/{filename}", filename
+    return f"images/{filename}", filename
 
 
 def _delete_image_file(file_path: str) -> None:
     """디스크에서 이미지 파일 삭제 (best-effort — 실패 시 warning만)."""
     try:
-        full_path = _ATTACHMENT_PATH / file_path
+        full_path = _KNOWLEDGE_DOCS_DIR / file_path
         if full_path.exists():
             full_path.unlink()
     except Exception as exc:
         logger.warning("이미지 파일 삭제 실패 (%s): %s", file_path, exc)
+
+
+def _delete_guide_images_by_pattern(guide_id: str) -> None:
+    """가이드 삭제 시 안전망 — guide_id 패턴으로 디스크에 남은 모든 이미지 일괄 삭제.
+
+    DB row 기반의 _delete_image_file 후에도 (예: DB-디스크 동기화 실패 등으로) 잔존
+    파일이 남을 수 있으므로 glob 패턴으로 정리.
+    """
+    try:
+        if not _IMAGES_DIR.exists():
+            return
+        for path in _IMAGES_DIR.glob(f"{guide_id}_*"):
+            try:
+                path.unlink()
+            except Exception as exc:
+                logger.warning("이미지 파일 삭제 실패 (%s): %s", path, exc)
+    except Exception as exc:
+        logger.warning("가이드 이미지 일괄 삭제 실패 (guide_id=%s): %s", guide_id, exc)
 
 
 def _guide_image_to_dict(img: GuideImage) -> dict[str, Any]:
@@ -297,7 +319,7 @@ async def serve_guide_image(filename: str) -> FileResponse:
     """
     if not re.match(r'^[a-zA-Z0-9._-]+$', filename):
         raise HTTPException(status_code=400, detail="유효하지 않은 파일명입니다")
-    base = _GUIDES_DIR.resolve()
+    base = _IMAGES_DIR.resolve()
     file_path = (base / filename).resolve()
     if not str(file_path).startswith(str(base)):
         raise HTTPException(status_code=400, detail="경로 탐색이 감지되었습니다")
@@ -310,7 +332,7 @@ async def serve_guide_image(filename: str) -> FileResponse:
 
 @router.get("")
 async def list_guides(
-    system_id: Optional[int] = Query(None),
+    system_id: Optional[str] = Query(None),
     category: Optional[str] = Query(None),
     search: Optional[str] = Query(None),
     limit: int = Query(20, ge=1, le=100),
@@ -321,9 +343,26 @@ async def list_guides(
     """가이드 리스트.
 
     권한:
-      - admin: 전체 조회 (is_active 포함 전체)
+      - admin: 전체 시스템 조회 (is_active=true 만 — 소프트 삭제된 가이드는 숨김)
       - operator: 자신 담당 시스템 + system_id=NULL(공통) 가이드만 (is_active=true)
+
+    system_id 쿼리파라미터:
+      - 미전달 / None: 전체 (필터 없음)
+      - "null" 문자열: system_id IS NULL (공통 가이드만)
+      - 숫자 문자열: 해당 system_id 가이드만
     """
+    # system_id 파싱: "null" → IS NULL 필터, 숫자 문자열 → 정수 필터
+    system_id_filter: Optional[int] = None
+    filter_null_only: bool = False
+    if system_id is not None:
+        if system_id == "null":
+            filter_null_only = True
+        else:
+            try:
+                system_id_filter = int(system_id)
+            except ValueError:
+                raise HTTPException(status_code=422, detail="system_id는 정수 또는 'null'이어야 합니다")
+
     # 이미지 수 서브쿼리
     image_count_subq = (
         select(func.count(GuideImage.id).label("cnt"), GuideImage.guide_id.label("gid"))
@@ -341,14 +380,16 @@ async def list_guides(
         .outerjoin(image_count_subq, image_count_subq.c.gid == KnowledgeGuide.id)
     )
 
+    # admin/operator 모두 active 가이드만 (소프트 삭제 숨김)
+    stmt = stmt.where(KnowledgeGuide.is_active.is_(True))
+
     if user.role != "admin":
-        # operator: 자신 담당 시스템 + 공통(NULL) 만, active 것만
+        # operator: 자신 담당 시스템 + 공통(NULL) 만
         contact = await _get_contact_for_user(db, user)
         if contact is None:
             return {"items": [], "total": 0}
         allowed_ids = await _get_operator_system_ids(db, contact.id)
         stmt = stmt.where(
-            KnowledgeGuide.is_active.is_(True),
             or_(
                 KnowledgeGuide.system_id.in_(allowed_ids),
                 KnowledgeGuide.system_id.is_(None),
@@ -356,8 +397,10 @@ async def list_guides(
         )
 
     # 추가 필터
-    if system_id is not None:
-        stmt = stmt.where(KnowledgeGuide.system_id == system_id)
+    if filter_null_only:
+        stmt = stmt.where(KnowledgeGuide.system_id.is_(None))
+    elif system_id_filter is not None:
+        stmt = stmt.where(KnowledgeGuide.system_id == system_id_filter)
     if category:
         stmt = stmt.where(KnowledgeGuide.category == category)
     if search:
@@ -505,7 +548,7 @@ async def create_guide(
     for i, upload in enumerate(images):
         if upload.filename == "" or upload.size == 0:
             continue
-        file_path, _filename = await _save_image_file(upload)
+        file_path, _filename = await _save_image_file(upload, guide.id)
         img = GuideImage(
             guide_id=guide.id,
             file_path=file_path,
@@ -628,7 +671,7 @@ async def delete_guide(
     await _check_can_delete_guide(db, user, guide, hard=hard)
 
     if hard:
-        # 디스크 이미지 파일 정리
+        # 1차: DB row 기반 디스크 이미지 정리 (정상 경로)
         images_rows = (
             await db.execute(
                 select(GuideImage).where(GuideImage.guide_id == guide_id)
@@ -639,6 +682,10 @@ async def delete_guide(
 
         await db.delete(guide)
         await db.commit()
+
+        # 2차: 안전망 — guide_id 패턴으로 디스크에 남은 모든 이미지 일괄 정리
+        # (DB-디스크 동기화 누락이 있어도 잔존 파일이 남지 않도록)
+        _delete_guide_images_by_pattern(guide_id)
 
         # Qdrant 인덱스 삭제 (best-effort)
         background_tasks.add_task(_qdrant_delete_background, guide_id)
@@ -685,7 +732,7 @@ async def add_guide_image(
             detail=f"이미지는 최대 {_MAX_IMAGES_PER_GUIDE}장까지 첨부 가능합니다",
         )
 
-    file_path, _filename = await _save_image_file(image)
+    file_path, _filename = await _save_image_file(image, guide_id)
     img = GuideImage(
         guide_id=guide_id,
         file_path=file_path,

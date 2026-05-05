@@ -90,7 +90,7 @@ function Lightbox({
 
   return (
     <div
-      className="bg-overlay fixed inset-0 z-50 flex items-center justify-center"
+      className="bg-overlay fixed inset-0 z-[60] flex items-center justify-center"
       onClick={onClose}
       aria-modal="true"
       role="dialog"
@@ -122,7 +122,7 @@ function Lightbox({
         <img
           src={img.url}
           alt={img.alt ?? '가이드 이미지'}
-          className="max-h-[90vh] max-w-[90vw] rounded-sm object-contain shadow-lg"
+          className="shadow-neu-flat max-h-[90vh] max-w-[90vw] rounded-sm object-contain"
         />
         {img.alt && (
           <p className="text-text-primary bg-surface/80 absolute bottom-4 left-1/2 max-w-[80vw] -translate-x-1/2 rounded-sm px-3 py-1 text-center text-xs">

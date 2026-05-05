@@ -276,7 +276,10 @@ async def receive_alertmanager(
     return {"processed": processed}
 
 
-def _apply_alert_filters(stmt, *, system_id, severity, alert_type, resolved, acknowledged, date_from, date_to):
+def _apply_alert_filters(stmt, *, system_id, severity, alert_type, resolved, acknowledged, date_from, date_to, alertname=None, alert_id=None):
+    if alert_id is not None:
+        stmt = stmt.where(AlertHistory.id == alert_id)
+        return stmt  # ID 단건 지정 시 다른 필터 불필요
     if system_id is not None:
         stmt = stmt.where(AlertHistory.system_id == system_id)
     if severity:
@@ -293,6 +296,8 @@ def _apply_alert_filters(stmt, *, system_id, severity, alert_type, resolved, ack
         stmt = stmt.where(AlertHistory.created_at >= datetime.fromisoformat(date_from))
     if date_to:
         stmt = stmt.where(AlertHistory.created_at < datetime.fromisoformat(date_to))
+    if alertname:
+        stmt = stmt.where(AlertHistory.alertname == alertname)
     return stmt
 
 
@@ -305,6 +310,8 @@ async def list_alerts(
     acknowledged: bool | None = Query(None),
     date_from: str | None = Query(None, description="UTC ISO datetime (e.g. 2026-04-16T15:00:00)"),
     date_to: str | None = Query(None, description="UTC ISO datetime (e.g. 2026-04-17T14:59:59)"),
+    alertname: str | None = Query(None),
+    alert_id: int | None = Query(None),
     limit: int = Query(50, le=500),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
@@ -314,7 +321,7 @@ async def list_alerts(
         stmt,
         system_id=system_id, severity=severity, alert_type=alert_type,
         resolved=resolved, acknowledged=acknowledged,
-        date_from=date_from, date_to=date_to,
+        date_from=date_from, date_to=date_to, alertname=alertname, alert_id=alert_id,
     )
     result = await db.execute(stmt)
     return result.scalars().all()
@@ -329,6 +336,8 @@ async def count_alerts(
     acknowledged: bool | None = Query(None),
     date_from: str | None = Query(None),
     date_to: str | None = Query(None),
+    alertname: str | None = Query(None),
+    alert_id: int | None = Query(None),
     db: AsyncSession = Depends(get_db),
 ):
     """필터 조건에 해당하는 alert 총 건수 (페이지네이션 없이 count만)."""
@@ -337,7 +346,7 @@ async def count_alerts(
         stmt,
         system_id=system_id, severity=severity, alert_type=alert_type,
         resolved=resolved, acknowledged=acknowledged,
-        date_from=date_from, date_to=date_to,
+        date_from=date_from, date_to=date_to, alertname=alertname, alert_id=alert_id,
     )
     result = await db.execute(stmt)
     return {"count": result.scalar_one()}

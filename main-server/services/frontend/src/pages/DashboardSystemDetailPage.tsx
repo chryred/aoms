@@ -168,23 +168,33 @@ const ActiveIssueItem = memo(function ActiveIssueItem({
             </>
           )}
         </div>
-        {!isLog && (
-          <button
-            type="button"
-            onClick={() =>
-              acknowledgeAlert.mutate({
-                id: Number(alert.id),
-                by: currentUser?.name || currentUser?.email || 'unknown',
-              })
-            }
-            disabled={acknowledgeAlert.isPending}
-            aria-label={`${alert.title || alert.alertname} 확인 처리`}
-            className="text-text-disabled hover:text-normal flex min-h-[1.5rem] flex-shrink-0 items-center gap-1 px-1 text-[10px] transition-colors"
+        <div className="flex flex-shrink-0 items-center gap-1">
+          {!isLog && (
+            <button
+              type="button"
+              onClick={() =>
+                acknowledgeAlert.mutate({
+                  id: Number(alert.id),
+                  by: currentUser?.name || currentUser?.email || 'unknown',
+                })
+              }
+              disabled={acknowledgeAlert.isPending}
+              aria-label={`${alert.title || alert.alertname} 확인 처리`}
+              className="text-text-disabled hover:text-normal flex min-h-[1.5rem] items-center gap-1 px-1 text-[10px] transition-colors"
+            >
+              <CheckCheck className="h-3 w-3" />
+              확인
+            </button>
+          )}
+          <Link
+            to={`${ROUTES.ALERTS}?alert_id=${alert.id}`}
+            aria-label={`${alert.title || alert.alertname} 알림 이력 보기`}
+            title="알림 이력에서 이 건 조회"
+            className="text-text-disabled hover:text-accent flex min-h-[1.5rem] items-center px-1 transition-colors duration-150"
           >
-            <CheckCheck className="h-3 w-3" />
-            확인
-          </button>
-        )}
+            <ArrowRight className="h-3.5 w-3.5" />
+          </Link>
+        </div>
       </div>
     </NeuCard>
   )
@@ -334,14 +344,6 @@ export function DashboardSystemDetailPage() {
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <h2 className="text-text-primary text-lg font-semibold">활성 이슈</h2>
-            <Link
-              to={`${ROUTES.ALERTS}?system_id=${systemId}`}
-              className="text-text-disabled hover:text-accent flex items-center gap-0.5 text-xs transition-colors duration-150"
-              title="이 시스템의 알림 이력 보기"
-            >
-              <span>이력</span>
-              <ArrowRight className="h-3 w-3" />
-            </Link>
           </div>
           <div className="flex flex-wrap items-center gap-1.5">
             {/* 위험 카운터 */}

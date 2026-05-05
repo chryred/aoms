@@ -57,6 +57,7 @@ export function AlertTable({ alerts, onSelect, selectedIds, onToggleSelect }: Al
       <table className="w-full">
         <thead>
           <tr className="border-border border-b">
+            {onToggleSelect && <th className="w-10 px-3 py-3" />}
             {[
               'ID',
               '심각도',

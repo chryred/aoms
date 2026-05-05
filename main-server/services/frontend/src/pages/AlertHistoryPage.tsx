@@ -45,6 +45,8 @@ export function AlertHistoryPage() {
   const ackParam = searchParams.get('acknowledged') ?? 'all'
   const dateFrom = searchParams.get('date_from') ?? ''
   const dateTo = searchParams.get('date_to') ?? ''
+  const alertnameFilter = searchParams.get('alertname') ?? ''
+  const alertIdFilter = searchParams.get('alert_id') ?? ''
 
   const severity: Severity | '' = isSeverity(severityParam) ? severityParam : ''
   const ackFilter: AckFilter = isAckFilter(ackParam) ? ackParam : 'all'
@@ -52,6 +54,12 @@ export function AlertHistoryPage() {
   const [tab, setTab] = useState<TabType>('all')
   const [offset, setOffset] = useState(0)
   const [selectedAlert, setSelectedAlert] = useState<AlertHistory | null>(null)
+  const [alertIdInput, setAlertIdInput] = useState(alertIdFilter)
+
+  // alertIdFilter(URL)가 바뀌면 입력창도 동기화 (칩 X 클릭 시)
+  useEffect(() => {
+    setAlertIdInput(alertIdFilter)
+  }, [alertIdFilter])
 
   // 체크박스 선택 상태
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
@@ -106,6 +114,8 @@ export function AlertHistoryPage() {
     system_id: systemFilter ? Number(systemFilter) : undefined,
     date_from: dateFrom ? kstDateToUtcStart(dateFrom) : undefined,
     date_to: dateTo ? kstDateToUtcEnd(dateTo) : undefined,
+    alertname: alertnameFilter || undefined,
+    alert_id: alertIdFilter ? Number(alertIdFilter) : undefined,
   }
 
   const {
@@ -203,12 +213,22 @@ export function AlertHistoryPage() {
         onClear: () => updateParam('acknowledged', ''),
       })
     }
+    if (alertnameFilter)
+      chips.push({
+        label: alertnameFilter,
+        onClear: () => updateParam('alertname', ''),
+      })
+    if (alertIdFilter)
+      chips.push({
+        label: `알림 #${alertIdFilter}`,
+        onClear: () => updateParam('alert_id', ''),
+      })
     if (dateFrom)
       chips.push({ label: `${dateFrom}부터`, onClear: () => updateParam('date_from', '') })
     if (dateTo) chips.push({ label: `${dateTo}까지`, onClear: () => updateParam('date_to', '') })
     return chips
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [systemFilter, severity, ackFilter, dateFrom, dateTo, systems])
+  }, [systemFilter, severity, ackFilter, alertnameFilter, alertIdFilter, dateFrom, dateTo, systems])
 
   // 체크박스 핸들러
   const currentAlerts = tab === 'exclusions' ? [] : (alerts ?? [])
@@ -406,7 +426,7 @@ export function AlertHistoryPage() {
       <PageHeader
         title="알림 이력"
         action={
-          <NeuButton size="sm" onClick={handleRefresh} disabled={isRefreshing}>
+          <NeuButton size="sm" variant="ghost" onClick={handleRefresh} disabled={isRefreshing}>
             <RefreshCw className={cn('h-4 w-4', isRefreshing && 'animate-spin')} />
             새로고침
           </NeuButton>
@@ -614,63 +634,69 @@ export function AlertHistoryPage() {
         </>
       ) : (
         <>
-          {/* 필터 */}
-          <div className="mb-2 flex flex-wrap gap-3">
-            <div className="w-48">
-              <NeuSelect
-                aria-label="시스템 필터"
-                value={systemFilter}
-                onChange={(e) => updateParam('system_id', e.target.value)}
-              >
-                <option value="">전체 시스템</option>
-                {systems.map((s) => (
-                  <option key={s.id} value={String(s.id)}>
-                    {s.display_name}
-                  </option>
-                ))}
-              </NeuSelect>
-            </div>
-            <div className="w-36">
-              <NeuSelect
-                aria-label="심각도 필터"
-                value={severity}
-                onChange={(e) => updateParam('severity', e.target.value)}
-              >
-                <option value="">전체 심각도</option>
-                <option value="critical">Critical</option>
-                <option value="warning">Warning</option>
-                <option value="info">Info</option>
-              </NeuSelect>
-            </div>
-            <div className="w-36">
-              <NeuSelect
-                aria-label="확인 상태 필터"
-                value={ackFilter}
-                onChange={(e) =>
-                  updateParam('acknowledged', e.target.value === 'all' ? '' : e.target.value)
-                }
-              >
-                <option value="all">전체 상태</option>
-                <option value="unack">미확인</option>
-                <option value="ack">확인됨</option>
-              </NeuSelect>
-            </div>
-            <div className="w-40">
-              <NeuInput
-                type="date"
-                aria-label="시작 날짜 (KST)"
-                value={dateFrom}
-                onChange={(e) => updateParam('date_from', e.target.value)}
-              />
-            </div>
-            <div className="w-40">
-              <NeuInput
-                type="date"
-                aria-label="종료 날짜 (KST)"
-                value={dateTo}
-                onChange={(e) => updateParam('date_to', e.target.value)}
-              />
-            </div>
+          {/* 필터 — 3열 그리드: 상단(카테고리) + 하단(기간·ID) */}
+          <div className="mb-2 grid grid-cols-3 gap-3">
+            <NeuSelect
+              aria-label="시스템 필터"
+              value={systemFilter}
+              onChange={(e) => updateParam('system_id', e.target.value)}
+            >
+              <option value="">전체 시스템</option>
+              {systems.map((s) => (
+                <option key={s.id} value={String(s.id)}>
+                  {s.display_name}
+                </option>
+              ))}
+            </NeuSelect>
+            <NeuSelect
+              aria-label="심각도 필터"
+              value={severity}
+              onChange={(e) => updateParam('severity', e.target.value)}
+            >
+              <option value="">전체 심각도</option>
+              <option value="critical">Critical</option>
+              <option value="warning">Warning</option>
+              <option value="info">Info</option>
+            </NeuSelect>
+            <NeuSelect
+              aria-label="확인 상태 필터"
+              value={ackFilter}
+              onChange={(e) =>
+                updateParam('acknowledged', e.target.value === 'all' ? '' : e.target.value)
+              }
+            >
+              <option value="all">전체 상태</option>
+              <option value="unack">미확인</option>
+              <option value="ack">확인됨</option>
+            </NeuSelect>
+            <NeuInput
+              type="number"
+              label="알림 ID"
+              aria-label="알림 ID 필터"
+              placeholder="번호 입력 후 Enter"
+              leftIcon={<span className="font-mono text-xs">#</span>}
+              value={alertIdInput}
+              min={1}
+              onChange={(e) => setAlertIdInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') updateParam('alert_id', alertIdInput)
+              }}
+              onBlur={() => updateParam('alert_id', alertIdInput)}
+            />
+            <NeuInput
+              type="date"
+              label="시작일"
+              aria-label="시작 날짜 (KST)"
+              value={dateFrom}
+              onChange={(e) => updateParam('date_from', e.target.value)}
+            />
+            <NeuInput
+              type="date"
+              label="종료일"
+              aria-label="종료 날짜 (KST)"
+              value={dateTo}
+              onChange={(e) => updateParam('date_to', e.target.value)}
+            />
           </div>
 
           {/* 활성 필터 칩 */}
@@ -770,22 +796,23 @@ export function AlertHistoryPage() {
             </div>
           ) : (
             <NeuCard key={tab} className="animate-fade-in-up-subtle overflow-hidden p-0">
-              {/* 전체 선택 체크박스 헤더 */}
-              <div className="border-border flex items-center gap-3 border-b px-4 py-2">
-                <input
-                  type="checkbox"
-                  className="accent-accent"
-                  checked={allLogAnalysisSelected && logAnalysisAlerts.length > 0}
-                  onChange={toggleSelectAll}
-                  disabled={logAnalysisAlerts.length === 0}
-                  aria-label="로그분석 알림 전체 선택"
-                />
-                <span className="text-text-secondary text-xs">
-                  {logAnalysisAlerts.length > 0
-                    ? `로그분석 ${logAnalysisAlerts.length}건 선택 가능`
-                    : '선택 가능한 로그분석 알림 없음'}
-                </span>
-              </div>
+              {/* 전체 선택 체크박스 헤더 — 선택 가능 항목이 있을 때만 표시 */}
+              {logAnalysisAlerts.length > 0 && (
+                <div className="border-border flex items-center gap-3 border-b px-4 py-2">
+                  <input
+                    type="checkbox"
+                    className="accent-accent"
+                    checked={allLogAnalysisSelected}
+                    onChange={toggleSelectAll}
+                    aria-label="로그분석 알림 전체 선택"
+                  />
+                  <span className="text-text-secondary text-xs">
+                    {selectedIds.size > 0
+                      ? `${selectedIds.size}건 선택됨 / 로그분석 ${logAnalysisAlerts.length}건`
+                      : `로그분석 ${logAnalysisAlerts.length}건 선택 가능`}
+                  </span>
+                </div>
+              )}
               <AlertTable
                 alerts={currentAlerts}
                 onSelect={setSelectedAlert}

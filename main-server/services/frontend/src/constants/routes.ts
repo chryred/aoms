@@ -27,7 +27,6 @@ export const ROUTES = {
   CHAT_GUEST: '/chat/guest',
   OAUTH_LOGIN: '/oauth/login',
   ADMIN_OAUTH_CLIENTS: '/admin/oauth-clients',
-  ADMIN_GUIDES: '/admin/guides',
   systemDetail: (id: number | string) => `/dashboard/${id}`,
   agentDetail: (id: number | string) => `/agents/${id}`,
   incidentDetail: (id: number | string) => `/incidents/${id}`,

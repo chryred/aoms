@@ -37,7 +37,16 @@ export interface IncidentDetail extends IncidentOut {
   alert_history: AlertHistory[]
 }
 
+export interface IncidentCreate {
+  system_id: number
+  title: string
+  severity: string
+  notes?: string
+}
+
 export interface IncidentUpdate {
+  title?: string
+  severity?: string
   status?: string
   root_cause?: string
   resolution?: string
@@ -50,6 +59,10 @@ export interface IncidentListParams {
   severity?: string
   limit?: number
   offset?: number
+}
+
+export async function createIncident(data: IncidentCreate): Promise<IncidentOut> {
+  return adminApi.post('api/v1/incidents', { json: data }).json()
 }
 
 export async function listIncidents(params: IncidentListParams = {}): Promise<IncidentOut[]> {

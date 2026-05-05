@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useMemo } from 'react'
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
@@ -34,6 +34,142 @@ const LIVE_STATUS_CONFIG: Record<AgentLiveStatus, { label: string; color: string
   collecting: { label: '수집 중', color: 'text-normal', dot: 'bg-normal' },
   stale: { label: '수집 중단', color: 'text-critical', dot: 'bg-critical' },
   no_data: { label: '데이터 없음', color: 'text-text-secondary', dot: 'bg-text-secondary' },
+}
+
+const CONFIG_EXAMPLE = `[agent]
+system_name = "crm"
+display_name = "고객관리시스템"
+instance_role = "was1"   # HA 이중화 식별자 (was1/was2 등)
+host = "192.168.x.x"
+collect_interval_secs = 15
+top_process_count = 20
+log_dir = "./logs"
+log_retention_days = 7
+
+[remote_write]
+endpoint = "http://<main-server>:9090/api/v1/write"
+batch_size = 500
+timeout_secs = 10
+wal_dir = "/var/lib/synapse-agent/wal"
+wal_retention_hours = 2
+
+[collectors]
+cpu = true
+memory = true
+disk = true
+network = true
+process = true
+tcp_connections = true
+log_monitor = true
+web_servers = true
+preprocessor = false
+heartbeat = true
+
+[[log_monitor]]
+paths = ["/home/jeus/logs/JeusServer.log"]
+keywords = ["ERROR", "CRITICAL", "PANIC", "Fatal", "Exception"]
+log_type = "jeus"
+
+[[log_monitor]]
+paths = ["/opt/app/logs/*.log"]
+keywords = ["ERROR", "CRITICAL", "PANIC", "Fatal", "Exception"]
+log_type = "app"
+
+[[services]]
+name = "jeus-was1"
+display_name = "업무서버-1"
+process_match = "was1"
+
+[[services]]
+name = "jeus-was2"
+display_name = "업무서버-2"
+process_match = "was2"
+
+[[web_servers]]
+name = "nginx-main"
+display_name = "메인 웹서버"
+type = "nginx"
+log_path = "/var/log/nginx/access.log"
+log_format = "nginx_json"
+was_services = ["jeus-was1", "jeus-was2"]
+slow_threshold_ms = 2000
+url_patterns = [
+  { pattern = "/api/customers", display = "고객조회" },
+  { pattern = "/api/orders", display = "주문처리" },
+]
+
+[[web_servers]]
+name = "webtob-api"
+display_name = "API 웹서버"
+type = "webtob"
+log_path = "/opt/webtob/logs/access.log"
+log_format = "combined"
+was_services = ["jeus-was3"]
+slow_threshold_ms = 3000
+url_patterns = []
+
+[preprocessor]
+summary_intervals_secs = [60, 300]`
+
+function colorizeTomlLine(line: string) {
+  const t = line.trim()
+  if (!t) return <>{line}</>
+  if (t.startsWith('#')) return <span className="text-text-disabled">{line}</span>
+  if (/^\[\[.+\]\]/.test(t)) return <span className="text-accent font-medium">{line}</span>
+  if (/^\[.+\]/.test(t)) return <span className="text-accent">{line}</span>
+  if (t.startsWith('{') || t.startsWith(']') || t === ']')
+    return <span className="text-text-primary">{line}</span>
+  const eqIdx = line.indexOf('=')
+  if (eqIdx === -1) return <span className="text-text-secondary">{line}</span>
+  const keyPart = line.slice(0, eqIdx)
+  let rest = line.slice(eqIdx + 1)
+  let comment = ''
+  let inStr = false
+  for (let i = 0; i < rest.length; i++) {
+    if (rest[i] === '"') inStr = !inStr
+    if (!inStr && rest[i] === '#') { comment = rest.slice(i); rest = rest.slice(0, i); break }
+  }
+  const val = rest.trim()
+  const valClass =
+    val === 'true' || val === 'false'
+      ? 'text-accent'
+      : /^\d+$/.test(val)
+        ? 'text-warning'
+        : val.startsWith('"') || val.startsWith('[') || val.startsWith('{')
+          ? 'text-normal'
+          : 'text-text-primary'
+  return (
+    <>
+      <span className="text-text-secondary">{keyPart}</span>
+      <span className="text-text-disabled">{'='}</span>
+      <span className={valClass}>{rest}</span>
+      {comment && <span className="text-text-disabled"> {comment}</span>}
+    </>
+  )
+}
+
+function validateToml(content: string): string | null {
+  const lines = content.split('\n')
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim()
+    if (!line || line.startsWith('#')) continue
+    if (line.startsWith('[[')) {
+      if (!line.includes(']]')) return `${i + 1}번째 줄: ']]' 닫는 괄호가 없습니다`
+      continue
+    }
+    if (line.startsWith('[')) {
+      if (!line.includes(']')) return `${i + 1}번째 줄: ']' 닫는 괄호가 없습니다`
+      continue
+    }
+    if (line.startsWith('{') || line === ']' || line.startsWith(']')) continue
+    if (!line.includes('=')) return `${i + 1}번째 줄: '=' 구분자가 없습니다`
+    let inStr = false
+    for (const ch of line.slice(line.indexOf('=') + 1)) {
+      if (ch === '"') inStr = !inStr
+    }
+    if (inStr) return `${i + 1}번째 줄: 닫히지 않은 따옴표가 있습니다`
+  }
+  return null
 }
 
 const COLLECTOR_LABELS: Record<string, string> = {
@@ -245,6 +381,11 @@ export function AgentDetailPage() {
 
   async function handleUploadConfig() {
     if (!token || configContent === null) return
+    const tomlError = validateToml(configContent)
+    if (tomlError) {
+      showMsg('error', `TOML 형식 오류 — ${tomlError}`)
+      return
+    }
     setActionLoading('설정 업로드')
     try {
       await agentsApi.uploadConfig(agentId, token, configContent)
@@ -861,70 +1002,92 @@ export function AgentDetailPage() {
         )}
       </div>
 
-      {/* [4] synapse/db 전용 설정 파일 — 전체 너비 */}
-      {supportsLive && (
+      {/* [4] synapse_agent 전용 설정 파일 — 전체 너비, 2컬럼 */}
+      {supportsLive && !isDbAgent && (
         <NeuCard className="mt-6">
-          <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-text-primary text-sm font-semibold">설정 파일</h2>
-            <span className="text-text-secondary font-mono text-xs">
-              {configDisplayPath ?? agent.config_path}
-            </span>
-          </div>
+          <h2 className="text-text-primary mb-4 text-sm font-semibold">설정 파일</h2>
 
-          {configContent === null ? (
-            <div className="flex flex-col items-center justify-center gap-3 py-12">
-              <p className="text-text-secondary text-sm">
-                설정 파일을 불러오려면 아래 버튼을 누르세요.
+          <div className="grid gap-6 lg:grid-cols-2">
+            {/* 왼쪽: 샘플 설정 */}
+            <div className="flex flex-col">
+              <p className="text-text-disabled mb-3 text-xs font-medium">
+                샘플 (config.example.toml)
               </p>
-              <NeuButton
-                size="sm"
-                variant="glass"
-                onClick={() => handleLoadConfig(undefined)}
-                loading={configLoading}
-                disabled={!sessionActive}
-              >
-                설정 파일 불러오기
-              </NeuButton>
+              <div className="bg-bg-deep h-[480px] overflow-auto rounded-sm p-3">
+                <pre className="font-mono text-xs leading-relaxed">
+                  {CONFIG_EXAMPLE.split('\n').map((line, i) => (
+                    <span key={i} className="block">
+                      {colorizeTomlLine(line)}
+                    </span>
+                  ))}
+                </pre>
+              </div>
             </div>
-          ) : (
-            <div className="space-y-3">
-              <NeuTextarea
-                value={configContent}
-                onChange={(e) => {
-                  setConfigContent(e.target.value)
-                  setConfigDirty(true)
-                }}
-                rows={20}
-                className="font-mono text-xs"
-              />
-              <div className="flex items-center justify-between">
-                <NeuButton
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => handleLoadConfig(undefined)}
-                  loading={configLoading}
-                  disabled={!sessionActive}
-                >
-                  <RefreshCw className="h-3.5 w-3.5" />
-                  다시 불러오기
-                </NeuButton>
-                <div className="flex items-center gap-2">
+
+            {/* 오른쪽: 실제 설정 로드 및 편집 */}
+            <div className="flex flex-col">
+              {configContent === null ? (
+                <div className="flex h-[480px] flex-col items-center justify-center gap-3">
+                  <p className="text-text-secondary text-center text-sm">
+                    왼쪽 샘플을 참고하여
+                    <br />
+                    서버의 설정 파일을 불러오세요.
+                  </p>
                   <NeuButton
                     size="sm"
-                    onClick={handleUploadConfig}
-                    loading={actionLoading === '설정 업로드'}
-                    disabled={!sessionActive || !configDirty}
+                    variant="glass"
+                    onClick={() => handleLoadConfig(undefined)}
+                    loading={configLoading}
+                    disabled={!sessionActive}
                   >
-                    <Upload className="h-3.5 w-3.5" />
-                    업로드
+                    설정 파일 불러오기
                   </NeuButton>
+                  {!sessionActive && (
+                    <p className="text-text-disabled text-xs">SSH 세션 등록 후 사용 가능</p>
+                  )}
                 </div>
-              </div>
-              {configDirty && (
-                <p className="text-warning text-xs">저장되지 않은 변경사항이 있습니다.</p>
+              ) : (
+                <div className="flex flex-col gap-3">
+                  <p className="text-text-secondary font-mono text-xs">
+                    {configDisplayPath ?? agent.config_path}
+                  </p>
+                  <TomlEditor
+                    value={configContent}
+                    onChange={(v) => {
+                      setConfigContent(v)
+                      setConfigDirty(true)
+                    }}
+                    dirty={configDirty}
+                    className="h-[480px]"
+                  />
+                  <div className="flex items-center justify-between">
+                    <NeuButton
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => handleLoadConfig(undefined)}
+                      loading={configLoading}
+                      disabled={!sessionActive}
+                    >
+                      <RefreshCw className="h-3.5 w-3.5" />
+                      다시 불러오기
+                    </NeuButton>
+                    <NeuButton
+                      size="sm"
+                      onClick={handleUploadConfig}
+                      loading={actionLoading === '설정 업로드'}
+                      disabled={!sessionActive || !configDirty}
+                    >
+                      <Upload className="h-3.5 w-3.5" />
+                      업로드
+                    </NeuButton>
+                  </div>
+                  {configDirty && (
+                    <p className="text-warning text-xs">저장되지 않은 변경사항이 있습니다.</p>
+                  )}
+                </div>
               )}
             </div>
-          )}
+          </div>
         </NeuCard>
       )}
 
@@ -936,6 +1099,71 @@ export function AgentDetailPage() {
           onClose={() => setShowSSHModal(false)}
         />
       )}
+    </div>
+  )
+}
+
+function TomlEditor({
+  value,
+  onChange,
+  dirty = false,
+  className,
+}: {
+  value: string
+  onChange: (v: string) => void
+  dirty?: boolean
+  className?: string
+}) {
+  const overlayRef = useRef<HTMLDivElement>(null)
+  const taRef = useRef<HTMLTextAreaElement>(null)
+
+  const syncScroll = useCallback(() => {
+    if (overlayRef.current && taRef.current) {
+      overlayRef.current.scrollTop = taRef.current.scrollTop
+      overlayRef.current.scrollLeft = taRef.current.scrollLeft
+    }
+  }, [])
+
+  const sharedFont = 'font-mono text-xs leading-relaxed px-4 py-2.5'
+
+  return (
+    <div
+      className={cn(
+        'relative overflow-hidden rounded-sm',
+        'border shadow-neu-inset',
+        'focus-within:ring-accent focus-within:ring-offset-bg-base focus-within:ring-1 focus-within:ring-offset-2',
+        dirty ? 'border-warning/60' : 'border-border',
+        className,
+      )}
+    >
+      {/* 편집 가능 배지 */}
+      <span className="text-accent border-accent/30 pointer-events-none absolute right-2 top-2 z-10 rounded-sm border px-1.5 py-0.5 text-[10px] font-medium">
+        편집
+      </span>
+      {/* 구문 강조 오버레이 (읽기 전용, 포인터 이벤트 없음) */}
+      <div
+        ref={overlayRef}
+        aria-hidden
+        className={cn('bg-bg-base pointer-events-none absolute inset-0 overflow-hidden', sharedFont)}
+      >
+        {value.split('\n').map((line, i) => (
+          <div key={i}>{line === '' ? '​' : colorizeTomlLine(line)}</div>
+        ))}
+      </div>
+      {/* 투명 textarea — 입력만 처리 */}
+      <textarea
+        ref={taRef}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onScroll={syncScroll}
+        spellCheck={false}
+        className={cn(
+          'relative h-full w-full resize-none bg-transparent',
+          'text-transparent caret-text-primary',
+          'focus:outline-none',
+          sharedFont,
+        )}
+      />
     </div>
   )
 }

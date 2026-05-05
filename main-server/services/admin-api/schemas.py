@@ -705,7 +705,16 @@ class AgentStatusOut(BaseModel):
 
 # ── Incident Lifecycle ───────────────────────────────────────────────────────
 
+class IncidentCreate(BaseModel):
+    system_id: int
+    title: str
+    severity: str                        # critical | warning | info
+    notes: Optional[str] = None         # 초기 상황 메모 → root_cause에 저장
+
+
 class IncidentUpdate(BaseModel):
+    title: Optional[str] = None
+    severity: Optional[str] = None      # critical | warning | info
     status: Optional[str] = None        # acknowledged | investigating | resolved | closed
     root_cause: Optional[str] = None
     resolution: Optional[str] = None

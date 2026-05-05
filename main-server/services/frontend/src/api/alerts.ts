@@ -9,6 +9,8 @@ export interface AlertFilterParams {
   acknowledged?: boolean
   date_from?: string
   date_to?: string
+  alertname?: string
+  alert_id?: number
   limit?: number
   offset?: number
 }

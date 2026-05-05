@@ -25,7 +25,7 @@ CREATE INDEX IF NOT EXISTS idx_knowledge_guides_created_by ON knowledge_guides(c
 CREATE TABLE IF NOT EXISTS guide_images (
     id           UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
     guide_id     UUID         NOT NULL REFERENCES knowledge_guides(id) ON DELETE CASCADE,
-    file_path    VARCHAR(500) NOT NULL,   -- SYNAPSE_ATTACHMENT_PATH 기준 상대 경로
+    file_path    VARCHAR(500) NOT NULL,   -- KNOWLEDGE_DOCS_DIR 기준 상대 경로 (예: 'images/{guide_id}_{uuid}.png')
     alt_text     VARCHAR(255),           -- RAG 컨텍스트 + 접근성
     sort_order   INTEGER      NOT NULL DEFAULT 0,
     step_number  INTEGER,                -- NULL=문서 첨부, 값 있으면 특정 스텝 이미지 (C 확장용)

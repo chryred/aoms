@@ -6,7 +6,6 @@ import { useSystems } from '@/hooks/queries/useSystems'
 import { useMyPrimarySystems } from '@/hooks/queries/useMyPrimarySystems'
 import { useGuides } from '@/hooks/queries/useGuides'
 import { useDeleteGuide } from '@/hooks/mutations/useGuideMutations'
-import { PageHeader } from '@/components/common/PageHeader'
 import { NeuSelect } from '@/components/neumorphic/NeuSelect'
 import { NeuButton } from '@/components/neumorphic/NeuButton'
 import { NeuInput } from '@/components/neumorphic/NeuInput'
@@ -22,7 +21,7 @@ const CATEGORY_OPTIONS: { value: string; label: string }[] = [
   { value: 'navigation', label: '화면 안내' },
 ]
 
-export function KnowledgeGuidesPage() {
+export function GuidesTab() {
   const user = useAuthStore((s) => s.user)
   const userRole = user?.role ?? 'operator'
 
@@ -30,18 +29,14 @@ export function KnowledgeGuidesPage() {
   const { data: allSystems = [] } = useSystems()
   const { data: mySystems = [] } = useMyPrimarySystems()
 
-  // operator가 담당하는 system_id 목록
   const mySystemIds = useMemo(() => mySystems.map((s) => s.system_id), [mySystems])
 
-  // 시스템 필터 드롭다운 옵션
   const systemOptions = useMemo(() => {
     const options: { value: string; label: string }[] = [{ value: '', label: '전체 시스템' }]
-    // "공통(시스템 무관)" 필터는 모든 역할에서 사용 가능 — 읽기 권한은 누구나 있음
     options.push({ value: 'null', label: '공통 (시스템 무관)' })
     if (userRole === 'admin') {
       allSystems.forEach((s) => options.push({ value: String(s.id), label: s.display_name }))
     } else {
-      // operator: 자신 담당 시스템만 표시
       allSystems
         .filter((s) => mySystemIds.includes(s.id))
         .forEach((s) => options.push({ value: String(s.id), label: s.display_name }))
@@ -54,7 +49,6 @@ export function KnowledgeGuidesPage() {
   const [categoryFilter, setCategoryFilter] = useState('')
   const [searchText, setSearchText] = useState('')
 
-  // API 파라미터 구성
   const queryParams: GuideListParams = useMemo(() => {
     const p: GuideListParams = { limit: 100, offset: 0 }
     if (systemFilter === 'null') p.system_id = null
@@ -115,19 +109,18 @@ export function KnowledgeGuidesPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="지식 가이드 관리"
-        description="챗봇 응답에 포함될 이미지+텍스트 가이드 문서를 관리합니다."
-        action={
-          <NeuButton size="sm" onClick={openCreate}>
-            <Plus className="h-4 w-4" />새 가이드
-          </NeuButton>
-        }
-      />
+      {/* 탭 헤더 — 설명 + 새 가이드 버튼 */}
+      <div className="flex items-start justify-between gap-4">
+        <p className="text-text-secondary text-sm">
+          챗봇 응답에 포함될 이미지+텍스트 가이드 문서를 관리합니다.
+        </p>
+        <NeuButton size="sm" onClick={openCreate}>
+          <Plus className="h-4 w-4" />새 가이드
+        </NeuButton>
+      </div>
 
       {/* 필터 영역 */}
       <div className="flex flex-wrap items-end gap-3">
-        {/* 시스템 필터 */}
         <div className="min-w-[180px]">
           <NeuSelect
             id="filter-system"
@@ -143,7 +136,6 @@ export function KnowledgeGuidesPage() {
           </NeuSelect>
         </div>
 
-        {/* 카테고리 필터 */}
         <div className="min-w-[160px]">
           <NeuSelect
             id="filter-category"
@@ -159,7 +151,6 @@ export function KnowledgeGuidesPage() {
           </NeuSelect>
         </div>
 
-        {/* 검색 */}
         <div className="min-w-[200px] flex-1">
           <NeuInput
             id="filter-search"

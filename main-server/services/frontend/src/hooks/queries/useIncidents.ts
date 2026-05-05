@@ -2,10 +2,12 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   addIncidentComment,
   aiAnalyzeIncident,
+  createIncident,
   generateIncidentReport,
   getIncident,
   listIncidents,
   updateIncident,
+  type IncidentCreate,
   type IncidentListParams,
   type IncidentUpdate,
 } from '@/api/incidents'
@@ -29,6 +31,16 @@ export function useIncident(id: number) {
     queryKey: qk.detail(id),
     queryFn: () => getIncident(id),
     enabled: !!id,
+  })
+}
+
+export function useCreateIncident() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (data: IncidentCreate) => createIncident(data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['incidents'] })
+    },
   })
 }
 

@@ -607,7 +607,7 @@ class GuideImage(Base):
     id           = Column(PG_UUID(as_uuid=False).with_variant(String(36), "sqlite"), primary_key=True, default=_uuid_str)
     guide_id     = Column(PG_UUID(as_uuid=False).with_variant(String(36), "sqlite"),
                           ForeignKey("knowledge_guides.id", ondelete="CASCADE"), nullable=False, index=True)
-    file_path    = Column(String(500), nullable=False)   # SYNAPSE_ATTACHMENT_PATH 기준 상대 경로
+    file_path    = Column(String(500), nullable=False)   # KNOWLEDGE_DOCS_DIR 기준 상대 경로 (예: 'images/{guide_id}_{uuid}.png')
     alt_text     = Column(String(255), nullable=True)
     sort_order   = Column(Integer, nullable=False, server_default="0")
     step_number  = Column(Integer, nullable=True)        # NULL=문서 첨부, 값 있으면 특정 스텝 (C 확장용)

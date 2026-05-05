@@ -1,8 +1,17 @@
 import { useState, useRef, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { Upload, RefreshCw, TrendingUp, Tag, ThumbsDown, Search } from 'lucide-react'
+import {
+  Upload,
+  BookMarked,
+  RefreshCw,
+  TrendingUp,
+  Tag,
+  ThumbsDown,
+  Search,
+} from 'lucide-react'
 import { PageHeader } from '@/components/common/PageHeader'
 import { DocumentUploadTab } from '@/components/knowledge/DocumentUploadTab'
+import { GuidesTab } from '@/components/knowledge/GuidesTab'
 import { SyncStatusTab } from '@/components/knowledge/SyncStatusTab'
 import { FrequentQuestionsTab } from '@/components/knowledge/FrequentQuestionsTab'
 import { OperatorNotesTab } from '@/components/knowledge/OperatorNotesTab'
@@ -10,10 +19,11 @@ import { FeedbackTab } from '@/components/knowledge/FeedbackTab'
 import { SearchVerifyTab } from '@/components/knowledge/SearchVerifyTab'
 import { cn } from '@/lib/utils'
 
-type KnowledgeTab = 'documents' | 'sync' | 'frequent' | 'notes' | 'feedback' | 'verify'
+type KnowledgeTab = 'documents' | 'guides' | 'sync' | 'frequent' | 'notes' | 'feedback' | 'verify'
 
 const TABS: Array<{ key: KnowledgeTab; label: string; icon: React.ReactNode }> = [
   { key: 'documents', label: '문서', icon: <Upload className="h-4 w-4" /> },
+  { key: 'guides', label: '가이드 관리', icon: <BookMarked className="h-4 w-4" /> },
   { key: 'sync', label: '동기화', icon: <RefreshCw className="h-4 w-4" /> },
   { key: 'frequent', label: '질문 분석', icon: <TrendingUp className="h-4 w-4" /> },
   { key: 'notes', label: '운영자 노트', icon: <Tag className="h-4 w-4" /> },
@@ -22,7 +32,7 @@ const TABS: Array<{ key: KnowledgeTab; label: string; icon: React.ReactNode }> =
 ]
 
 const isValidTab = (v: string | null): v is KnowledgeTab =>
-  ['documents', 'sync', 'frequent', 'notes', 'feedback', 'verify'].includes(v ?? '')
+  ['documents', 'guides', 'sync', 'frequent', 'notes', 'feedback', 'verify'].includes(v ?? '')
 
 export function KnowledgePage() {
   const [searchParams, setSearchParams] = useSearchParams()
@@ -119,6 +129,7 @@ export function KnowledgePage() {
       {/* 탭 컨텐츠 */}
       <div role="tabpanel" id={`tabpanel-${activeTab}`} aria-labelledby={`tab-${activeTab}`}>
         {activeTab === 'documents' && <DocumentUploadTab />}
+        {activeTab === 'guides' && <GuidesTab />}
         {activeTab === 'sync' && <SyncStatusTab />}
         {activeTab === 'frequent' && <FrequentQuestionsTab onAddNote={handleAddNoteFromFrequent} />}
         {activeTab === 'notes' && (

@@ -23,7 +23,6 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/reports', label: '안정성 리포트', group: '분석' },
   { to: '/search', label: '유사 장애 검색', group: '분석' },
   { to: '/knowledge', label: '지식 관리', group: '관리' },
-  { to: '/admin/guides', label: '가이드 관리', group: '관리' },
   { to: '/agents', label: '에이전트 관리', group: '관리' },
   { to: '/synapse-cli', label: 'CLI 배포 관리', group: '관리' },
   { to: '/systems', label: '시스템 관리', group: '관리' },

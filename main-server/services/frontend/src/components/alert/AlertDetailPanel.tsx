@@ -14,6 +14,7 @@ import { useCreateFeedback } from '@/hooks/mutations/useCreateFeedback'
 import { useUpdateFeedback } from '@/hooks/mutations/useUpdateFeedback'
 import { useFeedbacks } from '@/hooks/queries/useFeedbacks'
 import { useAuthStore } from '@/store/authStore'
+import { useBannerVisible } from '@/hooks/useBannerVisible'
 import { cn, formatKST } from '@/lib/utils'
 import type { AlertHistory } from '@/types/alert'
 
@@ -88,6 +89,7 @@ function parseDescription(desc: string | null | undefined): ParsedDescription | 
 export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
   const navigate = useNavigate()
   const user = useAuthStore((s) => s.user)
+  const bannerVisible = useBannerVisible()
   const { mutate: acknowledge, isPending } = useAcknowledgeAlert()
   const { mutate: createFeedback, isPending: isFeedbackPending } = useCreateFeedback()
   const { mutate: updateFeedback, isPending: isUpdatePending } = useUpdateFeedback()
@@ -243,7 +245,8 @@ export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
         aria-labelledby={PANEL_TITLE_ID}
         aria-hidden={!open}
         className={cn(
-          'border-border bg-bg-base fixed top-0 right-0 bottom-0 z-50 flex w-full max-w-[460px] flex-col border-l shadow-[-8px_0_32px_rgba(0,0,0,0.4)] transition-transform duration-200',
+          'border-border bg-bg-base fixed right-0 bottom-0 z-50 flex w-full max-w-[460px] flex-col border-l shadow-[-8px_0_32px_rgba(0,0,0,0.4)] transition-[transform,top] duration-200',
+          bannerVisible ? 'top-9' : 'top-0',
           open ? 'translate-x-0' : 'translate-x-full',
         )}
       >
