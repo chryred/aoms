@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import { X } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { cn } from '@/lib/utils'
+import { useBannerVisible } from '@/hooks/useBannerVisible'
 import { NeuInput } from '@/components/neumorphic/NeuInput'
 import { NeuTextarea } from '@/components/neumorphic/NeuTextarea'
 import { NeuSelect } from '@/components/neumorphic/NeuSelect'
@@ -44,6 +45,7 @@ export function GuideEditModal({
 }: GuideEditModalProps) {
   const isEdit = editTarget !== null
   const modalRef = useRef<HTMLDivElement>(null)
+  const bannerVisible = useBannerVisible()
 
   // ── 시스템 목록 ────────────────────────────────────────────────
   const { data: allSystems = [] } = useSystems()
@@ -238,26 +240,33 @@ export function GuideEditModal({
     }
   }
 
-  if (!open) return null
-
   const drawerTitle = readOnly ? '가이드 보기' : isEdit ? '가이드 수정' : '새 가이드 등록'
   // 수정 모드에서 전체 데이터 로딩 중인지 여부
   const isDataLoading = isEdit && isLoadingGuide
 
   return (
     <>
-      {/* Overlay — CriticalBanner(z-50) 위에 덮기 위해 z-[60] */}
-      <div className="bg-overlay fixed inset-0 z-[60]" onClick={onClose} aria-hidden="true" />
+      {/* Overlay — 항상 mount, fade in/out (transition 발동을 위해 unmount 금지) */}
+      <div
+        className={cn(
+          'bg-overlay fixed inset-0 z-40 transition-opacity duration-300',
+          open ? 'opacity-100' : 'pointer-events-none opacity-0',
+        )}
+        onClick={onClose}
+        aria-hidden="true"
+      />
 
-      {/* Drawer — Overlay 위 z-[70] */}
+      {/* Drawer — 항상 mount, slide in/out (CSS transition 발동을 위해 unmount 금지) */}
       <div
         ref={modalRef}
         role="dialog"
         aria-modal="true"
+        aria-hidden={!open}
         aria-label={drawerTitle}
         className={cn(
-          'border-border bg-bg-base fixed top-0 right-0 bottom-0 z-[70] flex w-full max-w-[560px] flex-col border-l',
-          'shadow-[-8px_0_32px_rgba(0,0,0,0.4)]',
+          'border-border bg-bg-base fixed right-0 bottom-0 z-50 flex w-full max-w-[560px] flex-col border-l transition-[translate,top] duration-300',
+          bannerVisible ? 'top-12' : 'top-0',
+          open ? 'translate-x-0' : 'translate-x-full',
         )}
       >
         {/* Header */}

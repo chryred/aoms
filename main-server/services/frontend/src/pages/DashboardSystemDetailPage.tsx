@@ -1,7 +1,15 @@
 import { useState, useRef, useEffect, memo } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useRegisterScreenContext } from '@/store/chatContextStore'
-import { ArrowLeft, ArrowRight, Clock, ShieldAlert, TrendingUp, CheckCheck, ChevronDown } from 'lucide-react'
+import {
+  ArrowLeft,
+  ArrowRight,
+  Clock,
+  ShieldAlert,
+  TrendingUp,
+  CheckCheck,
+  ChevronDown,
+} from 'lucide-react'
 import { useSystemDetailHealth, type MetricAlert } from '@/hooks/queries/useDashboardHealth'
 import { useMetricDashboard, HOURS_MAP } from '@/hooks/useMetricDashboard'
 import type { TimeRange } from '@/hooks/useMetricDashboard'
@@ -355,7 +363,15 @@ export function DashboardSystemDetailPage() {
                   : 'border-border text-text-disabled border opacity-50',
               )}
             >
-              <span aria-hidden="true" className={cn('text-[10px]', detail.log_analysis.critical_count > 0 ? 'text-critical' : 'text-text-disabled')}>●</span>
+              <span
+                aria-hidden="true"
+                className={cn(
+                  'text-[10px]',
+                  detail.log_analysis.critical_count > 0 ? 'text-critical' : 'text-text-disabled',
+                )}
+              >
+                ●
+              </span>
               <span className={detail.log_analysis.critical_count > 0 ? 'font-bold' : ''}>
                 위험 {detail.log_analysis.critical_count}
               </span>
@@ -369,7 +385,15 @@ export function DashboardSystemDetailPage() {
                   : 'border-border text-text-disabled border opacity-50',
               )}
             >
-              <span aria-hidden="true" className={cn('text-[10px]', detail.log_analysis.warning_count > 0 ? 'text-warning' : 'text-text-disabled')}>●</span>
+              <span
+                aria-hidden="true"
+                className={cn(
+                  'text-[10px]',
+                  detail.log_analysis.warning_count > 0 ? 'text-warning' : 'text-text-disabled',
+                )}
+              >
+                ●
+              </span>
               <span className={detail.log_analysis.warning_count > 0 ? 'font-bold' : ''}>
                 경고 {detail.log_analysis.warning_count}
               </span>
@@ -499,16 +523,12 @@ export function DashboardSystemDetailPage() {
               <NeuCard key={contact.id}>
                 <div className="flex items-start justify-between gap-3 sm:gap-4">
                   <div className="min-w-0 flex-1">
-                    <h3 className="text-text-primary font-semibold break-words">
-                      {contact.name}
-                    </h3>
+                    <h3 className="text-text-primary font-semibold break-words">{contact.name}</h3>
                     <p className="text-text-secondary mt-1 font-mono text-xs break-all sm:text-sm">
                       {contact.teams_upn}
                     </p>
                     {contact.phone && (
-                      <p className="text-text-secondary mt-1 text-xs sm:text-sm">
-                        {contact.phone}
-                      </p>
+                      <p className="text-text-secondary mt-1 text-xs sm:text-sm">{contact.phone}</p>
                     )}
                   </div>
                   <div className="flex-shrink-0">

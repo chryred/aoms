@@ -182,21 +182,23 @@ export function IncidentListPage() {
         title="인시던트 관리"
         description="알림·로그 분석을 사건 단위로 추적하고 MTTR을 측정합니다"
         action={
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
             {openCount > 0 && (
-              <span className="bg-critical/15 text-critical border-critical/30 inline-flex items-center gap-1 rounded-full border px-3 py-1 text-sm font-medium whitespace-nowrap">
+              <span className="bg-critical/10 text-critical inline-flex items-center gap-1 rounded-full px-3 py-1 text-sm font-medium whitespace-nowrap">
                 <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden />
                 미해결 {openCount}건
               </span>
             )}
-            <NeuButton variant="ghost" size="sm" onClick={handleRefresh} disabled={isRefreshing}>
-              <RefreshCw className={cn('h-4 w-4', isRefreshing && 'animate-spin')} />
-              새로고침
-            </NeuButton>
-            <NeuButton size="sm" onClick={() => setCreateOpen(true)}>
-              <Plus className="h-4 w-4" />
-              인시던트 등록
-            </NeuButton>
+            <div className="flex items-center gap-2">
+              <NeuButton variant="ghost" size="sm" onClick={handleRefresh} disabled={isRefreshing}>
+                <RefreshCw className={cn('h-4 w-4', isRefreshing && 'animate-spin')} />
+                새로고침
+              </NeuButton>
+              <NeuButton size="sm" onClick={() => setCreateOpen(true)}>
+                <Plus className="h-4 w-4" />
+                인시던트 등록
+              </NeuButton>
+            </div>
           </div>
         }
       />
@@ -249,7 +251,7 @@ export function IncidentListPage() {
         {tabsOverflow && (
           <div
             aria-hidden="true"
-            className="pointer-events-none absolute inset-y-0 right-0 w-8 rounded-r-sm bg-gradient-to-l from-bg-base/80 to-transparent"
+            className="from-bg-base/80 pointer-events-none absolute inset-y-0 right-0 w-8 rounded-r-sm bg-gradient-to-l to-transparent"
           />
         )}
       </div>
@@ -306,7 +308,9 @@ export function IncidentListPage() {
                       감지
                       <SortIcon col="detected_at" sortKey={sortKey} sortDir={sortDir} />
                     </th>
-                    <th className="px-2 py-2.5"><span className="sr-only">빠른 편집</span></th>
+                    <th className="px-2 py-2.5">
+                      <span className="sr-only">빠른 편집</span>
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -371,7 +375,7 @@ export function IncidentListPage() {
                           aria-label={`인시던트 #${incident.id} 빠른 편집`}
                           className="text-text-disabled hover:text-accent hover:bg-accent/10 focus:ring-accent flex h-11 w-11 items-center justify-center rounded-full transition-colors focus:ring-1 focus:outline-none"
                         >
-                          <span className="block h-3 w-3 rounded-full border border-current" />
+                          <span className="block h-2 w-2 rounded-full bg-current" />
                         </button>
                       </td>
                     </tr>
@@ -384,10 +388,7 @@ export function IncidentListPage() {
       </div>
 
       <IncidentCreateModal open={createOpen} onClose={() => setCreateOpen(false)} />
-      <IncidentSidePanel
-        incident={selectedIncident}
-        onClose={() => setSelectedIncident(null)}
-      />
+      <IncidentSidePanel incident={selectedIncident} onClose={() => setSelectedIncident(null)} />
     </div>
   )
 }

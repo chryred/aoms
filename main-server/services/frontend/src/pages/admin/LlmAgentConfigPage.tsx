@@ -9,6 +9,7 @@ import type { LlmAgentConfig, LlmAgentConfigCreate, LlmAgentConfigUpdate } from 
 import { Pencil, Trash2, Plus, X } from 'lucide-react'
 import { formatKST } from '@/lib/utils'
 import { cn } from '@/lib/utils'
+import { useBannerVisible } from '@/hooks/useBannerVisible'
 
 // ── 드로어 ──────────────────────────────────────────────────────────────
 
@@ -19,6 +20,7 @@ interface DrawerProps {
 }
 
 function ConfigDrawer({ open, onClose, editTarget }: DrawerProps) {
+  const bannerVisible = useBannerVisible()
   const queryClient = useQueryClient()
   const drawerRef = useRef<HTMLDivElement>(null)
   const lastEditRef = useRef<LlmAgentConfig | null>(null)
@@ -128,7 +130,7 @@ function ConfigDrawer({ open, onClose, editTarget }: DrawerProps) {
     <>
       <div
         className={cn(
-          'bg-overlay fixed inset-0 z-40 transition-opacity duration-200',
+          'bg-overlay fixed inset-0 z-40 transition-opacity duration-300',
           open ? 'opacity-100' : 'pointer-events-none opacity-0',
         )}
         onClick={onClose}
@@ -141,7 +143,8 @@ function ConfigDrawer({ open, onClose, editTarget }: DrawerProps) {
         aria-hidden={!open}
         aria-label={isEdit ? 'AgentCode 수정' : 'AgentCode 등록'}
         className={cn(
-          'border-border bg-bg-base fixed top-0 right-0 bottom-0 z-50 flex w-full max-w-[480px] flex-col border-l shadow-[-8px_0_32px_rgba(0,0,0,0.4)] transition-transform duration-200',
+          'border-border bg-bg-base fixed right-0 bottom-0 z-50 flex w-full max-w-[480px] flex-col border-l transition-[translate,top] duration-300',
+          bannerVisible ? 'top-12' : 'top-0',
           open ? 'translate-x-0' : 'translate-x-full',
         )}
       >

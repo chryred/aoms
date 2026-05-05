@@ -319,4 +319,79 @@ const normalized = !utcDate.endsWith('Z') && !/[+-]\d{2}:?\d{2}$/.test(utcDate)
 ### CriticalBanner
 
 - `position: fixed; top: 0` — 헤더 위를 덮음
-- AppLayout에서 `criticalCount > 0` 시 사이드바 `md:mt-9`, 메인 컨텐츠 `mt-9`로 보정 → 헤더 가리지 않음
+- AppLayout에서 `criticalCount > 0` 시 사이드바 `md:mt-12`, 메인 컨텐츠 `mt-12`로 보정 → 헤더 가리지 않음
+
+### 사이드 드로어 표준 패턴 (절대 변형 금지)
+
+**왜 이 항목이 있는가**: 우측 슬라이드 드로어/패널이 10개 이상 존재. 신규 추가 시 매번 다음 4가지 실수가 반복됨 — 한 번 명문화. **반드시** 아래 패턴 그대로 복사 사용.
+
+#### 핵심 4요소 (모두 필수)
+
+```tsx
+import { useBannerVisible } from '@/hooks/useBannerVisible'
+import { cn } from '@/lib/utils'
+
+export function MyDrawer({ open, onClose, ... }) {
+  const bannerVisible = useBannerVisible()  // ← (1) 훅 호출
+
+  return (
+    <>
+      {/* Overlay — 배너 위치 영향 없음 */}
+      <div
+        className={cn(
+          'bg-overlay fixed inset-0 z-40 transition-opacity duration-200',
+          open ? 'opacity-100' : 'pointer-events-none opacity-0',
+        )}
+        onClick={onClose}
+        aria-hidden="true"
+      />
+
+      {/* Drawer — 4요소 모두 적용 */}
+      <div
+        role="dialog"
+        aria-modal="true"
+        className={cn(
+          // (2) shadow 없음 — border-l만 사용. 임의 그림자(`shadow-neu-flat`, `shadow-[-8px_0_32px_rgba(...)]` 등) 절대 금지
+          // (3) `transition-[translate,top]` — Tailwind v4의 translate-x-*는 CSS `translate` property를 사용하므로
+          //     `transition-[transform,top]`은 동작 안 함 (transform 변경 없음). 반드시 `translate`로.
+          'border-border bg-bg-base fixed right-0 bottom-0 z-50 flex w-full max-w-[480px] flex-col border-l transition-[translate,top] duration-200',
+          // (4) bannerVisible로 top 동적 — `fixed top-0` 고정 절대 금지 (배너에 X버튼 가려짐)
+          bannerVisible ? 'top-12' : 'top-0',
+          // 슬라이드 애니메이션
+          open ? 'translate-x-0' : 'translate-x-full',
+        )}
+      >
+        {/* 콘텐츠 */}
+      </div>
+    </>
+  )
+}
+```
+
+#### 반복 실수 체크리스트 (PR 머지 전 검증)
+
+| # | 잘못된 패턴 | 올바른 패턴 | 결과 |
+|---|------------|-------------|------|
+| 1 | `fixed top-0 right-0 bottom-0` | `fixed right-0 bottom-0` + `bannerVisible ? 'top-12' : 'top-0'` | CriticalBanner와 X버튼 충돌 |
+| 2 | `shadow-[-8px_0_32px_rgba(0,0,0,0.4)]` 또는 `shadow-neu-flat` | **shadow 없음** (border-l만 사용) | 임의 그림자 또는 shadow-neu-flat = 디자인 시스템 위반. 드로어 외곽 shadow 자체를 추가하지 말 것 |
+| 3 | `transition-transform` 또는 `transition-[transform,top]` | `transition-[translate,top]` | **Tailwind v4의 translate-x-*는 CSS `translate` property 사용** (transform 아님). transform을 transition에 넣으면 슬라이드가 즉시 발동되어 보이지 않음 — 반드시 `translate` 명시 |
+| 4 | `useBannerVisible` 훅 미사용 | `const bannerVisible = useBannerVisible()` | top 위치 고정 → 배너 활성 시 가려짐 |
+| 5 | z-index 임의 변경 (`z-[60]`, `z-[70]` 등) | overlay `z-40`, drawer `z-50` 표준 | CriticalBanner도 `z-50`이지만 위치(top)가 달라 자연스럽게 분리됨 |
+
+#### 표준 패턴이 적용된 참조 파일 (복사용)
+
+- `components/incident/IncidentSidePanel.tsx` ← **이 파일을 베이스로 복사할 것**
+- `components/alert/AlertDetailPanel.tsx`
+- `components/admin/KnowledgeGuides/GuideEditModal.tsx`
+- `components/contacts/ContactFormDrawer.tsx`
+- `components/system/SystemFormDrawer.tsx`
+- `components/user/UserFormDrawer.tsx`
+- `components/trace/TraceDetailPanel.tsx`
+- `components/knowledge/FeedbackTab.tsx` (FeedbackDetailDrawer)
+- `pages/FeedbackSearchPage.tsx` (FeedbackDetailDrawer)
+- `pages/admin/ChatToolsPage.tsx` (ToolDetailPanel)
+- `pages/admin/LlmAgentConfigPage.tsx` (ConfigDrawer)
+
+#### 예외 — 풀스크린 모달 sheet 패턴
+
+`SystemContactPanel`, `SystemHostPanel`은 `fixed inset-0 z-[60]` 컨테이너 내에 sheet를 우측 정렬하는 패턴 — 위 표준과 다름. 이 패턴이 더 적합한 케이스(컨테이너 자체가 모든 위에 떠야 할 때)에만 사용. 신규 사이드 드로어는 위 표준 패턴 우선.

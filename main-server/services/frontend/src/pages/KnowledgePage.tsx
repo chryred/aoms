@@ -1,14 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import {
-  Upload,
-  BookMarked,
-  RefreshCw,
-  TrendingUp,
-  Tag,
-  ThumbsDown,
-  Search,
-} from 'lucide-react'
+import { Upload, BookMarked, RefreshCw, TrendingUp, Tag, ThumbsDown, Search } from 'lucide-react'
 import { PageHeader } from '@/components/common/PageHeader'
 import { DocumentUploadTab } from '@/components/knowledge/DocumentUploadTab'
 import { GuidesTab } from '@/components/knowledge/GuidesTab'

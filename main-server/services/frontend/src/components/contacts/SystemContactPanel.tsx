@@ -166,7 +166,7 @@ export function SystemContactPanel({ systemId }: SystemContactPanelProps) {
             role="dialog"
             aria-modal="true"
             aria-label="담당자 추가"
-            className="border-border bg-bg-base relative flex h-full w-full flex-col gap-4 overflow-y-auto border-l p-6 shadow-[-8px_0_32px_rgba(0,0,0,0.4)] sm:w-80"
+            className="border-border bg-bg-base relative flex h-full w-full flex-col gap-4 overflow-y-auto border-l p-6 sm:w-80"
           >
             <div className="flex items-center justify-between">
               <h3 className="text-text-primary text-base font-semibold">담당자 추가</h3>

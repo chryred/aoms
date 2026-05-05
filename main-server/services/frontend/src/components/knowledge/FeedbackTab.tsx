@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Search, ChevronLeft, ChevronRight, ThumbsDown } from 'lucide-react'
+import { useBannerVisible } from '@/hooks/useBannerVisible'
 import { NeuCard } from '@/components/neumorphic/NeuCard'
 import { NeuButton } from '@/components/neumorphic/NeuButton'
 import { NeuInput } from '@/components/neumorphic/NeuInput'
@@ -189,13 +190,15 @@ function FeedbackDetailDrawer({
   item: KnowledgeCorrection
   onClose: () => void
 }) {
+  const bannerVisible = useBannerVisible()
   return (
     <>
       <div className="bg-overlay fixed inset-0 z-40" onClick={onClose} aria-hidden="true" />
       <aside
         className={cn(
-          'border-border bg-bg-base fixed top-0 right-0 z-50 flex h-full w-full max-w-[480px] flex-col border-l',
+          'border-border bg-bg-base fixed right-0 bottom-0 z-50 flex w-full max-w-[480px] flex-col border-l',
           'shadow-neu-flat',
+          bannerVisible ? 'top-12' : 'top-0',
         )}
       >
         <header className="border-border flex items-center justify-between border-b px-5 py-4">

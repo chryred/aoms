@@ -12,6 +12,7 @@ import { ErrorCard } from '@/components/common/ErrorCard'
 import { EmptyState } from '@/components/common/EmptyState'
 import { SeverityBadge } from '@/components/charts/SeverityBadge'
 import { cn, formatKST } from '@/lib/utils'
+import { useBannerVisible } from '@/hooks/useBannerVisible'
 import type { FeedbackSearchItem } from '@/api/alerts'
 import type { Severity } from '@/types/alert'
 
@@ -273,19 +274,21 @@ interface FeedbackDetailDrawerProps {
 
 function FeedbackDetailDrawer({ item, onClose }: FeedbackDetailDrawerProps) {
   const open = !!item
+  const bannerVisible = useBannerVisible()
 
   return (
     <>
       <div
         className={cn(
-          'bg-overlay fixed inset-0 z-40 transition-opacity duration-200',
+          'bg-overlay fixed inset-0 z-40 transition-opacity duration-300',
           open ? 'opacity-100' : 'pointer-events-none opacity-0',
         )}
         onClick={onClose}
       />
       <aside
         className={cn(
-          'border-border bg-bg-base fixed top-0 right-0 z-50 flex h-full w-full max-w-[480px] flex-col border-l shadow-[-8px_0_32px_rgba(0,0,0,0.4)] transition-transform duration-200',
+          'border-border bg-bg-base fixed right-0 bottom-0 z-50 flex w-full max-w-[480px] flex-col border-l transition-[translate,top] duration-300',
+          bannerVisible ? 'top-12' : 'top-0',
           open ? 'translate-x-0' : 'translate-x-full',
         )}
         aria-hidden={!open}

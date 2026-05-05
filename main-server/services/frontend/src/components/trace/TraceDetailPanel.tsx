@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { X } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { tracesApi } from '@/api/traces'
+import { useBannerVisible } from '@/hooks/useBannerVisible'
 import { cn, formatKST } from '@/lib/utils'
 
 const PANEL_TITLE_ID = 'trace-detail-panel-title'
@@ -235,6 +236,7 @@ function parseSpans(detail: { batches: unknown[] } | undefined): SpanNode[] {
 
 export function TraceDetailPanel({ traceId, onClose }: TraceDetailPanelProps) {
   const panelRef = useRef<HTMLDivElement>(null)
+  const bannerVisible = useBannerVisible()
   const open = !!traceId
 
   const lastTraceIdRef = useRef<string | null>(null)
@@ -271,7 +273,7 @@ export function TraceDetailPanel({ traceId, onClose }: TraceDetailPanelProps) {
     <>
       <div
         className={cn(
-          'bg-overlay fixed inset-0 z-40 transition-opacity duration-200',
+          'bg-overlay fixed inset-0 z-40 transition-opacity duration-300',
           open ? 'opacity-100' : 'pointer-events-none opacity-0',
         )}
         onClick={onClose}
@@ -284,8 +286,9 @@ export function TraceDetailPanel({ traceId, onClose }: TraceDetailPanelProps) {
         aria-labelledby={PANEL_TITLE_ID}
         aria-hidden={!open}
         className={cn(
-          'border-border bg-bg-base fixed top-0 right-0 bottom-0 z-50 flex w-full max-w-[600px] flex-col border-l shadow-[-8px_0_32px_rgba(0,0,0,0.4)] transition-transform duration-200',
+          'border-border bg-bg-base fixed right-0 bottom-0 z-50 flex w-full max-w-[600px] flex-col border-l transition-[translate,top] duration-300',
           open ? 'translate-x-0' : 'translate-x-full',
+          bannerVisible ? 'top-12' : 'top-0',
         )}
       >
         <div className="border-border flex items-center justify-between border-b px-6 py-4">

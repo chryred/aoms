@@ -12,6 +12,7 @@ import {
 } from '@/hooks/mutations/useChatToolMutations'
 import type { ChatExecutorConfig, ChatExecutorFieldSchema, ChatTool } from '@/types/chat'
 import { cn, formatKST } from '@/lib/utils'
+import { useBannerVisible } from '@/hooks/useBannerVisible'
 
 const EXECUTOR_LABELS: Record<string, string> = {
   ems: 'EMS (서버 모니터링)',
@@ -288,6 +289,7 @@ function ToolRow({
 }
 
 function ToolDetailPanel({ tool, onClose }: { tool: ChatTool | null; onClose: () => void }) {
+  const bannerVisible = useBannerVisible()
   const toggle = useToggleChatTool()
   const isOpen = tool !== null
   const panelRef = useRef<HTMLDivElement>(null)
@@ -342,8 +344,9 @@ function ToolDetailPanel({ tool, onClose }: { tool: ChatTool | null; onClose: ()
         aria-modal="true"
         aria-label={tool ? `${tool.display_name} 도구 상세` : '도구 상세'}
         className={cn(
-          'border-border bg-bg-base fixed top-0 right-0 bottom-0 z-50 flex w-full max-w-md flex-col border-l shadow-[-8px_0_32px_rgba(0,0,0,0.4)]',
-          'transition-transform duration-300 ease-in-out',
+          'border-border bg-bg-base fixed right-0 bottom-0 z-50 flex w-full max-w-md flex-col border-l',
+          'transition-[translate,top] duration-300 ease-in-out',
+          bannerVisible ? 'top-12' : 'top-0',
           isOpen ? 'translate-x-0' : 'translate-x-full',
         )}
       >

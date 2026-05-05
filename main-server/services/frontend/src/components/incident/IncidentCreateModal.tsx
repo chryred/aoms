@@ -88,7 +88,12 @@ export function IncidentCreateModal({ open, onClose, defaultSystemId }: Incident
   const handleSubmit = () => {
     if (!validate()) return
     create(
-      { system_id: Number(systemId), title: title.trim(), severity, notes: notes.trim() || undefined },
+      {
+        system_id: Number(systemId),
+        title: title.trim(),
+        severity,
+        notes: notes.trim() || undefined,
+      },
       {
         onSuccess: () => {
           toast.success('인시던트가 등록됐습니다')
@@ -109,7 +114,12 @@ export function IncidentCreateModal({ open, onClose, defaultSystemId }: Incident
       aria-label="인시던트 등록"
       aria-describedby={MODAL_DESC_ID}
     >
-      <div className="bg-overlay absolute inset-0" onClick={onClose} aria-hidden="true" role="presentation" />
+      <div
+        className="bg-overlay absolute inset-0"
+        onClick={onClose}
+        aria-hidden="true"
+        role="presentation"
+      />
 
       <div
         ref={dialogRef}

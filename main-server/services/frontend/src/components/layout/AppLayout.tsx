@@ -49,14 +49,14 @@ export function AppLayout() {
           'fixed inset-y-0 left-0 z-30 md:relative md:z-auto md:flex md:shrink-0',
           'transition-transform duration-200 ease-in-out',
           sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0',
-          bannerVisible && 'md:mt-9',
+          bannerVisible && 'md:mt-12',
         )}
       >
         <Sidebar />
       </div>
 
       {/* Main content + chat panel row */}
-      <div className={cn('flex min-w-0 flex-1 overflow-hidden', bannerVisible && 'mt-9')}>
+      <div className={cn('flex min-w-0 flex-1 overflow-hidden', bannerVisible && 'mt-12')}>
         {/* Main wrapper */}
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
           <TopBar />

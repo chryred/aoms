@@ -186,10 +186,8 @@ export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [alert, onClose])
 
-  if (!displayAlert) return null
-
   const handleAck = () => {
-    if (!alert) return
+    if (!alert || !displayAlert) return
     const alertId = displayAlert.id
     acknowledge(
       { id: alertId, by: user?.name ?? 'unknown' },
@@ -232,7 +230,7 @@ export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
     <>
       <div
         className={cn(
-          'bg-overlay fixed inset-0 z-40 transition-opacity duration-200',
+          'bg-overlay fixed inset-0 z-40 transition-opacity duration-300',
           open ? 'opacity-100' : 'pointer-events-none opacity-0',
         )}
         onClick={onClose}
@@ -245,133 +243,168 @@ export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
         aria-labelledby={PANEL_TITLE_ID}
         aria-hidden={!open}
         className={cn(
-          'border-border bg-bg-base fixed right-0 bottom-0 z-50 flex w-full max-w-[460px] flex-col border-l shadow-[-8px_0_32px_rgba(0,0,0,0.4)] transition-[transform,top] duration-200',
-          bannerVisible ? 'top-9' : 'top-0',
+          'border-border bg-bg-base fixed right-0 bottom-0 z-50 flex w-full max-w-[460px] flex-col border-l transition-[translate,top] duration-300',
+          bannerVisible ? 'top-12' : 'top-0',
           open ? 'translate-x-0' : 'translate-x-full',
         )}
       >
-        {/* 헤더 */}
-        <div className="border-border flex items-start justify-between border-b px-6 py-4">
-          <div className="flex flex-wrap items-center gap-2">
-            <SeverityBadge severity={displayAlert.severity} size="md" />
-            <span className="text-text-secondary text-sm">
-              {ALERT_TYPE_LABELS[displayAlert.alert_type] ?? displayAlert.alert_type}
-            </span>
-            {displayAlert.error_message && <NeuBadge variant="critical">LLM 분석 실패</NeuBadge>}
-            {displayAlert.acknowledged && (
-              <NeuBadge variant="normal">
-                <CheckCircle className="mr-0.5 h-3 w-3" />
-                확인됨
-              </NeuBadge>
-            )}
-            {displayAlert.incident_id && (
-              <button
-                type="button"
-                onClick={() => {
-                  onClose()
-                  navigate(ROUTES.incidentDetail(displayAlert.incident_id!))
-                }}
-                className="text-critical bg-critical/10 border-critical/30 hover:bg-critical/15 focus:ring-critical inline-flex items-center gap-1 rounded-sm border px-2 py-0.5 text-xs focus:ring-1 focus:outline-none"
-              >
-                <Siren className="h-3 w-3" />
-                인시던트 #{displayAlert.incident_id}
-              </button>
-            )}
-          </div>
-          <button
-            onClick={onClose}
-            aria-label="알림 상세 닫기"
-            className="text-text-secondary hover:bg-hover-subtle focus:ring-accent rounded-sm p-1.5 focus:ring-1 focus:outline-none"
-          >
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-
-        {/* 내용 */}
-        <div className="flex-1 space-y-5 overflow-y-auto px-6 py-5">
-          <div>
-            <h3 id={PANEL_TITLE_ID} className="text-text-primary text-base font-semibold">
-              {formatAlertTitle(displayAlert.title)}
-            </h3>
-          </div>
-
-          {/* 메타 정보 */}
-          <div className="grid grid-cols-2 gap-3 text-sm">
-            <div>
-              <p className="type-label">발생 시각</p>
-              <p className="text-text-primary mt-0.5">{formatKST(displayAlert.created_at)}</p>
-            </div>
-            {displayAlert.resolved_at && (
-              <div>
-                <p className="type-label">복구 시각</p>
-                <p className="text-normal mt-0.5">{formatKST(displayAlert.resolved_at)}</p>
-              </div>
-            )}
-            {displayAlert.alertname && (
-              <div>
-                <p className="type-label">Alert Name</p>
-                <p className="text-text-primary mt-0.5 font-mono text-xs break-all">
-                  {displayAlert.alertname}
-                </p>
-              </div>
-            )}
-            {displayAlert.instance_role && (
-              <div>
-                <p className="type-label">인스턴스 역할</p>
-                <p className="text-text-primary mt-0.5">{displayAlert.instance_role}</p>
-              </div>
-            )}
-            {displayAlert.host && (
-              <div>
-                <p className="type-label">호스트</p>
-                <p className="text-text-primary mt-0.5 font-mono text-xs break-all">
-                  {displayAlert.host}
-                </p>
-              </div>
-            )}
-          </div>
-
-          {/* 유사도 분석 */}
-          {displayAlert.anomaly_type && (
-            <div>
-              <p className="type-label mb-1.5">이상 유형</p>
-              <AnomalyTypeBadge
-                type={displayAlert.anomaly_type}
-                score={displayAlert.similarity_score}
-              />
-            </div>
-          )}
-
-          {/* 연관 Trace ID */}
-          {displayAlert.related_trace_ids && displayAlert.related_trace_ids.length > 0 && (
-            <div>
-              <p className="type-label mb-1.5">연관 Trace ID</p>
-              <div className="flex flex-wrap gap-1.5">
-                {displayAlert.related_trace_ids.map((tid) => (
-                  <span
-                    key={tid}
-                    className="border-border bg-bg-base rounded-sm border px-2 py-0.5 font-mono text-xs"
+        {displayAlert && (
+          <>
+            {/* 헤더 */}
+            <div className="border-border flex items-start justify-between border-b px-6 py-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <SeverityBadge severity={displayAlert.severity} size="md" />
+                <span className="text-text-secondary text-sm">
+                  {ALERT_TYPE_LABELS[displayAlert.alert_type] ?? displayAlert.alert_type}
+                </span>
+                {displayAlert.error_message && (
+                  <NeuBadge variant="critical">LLM 분석 실패</NeuBadge>
+                )}
+                {displayAlert.acknowledged && (
+                  <NeuBadge variant="normal">
+                    <CheckCircle className="mr-0.5 h-3 w-3" />
+                    확인됨
+                  </NeuBadge>
+                )}
+                {displayAlert.incident_id && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onClose()
+                      navigate(ROUTES.incidentDetail(displayAlert.incident_id!))
+                    }}
+                    className="text-critical bg-critical/10 border-critical/30 hover:bg-critical/15 focus:ring-critical inline-flex items-center gap-1 rounded-sm border px-2 py-0.5 text-xs focus:ring-1 focus:outline-none"
                   >
-                    {tid}
-                  </span>
-                ))}
+                    <Siren className="h-3 w-3" />
+                    인시던트 #{displayAlert.incident_id}
+                  </button>
+                )}
               </div>
+              <button
+                onClick={onClose}
+                aria-label="알림 상세 닫기"
+                className="text-text-secondary hover:bg-hover-subtle focus:ring-accent rounded-sm p-1.5 focus:ring-1 focus:outline-none"
+              >
+                <X className="h-5 w-5" />
+              </button>
             </div>
-          )}
 
-          {/* LLM 분석 실패 — 원본 로그 표시 */}
-          {displayAlert.error_message ? (
-            <>
-              {parsedDesc?.log_content ? (
+            {/* 내용 */}
+            <div className="flex-1 space-y-5 overflow-y-auto px-6 py-5">
+              <div>
+                <h3 id={PANEL_TITLE_ID} className="text-text-primary text-base font-semibold">
+                  {formatAlertTitle(displayAlert.title)}
+                </h3>
+              </div>
+
+              {/* 메타 정보 */}
+              <div className="grid grid-cols-2 gap-3 text-sm">
                 <div>
-                  <p className="type-label mb-1.5">원본 로그</p>
-                  <div className="bg-bg-base shadow-neu-inset max-h-96 overflow-y-auto rounded-sm p-4">
-                    <pre className="text-text-primary font-mono text-xs leading-relaxed break-words whitespace-pre-wrap">
-                      {parsedDesc.log_content}
-                    </pre>
+                  <p className="type-label">발생 시각</p>
+                  <p className="text-text-primary mt-0.5">{formatKST(displayAlert.created_at)}</p>
+                </div>
+                {displayAlert.resolved_at && (
+                  <div>
+                    <p className="type-label">복구 시각</p>
+                    <p className="text-normal mt-0.5">{formatKST(displayAlert.resolved_at)}</p>
+                  </div>
+                )}
+                {displayAlert.alertname && (
+                  <div>
+                    <p className="type-label">Alert Name</p>
+                    <p className="text-text-primary mt-0.5 font-mono text-xs break-all">
+                      {displayAlert.alertname}
+                    </p>
+                  </div>
+                )}
+                {displayAlert.instance_role && (
+                  <div>
+                    <p className="type-label">인스턴스 역할</p>
+                    <p className="text-text-primary mt-0.5">{displayAlert.instance_role}</p>
+                  </div>
+                )}
+                {displayAlert.host && (
+                  <div>
+                    <p className="type-label">호스트</p>
+                    <p className="text-text-primary mt-0.5 font-mono text-xs break-all">
+                      {displayAlert.host}
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              {/* 유사도 분석 */}
+              {displayAlert.anomaly_type && (
+                <div>
+                  <p className="type-label mb-1.5">이상 유형</p>
+                  <AnomalyTypeBadge
+                    type={displayAlert.anomaly_type}
+                    score={displayAlert.similarity_score}
+                  />
+                </div>
+              )}
+
+              {/* 연관 Trace ID */}
+              {displayAlert.related_trace_ids && displayAlert.related_trace_ids.length > 0 && (
+                <div>
+                  <p className="type-label mb-1.5">연관 Trace ID</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {displayAlert.related_trace_ids.map((tid) => (
+                      <span
+                        key={tid}
+                        className="border-border bg-bg-base rounded-sm border px-2 py-0.5 font-mono text-xs"
+                      >
+                        {tid}
+                      </span>
+                    ))}
                   </div>
                 </div>
+              )}
+
+              {/* LLM 분석 실패 — 원본 로그 표시 */}
+              {displayAlert.error_message ? (
+                <>
+                  {parsedDesc?.log_content ? (
+                    <div>
+                      <p className="type-label mb-1.5">원본 로그</p>
+                      <div className="bg-bg-base shadow-neu-inset max-h-96 overflow-y-auto rounded-sm p-4">
+                        <pre className="text-text-primary font-mono text-xs leading-relaxed break-words whitespace-pre-wrap">
+                          {parsedDesc.log_content}
+                        </pre>
+                      </div>
+                    </div>
+                  ) : (
+                    displayAlert.description && (
+                      <div>
+                        <p className="type-label mb-1.5">상세 내용</p>
+                        <div className="bg-bg-base shadow-neu-inset rounded-sm p-4">
+                          <p className="text-text-primary text-sm leading-relaxed break-words whitespace-pre-wrap">
+                            {displayAlert.description}
+                          </p>
+                        </div>
+                      </div>
+                    )
+                  )}
+                  <div>
+                    <p className="type-label mb-1">분석 실패 사유</p>
+                    <p className="text-text-secondary font-mono text-xs break-all">
+                      {displayAlert.error_message}
+                    </p>
+                  </div>
+                </>
+              ) : /* 해결방안 — 화면의 시각 앵커. 원인은 상단 타이틀이 이미 보여주므로 중복 제거 */
+              parsedDesc?.recommendation ? (
+                <div className="border-accent rounded-sm border p-4">
+                  <div className="mb-2.5 flex items-center gap-2">
+                    <Lightbulb className="text-accent h-5 w-5" aria-hidden="true" />
+                    <p className="text-accent text-lg font-bold tracking-tight">해결방안</p>
+                  </div>
+                  <p className="text-text-primary text-base leading-relaxed font-medium break-words whitespace-pre-wrap">
+                    {parsedDesc.recommendation}
+                  </p>
+                </div>
               ) : (
+                !parsedDesc &&
                 displayAlert.description && (
                   <div>
                     <p className="type-label mb-1.5">상세 내용</p>
@@ -383,77 +416,142 @@ export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
                   </div>
                 )
               )}
-              <div>
-                <p className="type-label mb-1">분석 실패 사유</p>
-                <p className="text-text-secondary font-mono text-xs break-all">
-                  {displayAlert.error_message}
-                </p>
-              </div>
-            </>
-          ) : /* 해결방안 — 화면의 시각 앵커. 원인은 상단 타이틀이 이미 보여주므로 중복 제거 */
-          parsedDesc?.recommendation ? (
-            <div className="border-accent rounded-sm border p-4">
-              <div className="mb-2.5 flex items-center gap-2">
-                <Lightbulb className="text-accent h-5 w-5" aria-hidden="true" />
-                <p className="text-accent text-lg font-bold tracking-tight">해결방안</p>
-              </div>
-              <p className="text-text-primary text-base leading-relaxed font-medium break-words whitespace-pre-wrap">
-                {parsedDesc.recommendation}
-              </p>
-            </div>
-          ) : (
-            !parsedDesc &&
-            displayAlert.description && (
-              <div>
-                <p className="type-label mb-1.5">상세 내용</p>
-                <div className="bg-bg-base shadow-neu-inset rounded-sm p-4">
-                  <p className="text-text-primary text-sm leading-relaxed break-words whitespace-pre-wrap">
-                    {displayAlert.description}
+
+              {/* 확인 처리 이력 */}
+              {displayAlert.acknowledged && displayAlert.acknowledged_by && (
+                <div>
+                  <p className="type-label mb-1.5">처리 정보</p>
+                  <p className="text-text-secondary text-sm">
+                    {displayAlert.acknowledged_by}
+                    {displayAlert.acknowledged_at &&
+                      ` · ${formatKST(displayAlert.acknowledged_at)}`}
                   </p>
                 </div>
-              </div>
-            )
-          )}
+              )}
 
-          {/* 확인 처리 이력 */}
-          {displayAlert.acknowledged && displayAlert.acknowledged_by && (
-            <div>
-              <p className="type-label mb-1.5">처리 정보</p>
-              <p className="text-text-secondary text-sm">
-                {displayAlert.acknowledged_by}
-                {displayAlert.acknowledged_at && ` · ${formatKST(displayAlert.acknowledged_at)}`}
-              </p>
-            </div>
-          )}
+              {/* 피드백 미등록 상태 — 확인 완료 후 신규 등록 */}
+              {displayAlert.acknowledged && !existingFeedback && (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <p className="type-label">피드백 등록</p>
+                    {!showSolution && (
+                      <button
+                        type="button"
+                        onClick={() => setShowSolution(true)}
+                        className="text-accent hover:text-accent/80 focus:ring-accent inline-flex items-center gap-1 rounded-sm text-xs focus:ring-1 focus:outline-none"
+                      >
+                        <Pencil className="h-3 w-3" />
+                        해결책 등록
+                      </button>
+                    )}
+                  </div>
+                  {!showSolution ? (
+                    <p className="text-text-secondary text-sm">
+                      아직 등록된 피드백이 없습니다. 해결책을 등록하면 벡터 DB에 반영되어 향후 유사
+                      장애 대응에 활용됩니다.
+                    </p>
+                  ) : (
+                    <>
+                      <NeuSelect
+                        id="post-ack-error-type"
+                        label="장애 유형"
+                        value={errorType}
+                        onChange={(e) => setErrorType(e.target.value)}
+                      >
+                        {ERROR_TYPES.map((t) => (
+                          <option key={t} value={t}>
+                            {t}
+                          </option>
+                        ))}
+                      </NeuSelect>
+                      <NeuTextarea
+                        id="post-ack-solution"
+                        label="해결 내용"
+                        rows={5}
+                        placeholder="수행한 조치 내용을 기술해 주세요..."
+                        value={solution}
+                        onChange={(e) => setSolution(e.target.value)}
+                      />
+                      <div className="flex gap-2">
+                        <NeuButton
+                          size="sm"
+                          loading={isFeedbackPending}
+                          disabled={!solution.trim()}
+                          onClick={() =>
+                            createFeedback(
+                              {
+                                alert_history_id: displayAlert.id,
+                                error_type: errorType,
+                                solution: solution.trim(),
+                                resolver: user?.name ?? 'unknown',
+                              },
+                              {
+                                onSuccess: () => {
+                                  setShowSolution(false)
+                                  setSolution('')
+                                  setErrorType('기타')
+                                },
+                              },
+                            )
+                          }
+                        >
+                          등록
+                        </NeuButton>
+                        <NeuButton
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            setShowSolution(false)
+                            setSolution('')
+                          }}
+                        >
+                          취소
+                        </NeuButton>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
 
-          {/* 피드백 미등록 상태 — 확인 완료 후 신규 등록 */}
-          {displayAlert.acknowledged && !existingFeedback && (
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <p className="type-label">피드백 등록</p>
-                {!showSolution && (
-                  <button
-                    type="button"
-                    onClick={() => setShowSolution(true)}
-                    className="text-accent hover:text-accent/80 focus:ring-accent inline-flex items-center gap-1 rounded-sm text-xs focus:ring-1 focus:outline-none"
-                  >
-                    <Pencil className="h-3 w-3" />
-                    해결책 등록
-                  </button>
-                )}
-              </div>
-              {!showSolution ? (
-                <p className="text-text-secondary text-sm">
-                  아직 등록된 피드백이 없습니다. 해결책을 등록하면 벡터 DB에 반영되어 향후 유사 장애
-                  대응에 활용됩니다.
-                </p>
-              ) : (
-                <>
+              {/* 등록된 피드백 — 확인된 알림에서만 표시 */}
+              {displayAlert.acknowledged && existingFeedback && !isEditing && (
+                <div>
+                  <div className="mb-1.5 flex items-center justify-between">
+                    <p className="type-label">등록된 피드백</p>
+                    <button
+                      type="button"
+                      onClick={() => setIsEditing(true)}
+                      className="text-accent hover:text-accent/80 focus:ring-accent inline-flex items-center gap-1 rounded-sm text-xs focus:ring-1 focus:outline-none"
+                    >
+                      <Pencil className="h-3 w-3" />
+                      수정
+                    </button>
+                  </div>
+                  <div className="space-y-2 text-sm">
+                    <div className="flex items-center gap-2">
+                      <NeuBadge variant="info">{existingFeedback.error_type}</NeuBadge>
+                      <span className="text-text-secondary text-xs">
+                        {existingFeedback.resolver} · {formatKST(existingFeedback.created_at)}
+                      </span>
+                    </div>
+                    <div className="bg-bg-base shadow-neu-inset rounded-sm p-4">
+                      <p className="text-text-primary leading-relaxed break-words whitespace-pre-wrap">
+                        {existingFeedback.solution}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* 등록된 피드백 수정 모드 */}
+              {displayAlert.acknowledged && existingFeedback && isEditing && (
+                <div className="space-y-3">
+                  <p className="type-label">피드백 수정</p>
                   <NeuSelect
-                    id="post-ack-error-type"
+                    id="edit-error-type"
                     label="장애 유형"
-                    value={errorType}
-                    onChange={(e) => setErrorType(e.target.value)}
+                    value={editErrorType}
+                    onChange={(e) => setEditErrorType(e.target.value)}
                   >
                     {ERROR_TYPES.map((t) => (
                       <option key={t} value={t}>
@@ -462,172 +560,79 @@ export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
                     ))}
                   </NeuSelect>
                   <NeuTextarea
-                    id="post-ack-solution"
+                    id="edit-solution"
                     label="해결 내용"
                     rows={5}
-                    placeholder="수행한 조치 내용을 기술해 주세요..."
-                    value={solution}
-                    onChange={(e) => setSolution(e.target.value)}
+                    value={editSolution}
+                    onChange={(e) => setEditSolution(e.target.value)}
                   />
                   <div className="flex gap-2">
                     <NeuButton
                       size="sm"
-                      loading={isFeedbackPending}
-                      disabled={!solution.trim()}
-                      onClick={() =>
-                        createFeedback(
-                          {
-                            alert_history_id: displayAlert.id,
-                            error_type: errorType,
-                            solution: solution.trim(),
-                            resolver: user?.name ?? 'unknown',
-                          },
-                          {
-                            onSuccess: () => {
-                              setShowSolution(false)
-                              setSolution('')
-                              setErrorType('기타')
-                            },
-                          },
-                        )
-                      }
+                      loading={isUpdatePending}
+                      disabled={!editSolution.trim()}
+                      onClick={handleUpdateFeedback}
                     >
-                      등록
+                      저장
                     </NeuButton>
-                    <NeuButton
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => {
-                        setShowSolution(false)
-                        setSolution('')
-                      }}
-                    >
+                    <NeuButton variant="ghost" size="sm" onClick={() => setIsEditing(false)}>
                       취소
                     </NeuButton>
                   </div>
-                </>
+                </div>
               )}
             </div>
-          )}
 
-          {/* 등록된 피드백 — 확인된 알림에서만 표시 */}
-          {displayAlert.acknowledged && existingFeedback && !isEditing && (
-            <div>
-              <div className="mb-1.5 flex items-center justify-between">
-                <p className="type-label">등록된 피드백</p>
+            {/* 푸터 */}
+            {!displayAlert.acknowledged && (
+              <div className="border-border space-y-3 border-t px-6 py-4">
                 <button
                   type="button"
-                  onClick={() => setIsEditing(true)}
-                  className="text-accent hover:text-accent/80 focus:ring-accent inline-flex items-center gap-1 rounded-sm text-xs focus:ring-1 focus:outline-none"
+                  onClick={() => setShowSolution((v) => !v)}
+                  className="text-text-secondary hover:text-text-primary flex w-full items-center gap-2 text-sm focus:outline-none"
                 >
-                  <Pencil className="h-3 w-3" />
-                  수정
+                  <ChevronDown
+                    className={cn('h-4 w-4 transition-transform', showSolution && 'rotate-180')}
+                  />
+                  해결책 함께 등록
                 </button>
-              </div>
-              <div className="space-y-2 text-sm">
-                <div className="flex items-center gap-2">
-                  <NeuBadge variant="info">{existingFeedback.error_type}</NeuBadge>
-                  <span className="text-text-secondary text-xs">
-                    {existingFeedback.resolver} · {formatKST(existingFeedback.created_at)}
-                  </span>
-                </div>
-                <div className="bg-bg-base shadow-neu-inset rounded-sm p-4">
-                  <p className="text-text-primary leading-relaxed break-words whitespace-pre-wrap">
-                    {existingFeedback.solution}
-                  </p>
-                </div>
-              </div>
-            </div>
-          )}
 
-          {/* 등록된 피드백 수정 모드 */}
-          {displayAlert.acknowledged && existingFeedback && isEditing && (
-            <div className="space-y-3">
-              <p className="type-label">피드백 수정</p>
-              <NeuSelect
-                id="edit-error-type"
-                label="장애 유형"
-                value={editErrorType}
-                onChange={(e) => setEditErrorType(e.target.value)}
-              >
-                {ERROR_TYPES.map((t) => (
-                  <option key={t} value={t}>
-                    {t}
-                  </option>
-                ))}
-              </NeuSelect>
-              <NeuTextarea
-                id="edit-solution"
-                label="해결 내용"
-                rows={5}
-                value={editSolution}
-                onChange={(e) => setEditSolution(e.target.value)}
-              />
-              <div className="flex gap-2">
+                {showSolution && (
+                  <div className="space-y-3">
+                    <NeuSelect
+                      id="error-type"
+                      label="장애 유형"
+                      value={errorType}
+                      onChange={(e) => setErrorType(e.target.value)}
+                    >
+                      {ERROR_TYPES.map((t) => (
+                        <option key={t} value={t}>
+                          {t}
+                        </option>
+                      ))}
+                    </NeuSelect>
+                    <NeuTextarea
+                      id="solution"
+                      label="해결 내용"
+                      rows={4}
+                      placeholder="수행한 조치 내용을 기술해 주세요..."
+                      value={solution}
+                      onChange={(e) => setSolution(e.target.value)}
+                    />
+                  </div>
+                )}
+
                 <NeuButton
-                  size="sm"
-                  loading={isUpdatePending}
-                  disabled={!editSolution.trim()}
-                  onClick={handleUpdateFeedback}
+                  className="w-full"
+                  loading={isPending || isFeedbackPending}
+                  onClick={handleAck}
                 >
-                  저장
+                  <CheckCircle className="h-4 w-4" />
+                  {showSolution && solution.trim() ? '확인 처리 + 해결책 등록' : '확인 처리'}
                 </NeuButton>
-                <NeuButton variant="ghost" size="sm" onClick={() => setIsEditing(false)}>
-                  취소
-                </NeuButton>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* 푸터 */}
-        {!displayAlert.acknowledged && (
-          <div className="border-border space-y-3 border-t px-6 py-4">
-            <button
-              type="button"
-              onClick={() => setShowSolution((v) => !v)}
-              className="text-text-secondary hover:text-text-primary flex w-full items-center gap-2 text-sm focus:outline-none"
-            >
-              <ChevronDown
-                className={cn('h-4 w-4 transition-transform', showSolution && 'rotate-180')}
-              />
-              해결책 함께 등록
-            </button>
-
-            {showSolution && (
-              <div className="space-y-3">
-                <NeuSelect
-                  id="error-type"
-                  label="장애 유형"
-                  value={errorType}
-                  onChange={(e) => setErrorType(e.target.value)}
-                >
-                  {ERROR_TYPES.map((t) => (
-                    <option key={t} value={t}>
-                      {t}
-                    </option>
-                  ))}
-                </NeuSelect>
-                <NeuTextarea
-                  id="solution"
-                  label="해결 내용"
-                  rows={4}
-                  placeholder="수행한 조치 내용을 기술해 주세요..."
-                  value={solution}
-                  onChange={(e) => setSolution(e.target.value)}
-                />
               </div>
             )}
-
-            <NeuButton
-              className="w-full"
-              loading={isPending || isFeedbackPending}
-              onClick={handleAck}
-            >
-              <CheckCircle className="h-4 w-4" />
-              {showSolution && solution.trim() ? '확인 처리 + 해결책 등록' : '확인 처리'}
-            </NeuButton>
-          </div>
+          </>
         )}
       </div>
     </>

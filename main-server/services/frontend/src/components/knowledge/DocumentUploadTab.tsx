@@ -304,22 +304,40 @@ function DocumentListGrid({ systems }: { systems: System[] }) {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-border border-b">
-                    <th className="text-text-secondary px-4 py-2.5 text-left text-xs font-medium">
+                    <th
+                      scope="col"
+                      className="text-text-secondary px-4 py-2.5 text-left text-xs font-medium whitespace-nowrap"
+                    >
                       파일명
                     </th>
-                    <th className="text-text-secondary px-4 py-2.5 text-left text-xs font-medium">
+                    <th
+                      scope="col"
+                      className="text-text-secondary px-4 py-2.5 text-left text-xs font-medium whitespace-nowrap"
+                    >
                       시스템
                     </th>
-                    <th className="text-text-secondary px-4 py-2.5 text-left text-xs font-medium">
+                    <th
+                      scope="col"
+                      className="text-text-secondary min-w-[120px] px-4 py-2.5 text-left text-xs font-medium whitespace-nowrap"
+                    >
                       Point IDs
                     </th>
-                    <th className="text-text-secondary px-4 py-2.5 text-right text-xs font-medium">
+                    <th
+                      scope="col"
+                      className="text-text-secondary px-4 py-2.5 text-right text-xs font-medium whitespace-nowrap"
+                    >
                       청크 수
                     </th>
-                    <th className="text-text-secondary px-4 py-2.5 text-left text-xs font-medium">
+                    <th
+                      scope="col"
+                      className="text-text-secondary px-4 py-2.5 text-left text-xs font-medium whitespace-nowrap"
+                    >
                       업로드
                     </th>
-                    <th className="text-text-secondary px-4 py-2.5 text-right text-xs font-medium">
+                    <th
+                      scope="col"
+                      className="text-text-secondary px-4 py-2.5 text-right text-xs font-medium whitespace-nowrap"
+                    >
                       관리
                     </th>
                   </tr>
@@ -328,8 +346,16 @@ function DocumentListGrid({ systems }: { systems: System[] }) {
                   {items.map((item) => (
                     <tr
                       key={item.file_hash}
-                      className="hover:bg-surface cursor-pointer transition-colors"
+                      role="button"
+                      tabIndex={0}
+                      className="hover:bg-surface focus-visible:ring-accent cursor-pointer transition-colors focus-visible:ring-1 focus-visible:outline-none focus-visible:ring-inset"
                       onClick={() => setSelectedDoc(item)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault()
+                          setSelectedDoc(item)
+                        }
+                      }}
                     >
                       <td className="px-4 py-2.5">
                         <span className="text-text-primary flex items-center gap-1.5 truncate font-medium">
@@ -337,16 +363,16 @@ function DocumentListGrid({ systems }: { systems: System[] }) {
                           {item.file_name}
                         </span>
                       </td>
-                      <td className="text-text-secondary px-4 py-2.5 text-xs">
+                      <td className="text-text-secondary px-4 py-2.5 text-xs whitespace-nowrap">
                         {getSystemName(item.system_id)}
                       </td>
                       <td className="px-4 py-2.5">
                         <PointIdsBadge pointIds={item.point_ids ?? []} />
                       </td>
-                      <td className="text-text-secondary px-4 py-2.5 text-right text-xs">
+                      <td className="text-text-secondary px-4 py-2.5 text-right text-xs whitespace-nowrap">
                         {item.chunk_count}
                       </td>
-                      <td className="text-text-disabled px-4 py-2.5 text-xs">
+                      <td className="text-text-disabled px-4 py-2.5 text-xs whitespace-nowrap">
                         {formatKST(item.uploaded_at, 'datetime')}
                       </td>
                       <td className="px-4 py-2.5 text-right" onClick={(e) => e.stopPropagation()}>

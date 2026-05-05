@@ -57,43 +57,18 @@ function MttrText({ minutes }: { minutes: number | null }) {
 }
 
 export function IncidentSidePanel({ incident, onClose }: IncidentSidePanelProps) {
-  if (!incident) return null
-  return (
-    <>
-      <div
-        className="fixed inset-0 z-30"
-        onClick={onClose}
-        aria-hidden="true"
-        role="presentation"
-      />
-      <IncidentSidePanelContent incident={incident} onClose={onClose} />
-    </>
-  )
-}
-
-function IncidentSidePanelContent({
-  incident,
-  onClose,
-}: {
-  incident: IncidentOut
-  onClose: () => void
-}) {
-  const panelRef = useRef<HTMLDivElement>(null)
-  const { mutate: update, isPending } = useUpdateIncident(incident.id)
+  const open = !!incident
   const bannerVisible = useBannerVisible()
+  const panelRef = useRef<HTMLDivElement>(null)
 
-  const [severity, setSeverity] = useState(incident.severity)
-  const [notes, setNotes] = useState(incident.root_cause ?? '')
-  const [dirty, setDirty] = useState(false)
+  // 닫힘 애니메이션 중에도 컨텐츠 유지
+  const lastIncidentRef = useRef<IncidentOut | null>(null)
+  if (incident) lastIncidentRef.current = incident
+  const displayIncident = incident ?? lastIncidentRef.current
 
+  // Focus trap + Escape (열려 있을 때만)
   useEffect(() => {
-    setSeverity(incident.severity)
-    setNotes(incident.root_cause ?? '')
-    setDirty(false)
-  }, [incident.id]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Focus trap + Escape
-  useEffect(() => {
+    if (!open) return
     const panel = panelRef.current
     if (!panel) return
 
@@ -126,7 +101,59 @@ function IncidentSidePanelContent({
 
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [onClose])
+  }, [open, onClose])
+
+  return (
+    <>
+      {/* Overlay */}
+      <div
+        className={cn(
+          'bg-overlay fixed inset-0 z-40 transition-opacity duration-300',
+          open ? 'opacity-100' : 'pointer-events-none opacity-0',
+        )}
+        onClick={onClose}
+        aria-hidden="true"
+      />
+      {/* Panel — 항상 mount, 슬라이드 in/out */}
+      <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={displayIncident ? `인시던트 #${displayIncident.id} 상세` : '인시던트 상세'}
+        aria-describedby={PANEL_DESC_ID}
+        aria-hidden={!open}
+        className={cn(
+          'border-border bg-surface fixed right-0 bottom-0 z-50 flex w-full max-w-md flex-col border-l transition-[translate,top] duration-300',
+          bannerVisible ? 'top-12' : 'top-0',
+          open ? 'translate-x-0' : 'translate-x-full',
+        )}
+      >
+        {displayIncident && (
+          <IncidentSidePanelContent incident={displayIncident} onClose={onClose} />
+        )}
+      </div>
+    </>
+  )
+}
+
+function IncidentSidePanelContent({
+  incident,
+  onClose,
+}: {
+  incident: IncidentOut
+  onClose: () => void
+}) {
+  const { mutate: update, isPending } = useUpdateIncident(incident.id)
+
+  const [severity, setSeverity] = useState(incident.severity)
+  const [notes, setNotes] = useState(incident.root_cause ?? '')
+  const [dirty, setDirty] = useState(false)
+
+  useEffect(() => {
+    setSeverity(incident.severity)
+    setNotes(incident.root_cause ?? '')
+    setDirty(false)
+  }, [incident.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSave = () => {
     update(
@@ -155,24 +182,12 @@ function IncidentSidePanelContent({
   const nextStatuses = ALL_STATUSES.filter((s) => s.value !== incident.status)
 
   return (
-    <div
-      ref={panelRef}
-      role="dialog"
-      aria-modal="true"
-      aria-label={`인시던트 #${incident.id} 상세`}
-      aria-describedby={PANEL_DESC_ID}
-      className={cn(
-        'fixed right-0 bottom-0 z-40 flex flex-col transition-[top] duration-200',
-        bannerVisible ? 'top-9' : 'top-0',
-        'bg-surface border-border shadow-neu-flat border-l',
-        'w-full max-w-md',
-      )}
-    >
+    <>
       {/* 헤더 */}
       <div className="border-border flex items-start gap-3 border-b px-5 py-4">
         <div className="min-w-0 flex-1">
           <div className="text-text-disabled mb-1 font-mono text-xs">#{incident.id}</div>
-          <h2 className="text-text-primary line-clamp-2 text-sm font-semibold leading-snug">
+          <h2 className="text-text-primary line-clamp-2 text-sm leading-snug font-semibold">
             {incident.title}
           </h2>
           <p id={PANEL_DESC_ID} className="text-text-secondary mt-1 text-xs">
@@ -292,6 +307,6 @@ function IncidentSidePanelContent({
           상세 페이지에서 보기
         </Link>
       </div>
-    </div>
+    </>
   )
 }

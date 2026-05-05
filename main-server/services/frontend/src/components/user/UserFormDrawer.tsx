@@ -6,6 +6,7 @@ import { X } from 'lucide-react'
 import { NeuInput } from '@/components/neumorphic/NeuInput'
 import { NeuButton } from '@/components/neumorphic/NeuButton'
 import { useUpdateUser } from '@/hooks/mutations/useUpdateUser'
+import { useBannerVisible } from '@/hooks/useBannerVisible'
 import { cn } from '@/lib/utils'
 import type { UserAdminOut } from '@/types/auth'
 
@@ -24,6 +25,7 @@ interface UserFormDrawerProps {
 
 export function UserFormDrawer({ open, onClose, editTarget }: UserFormDrawerProps) {
   const drawerRef = useRef<HTMLDivElement>(null)
+  const bannerVisible = useBannerVisible()
   const lastEditRef = useRef<UserAdminOut | null>(null)
   if (open) lastEditRef.current = editTarget
   const displayEdit = open ? editTarget : lastEditRef.current
@@ -88,7 +90,7 @@ export function UserFormDrawer({ open, onClose, editTarget }: UserFormDrawerProp
     <>
       <div
         className={cn(
-          'bg-overlay fixed inset-0 z-40 transition-opacity duration-200',
+          'bg-overlay fixed inset-0 z-40 transition-opacity duration-300',
           open ? 'opacity-100' : 'pointer-events-none opacity-0',
         )}
         onClick={onClose}
@@ -101,8 +103,9 @@ export function UserFormDrawer({ open, onClose, editTarget }: UserFormDrawerProp
         aria-hidden={!open}
         aria-label="사용자 정보 수정"
         className={cn(
-          'border-border bg-bg-base fixed top-0 right-0 bottom-0 z-50 flex w-full max-w-[480px] flex-col border-l shadow-[-8px_0_32px_rgba(0,0,0,0.4)] transition-transform duration-200',
+          'border-border bg-bg-base fixed right-0 bottom-0 z-50 flex w-full max-w-[480px] flex-col border-l transition-[translate,top] duration-300',
           open ? 'translate-x-0' : 'translate-x-full',
+          bannerVisible ? 'top-12' : 'top-0',
         )}
       >
         <div className="border-border flex items-center justify-between border-b px-6 py-4">

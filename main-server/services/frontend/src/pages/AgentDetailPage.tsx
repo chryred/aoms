@@ -127,7 +127,11 @@ function colorizeTomlLine(line: string) {
   let inStr = false
   for (let i = 0; i < rest.length; i++) {
     if (rest[i] === '"') inStr = !inStr
-    if (!inStr && rest[i] === '#') { comment = rest.slice(i); rest = rest.slice(0, i); break }
+    if (!inStr && rest[i] === '#') {
+      comment = rest.slice(i)
+      rest = rest.slice(0, i)
+      break
+    }
   }
   const val = rest.trim()
   const valClass =
@@ -1130,21 +1134,24 @@ function TomlEditor({
     <div
       className={cn(
         'relative overflow-hidden rounded-sm',
-        'border shadow-neu-inset',
+        'shadow-neu-inset border',
         'focus-within:ring-accent focus-within:ring-offset-bg-base focus-within:ring-1 focus-within:ring-offset-2',
         dirty ? 'border-warning/60' : 'border-border',
         className,
       )}
     >
       {/* 편집 가능 배지 */}
-      <span className="text-accent border-accent/30 pointer-events-none absolute right-2 top-2 z-10 rounded-sm border px-1.5 py-0.5 text-[10px] font-medium">
+      <span className="text-accent border-accent/30 pointer-events-none absolute top-2 right-2 z-10 rounded-sm border px-1.5 py-0.5 text-[10px] font-medium">
         편집
       </span>
       {/* 구문 강조 오버레이 (읽기 전용, 포인터 이벤트 없음) */}
       <div
         ref={overlayRef}
         aria-hidden
-        className={cn('bg-bg-base pointer-events-none absolute inset-0 overflow-hidden', sharedFont)}
+        className={cn(
+          'bg-bg-base pointer-events-none absolute inset-0 overflow-hidden',
+          sharedFont,
+        )}
       >
         {value.split('\n').map((line, i) => (
           <div key={i}>{line === '' ? '​' : colorizeTomlLine(line)}</div>
@@ -1159,7 +1166,7 @@ function TomlEditor({
         spellCheck={false}
         className={cn(
           'relative h-full w-full resize-none bg-transparent',
-          'text-transparent caret-text-primary',
+          'caret-text-primary text-transparent',
           'focus:outline-none',
           sharedFont,
         )}

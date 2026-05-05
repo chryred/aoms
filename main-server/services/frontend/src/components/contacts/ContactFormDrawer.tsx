@@ -4,6 +4,7 @@ import { ContactForm } from '@/components/contacts/ContactForm'
 import { useContact } from '@/hooks/queries/useContacts'
 import { useCreateContact } from '@/hooks/mutations/useCreateContact'
 import { useUpdateContact } from '@/hooks/mutations/useUpdateContact'
+import { useBannerVisible } from '@/hooks/useBannerVisible'
 import { cn } from '@/lib/utils'
 import type { Contact, ContactCreate } from '@/types/contact'
 
@@ -15,6 +16,7 @@ interface ContactFormDrawerProps {
 
 export function ContactFormDrawer({ open, onClose, editTarget }: ContactFormDrawerProps) {
   const drawerRef = useRef<HTMLDivElement>(null)
+  const bannerVisible = useBannerVisible()
   // 닫힘 애니메이션 중에도 컨텐츠 유지
   const lastEditRef = useRef<Contact | null>(null)
   if (open) lastEditRef.current = editTarget ?? null
@@ -76,7 +78,7 @@ export function ContactFormDrawer({ open, onClose, editTarget }: ContactFormDraw
     <>
       <div
         className={cn(
-          'bg-overlay fixed inset-0 z-40 transition-opacity duration-200',
+          'bg-overlay fixed inset-0 z-40 transition-opacity duration-300',
           open ? 'opacity-100' : 'pointer-events-none opacity-0',
         )}
         onClick={onClose}
@@ -89,8 +91,9 @@ export function ContactFormDrawer({ open, onClose, editTarget }: ContactFormDraw
         aria-hidden={!open}
         aria-label={isEdit ? '담당자 수정' : '담당자 등록'}
         className={cn(
-          'border-border bg-bg-base fixed top-0 right-0 bottom-0 z-50 flex w-full max-w-[480px] flex-col border-l shadow-[-8px_0_32px_rgba(0,0,0,0.4)] transition-transform duration-200',
+          'border-border bg-bg-base fixed right-0 bottom-0 z-50 flex w-full max-w-[480px] flex-col border-l transition-[translate,top] duration-300',
           open ? 'translate-x-0' : 'translate-x-full',
+          bannerVisible ? 'top-12' : 'top-0',
         )}
       >
         <div className="border-border flex items-center justify-between border-b px-6 py-4">
