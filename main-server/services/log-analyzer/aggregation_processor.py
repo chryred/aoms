@@ -332,21 +332,35 @@ async def _send_teams(
         logger.warning("Teams 알림 발송 실패: %s", exc)
 
 
+def _make_alert_type_fact(label: str) -> dict:
+    """알림 유형 FactSet 행 생성 — FactSet facts 리스트 맨 앞에 삽입"""
+    return {"title": "알림 유형", "value": label}
+
+
 def _build_report_card_body(
     title: str,
     llm_summary: str,
     system_summary: dict[str, dict],
     period_range: str | None = None,
+    alert_type_label: str | None = None,
 ) -> list[dict]:
     """
     공통 Adaptive Card body 빌더.
     system_summary values: { display_name, total_anomaly_hours, worst_severity, cause? }
     period_range: 장기 리포트용 "YYYY-MM-DD ~ YYYY-MM-DD" (None이면 생략)
+    alert_type_label: 알림 유형 표시용 subtitle (None이면 생략)
     """
     body: list[dict] = [
         {"type": "TextBlock", "text": title, "weight": "Bolder", "size": "Medium"},
-        {"type": "TextBlock", "text": llm_summary, "wrap": True},
     ]
+    if alert_type_label:
+        body.append({
+            "type": "TextBlock",
+            "text": f"알림 유형: {alert_type_label}",
+            "size": "Small",
+            "isSubtle": True,
+        })
+    body.append({"type": "TextBlock", "text": llm_summary, "wrap": True})
 
     if period_range:
         body.append({"type": "TextBlock", "text": f"기간: {period_range}", "weight": "Bolder"})
@@ -618,6 +632,7 @@ async def _process_single_config(
                                 {
                                     "type": "FactSet",
                                     "facts": [
+                                        _make_alert_type_fact("시간별 예방 알림 · 매시 :05분"),
                                         {"title": "시스템",    "value": f"{display_name} ({system_name})"},
                                         {"title": "수집기",    "value": f"{collector_type} / {metric_group}"},
                                         {"title": "이상 감지", "value": anomaly_reason},
@@ -955,6 +970,7 @@ async def run_daily_aggregation() -> dict:
                             title=f"일별 모니터링 리포트: {day_label}",
                             llm_summary=daily_llm_summary,
                             system_summary=daily_system_summary,
+                            alert_type_label="일별 모니터링 리포트",
                         ),
                     },
                 }],
@@ -1098,6 +1114,7 @@ async def run_weekly_report() -> dict:
                         title=f"주간 모니터링 리포트: {date_range}",
                         llm_summary=llm_summary,
                         system_summary=system_summary,
+                        alert_type_label="주간 모니터링 리포트",
                     ),
                 },
             }],
@@ -1311,6 +1328,7 @@ async def run_monthly_report() -> dict:
                         title=f"월간 모니터링 리포트: {month_name}",
                         llm_summary=llm_summary,
                         system_summary=system_summary,
+                        alert_type_label="월간 모니터링 리포트",
                     ),
                 },
             }],
@@ -1494,6 +1512,7 @@ async def _run_single_period_report(
                         f"{period_start.strftime('%Y-%m-%d')} ~ "
                         f"{period_end.strftime('%Y-%m-%d')}"
                     ),
+                    alert_type_label="월간(분기/반기/연간) 모니터링 리포트",
                 ),
             },
         }],
@@ -1623,8 +1642,6 @@ async def _process_single_trend_alert(
     async with sem:
         try:
             system_id      = item.get("system_id")
-            system_name    = item.get("system_name", "")
-            display_name   = item.get("display_name", system_name)
             collector_type = item.get("collector_type", "")
             metric_group   = item.get("metric_group", "")
             anomaly_hours  = item.get("anomaly_hours", 0)
@@ -1632,8 +1649,10 @@ async def _process_single_trend_alert(
             trend_sequence = item.get("trend_sequence", "추세 데이터 없음")
             predictions    = item.get("predictions", "예측 없음")
 
-            # 시스템별 webhook URL
+            # 시스템별 webhook URL + 이름 (hourly 응답엔 system_name 없으므로 systems_map 우선)
             sys_info       = systems_map.get(system_id, {})
+            system_name    = item.get("system_name") or sys_info.get("system_name", "")
+            display_name   = item.get("display_name") or sys_info.get("display_name", system_name)
             webhook_url    = sys_info.get("teams_webhook_url") or ""
 
             llm_prompt = (
@@ -1689,6 +1708,7 @@ async def _process_single_trend_alert(
                             {
                                 "type": "FactSet",
                                 "facts": [
+                                    _make_alert_type_fact("지속 이상 트렌드 · 4시간주기"),
                                     {"title": "시스템",      "value": f"{display_name} ({system_name})"},
                                     {"title": "수집기",      "value": f"{collector_type} / {metric_group}"},
                                     {"title": "지속 이상",   "value": f"최근 8시간 중 {anomaly_hours}시간"},

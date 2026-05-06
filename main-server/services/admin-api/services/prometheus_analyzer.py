@@ -12,8 +12,10 @@ PROMETHEUS_ANALYZE_INTERVAL_SECONDS (기본 300)초마다 실행.
 """
 
 import asyncio
+import json
 import logging
 import os
+import re
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -24,6 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import AsyncSessionLocal
 from models import AlertHistory, Contact, IncidentTimeline, LlmAgentConfig, LogAnalysisHistory, System, SystemContact, User
+from services.adaptive_card_builder import _build_base_card, build_entities, build_mention_text
 from services.incident_service import get_or_create_incident
 from services.llm_client import call_llm_text, LLM_TYPE
 
@@ -65,6 +68,17 @@ def _is_in_cooldown(host: str) -> bool:
 
 def _record_sent(host: str) -> None:
     _host_cooldown[host] = datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def _parse_prom_llm_json(text: str) -> dict | None:
+    """LLM 응답에서 JSON 블록 추출 — aggregation_processor._parse_llm_json()과 동일 패턴"""
+    m = re.search(r"\{[\s\S]*\}", text)
+    if not m:
+        return None
+    try:
+        return json.loads(m.group())
+    except json.JSONDecodeError:
+        return None
 
 
 # ── 데이터 구조 ───────────────────────────────────────────────────────────────
@@ -443,14 +457,17 @@ def _build_llm_prompt(hc: HostContext, system_infos: dict[str, dict]) -> str:
         for sn, sm in hc.systems.items()
         if sm.anomalies
     ]
-    lines.append(
-        "위 현황을 종합하여 다음을 분석하세요 (한국어, 5문장 이내):\n"
-        "1. 인프라 자원(CPU/메모리/네트워크/디스크)과 각 시스템 로그 에러의 연관성\n"
-        "2. 어느 시스템이 자원 부하의 원인일 가능성이 높은지\n"
-        "3. 운영팀이 즉시 확인해야 할 조치사항"
-    )
     if anomalous_systems:
-        lines.append(f"\n이상 감지 시스템: {', '.join(anomalous_systems)}")
+        lines.append(f"이상 감지 시스템: {', '.join(anomalous_systems)}")
+        lines.append("")
+    lines.append(
+        '위 현황을 종합하여 다음 JSON 형식으로만 응답하세요:\n'
+        '{\n'
+        '  "anomaly_item": "임계치를 초과한 메트릭과 수치 (한국어, 1줄)",\n'
+        '  "root_cause": "자원과 로그 에러의 연관성 및 원인 추정 (한국어, 2문장)",\n'
+        '  "immediate_action": "운영팀이 즉시 취해야 할 조치 (한국어, 1~2문장)"\n'
+        '}'
+    )
 
     return "\n".join(lines)
 
@@ -469,7 +486,9 @@ async def _notify_host(hc: HostContext, analysis: str, severity: str, db: AsyncS
         info = await _get_system_info(db, sn)
         if not info:
             continue
-        system_labels.append(info["display_name"] or sn)
+        system_labels.append(
+            f"{info['display_name'] or sn} ({sn})" if info.get("display_name") else sn
+        )
         if not webhook_url:
             webhook_url = info["teams_webhook_url"] or ""
         seen_names = {c["name"] for c in all_contacts}
@@ -483,55 +502,44 @@ async def _notify_host(hc: HostContext, analysis: str, severity: str, db: AsyncS
         logger.info("Teams webhook URL 없음 — host %s 분석 결과만 로깅:\n%s", hc.host, analysis)
         return
 
-    severity_color = "Attention" if severity == "critical" else "Warning"
-    title = f"[{hc.host}] {'🔴' if severity == 'critical' else '🟡'} 이상 감지 — {', '.join(system_labels)}"
-    mention_str = ""
-    if all_contacts:
-        mention_str = " ".join(
-            f"<at>{c['teams_upn']}</at>"
-            for c in all_contacts
-            if c.get("teams_upn")
-        )
+    # LLM JSON 파싱
+    parsed = _parse_prom_llm_json(analysis)
+    if parsed:
+        anomaly_item     = parsed.get("anomaly_item", "-")
+        root_cause       = parsed.get("root_cause", "-")
+        immediate_action = parsed.get("immediate_action", "-")
+    else:
+        anomaly_item     = "분석 참조"
+        root_cause       = analysis[:200]
+        immediate_action = "-"
 
-    card = {
-        "type": "message",
-        "attachments": [
-            {
-                "contentType": "application/vnd.microsoft.card.adaptive",
-                "content": {
-                    "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
-                    "type": "AdaptiveCard",
-                    "version": "1.4",
-                    "body": [
-                        {
-                            "type": "TextBlock",
-                            "text": title,
-                            "weight": "Bolder",
-                            "size": "Medium",
-                            "color": severity_color,
-                            "wrap": True,
-                        },
-                        {
-                            "type": "TextBlock",
-                            "text": analysis,
-                            "wrap": True,
-                            "size": "Small",
-                        },
-                        *(
-                            [{"type": "TextBlock", "text": mention_str, "wrap": True}]
-                            if mention_str else []
-                        ),
-                        {
-                            "type": "TextBlock",
-                            "text": f"감지 시각: {datetime.now(_KST).strftime('%Y-%m-%d %H:%M KST')}",
-                            "size": "Small",
-                            "isSubtle": True,
-                        },
-                    ],
-                },
-            }
-        ],
-    }
+    systems_value = ", ".join(system_labels) or "알 수 없음"
+    title = f"[{hc.host}] {'🔴' if severity == 'critical' else '🟡'} 이상 감지 — {', '.join(s.split(' (')[0] for s in system_labels)}"
+
+    facts = [
+        {"title": "호스트",     "value": hc.host},
+        {"title": "관련 시스템", "value": systems_value},
+        {"title": "이상 항목",  "value": anomaly_item},
+        {"title": "원인 분석",  "value": root_cause},
+        {"title": "즉시 조치",  "value": immediate_action},
+        {"title": "감지 시각",  "value": datetime.now(_KST).strftime("%Y-%m-%d %H:%M KST")},
+    ]
+
+    mention_text = build_mention_text(all_contacts)
+    body_extra: list[dict] = []
+    if mention_text:
+        body_extra.append({"type": "TextBlock", "text": f"담당자: {mention_text}", "wrap": True})
+
+    card = _build_base_card(
+        alert_type_label="인프라 자동 분석 · 5분주기 (쿨다운 30분)",
+        title=title,
+        severity_color="Attention" if severity == "critical" else "Warning",
+        facts=facts,
+        body_extra=body_extra,
+        actions=[],
+        entities=build_entities(all_contacts),
+        summary=title,
+    )
 
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
@@ -586,7 +594,7 @@ async def run_analysis_cycle() -> None:
             analysis: Optional[str] = None
             llm_error: Optional[str] = None
             try:
-                analysis = await call_llm_text(prompt, max_tokens=400, agent_code=infra_agent_code)
+                analysis = await call_llm_text(prompt, max_tokens=500, agent_code=infra_agent_code)
                 if not analysis:
                     llm_error = "LLM empty response"
             except Exception as e:
@@ -614,6 +622,16 @@ async def run_analysis_cycle() -> None:
                     continue
 
                 anomaly_title = f"[prometheus_analyzer] {', '.join(sm.anomalies[:2])}"
+                parsed_analysis = _parse_prom_llm_json(analysis) if analysis else None
+                stored_description = (
+                    json.dumps(parsed_analysis, ensure_ascii=False)[:500]
+                    if parsed_analysis else analysis[:500]
+                )
+                stored_root_cause = (
+                    parsed_analysis.get("root_cause", analysis[:500])
+                    if parsed_analysis
+                    else ("LLM 분석 실패 — 이상 목록만 나열" if llm_error else analysis[:500])
+                )
 
                 # ① AlertHistory (인시던트 그루핑 포함)
                 history = AlertHistory(
@@ -622,7 +640,7 @@ async def run_analysis_cycle() -> None:
                     severity=severity,
                     alertname="prometheus_analyzer_anomaly",
                     title=anomaly_title,
-                    description=analysis[:500],
+                    description=stored_description,
                     instance_role="prometheus_analyzer",
                     host=host,
                     anomaly_type="new",
@@ -648,8 +666,8 @@ async def run_analysis_cycle() -> None:
                     log_content=analysis[:10000],
                     analysis_result=analysis,
                     severity=severity,
-                    root_cause="LLM 분석 실패 — 이상 목록만 나열" if llm_error else analysis[:500],
-                    recommendation="",
+                    root_cause=stored_root_cause,
+                    recommendation=parsed_analysis.get("immediate_action", "") if parsed_analysis else "",
                     error_message=llm_error,
                     model_used=LLM_TYPE,
                     incident_id=incident.id,
