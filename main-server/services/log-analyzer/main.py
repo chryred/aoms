@@ -61,6 +61,12 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             logger.warning("컬렉션 초기화 실패 %s — 분석 중 재시도됨: %s", col, e)
 
+    # 집계 컬렉션 (metric_hourly_patterns / aggregation_summaries) 보장
+    try:
+        await aggregation_vector_client.ensure_aggregation_collections()
+    except Exception as e:
+        logger.warning("집계 컬렉션 초기화 실패 — 스케줄러 실행 중 재시도됨: %s", e)
+
     # V1 Knowledge 컬렉션 (3종) 보장
     try:
         await knowledge_vector_client.ensure_knowledge_collections()
