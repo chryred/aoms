@@ -65,4 +65,5 @@ export interface UserUpdateRequest {
 export interface UserAdminUpdateRequest {
   name?: string
   email?: string
+  password?: string
 }

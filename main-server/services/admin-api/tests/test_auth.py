@@ -237,3 +237,73 @@ async def test_my_primary_systems_without_token(
 ):
     resp = await client.get("/api/v1/auth/me/primary-systems")
     assert resp.status_code == 401
+
+
+# ── 관리자 사용자 수정 — 비밀번호 변경 ──────────────────────────────────────────
+@pytest.mark.asyncio
+async def test_admin_update_user_password_changes_hash(
+    authed_client: AsyncClient, db_session: AsyncSession
+):
+    """관리자가 사용자 수정 시 password 필드를 보내면 password_hash가 갱신되고
+    새 비밀번호로 로그인할 수 있어야 한다 (유효성 검사 없음)."""
+    target = await _create_user(
+        db_session, email="target@example.com", password="oldpassword"
+    )
+    old_hash = target.password_hash
+
+    resp = await authed_client.patch(
+        f"/api/v1/auth/users/{target.id}",
+        json={"password": "abc"},  # 8자 미만 — 일반 register 검증이면 거절될 짧은 값
+    )
+    assert resp.status_code == 200
+
+    await db_session.refresh(target)
+    assert target.password_hash != old_hash
+
+    # 새 비밀번호로 로그인 가능해야 함
+    login_resp = await authed_client.post(
+        "/api/v1/auth/login",
+        json={"email": "target@example.com", "password": "abc"},
+    )
+    assert login_resp.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_admin_update_user_without_password_keeps_hash(
+    authed_client: AsyncClient, db_session: AsyncSession
+):
+    """password 필드를 보내지 않으면 기존 password_hash가 유지되어야 한다."""
+    target = await _create_user(
+        db_session, email="keep@example.com", password="keep1234"
+    )
+    old_hash = target.password_hash
+
+    resp = await authed_client.patch(
+        f"/api/v1/auth/users/{target.id}",
+        json={"name": "새이름"},
+    )
+    assert resp.status_code == 200
+
+    await db_session.refresh(target)
+    assert target.password_hash == old_hash
+    assert target.name == "새이름"
+
+
+@pytest.mark.asyncio
+async def test_admin_update_user_empty_password_keeps_hash(
+    authed_client: AsyncClient, db_session: AsyncSession
+):
+    """password 빈 문자열은 무시되어 기존 hash가 유지되어야 한다."""
+    target = await _create_user(
+        db_session, email="empty@example.com", password="empty1234"
+    )
+    old_hash = target.password_hash
+
+    resp = await authed_client.patch(
+        f"/api/v1/auth/users/{target.id}",
+        json={"password": ""},
+    )
+    assert resp.status_code == 200
+
+    await db_session.refresh(target)
+    assert target.password_hash == old_hash

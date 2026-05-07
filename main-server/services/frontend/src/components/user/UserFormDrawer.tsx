@@ -13,6 +13,7 @@ import type { UserAdminOut } from '@/types/auth'
 const userSchema = z.object({
   name: z.string().min(1, '이름을 입력해주세요').max(100),
   email: z.string().email('올바른 이메일 형식이 아닙니다'),
+  password: z.string().optional(),
 })
 
 type FormValues = z.infer<typeof userSchema>
@@ -39,12 +40,12 @@ export function UserFormDrawer({ open, onClose, editTarget }: UserFormDrawerProp
     formState: { errors },
   } = useForm<FormValues>({
     resolver: zodResolver(userSchema),
-    defaultValues: { name: '', email: '' },
+    defaultValues: { name: '', email: '', password: '' },
   })
 
   useEffect(() => {
     if (open && displayEdit) {
-      reset({ name: displayEdit.name, email: displayEdit.email })
+      reset({ name: displayEdit.name, email: displayEdit.email, password: '' })
     }
   }, [open, displayEdit, reset])
 
@@ -83,7 +84,14 @@ export function UserFormDrawer({ open, onClose, editTarget }: UserFormDrawerProp
   }, [open, onClose])
 
   const onSubmit = (data: FormValues) => {
-    updateMutation.mutate(data, { onSuccess: onClose })
+    const payload: { name: string; email: string; password?: string } = {
+      name: data.name,
+      email: data.email,
+    }
+    if (data.password && data.password.length > 0) {
+      payload.password = data.password
+    }
+    updateMutation.mutate(payload, { onSuccess: onClose })
   }
 
   return (
@@ -138,8 +146,18 @@ export function UserFormDrawer({ open, onClose, editTarget }: UserFormDrawerProp
               error={errors.email?.message}
               {...register('email')}
             />
+            <NeuInput
+              id="password"
+              label="새 비밀번호"
+              type="password"
+              placeholder="변경할 경우에만 입력 (비워두면 유지)"
+              autoComplete="new-password"
+              error={errors.password?.message}
+              {...register('password')}
+            />
             <p className="text-text-secondary text-xs">
-              이름/이메일 변경 시 연결된 담당자 정보도 자동으로 동기화됩니다.
+              이름/이메일 변경 시 연결된 담당자 정보도 자동으로 동기화됩니다. 비밀번호 입력 시
+              유효성 검사 없이 그대로 적용됩니다.
             </p>
             <div className="flex justify-end gap-2 pt-2">
               <NeuButton type="button" variant="ghost" onClick={onClose}>

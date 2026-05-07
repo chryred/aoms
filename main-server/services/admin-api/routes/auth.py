@@ -113,6 +113,7 @@ class UserUpdateMe(BaseModel):
 class UserAdminUpdate(BaseModel):
     name: Optional[str] = None
     email: Optional[str] = None
+    password: Optional[str] = None
 
 
 # ── 엔드포인트 ───────────────────────────────────────────────────────────────
@@ -376,6 +377,9 @@ async def update_user(
 
     if body.name is not None:
         user.name = body.name
+
+    if body.password:
+        user.password_hash = get_password_hash(body.password)
 
     await db.commit()
     await db.refresh(user)
