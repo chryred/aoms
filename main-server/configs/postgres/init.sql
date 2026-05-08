@@ -275,6 +275,7 @@ CREATE TABLE IF NOT EXISTS alert_feedback_attachments (
     sort_order        INTEGER      NOT NULL DEFAULT 0,
     ocr_text          TEXT,
     ocr_status        VARCHAR(20)  DEFAULT 'pending',  -- pending|processing|done|failed
+    ocr_progress      INTEGER      NOT NULL DEFAULT 0,  -- 0~100
     created_at        TIMESTAMP    NOT NULL DEFAULT NOW()
 );
 

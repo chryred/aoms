@@ -9,7 +9,9 @@
 - txt: 그대로
 """
 
+import io
 from pathlib import Path
+from typing import Callable
 import logging
 
 import pdfplumber
@@ -29,22 +31,43 @@ _XLSX_MIME = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 _PPTX_MIME = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
 _TEXT_MIME = "text/plain"
 
+_NOOP_CB: Callable[[int], None] = lambda _: None
+
 
 def extract_text(file_path: Path, mime_type: str) -> str:
     """동기 함수. 첨부 파일에서 텍스트 추출. 실패 시 빈 문자열 반환 + warn 로그."""
+    return extract_text_with_progress(file_path, mime_type, _NOOP_CB)
+
+
+def extract_text_with_progress(
+    file_path: Path, mime_type: str, progress_cb: Callable[[int], None]
+) -> str:
+    """진행률 콜백 포함 텍스트 추출. progress_cb(0~100)은 동기 컨텍스트(스레드)에서 호출됨."""
     try:
         if mime_type in _IMAGE_MIMES:
-            return _ocr_image_blob(file_path.read_bytes())
+            progress_cb(10)
+            result = _ocr_image_blob(file_path.read_bytes())
+            progress_cb(100)
+            return result
         if mime_type == _PDF_MIME:
-            return _extract_pdf(file_path)
+            return _extract_pdf_with_progress(file_path, progress_cb)
         if mime_type == _DOCX_MIME:
-            return _extract_docx(file_path)
+            progress_cb(50)
+            result = _extract_docx(file_path)
+            progress_cb(100)
+            return result
         if mime_type == _XLSX_MIME:
-            return _extract_xlsx(file_path)
+            progress_cb(50)
+            result = _extract_xlsx(file_path)
+            progress_cb(100)
+            return result
         if mime_type == _PPTX_MIME:
-            return _extract_pptx(file_path)
+            return _extract_pptx_with_progress(file_path, progress_cb)
         if mime_type == _TEXT_MIME:
-            return file_path.read_text(encoding="utf-8", errors="replace")
+            progress_cb(50)
+            result = file_path.read_text(encoding="utf-8", errors="replace")
+            progress_cb(100)
+            return result
         logger.warning("Unsupported MIME for OCR: %s (%s)", mime_type, file_path)
         return ""
     except Exception as exc:
@@ -53,26 +76,53 @@ def extract_text(file_path: Path, mime_type: str) -> str:
 
 
 def _extract_pdf(path: Path) -> str:
-    """pdfplumber 우선. 텍스트 미추출 시 페이지 이미지 blob → OCR."""
+    return _extract_pdf_with_progress(path, _NOOP_CB)
+
+
+def _extract_pdf_with_progress(path: Path, progress_cb: Callable[[int], None]) -> str:
+    """pdfplumber 우선. 텍스트 미추출 시 페이지 이미지 blob → OCR. 페이지마다 진행률 갱신."""
     parts: list[str] = []
     with pdfplumber.open(path) as pdf:
-        for page in pdf.pages:
+        total = max(len(pdf.pages), 1)
+        for i, page in enumerate(pdf.pages):
             txt = page.extract_text() or ""
             if txt.strip():
                 parts.append(txt)
-                continue
-            # 텍스트 없는 페이지 — 이미지 OCR 폴백
-            for img in page.images:
-                # img는 dict (x0, top, x1, bottom, stream). 이미지 blob 추출
-                try:
-                    img_obj = page.crop((img["x0"], img["top"], img["x1"], img["bottom"])).to_image(resolution=150)
-                    import io
-                    buf = io.BytesIO()
-                    img_obj.save(buf, format="PNG")
-                    parts.append(_ocr_image_blob(buf.getvalue()))
-                except Exception as exc:
-                    logger.warning("PDF page OCR fallback fail: %s", exc)
+            else:
+                # 텍스트 없는 페이지 — 이미지 OCR 폴백
+                for img in page.images:
+                    try:
+                        img_obj = page.crop((img["x0"], img["top"], img["x1"], img["bottom"])).to_image(resolution=150)
+                        buf = io.BytesIO()
+                        img_obj.save(buf, format="PNG")
+                        parts.append(_ocr_image_blob(buf.getvalue()))
+                    except Exception as exc:
+                        logger.warning("PDF page OCR fallback fail: %s", exc)
+            progress_cb(int((i + 1) / total * 100))
     return "\n\n".join(p for p in parts if p.strip())
+
+
+def _extract_pptx_with_progress(path: Path, progress_cb: Callable[[int], None]) -> str:
+    """PPTX 슬라이드별 진행률 갱신 포함 추출."""
+    prs = Presentation(path)
+    total = max(len(prs.slides), 1)
+    parts: list[str] = []
+    for slide_idx, slide in enumerate(prs.slides, 1):
+        slide_parts = [f"[Slide {slide_idx}]"]
+        for shape in slide.shapes:
+            if shape.has_text_frame:
+                for p in shape.text_frame.paragraphs:
+                    txt = "".join(r.text for r in p.runs)
+                    if txt.strip():
+                        slide_parts.append(txt)
+            if hasattr(shape, "image") and shape.image:
+                try:
+                    slide_parts.append(_ocr_image_blob(shape.image.blob))
+                except Exception:
+                    pass
+        parts.append("\n".join(slide_parts))
+        progress_cb(int(slide_idx / total * 100))
+    return "\n\n".join(parts)
 
 
 def _extract_docx(path: Path) -> str:
@@ -91,25 +141,4 @@ def _extract_xlsx(path: Path) -> str:
                 sheet_lines.append("\t".join(cells))
         parts.append("\n".join(sheet_lines))
     wb.close()
-    return "\n\n".join(parts)
-
-
-def _extract_pptx(path: Path) -> str:
-    prs = Presentation(path)
-    parts: list[str] = []
-    for slide_idx, slide in enumerate(prs.slides, 1):
-        slide_parts = [f"[Slide {slide_idx}]"]
-        for shape in slide.shapes:
-            if shape.has_text_frame:
-                for p in shape.text_frame.paragraphs:
-                    txt = "".join(r.text for r in p.runs)
-                    if txt.strip():
-                        slide_parts.append(txt)
-            # 도형 이미지 — try OCR
-            if hasattr(shape, "image") and shape.image:
-                try:
-                    slide_parts.append(_ocr_image_blob(shape.image.blob))
-                except Exception:
-                    pass
-        parts.append("\n".join(slide_parts))
     return "\n\n".join(parts)

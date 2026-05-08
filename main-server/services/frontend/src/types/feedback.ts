@@ -7,6 +7,7 @@ export interface FeedbackAttachment {
   sort_order: number
   ocr_text: string | null
   ocr_status: 'pending' | 'processing' | 'done' | 'failed'
+  ocr_progress: number
   created_at: string
 }
 

@@ -68,7 +68,10 @@ export function FeedbackDetailView({ feedback, onResubmit }: FeedbackDetailViewP
     <div className="space-y-3">
       {/* OCR 실패 경고 — 사용자가 첨부 재등록 결정에 필요한 정보 */}
       {failedAttachments.length > 0 && (
-        <div role="alert" className="border-critical/30 bg-critical/5 flex items-start gap-2 rounded-sm border p-3">
+        <div
+          role="alert"
+          className="border-critical/30 bg-critical/5 flex items-start gap-2 rounded-sm border p-3"
+        >
           <AlertTriangle aria-hidden="true" className="text-critical mt-0.5 h-4 w-4 shrink-0" />
           <div className="text-text-primary min-w-0 flex-1 text-sm">
             <p className="text-critical mb-1 font-semibold">
@@ -86,7 +89,10 @@ export function FeedbackDetailView({ feedback, onResubmit }: FeedbackDetailViewP
                 disabled={retryMutation.isPending}
                 className="mt-2"
               >
-                <RefreshCw aria-hidden="true" className={`h-3 w-3 ${retryMutation.isPending ? 'animate-spin' : ''}`} />
+                <RefreshCw
+                  aria-hidden="true"
+                  className={`h-3 w-3 ${retryMutation.isPending ? 'animate-spin' : ''}`}
+                />
                 {retryMutation.isPending ? 'OCR 재시도 요청 중...' : 'OCR 재시도'}
               </NeuButton>
             )}
@@ -96,8 +102,15 @@ export function FeedbackDetailView({ feedback, onResubmit }: FeedbackDetailViewP
 
       {/* OCR 처리 중 안내 — 승인 시 425 발생 가능 */}
       {failedAttachments.length === 0 && processingAttachments.length > 0 && (
-        <div role="status" aria-live="polite" className="border-warning/30 bg-warning/5 flex items-start gap-2 rounded-sm border p-3">
-          <Loader2 aria-hidden="true" className="text-warning mt-0.5 h-4 w-4 shrink-0 animate-spin" />
+        <div
+          role="status"
+          aria-live="polite"
+          className="border-warning/30 bg-warning/5 flex items-start gap-2 rounded-sm border p-3"
+        >
+          <Loader2
+            aria-hidden="true"
+            className="text-warning mt-0.5 h-4 w-4 shrink-0 animate-spin"
+          />
           <div className="min-w-0 flex-1">
             <p className="text-text-secondary text-xs leading-relaxed">
               첨부 OCR 처리 중입니다 ({processingAttachments.length}건). 잠시 후 다시 확인해 주세요.
@@ -110,7 +123,10 @@ export function FeedbackDetailView({ feedback, onResubmit }: FeedbackDetailViewP
                 disabled={retryMutation.isPending}
                 className="mt-2"
               >
-                <RefreshCw aria-hidden="true" className={`h-3 w-3 ${retryMutation.isPending ? 'animate-spin' : ''}`} />
+                <RefreshCw
+                  aria-hidden="true"
+                  className={`h-3 w-3 ${retryMutation.isPending ? 'animate-spin' : ''}`}
+                />
                 {retryMutation.isPending ? 'OCR 재시도 요청 중...' : 'OCR 재시도'}
               </NeuButton>
             )}
@@ -204,7 +220,12 @@ export function FeedbackDetailView({ feedback, onResubmit }: FeedbackDetailViewP
                   className="border-border bg-bg-base flex flex-wrap items-center gap-x-3 gap-y-1 rounded-sm border p-2"
                 >
                   {isImage ? (
-                    <a href={url} target="_blank" rel="noopener noreferrer" aria-label={`${name} 새 탭에서 열기`}>
+                    <a
+                      href={url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      aria-label={`${name} 새 탭에서 열기`}
+                    >
                       <img src={url} alt={name} className="h-10 w-10 rounded-sm object-cover" />
                     </a>
                   ) : (
@@ -214,7 +235,9 @@ export function FeedbackDetailView({ feedback, onResubmit }: FeedbackDetailViewP
                   )}
                   <span className="text-text-primary min-w-0 flex-1 truncate text-sm">{name}</span>
                   <span className="flex shrink-0 items-center gap-2">
-                    {att.ocr_status === 'failed' && <NeuBadge variant="critical">OCR 실패</NeuBadge>}
+                    {att.ocr_status === 'failed' && (
+                      <NeuBadge variant="critical">OCR 실패</NeuBadge>
+                    )}
                     {att.ocr_status === 'processing' && (
                       <NeuBadge variant="warning">OCR 처리 중</NeuBadge>
                     )}

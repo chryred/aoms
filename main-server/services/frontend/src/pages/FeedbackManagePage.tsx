@@ -114,10 +114,7 @@ export function FeedbackManagePage() {
 
   const [searchParams, setSearchParams] = useSearchParams()
 
-  const tabs = useMemo(
-    () => (isAdmin ? ALL_MANAGE_TABS : ALL_MANAGE_TABS.slice(0, 1)),
-    [isAdmin],
-  )
+  const tabs = useMemo(() => (isAdmin ? ALL_MANAGE_TABS : ALL_MANAGE_TABS.slice(0, 1)), [isAdmin])
 
   const tabParam = searchParams.get('tab') as ManageTab | null
   const activeTab: ManageTab = tabs.some((t) => t.key === tabParam) ? tabParam! : 'search'
@@ -272,11 +269,6 @@ export function FeedbackManagePage() {
             </button>
           ))}
         </div>
-        <div
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-y-0 right-0 w-8"
-          style={{ background: 'linear-gradient(to left, var(--color-bg-base), transparent)' }}
-        />
       </div>
 
       {/* 탭 콘텐츠 */}

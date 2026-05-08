@@ -251,6 +251,7 @@ class AlertFeedbackAttachment(Base):
     sort_order        = Column(Integer, nullable=False, default=0, server_default="0")
     ocr_text          = Column(Text, nullable=True)
     ocr_status        = Column(String(20), nullable=False, default="pending", server_default="pending")  # pending|processing|done|failed
+    ocr_progress      = Column(Integer, nullable=False, default=0, server_default="0")  # 0~100
     created_at        = Column(DateTime, default=func.now())
 
     feedback = relationship("AlertFeedback", back_populates="attachments")

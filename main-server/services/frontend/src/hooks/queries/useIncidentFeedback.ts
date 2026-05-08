@@ -12,7 +12,9 @@ export function useIncidentFeedback(incidentId: number | null, status?: string) 
     refetchInterval: (query) => {
       const data = query.state.data as Feedback[] | undefined
       if (!data) return false
-      const hasProcessing = data.some((fb) => fb.attachments?.some((a) => a.ocr_status === 'processing'))
+      const hasProcessing = data.some((fb) =>
+        fb.attachments?.some((a) => a.ocr_status === 'processing'),
+      )
       return hasProcessing ? 5000 : false
     },
   })

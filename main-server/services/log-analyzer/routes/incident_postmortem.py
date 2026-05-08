@@ -2,19 +2,22 @@
 incident_postmortems 라우터 — Wave 1B
 
 엔드포인트:
-  POST /incident-postmortem/embed            — 인시던트 postmortem 임베딩 저장
-  POST /incident-postmortem/search           — 자연어 쿼리로 Hybrid 검색
-  GET  /incident-postmortem/by-incident/{id} — incident_id 직접 조회
-  POST /incident-postmortem/ocr/process      — 파일 경로 OCR 처리 (텍스트 추출)
+  POST /incident-postmortem/embed             — 인시던트 postmortem 임베딩 저장
+  POST /incident-postmortem/search            — 자연어 쿼리로 Hybrid 검색
+  GET  /incident-postmortem/by-incident/{id}  — incident_id 직접 조회
+  POST /incident-postmortem/ocr/process       — 파일 경로 OCR 처리 (텍스트 추출)
+  POST /incident-postmortem/ocr/process-stream — SSE 스트리밍 OCR (진행률 포함)
 """
 
 import asyncio
+import json
 import logging
 import os
 import pathlib
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 import vector_client
@@ -52,7 +55,7 @@ class EmbedPostmortemResponse(BaseModel):
 
 
 class SearchPostmortemRequest(BaseModel):
-    query:     str
+    query:     str = ""
     system_id: Optional[int] = None
     severity:  Optional[str] = None
     limit:     int = 5
@@ -99,22 +102,32 @@ async def embed_postmortem(req: EmbedPostmortemRequest):
 @router.post("/search", response_model=list[SearchResultItem])
 async def search_postmortem(req: SearchPostmortemRequest):
     """
-    자연어 쿼리로 incident_postmortems Hybrid 검색.
+    incident_postmortems 검색.
 
-    system_id / severity 필터는 선택적.
+    query가 비어 있으면 scroll로 전체 목록 반환 (system_id/severity 필터 적용).
+    query가 있으면 Hybrid(Dense+Sparse RRF) 검색.
     """
     if not req.query.strip():
-        raise HTTPException(status_code=422, detail="query는 비어 있을 수 없습니다.")
-    try:
-        results = await vector_client.search_postmortem(
-            query=req.query,
-            system_id=req.system_id,
-            severity=req.severity,
-            limit=req.limit,
-        )
-    except Exception as exc:
-        logger.error("postmortem 검색 실패: %s", exc)
-        raise HTTPException(status_code=500, detail=f"검색 실패: {exc}")
+        try:
+            results = await vector_client.list_postmortems(
+                system_id=req.system_id,
+                severity=req.severity,
+                limit=req.limit,
+            )
+        except Exception as exc:
+            logger.error("postmortem 목록 조회 실패: %s", exc)
+            raise HTTPException(status_code=500, detail=f"목록 조회 실패: {exc}")
+    else:
+        try:
+            results = await vector_client.search_postmortem(
+                query=req.query,
+                system_id=req.system_id,
+                severity=req.severity,
+                limit=req.limit,
+            )
+        except Exception as exc:
+            logger.error("postmortem 검색 실패: %s", exc)
+            raise HTTPException(status_code=500, detail=f"검색 실패: {exc}")
 
     return [
         SearchResultItem(id=str(r["id"]), score=r["score"], payload=r["payload"])
@@ -174,3 +187,70 @@ async def ocr_process(req: OcrProcessRequest):
         raise HTTPException(status_code=500, detail=f"OCR 실패: {exc}")
 
     return {"text": text, "char_count": len(text)}
+
+
+@router.post("/ocr/process-stream")
+async def ocr_process_stream(req: OcrProcessRequest):
+    """SSE 스트리밍 OCR — 진행률 이벤트(0~100)를 포함한 text/event-stream 응답.
+
+    이벤트 형식:
+      data: {"progress": 25, "status": "processing"}
+      data: {"progress": 100, "status": "done", "text": "..."}
+      data: {"progress": 0, "status": "failed", "text": ""}
+    """
+    try:
+        input_path = pathlib.Path(req.file_path)
+        if not input_path.is_absolute():
+            input_path = pathlib.Path(KNOWLEDGE_DOCS_DIR) / input_path
+        resolved = input_path.resolve()
+        base = pathlib.Path(KNOWLEDGE_DOCS_DIR).resolve()
+        resolved.relative_to(base)
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail=f"file_path는 KNOWLEDGE_DOCS_DIR({KNOWLEDGE_DOCS_DIR}) 하위여야 합니다.",
+        )
+
+    if not resolved.exists():
+        raise HTTPException(status_code=404, detail=f"파일을 찾을 수 없습니다: {resolved}")
+
+    mime_type = req.mime_type
+    resolved_path = resolved
+
+    async def event_generator():
+        loop = asyncio.get_event_loop()
+        queue: asyncio.Queue = asyncio.Queue()
+
+        def progress_cb(pct: int) -> None:
+            loop.call_soon_threadsafe(
+                queue.put_nowait,
+                {"progress": pct, "status": "processing"},
+            )
+
+        async def run_ocr():
+            try:
+                text = await loop.run_in_executor(
+                    None,
+                    ocr_worker.extract_text_with_progress,
+                    resolved_path,
+                    mime_type,
+                    progress_cb,
+                )
+                await queue.put({"progress": 100, "status": "done", "text": text})
+            except Exception as exc:
+                logger.error("SSE OCR 처리 실패: %s — %s", resolved_path, exc)
+                await queue.put({"progress": 0, "status": "failed", "text": ""})
+            finally:
+                await queue.put(None)  # sentinel
+
+        task = asyncio.create_task(run_ocr())
+        try:
+            while True:
+                event = await queue.get()
+                if event is None:
+                    break
+                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+        finally:
+            task.cancel()
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
