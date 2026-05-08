@@ -2,12 +2,15 @@
 incident_postmortem_client.py — log-analyzer HTTP 클라이언트 (인시던트 사후 분석용)
 
 호출 대상:
-  POST /incident-postmortem/embed   — 해결책 Qdrant 임베딩
-  POST /incident-postmortem/search  — Hybrid 검색
-  POST /incident-postmortem/ocr/process — OCR 처리
+  POST /incident-postmortem/embed             — 해결책 Qdrant 임베딩
+  POST /incident-postmortem/search            — Hybrid 검색
+  POST /incident-postmortem/ocr/process       — OCR 처리 (단순 동기)
+  POST /incident-postmortem/ocr/process-stream — SSE 스트리밍 OCR (진행률 포함)
 """
+import json
 import logging
 import os
+from typing import Callable, Awaitable
 
 import httpx
 
@@ -27,12 +30,13 @@ async def embed_postmortem(payload: dict, qdrant_point_id: str | None = None) ->
 
 
 async def search_postmortem(
-    query: str,
+    query: str = "",
     system_id: int | None = None,
     severity: str | None = None,
-    limit: int = 10,
+    limit: int = 20,
 ) -> list[dict]:
-    """log-analyzer /incident-postmortem/search 호출. 반환: results 목록"""
+    """log-analyzer /incident-postmortem/search 호출. 반환: results 목록.
+    query가 빈 문자열이면 log-analyzer가 scroll 전체 목록 반환."""
     body: dict = {"query": query, "limit": limit}
     if system_id is not None:
         body["system_id"] = system_id
@@ -74,7 +78,7 @@ async def get_by_incident(incident_id: int) -> dict | None:
 
 
 async def trigger_ocr(file_path: str, mime_type: str) -> dict:
-    """log-analyzer /incident-postmortem/ocr/process 호출. 반환: {ocr_text, ocr_status}"""
+    """log-analyzer /incident-postmortem/ocr/process 호출. 반환: {text, char_count}"""
     async with httpx.AsyncClient(timeout=60.0) as client:
         resp = await client.post(
             f"{LOG_ANALYZER_URL}/incident-postmortem/ocr/process",
@@ -82,3 +86,38 @@ async def trigger_ocr(file_path: str, mime_type: str) -> dict:
         )
         resp.raise_for_status()
         return resp.json()
+
+
+async def trigger_ocr_streaming(
+    file_path: str,
+    mime_type: str,
+    on_progress: Callable[[int], Awaitable[None]] | None = None,
+) -> dict:
+    """SSE 스트리밍 OCR — 진행률 콜백을 받아 각 progress 이벤트마다 호출.
+
+    반환: {"text": str, "ocr_status": "done"|"failed"}
+    """
+    _timeout = httpx.Timeout(connect=10.0, read=None, write=10.0, pool=10.0)
+    async with httpx.AsyncClient(timeout=_timeout) as client:
+        async with client.stream(
+            "POST",
+            f"{LOG_ANALYZER_URL}/incident-postmortem/ocr/process-stream",
+            json={"file_path": file_path, "mime_type": mime_type},
+        ) as response:
+            response.raise_for_status()
+            ocr_text = ""
+            ocr_status = "failed"
+            async for line in response.aiter_lines():
+                if not line.startswith("data:"):
+                    continue
+                try:
+                    data = json.loads(line[5:].strip())
+                except Exception:
+                    continue
+                status = data.get("status", "")
+                if status == "processing" and on_progress is not None:
+                    await on_progress(int(data.get("progress", 0)))
+                elif status in ("done", "failed"):
+                    ocr_text = data.get("text", "")
+                    ocr_status = status
+    return {"text": ocr_text, "ocr_status": ocr_status}

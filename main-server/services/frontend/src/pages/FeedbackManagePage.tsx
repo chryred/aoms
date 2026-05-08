@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useMemo } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Search, ArrowRight, ClipboardCheck } from 'lucide-react'
+import { Search, ArrowRight, ClipboardCheck, ArrowUpDown } from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { incidentsApi } from '@/api/incidents'
 import { useSystems } from '@/hooks/queries/useSystems'
@@ -22,11 +22,12 @@ import type { IncidentPostmortemItem } from '@/api/incidents'
 const SEVERITY_STYLES: Record<string, string> = {
   critical: 'bg-critical/15 text-critical border-critical/30',
   warning: 'bg-warning/15 text-warning border-warning/30',
+  info: 'bg-accent/10 text-accent border-accent/30',
 }
 
 function SeverityBadge({ severity }: { severity?: string }) {
   if (!severity) return null
-  const LABELS: Record<string, string> = { critical: 'CRITICAL', warning: 'WARNING' }
+  const LABELS: Record<string, string> = { critical: 'CRITICAL', warning: 'WARNING', info: 'INFO' }
   return (
     <span
       className={cn(
@@ -39,7 +40,7 @@ function SeverityBadge({ severity }: { severity?: string }) {
   )
 }
 
-function PostmortemCard({ item }: { item: IncidentPostmortemItem }) {
+function PostmortemCard({ item, isListMode }: { item: IncidentPostmortemItem; isListMode?: boolean }) {
   const navigate = useNavigate()
   const p = item.payload
   const incidentId = p.incident_id
@@ -50,9 +51,11 @@ function PostmortemCard({ item }: { item: IncidentPostmortemItem }) {
         {incidentId && <span className="text-text-disabled font-mono text-xs">#{incidentId}</span>}
         {p.severity && <SeverityBadge severity={p.severity} />}
         {p.system_name && <span className="text-text-secondary text-xs">{p.system_name}</span>}
-        <span className="text-text-disabled ml-auto font-mono text-xs">
-          {item.score.toFixed(4)} RRF
-        </span>
+        {!isListMode && item.score > 0 && (
+          <span className="text-text-disabled ml-auto font-mono text-xs">
+            {item.score.toFixed(4)} RRF
+          </span>
+        )}
       </div>
 
       {p.title && <p className="text-text-primary leading-snug font-semibold">{p.title}</p>}
@@ -154,18 +157,21 @@ export function FeedbackManagePage() {
 
   const { data: systems = [] } = useSystems()
 
-  const enabled = appliedQuery.trim().length > 0
+  const [hasSearched, setHasSearched] = useState(
+    initialQuery.length > 0 || initialSystemId.length > 0 || initialSeverity.length > 0,
+  )
+  const [sortMode, setSortMode] = useState<'score' | 'incident'>('score')
 
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['incidents', 'postmortem-search', appliedQuery, appliedSystemId, appliedSeverity],
     queryFn: () =>
       incidentsApi.searchPostmortem({
-        query: appliedQuery.trim(),
+        query: appliedQuery.trim() || undefined,
         system_id: appliedSystemId ? Number(appliedSystemId) : undefined,
         severity: appliedSeverity || undefined,
         limit: 20,
       }),
-    enabled,
+    enabled: hasSearched,
     staleTime: 30_000,
   })
 
@@ -174,6 +180,7 @@ export function FeedbackManagePage() {
     setAppliedQuery(trimmed)
     setAppliedSystemId(systemId)
     setAppliedSeverity(severity)
+    setHasSearched(true)
     setSearchParams(
       (prev) => {
         const next = new URLSearchParams(prev)
@@ -203,6 +210,7 @@ export function FeedbackManagePage() {
     setAppliedSystemId('')
     setSeverity('')
     setAppliedSeverity('')
+    setHasSearched(false)
     setSearchParams(
       (prev) => {
         const tab = prev.get('tab') ?? 'search'
@@ -212,21 +220,32 @@ export function FeedbackManagePage() {
     )
   }
 
-  const results = data?.results ?? []
+  const results = useMemo(() => {
+    const raw = data?.results ?? []
+    if (!raw.length) return raw
+    if (sortMode === 'incident') {
+      return [...raw].sort(
+        (a, b) => (b.payload.incident_id ?? 0) - (a.payload.incident_id ?? 0),
+      )
+    }
+    return raw
+  }, [data, sortMode])
+
   const hasFilters = appliedQuery || appliedSystemId || appliedSeverity
+  const isListMode = hasSearched && !appliedQuery.trim()
 
   return (
     <div>
       <PageHeader
-        title="해결책 관리"
-        description="인시던트 사후분석 검색 및 해결책 감리를 관리합니다"
+        title="해결책 검색"
+        description="과거 인시던트 사후분석을 시맨틱 검색하거나 전체 목록을 조회합니다"
       />
 
       {/* 탭 내비게이션 */}
       <div className="relative mb-4 w-fit max-w-full">
         <div
           role="tablist"
-          aria-label="해결책 관리 탭"
+          aria-label="해결책 검색 탭"
           className="bg-bg-base shadow-neu-pressed relative flex w-fit max-w-full gap-1 overflow-x-auto rounded-sm p-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
         >
           <span
@@ -303,10 +322,10 @@ export function FeedbackManagePage() {
                   <option value="warning">WARNING</option>
                 </NeuSelect>
               </div>
-              <NeuButton onClick={applySearch} disabled={!query.trim()}>
+              <NeuButton onClick={applySearch}>
                 검색
               </NeuButton>
-              {hasFilters && (
+              {(hasFilters || hasSearched) && (
                 <NeuButton variant="ghost" onClick={resetSearch}>
                   초기화
                 </NeuButton>
@@ -314,11 +333,11 @@ export function FeedbackManagePage() {
             </div>
 
             {/* 결과 */}
-            {!enabled ? (
+            {!hasSearched ? (
               <EmptyState
                 icon={<Search className="h-8 w-8" />}
-                title="검색어를 입력하세요"
-                description="증상, 원인, 해결책 관련 키워드를 자연어로 입력하고 검색 버튼을 누르세요"
+                title="검색어 또는 필터를 선택하고 검색하세요"
+                description="키워드 없이 검색하면 전체 목록이 표시됩니다. 시스템·심각도 필터를 조합할 수 있습니다."
               />
             ) : isLoading ? (
               <LoadingSkeleton shape="card" count={5} />
@@ -327,14 +346,31 @@ export function FeedbackManagePage() {
             ) : results.length === 0 ? (
               <EmptyState
                 icon={<Search className="h-8 w-8" />}
-                title="검색 결과가 없습니다"
-                description="다른 키워드로 검색해 보세요"
+                title={isListMode ? '등록된 사후분석이 없습니다' : '검색 결과가 없습니다'}
+                description={isListMode ? '필터를 변경해 보세요' : '다른 키워드로 검색해 보세요'}
               />
             ) : (
               <div className="flex flex-col gap-3">
-                <p className="text-text-secondary text-sm">{results.length}건 검색됨</p>
+                <div className="flex items-center justify-between">
+                  <p className="text-text-secondary text-sm">
+                    {isListMode ? `전체 ${results.length}건` : `${results.length}건 검색됨`}
+                  </p>
+                  <div className="flex items-center gap-1.5">
+                    <ArrowUpDown className="text-text-disabled h-3.5 w-3.5" />
+                    <select
+                      value={sortMode}
+                      onChange={(e) => setSortMode(e.target.value as 'score' | 'incident')}
+                      className="bg-bg-base text-text-secondary border-border focus:ring-accent rounded-sm border px-2 py-1 text-xs focus:ring-1 focus:outline-none"
+                    >
+                      <option value="score">
+                        {isListMode ? '등록 순' : '관련도순'}
+                      </option>
+                      <option value="incident">인시던트 번호순</option>
+                    </select>
+                  </div>
+                </div>
                 {results.map((item) => (
-                  <PostmortemCard key={item.id} item={item} />
+                  <PostmortemCard key={item.id} item={item} isListMode={isListMode} />
                 ))}
               </div>
             )}

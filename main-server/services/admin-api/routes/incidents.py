@@ -104,22 +104,29 @@ def _delete_file_best_effort(file_path: str) -> None:
 # ── OCR 백그라운드 태스크 ──────────────────────────────────────────────────────
 
 async def _run_ocr_for_attachment(attachment_id: int, file_path: str, mime_type: str) -> None:
-    """OCR 백그라운드 처리 — 독립 DB 세션 사용.
+    """SSE 스트리밍 OCR 백그라운드 처리 — 독립 DB 세션 사용.
 
-    log-analyzer 응답 형식: {"text": str, "char_count": int}
-
+    log-analyzer에서 SSE로 진행률(ocr_progress 0~100)을 수신하며 DB에 즉시 갱신.
     BaseException(특히 asyncio.CancelledError) 까지 catch하여 ocr_status 가
     "processing" 으로 영구 잠기는 현상 방지. CancelledError 는 status 확정 후 re-raise.
     """
     async with AsyncSessionLocal() as session:
         try:
-            result = await postmortem_client.trigger_ocr(file_path, mime_type)
+            async def _on_progress(progress: int) -> None:
+                attach = await session.get(AlertFeedbackAttachment, attachment_id)
+                if attach and attach.ocr_status == "processing":
+                    attach.ocr_progress = progress
+                    await session.commit()
+
+            result = await postmortem_client.trigger_ocr_streaming(
+                file_path, mime_type, on_progress=_on_progress
+            )
             attach = await session.get(AlertFeedbackAttachment, attachment_id)
             if attach:
-                # log-analyzer는 'text' 키로 반환. 폴백으로 'ocr_text'도 검사.
-                text = result.get("text") or result.get("ocr_text") or ""
+                text = result.get("text") or ""
                 attach.ocr_text = text or None
-                attach.ocr_status = "done" if text else "failed"
+                attach.ocr_status = result.get("ocr_status") or ("done" if text else "failed")
+                attach.ocr_progress = 100 if attach.ocr_status == "done" else attach.ocr_progress
                 await session.commit()
         except BaseException as exc:
             is_cancel = isinstance(exc, asyncio.CancelledError)
@@ -128,7 +135,6 @@ async def _run_ocr_for_attachment(attachment_id: int, file_path: str, mime_type:
                 attachment_id, is_cancel, exc,
             )
             try:
-                # 새 session 사용 — 기존 session 이 cancel 로 dirty 일 수 있음
                 async with AsyncSessionLocal() as fail_session:
                     attach = await fail_session.get(AlertFeedbackAttachment, attachment_id)
                     if attach and attach.ocr_status == "processing":
@@ -140,45 +146,22 @@ async def _run_ocr_for_attachment(attachment_id: int, file_path: str, mime_type:
                 raise
 
 
-async def _run_ocr_for_feedback(feedback: "AlertFeedback") -> None:
-    """피드백의 모든 첨부에 대해 OCR을 동기적으로 처리.
-
-    BackgroundTasks 대신 응답 전 await로 처리하여 uvicorn reload·worker 재시작
-    상황에서도 task 중단 없이 ocr_status가 done/failed로 확정되도록 보장.
-    각 첨부의 OCR 실패는 격리되어 다른 첨부 처리에 영향 없음.
-    """
-    mime_map = {
-        ".pdf": "application/pdf",
-        ".png": "image/png",
-        ".jpg": "image/jpeg",
-        ".jpeg": "image/jpeg",
-        ".webp": "image/webp",
-        ".gif": "image/gif",
-        ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-        ".txt": "text/plain",
-    }
-    for attach in feedback.attachments:
-        if attach.ocr_status not in ("processing", None, ""):
-            continue  # 이미 done/failed 처리된 첨부는 스킵 (멱등)
-        ext = Path(attach.file_path).suffix.lower()
-        mime = mime_map.get(ext, "application/octet-stream")
-        try:
-            await _run_ocr_for_attachment(attach.id, attach.file_path, mime)
-        except asyncio.CancelledError:
-            # 클라이언트 disconnect 등으로 request task 가 취소된 경우 — _run_ocr_for_attachment
-            # 가 이미 자기 첨부의 status 를 failed 로 확정한 뒤 re-raise 했음. 잔여 processing
-            # 첨부는 detached task 로 끝까지 처리해 ocr_status 잠김을 방지.
-            logger.warning("OCR 동기 처리 cancel — 잔여 첨부는 detached task 로 진행")
-            asyncio.create_task(_run_ocr_remaining_detached(feedback.id, mime_map))
-            raise
-        except Exception as exc:
-            logger.warning("OCR 동기 처리 실패 (attachment_id=%s): %s", attach.id, exc)
+_MIME_MAP: dict[str, str] = {
+    ".pdf": "application/pdf",
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".webp": "image/webp",
+    ".gif": "image/gif",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    ".txt": "text/plain",
+}
 
 
-async def _run_ocr_remaining_detached(feedback_id: int, mime_map: dict[str, str]) -> None:
-    """request task cancel 시 잔여 processing 첨부를 끝까지 처리하는 detached worker.
+async def _run_ocr_remaining_detached(feedback_id: int) -> None:
+    """processing 상태인 모든 첨부를 detached 백그라운드 OCR 처리.
 
     `asyncio.create_task` 로 분리되어 client disconnect 와 무관하게 완료까지 실행.
     실패해도 `_run_ocr_for_attachment` 가 status 를 done/failed 로 확정함.
@@ -193,7 +176,7 @@ async def _run_ocr_remaining_detached(feedback_id: int, mime_map: dict[str, str]
         pending = result.scalars().all()
     for attach in pending:
         ext = Path(attach.file_path).suffix.lower()
-        mime = mime_map.get(ext, "application/octet-stream")
+        mime = _MIME_MAP.get(ext, "application/octet-stream")
         try:
             await _run_ocr_for_attachment(attach.id, attach.file_path, mime)
         except Exception as exc:
@@ -446,16 +429,17 @@ async def list_pending_feedbacks(
 
 @router.get("/feedback/search")
 async def search_incident_feedback(
-    query: str = Query(...),
+    query: str | None = Query(None),
     system_id: int | None = Query(None),
     severity: str | None = Query(None),
-    limit: int = Query(10, le=50),
+    limit: int = Query(20, le=50),
     _current_user=Depends(get_current_user),
 ):
-    """Qdrant Hybrid 검색 — log-analyzer /incident-postmortem/search 프록시."""
+    """Qdrant Hybrid 검색 — log-analyzer /incident-postmortem/search 프록시.
+    query 미지정/빈 문자열이면 전체 목록(scroll) 반환."""
     try:
         results = await postmortem_client.search_postmortem(
-            query=query,
+            query=query or "",
             system_id=system_id,
             severity=severity,
             limit=limit,
@@ -531,15 +515,15 @@ async def create_incident_feedback(
 
     await db.commit()
 
-    # OCR 동기 처리 (BackgroundTasks 대신 — uvicorn reload/worker 재시작 영향 회피)
+    # OCR 백그라운드 처리 — detached task 로 분리하여 즉시 응답 반환
+    # (프론트엔드가 ocr_status="processing"을 폴링하며 진행률 표시)
     result_fb = await db.execute(
         select(AlertFeedback).where(AlertFeedback.id == feedback.id)
         .options(selectinload(AlertFeedback.attachments))
     )
     feedback = result_fb.scalar_one()
-    await _run_ocr_for_feedback(feedback)
-    # OCR 결과 반영을 위해 attachments 재조회
-    await db.refresh(feedback, ["attachments"])
+    if attachment_paths:
+        asyncio.create_task(_run_ocr_remaining_detached(feedback.id))
 
     # 승인자 Teams 카드 발송 (approver_user는 위에서 로드됨 — @멘션용)
     approver_contact_dict = {"name": approver_user.name, "teams_upn": approver.teams_upn}
@@ -864,9 +848,9 @@ async def resubmit_incident_feedback(
     )
     feedback = result2.scalar_one()
 
-    # OCR 동기 처리 (uvicorn reload/worker 재시작 영향 회피)
-    await _run_ocr_for_feedback(feedback)
-    await db.refresh(feedback, ["attachments"])
+    # OCR 백그라운드 처리 — detached task 로 즉시 응답 반환
+    if attachment_paths:
+        asyncio.create_task(_run_ocr_remaining_detached(feedback.id))
 
     # 승인자 재발송 — User join으로 teams_upn까지 확보 (@멘션용)
     approver_webhook: str | None = None
@@ -945,21 +929,10 @@ async def retry_feedback_ocr(
 
     for att in targets:
         att.ocr_status = "processing"
+        att.ocr_progress = 0
     await db.commit()
 
-    mime_map = {
-        ".pdf": "application/pdf",
-        ".png": "image/png",
-        ".jpg": "image/jpeg",
-        ".jpeg": "image/jpeg",
-        ".webp": "image/webp",
-        ".gif": "image/gif",
-        ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-        ".txt": "text/plain",
-    }
-    asyncio.create_task(_run_ocr_remaining_detached(feedback_id, mime_map))
+    asyncio.create_task(_run_ocr_remaining_detached(feedback_id))
     return {"retried": len(targets), "message": "OCR 재처리를 시작했습니다."}
 
 

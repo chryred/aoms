@@ -238,9 +238,23 @@ export function FeedbackDetailView({ feedback, onResubmit }: FeedbackDetailViewP
                     {att.ocr_status === 'failed' && (
                       <NeuBadge variant="critical">OCR 실패</NeuBadge>
                     )}
-                    {att.ocr_status === 'processing' && (
-                      <NeuBadge variant="warning">OCR 처리 중</NeuBadge>
-                    )}
+                    {att.ocr_status === 'processing' &&
+                      (att.ocr_progress > 0 ? (
+                        <span
+                          className="flex items-center gap-1.5"
+                          title={`OCR ${att.ocr_progress}%`}
+                        >
+                          <span className="bg-bg-base shadow-neu-inset block h-1.5 w-20 overflow-hidden rounded-sm">
+                            <span
+                              className="bg-accent block h-full rounded-sm transition-[width] duration-300"
+                              style={{ width: `${att.ocr_progress}%` }}
+                            />
+                          </span>
+                          <span className="text-text-secondary text-xs">{att.ocr_progress}%</span>
+                        </span>
+                      ) : (
+                        <NeuBadge variant="warning">OCR 처리 중</NeuBadge>
+                      ))}
                     <a
                       href={url}
                       download={name}

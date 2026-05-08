@@ -867,6 +867,40 @@ async def search_postmortem(
     )
 
 
+async def list_postmortems(
+    system_id: int | None = None,
+    severity: str | None = None,
+    limit: int = 20,
+) -> list[dict]:
+    """
+    incident_postmortems 전체 스크롤 조회 (쿼리 없이 필터만 사용).
+    빈 검색어로 전체 보기 시 사용. score는 1.0 고정.
+    """
+    filter_must: list[dict] = []
+    if system_id is not None:
+        filter_must.append({"key": "system_id", "match": {"value": system_id}})
+    if severity:
+        filter_must.append({"key": "severity", "match": {"value": severity}})
+
+    body: dict = {
+        "limit": limit,
+        "with_payload": True,
+        "with_vector": False,
+    }
+    if filter_must:
+        body["filter"] = {"must": filter_must}
+
+    resp = await _qdrant_http.post(
+        f"{QDRANT_URL}/collections/{POSTMORTEM_COLLECTION}/points/scroll",
+        json=body,
+    )
+    if resp.status_code == 404:
+        return []
+    resp.raise_for_status()
+    points = resp.json().get("result", {}).get("points", [])
+    return [{"id": p["id"], "score": 0.0, "payload": p.get("payload", {})} for p in points]
+
+
 async def get_postmortem_by_incident(incident_id: int) -> dict | None:
     """
     incident_id로 postmortem 포인트를 직접 조회 (Qdrant /points/scroll).

@@ -226,7 +226,7 @@ export const incidentsApi = {
 
   // ── 해결책 Qdrant Hybrid 검색 ────────────────────────────────────────────
   searchPostmortem: (params: {
-    query: string
+    query?: string
     system_id?: number
     severity?: string
     limit?: number
@@ -234,7 +234,7 @@ export const incidentsApi = {
     adminApi
       .get('api/v1/incidents/feedback/search', {
         searchParams: filterParams({
-          query: params.query,
+          query: params.query || undefined,
           system_id: params.system_id,
           severity: params.severity,
           limit: params.limit,
