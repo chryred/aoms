@@ -19,6 +19,7 @@ import { cn, formatKST, formatRelative, formatPeriodLabel } from '@/lib/utils'
 import { ROUTES } from '@/constants/routes'
 import { getCardKind } from '@/types/knowledge-verify'
 import { ScoreBadge, PointIdBadge, DeleteConfirmInline } from './SearchVerifyDetailPanel'
+import { SeverityBadge } from '@/components/charts/SeverityBadge'
 import type { SearchVerifyResult } from '@/types/knowledge-verify'
 import type { OperatorNote } from '@/types/knowledge'
 import type { ReportType } from '@/types/report'
@@ -484,13 +485,6 @@ function IncidentPostmortemCard({
   const rootCause = result.root_cause as string | undefined
   const solution = result.solution as string | undefined
 
-  const severityClass =
-    severity === 'critical'
-      ? 'bg-critical/15 text-critical border-critical/30'
-      : severity === 'warning'
-        ? 'bg-warning/15 text-warning border-warning/30'
-        : null
-
   return (
     <NeuCard className="space-y-2 p-4">
       <div className="min-w-0 flex-1">
@@ -499,13 +493,7 @@ function IncidentPostmortemCard({
             인시던트 사후분석
           </span>
           <span className="text-text-secondary text-xs">{displayedSystemName}</span>
-          {severity && severityClass && (
-            <span
-              className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${severityClass}`}
-            >
-              {severity.toUpperCase()}
-            </span>
-          )}
+          {severity && <SeverityBadge severity={severity} />}
           {incidentId && (
             <span className="text-text-disabled font-mono text-xs">#{incidentId}</span>
           )}

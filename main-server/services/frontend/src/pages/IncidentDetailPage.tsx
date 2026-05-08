@@ -26,7 +26,8 @@ import { NeuButton } from '@/components/neumorphic/NeuButton'
 import { LoadingSkeleton } from '@/components/common/LoadingSkeleton'
 import { ErrorCard } from '@/components/common/ErrorCard'
 import { ROUTES } from '@/constants/routes'
-import { INCIDENT_STATUS_LABELS, INCIDENT_SEVERITY_STYLES } from '@/constants/incident'
+import { INCIDENT_STATUS_LABELS } from '@/constants/incident'
+import { SeverityBadge } from '@/components/charts/SeverityBadge'
 import { formatKST, formatRelative } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 import { AlertDetailPanel } from '@/components/alert/AlertDetailPanel'
@@ -197,15 +198,7 @@ export function IncidentDetailPage() {
       <NeuCard>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
           <div className="flex items-center gap-3">
-            <span
-              className={cn(
-                'text-sm font-semibold whitespace-nowrap uppercase',
-                INCIDENT_SEVERITY_STYLES[incident.severity] ?? 'text-text-secondary',
-              )}
-              aria-label={`심각도: ${incident.severity}`}
-            >
-              {incident.severity}
-            </span>
+            <SeverityBadge severity={incident.severity} size="md" />
             <span aria-hidden="true" className="text-text-disabled">
               ·
             </span>

@@ -11,6 +11,7 @@ import {
   RefreshCw,
 } from 'lucide-react'
 import { useIncidents } from '@/hooks/queries/useIncidents'
+import { SeverityBadge } from '@/components/charts/SeverityBadge'
 import { incidentsApi } from '@/api/incidents'
 import { PageHeader } from '@/components/common/PageHeader'
 import { NeuCard } from '@/components/neumorphic/NeuCard'
@@ -23,11 +24,7 @@ import { IncidentCreateModal } from '@/components/incident/IncidentCreateModal'
 import { IncidentSidePanel } from '@/components/incident/IncidentSidePanel'
 import { formatRelative, cn } from '@/lib/utils'
 import { ROUTES } from '@/constants/routes'
-import {
-  INCIDENT_STATUS_LABELS,
-  INCIDENT_STATUS_STYLES,
-  INCIDENT_SEVERITY_STYLES,
-} from '@/constants/incident'
+import { INCIDENT_STATUS_LABELS, INCIDENT_STATUS_STYLES } from '@/constants/incident'
 import type { IncidentOut } from '@/api/incidents'
 
 type StatusFilter = 'all' | 'open' | 'acknowledged' | 'investigating' | 'resolved' | 'closed'
@@ -569,14 +566,7 @@ export function IncidentListPage() {
                         {incident.system_display_name ?? '—'}
                       </td>
                       <td className="px-4 py-2.5 whitespace-nowrap">
-                        <span
-                          className={cn(
-                            'font-medium uppercase',
-                            INCIDENT_SEVERITY_STYLES[incident.severity] ?? 'text-text-secondary',
-                          )}
-                        >
-                          {incident.severity}
-                        </span>
+                        <SeverityBadge severity={incident.severity} />
                       </td>
                       <td className="px-4 py-2.5">
                         <StatusBadge status={incident.status} />

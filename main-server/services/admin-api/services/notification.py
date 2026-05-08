@@ -225,6 +225,7 @@ class TeamsNotifier:
             "attachments": [
                 {
                     "contentType": "application/vnd.microsoft.card.adaptive",
+                    "summary": f"{title} — {system_display_name}",
                     "content": {
                         "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
                         "type": "AdaptiveCard",
@@ -301,6 +302,7 @@ class TeamsNotifier:
             "attachments": [
                 {
                     "contentType": "application/vnd.microsoft.card.adaptive",
+                    "summary": f"[Synapse] 해결책 반려 — {alert_title}",
                     "content": {
                         "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
                         "type": "AdaptiveCard",

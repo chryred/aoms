@@ -20,6 +20,7 @@ import { LoadingSkeleton } from '@/components/common/LoadingSkeleton'
 import { ErrorCard } from '@/components/common/ErrorCard'
 import { NeuCard } from '@/components/neumorphic/NeuCard'
 import { NeuBadge } from '@/components/neumorphic/NeuBadge'
+import { SeverityBadge } from '@/components/charts/SeverityBadge'
 import { MetricChartGrid, MetricChartPopup } from '@/components/dashboard/MetricChartGrid'
 import { ProcessTreemap } from '@/components/dashboard/ProcessTreemap'
 import { formatKST, formatRelative, cn } from '@/lib/utils'
@@ -77,17 +78,7 @@ const ActiveIssueItem = memo(function ActiveIssueItem({
           </span>
         )}
         <div className="ml-auto flex-shrink-0">
-          <NeuBadge
-            variant={
-              alert.severity === 'critical'
-                ? 'critical'
-                : alert.severity === 'warning'
-                  ? 'warning'
-                  : 'info'
-            }
-          >
-            {alert.severity.toUpperCase()}
-          </NeuBadge>
+          <SeverityBadge severity={alert.severity} />
         </div>
       </div>
 
@@ -465,17 +456,7 @@ export function DashboardSystemDetailPage() {
                       </div>
                     </div>
                     <div className="flex-shrink-0">
-                      <NeuBadge
-                        variant={
-                          alert.llm_severity === 'critical'
-                            ? 'critical'
-                            : alert.llm_severity === 'warning'
-                              ? 'warning'
-                              : 'info'
-                        }
-                      >
-                        {alert.llm_severity?.toUpperCase()}
-                      </NeuBadge>
+                      {alert.llm_severity && <SeverityBadge severity={alert.llm_severity} />}
                     </div>
                   </div>
 

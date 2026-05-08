@@ -1,9 +1,7 @@
 import { cn } from '@/lib/utils'
-import type { LlmSeverity } from '@/types/aggregation'
-import type { Severity } from '@/types/alert'
 
 interface SeverityBadgeProps {
-  severity: LlmSeverity | Severity
+  severity: string
   size?: 'sm' | 'md'
 }
 

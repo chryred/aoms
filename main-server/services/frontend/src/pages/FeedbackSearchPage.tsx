@@ -12,29 +12,9 @@ import { NeuBadge } from '@/components/neumorphic/NeuBadge'
 import { LoadingSkeleton } from '@/components/common/LoadingSkeleton'
 import { ErrorCard } from '@/components/common/ErrorCard'
 import { EmptyState } from '@/components/common/EmptyState'
-import { cn } from '@/lib/utils'
 import { ROUTES } from '@/constants/routes'
+import { SeverityBadge } from '@/components/charts/SeverityBadge'
 import type { IncidentPostmortemItem } from '@/api/incidents'
-
-const SEVERITY_STYLES: Record<string, string> = {
-  critical: 'bg-critical/15 text-critical border-critical/30',
-  warning: 'bg-warning/15 text-warning border-warning/30',
-}
-
-function SeverityBadge({ severity }: { severity?: string }) {
-  if (!severity) return null
-  const LABELS: Record<string, string> = { critical: 'CRITICAL', warning: 'WARNING' }
-  return (
-    <span
-      className={cn(
-        'inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium',
-        SEVERITY_STYLES[severity] ?? 'bg-surface text-text-secondary border-border',
-      )}
-    >
-      {LABELS[severity] ?? severity.toUpperCase()}
-    </span>
-  )
-}
 
 function PostmortemCard({ item }: { item: IncidentPostmortemItem }) {
   const navigate = useNavigate()
@@ -207,8 +187,8 @@ export function FeedbackSearchPage() {
         <div className="w-36">
           <NeuSelect value={severity} onChange={(e) => setSeverity(e.target.value)}>
             <option value="">전체 심각도</option>
-            <option value="critical">CRITICAL</option>
-            <option value="warning">WARNING</option>
+            <option value="critical">위험</option>
+            <option value="warning">경고</option>
           </NeuSelect>
         </div>
         <NeuButton onClick={applySearch} disabled={!query.trim()}>

@@ -6,11 +6,8 @@ import { NeuButton } from '@/components/neumorphic/NeuButton'
 import { NeuSelect } from '@/components/neumorphic/NeuSelect'
 import { NeuTextarea } from '@/components/neumorphic/NeuTextarea'
 import { ROUTES } from '@/constants/routes'
-import {
-  INCIDENT_STATUS_LABELS,
-  INCIDENT_STATUS_STYLES,
-  INCIDENT_SEVERITY_STYLES,
-} from '@/constants/incident'
+import { INCIDENT_STATUS_LABELS, INCIDENT_STATUS_STYLES } from '@/constants/incident'
+import { SeverityBadge } from '@/components/charts/SeverityBadge'
 import { cn, formatKST, formatRelative } from '@/lib/utils'
 import { useBannerVisible } from '@/hooks/useBannerVisible'
 import { useUpdateIncident } from '@/hooks/queries/useIncidents'
@@ -340,13 +337,8 @@ function IncidentSidePanelContent({
           <option value="warning">Warning</option>
           <option value="info">Info</option>
         </NeuSelect>
-        <p className="text-text-disabled -mt-3 text-xs">
-          현재:{' '}
-          <span
-            className={cn('font-medium uppercase', INCIDENT_SEVERITY_STYLES[incident.severity])}
-          >
-            {incident.severity}
-          </span>
+        <p className="text-text-disabled -mt-3 flex items-center gap-1 text-xs">
+          현재: <SeverityBadge severity={incident.severity} />
         </p>
 
         {/* 메모 / 근본 원인 편집 */}

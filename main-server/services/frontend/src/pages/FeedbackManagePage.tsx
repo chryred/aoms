@@ -22,30 +22,10 @@ import { PageHeader } from '@/components/common/PageHeader'
 import { FeedbackPendingList } from '@/components/admin/FeedbackPendingList'
 import { cn } from '@/lib/utils'
 import { ROUTES } from '@/constants/routes'
+import { SeverityBadge } from '@/components/charts/SeverityBadge'
 import type { IncidentPostmortemItem } from '@/api/incidents'
 
-const SEVERITY_STYLES: Record<string, string> = {
-  critical: 'bg-critical/15 text-critical border-critical/30',
-  warning: 'bg-warning/15 text-warning border-warning/30',
-  info: 'bg-accent/10 text-accent border-accent/30',
-}
-
 const SEVERITY_ORDER: Record<string, number> = { critical: 3, warning: 2, info: 1 }
-
-function SeverityBadge({ severity }: { severity?: string }) {
-  if (!severity) return null
-  const LABELS: Record<string, string> = { critical: 'CRITICAL', warning: 'WARNING', info: 'INFO' }
-  return (
-    <span
-      className={cn(
-        'inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium',
-        SEVERITY_STYLES[severity] ?? 'bg-surface text-text-secondary border-border',
-      )}
-    >
-      {LABELS[severity] ?? severity.toUpperCase()}
-    </span>
-  )
-}
 
 type SortKey = 'incident' | 'severity' | 'score'
 type SortDir = 'asc' | 'desc'
@@ -473,8 +453,8 @@ export function FeedbackManagePage() {
               <div className="w-36">
                 <NeuSelect value={severity} onChange={(e) => setSeverity(e.target.value)}>
                   <option value="">전체 심각도</option>
-                  <option value="critical">CRITICAL</option>
-                  <option value="warning">WARNING</option>
+                  <option value="critical">위험</option>
+                  <option value="warning">경고</option>
                 </NeuSelect>
               </div>
               <NeuButton onClick={applySearch}>검색</NeuButton>
