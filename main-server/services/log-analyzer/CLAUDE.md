@@ -80,8 +80,6 @@ log-analyzer/
 └── requirements/
 ```
 
-```
-
 ## 엔드포인트
 
 ### 로그 분석
@@ -102,6 +100,7 @@ log-analyzer/
 - `POST /incident-postmortem/search` — 자연어 쿼리로 Hybrid 검색 (system_id/severity 필터 선택적)
 - `GET  /incident-postmortem/by-incident/{incident_id}` — incident_id 직접 조회 (미존재 시 null)
 - `POST /incident-postmortem/ocr/process` — KNOWLEDGE_DOCS_DIR 하위 파일 OCR 처리 (경로 탈출 방지)
+- `POST /incident-postmortem/ocr/process-stream` — SSE 스트리밍 OCR. 진행률 이벤트 형식: `data: {"progress": 0~100, "status": "processing"|"done"|"failed", "text": "..."}`. `text/event-stream` 응답. admin-api `incident_postmortem_client.trigger_ocr_streaming()`이 httpx streaming으로 소비하며 DB `ocr_progress` 컬럼을 실시간 갱신
 
 ### 컬렉션 관리
 - `POST /collections/{type}/create`  — 컬렉션 생성 (`log`, `metric`, `hourly`, `summary`)

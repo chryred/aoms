@@ -1,15 +1,20 @@
 import { useState, useRef, useEffect, useMemo } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Search, ArrowRight, ClipboardCheck, ArrowUpDown } from 'lucide-react'
+import {
+  Search,
+  ArrowRight,
+  ClipboardCheck,
+  ChevronUp,
+  ChevronDown,
+  ChevronsUpDown,
+} from 'lucide-react'
 import { useQuery } from '@tanstack/react-query'
 import { incidentsApi } from '@/api/incidents'
 import { useSystems } from '@/hooks/queries/useSystems'
 import { useAuthStore } from '@/store/authStore'
-import { NeuCard } from '@/components/neumorphic/NeuCard'
 import { NeuSelect } from '@/components/neumorphic/NeuSelect'
 import { NeuInput } from '@/components/neumorphic/NeuInput'
 import { NeuButton } from '@/components/neumorphic/NeuButton'
-import { NeuBadge } from '@/components/neumorphic/NeuBadge'
 import { LoadingSkeleton } from '@/components/common/LoadingSkeleton'
 import { ErrorCard } from '@/components/common/ErrorCard'
 import { EmptyState } from '@/components/common/EmptyState'
@@ -24,6 +29,8 @@ const SEVERITY_STYLES: Record<string, string> = {
   warning: 'bg-warning/15 text-warning border-warning/30',
   info: 'bg-accent/10 text-accent border-accent/30',
 }
+
+const SEVERITY_ORDER: Record<string, number> = { critical: 3, warning: 2, info: 1 }
 
 function SeverityBadge({ severity }: { severity?: string }) {
   if (!severity) return null
@@ -40,67 +47,179 @@ function SeverityBadge({ severity }: { severity?: string }) {
   )
 }
 
-function PostmortemCard({ item, isListMode }: { item: IncidentPostmortemItem; isListMode?: boolean }) {
+type SortKey = 'incident' | 'severity' | 'score'
+type SortDir = 'asc' | 'desc'
+
+function SortableHeader({
+  label,
+  sortKey,
+  currentKey,
+  currentDir,
+  onSort,
+  className,
+}: {
+  label: string
+  sortKey: SortKey
+  currentKey: SortKey
+  currentDir: SortDir
+  onSort: (key: SortKey) => void
+  className?: string
+}) {
+  const active = currentKey === sortKey
+  return (
+    <th
+      scope="col"
+      onClick={() => onSort(sortKey)}
+      className={cn(
+        'text-text-primary cursor-pointer px-4 py-3 text-left text-xs font-semibold tracking-wider whitespace-nowrap uppercase select-none',
+        className,
+      )}
+    >
+      <span className="flex items-center gap-1">
+        {label}
+        {active ? (
+          currentDir === 'asc' ? (
+            <ChevronUp className="text-accent h-3 w-3" />
+          ) : (
+            <ChevronDown className="text-accent h-3 w-3" />
+          )
+        ) : (
+          <ChevronsUpDown className="text-text-disabled h-3 w-3" />
+        )}
+      </span>
+    </th>
+  )
+}
+
+function PostmortemTable({
+  results,
+  isListMode,
+  sortKey,
+  sortDir,
+  onSort,
+  systemMap,
+  systemCodeMap,
+}: {
+  results: IncidentPostmortemItem[]
+  isListMode: boolean
+  sortKey: SortKey
+  sortDir: SortDir
+  onSort: (key: SortKey) => void
+  systemMap: Record<number, string>
+  systemCodeMap: Record<string, string>
+}) {
   const navigate = useNavigate()
-  const p = item.payload
-  const incidentId = p.incident_id
 
   return (
-    <NeuCard className="flex flex-col gap-3 p-4">
-      <div className="flex flex-wrap items-start gap-2">
-        {incidentId && <span className="text-text-disabled font-mono text-xs">#{incidentId}</span>}
-        {p.severity && <SeverityBadge severity={p.severity} />}
-        {p.system_name && <span className="text-text-secondary text-xs">{p.system_name}</span>}
-        {!isListMode && item.score > 0 && (
-          <span className="text-text-disabled ml-auto font-mono text-xs">
-            {item.score.toFixed(4)} RRF
-          </span>
-        )}
-      </div>
-
-      {p.title && <p className="text-text-primary leading-snug font-semibold">{p.title}</p>}
-
-      {p.root_cause && (
-        <div>
-          <p className="text-text-disabled mb-0.5 text-xs font-medium tracking-wider uppercase">
-            원인
-          </p>
-          <p className="text-text-secondary line-clamp-2 text-sm">{p.root_cause}</p>
-        </div>
-      )}
-
-      {p.solution && (
-        <div>
-          <p className="text-text-disabled mb-0.5 text-xs font-medium tracking-wider uppercase">
-            해결
-          </p>
-          <p className="text-text-secondary line-clamp-3 text-sm">{p.solution}</p>
-        </div>
-      )}
-
-      <div className="border-border flex items-center border-t pt-2">
-        {p.tags && p.tags.length > 0 && (
-          <div className="flex flex-wrap gap-1">
-            {p.tags.slice(0, 3).map((tag) => (
-              <NeuBadge key={tag} variant="muted" className="text-xs">
-                {tag}
-              </NeuBadge>
-            ))}
-          </div>
-        )}
-        {incidentId && (
-          <NeuButton
-            variant="ghost"
-            size="sm"
-            onClick={() => navigate(ROUTES.incidentDetail(incidentId))}
-            className="ml-auto gap-1 px-2 text-xs"
-          >
-            상세 보기
-            <ArrowRight className="h-3 w-3" />
-          </NeuButton>
-        )}
-      </div>
-    </NeuCard>
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-border border-b">
+            <SortableHeader
+              label="#"
+              sortKey="incident"
+              currentKey={sortKey}
+              currentDir={sortDir}
+              onSort={onSort}
+            />
+            <th
+              scope="col"
+              className="text-text-primary px-4 py-3 text-left text-xs font-semibold tracking-wider whitespace-nowrap uppercase"
+            >
+              시스템
+            </th>
+            <SortableHeader
+              label="심각도"
+              sortKey="severity"
+              currentKey={sortKey}
+              currentDir={sortDir}
+              onSort={onSort}
+            />
+            <th
+              scope="col"
+              className="text-text-primary px-4 py-3 text-left text-xs font-semibold tracking-wider uppercase"
+            >
+              제목
+            </th>
+            <th
+              scope="col"
+              className="text-text-primary hidden px-4 py-3 text-left text-xs font-semibold tracking-wider uppercase md:table-cell"
+            >
+              원인
+            </th>
+            <th
+              scope="col"
+              className="text-text-primary hidden px-4 py-3 text-left text-xs font-semibold tracking-wider uppercase lg:table-cell"
+            >
+              해결
+            </th>
+            {!isListMode && (
+              <SortableHeader
+                label="유사도"
+                sortKey="score"
+                currentKey={sortKey}
+                currentDir={sortDir}
+                onSort={onSort}
+                className="text-right"
+              />
+            )}
+            <th scope="col" className="w-8 px-4 py-3" />
+          </tr>
+        </thead>
+        <tbody className="divide-border divide-y">
+          {results.map((item) => {
+            const p = item.payload
+            const incidentId = p.incident_id
+            const displayName =
+              (p.system_id != null && systemMap[p.system_id]) ||
+              (p.system_name && systemCodeMap[p.system_name]) ||
+              p.system_name ||
+              '—'
+            return (
+              <tr
+                key={item.id}
+                onClick={() => incidentId && navigate(ROUTES.incidentDetail(incidentId))}
+                className={cn(
+                  'transition-colors',
+                  incidentId ? 'hover:bg-accent-04 cursor-pointer' : 'cursor-default',
+                )}
+              >
+                <td className="text-text-secondary px-4 py-3 font-mono text-xs whitespace-nowrap">
+                  {incidentId ? `#${incidentId}` : '—'}
+                </td>
+                <td className="text-text-primary px-4 py-3 text-sm whitespace-nowrap">
+                  {displayName}
+                </td>
+                <td className="px-4 py-3 whitespace-nowrap">
+                  {p.severity ? (
+                    <SeverityBadge severity={p.severity} />
+                  ) : (
+                    <span className="text-text-disabled text-xs">—</span>
+                  )}
+                </td>
+                <td className="text-text-primary max-w-[240px] px-4 py-3 font-medium">
+                  <span className="line-clamp-1">{p.title ?? '—'}</span>
+                </td>
+                <td className="text-text-secondary hidden max-w-[200px] px-4 py-3 text-xs md:table-cell">
+                  <span className="line-clamp-2">{p.root_cause ?? '—'}</span>
+                </td>
+                <td className="text-text-secondary hidden max-w-[200px] px-4 py-3 text-xs lg:table-cell">
+                  <span className="line-clamp-2">{p.solution ?? '—'}</span>
+                </td>
+                {!isListMode && (
+                  <td className="text-text-disabled px-4 py-3 text-right font-mono text-xs whitespace-nowrap">
+                    {item.score > 0 ? item.score.toFixed(4) : '—'}
+                  </td>
+                )}
+                <td className="px-4 py-3">
+                  {incidentId && <ArrowRight className="text-text-disabled h-3.5 w-3.5" />}
+                </td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+    </div>
   )
 }
 
@@ -122,7 +241,6 @@ export function FeedbackManagePage() {
   const tabParam = searchParams.get('tab') as ManageTab | null
   const activeTab: ManageTab = tabs.some((t) => t.key === tabParam) ? tabParam! : 'search'
 
-  // 슬라이딩 탭 인디케이터
   const tabRefs = useRef<(HTMLButtonElement | null)[]>([])
   const [indicator, setIndicator] = useState({ left: 0, width: 0, ready: false })
 
@@ -143,7 +261,6 @@ export function FeedbackManagePage() {
     setSearchParams(params, { replace: true })
   }
 
-  // 검색 상태
   const initialSystemId = searchParams.get('system_id') ?? ''
   const initialQuery = searchParams.get('q') ?? ''
   const initialSeverity = searchParams.get('severity') ?? ''
@@ -156,11 +273,29 @@ export function FeedbackManagePage() {
   const [appliedSeverity, setAppliedSeverity] = useState(initialSeverity)
 
   const { data: systems = [] } = useSystems()
+  const systemMap = useMemo(
+    () =>
+      systems.reduce<Record<number, string>>((acc, s) => {
+        acc[s.id] = s.display_name
+        return acc
+      }, {}),
+    [systems],
+  )
+  const systemCodeMap = useMemo(
+    () =>
+      systems.reduce<Record<string, string>>((acc, s) => {
+        acc[s.system_name] = s.display_name
+        return acc
+      }, {}),
+    [systems],
+  )
 
   const [hasSearched, setHasSearched] = useState(
     initialQuery.length > 0 || initialSystemId.length > 0 || initialSeverity.length > 0,
   )
-  const [sortMode, setSortMode] = useState<'score' | 'incident'>('score')
+
+  const [sortKey, setSortKey] = useState<SortKey>(initialQuery ? 'score' : 'incident')
+  const [sortDir, setSortDir] = useState<SortDir>('desc')
 
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ['incidents', 'postmortem-search', appliedQuery, appliedSystemId, appliedSeverity],
@@ -181,6 +316,8 @@ export function FeedbackManagePage() {
     setAppliedSystemId(systemId)
     setAppliedSeverity(severity)
     setHasSearched(true)
+    setSortKey(trimmed ? 'score' : 'incident')
+    setSortDir('desc')
     setSearchParams(
       (prev) => {
         const next = new URLSearchParams(prev)
@@ -211,6 +348,8 @@ export function FeedbackManagePage() {
     setSeverity('')
     setAppliedSeverity('')
     setHasSearched(false)
+    setSortKey('score')
+    setSortDir('desc')
     setSearchParams(
       (prev) => {
         const tab = prev.get('tab') ?? 'search'
@@ -220,16 +359,32 @@ export function FeedbackManagePage() {
     )
   }
 
+  const handleSort = (key: SortKey) => {
+    if (sortKey === key) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))
+    } else {
+      setSortKey(key)
+      setSortDir('desc')
+    }
+  }
+
   const results = useMemo(() => {
     const raw = data?.results ?? []
     if (!raw.length) return raw
-    if (sortMode === 'incident') {
-      return [...raw].sort(
-        (a, b) => (b.payload.incident_id ?? 0) - (a.payload.incident_id ?? 0),
-      )
-    }
-    return raw
-  }, [data, sortMode])
+    const mul = sortDir === 'asc' ? 1 : -1
+    return [...raw].sort((a, b) => {
+      if (sortKey === 'incident') {
+        return mul * ((a.payload.incident_id ?? 0) - (b.payload.incident_id ?? 0))
+      }
+      if (sortKey === 'severity') {
+        const aVal = SEVERITY_ORDER[a.payload.severity ?? ''] ?? 0
+        const bVal = SEVERITY_ORDER[b.payload.severity ?? ''] ?? 0
+        return mul * (aVal - bVal)
+      }
+      // score
+      return mul * (a.score - b.score)
+    })
+  }, [data, sortKey, sortDir])
 
   const hasFilters = appliedQuery || appliedSystemId || appliedSeverity
   const isListMode = hasSearched && !appliedQuery.trim()
@@ -322,9 +477,7 @@ export function FeedbackManagePage() {
                   <option value="warning">WARNING</option>
                 </NeuSelect>
               </div>
-              <NeuButton onClick={applySearch}>
-                검색
-              </NeuButton>
+              <NeuButton onClick={applySearch}>검색</NeuButton>
               {(hasFilters || hasSearched) && (
                 <NeuButton variant="ghost" onClick={resetSearch}>
                   초기화
@@ -351,27 +504,18 @@ export function FeedbackManagePage() {
               />
             ) : (
               <div className="flex flex-col gap-3">
-                <div className="flex items-center justify-between">
-                  <p className="text-text-secondary text-sm">
-                    {isListMode ? `전체 ${results.length}건` : `${results.length}건 검색됨`}
-                  </p>
-                  <div className="flex items-center gap-1.5">
-                    <ArrowUpDown className="text-text-disabled h-3.5 w-3.5" />
-                    <select
-                      value={sortMode}
-                      onChange={(e) => setSortMode(e.target.value as 'score' | 'incident')}
-                      className="bg-bg-base text-text-secondary border-border focus:ring-accent rounded-sm border px-2 py-1 text-xs focus:ring-1 focus:outline-none"
-                    >
-                      <option value="score">
-                        {isListMode ? '등록 순' : '관련도순'}
-                      </option>
-                      <option value="incident">인시던트 번호순</option>
-                    </select>
-                  </div>
-                </div>
-                {results.map((item) => (
-                  <PostmortemCard key={item.id} item={item} isListMode={isListMode} />
-                ))}
+                <p className="text-text-secondary text-sm">
+                  {isListMode ? `전체 ${results.length}건` : `${results.length}건 검색됨`}
+                </p>
+                <PostmortemTable
+                  results={results}
+                  isListMode={isListMode}
+                  sortKey={sortKey}
+                  sortDir={sortDir}
+                  onSort={handleSort}
+                  systemMap={systemMap}
+                  systemCodeMap={systemCodeMap}
+                />
               </div>
             )}
           </>

@@ -32,7 +32,7 @@
 ### Server B
 - **Qdrant** (6333): Dense+Sparse Hybrid Search (ADR-011)
   - `log_incidents`, `metric_baselines`, `aggregation_summaries`, `incident_postmortems`: Dense(1024) + Sparse(BM25) Hybrid
-  - `metric_hourly_patterns`: Dense 전용
+  - `metric_hourly_patterns`: Dense(1024) + Sparse(BM25) Hybrid (챗봇 RAG + UI 검색)
   - `incident_postmortems`: Wave 1B — 인시던트 사후분석 서사 (lifespan 자동 ensure, log-analyzer 전담)
   - Ollama는 ADR-011로 제거됨 — 임베딩은 log-analyzer 컨테이너 내 FastEmbed ONNX가 담당
 
@@ -49,7 +49,7 @@
 | `HF_HUB_OFFLINE` | `1` (폐쇄망 필수). 개발기 미러 필요 시 `HF_ENDPOINT=https://hf-mirror.com` |
 | `QDRANT_URL` | `http://{server-b}:6333` |
 | `TEAMS_WEBHOOK_URL` | 전역 Teams 폴백 (시스템별 `systems.teams_webhook_url`이 우선) |
-| `FRONTEND_EXTERNAL_URL` | Teams 카드 "해결책 등록" 버튼이 여는 React 페이지 외부 접근 URL (예: `http://{server-a-ip}:3001`) |
+| `FRONTEND_EXTERNAL_URL` | Teams 카드 "인시던트 보기" 버튼이 여는 React 페이지 외부 접근 URL (예: `http://{server-a-ip}:3001`) — Wave 2B에서 "해결책 등록" 버튼 제거됨 |
 | `ANALYSIS_INTERVAL_SECONDS` | 300 (로그 분석 주기) |
 | `PROMETHEUS_ANALYZE_INTERVAL_SECONDS` | 300 (admin-api 메트릭 교차 분석 주기) |
 | `TEMPO_URL` | `http://tempo:3200` — admin-api + log-analyzer Tempo HTTP API (ADR-008) |

@@ -559,7 +559,10 @@ INSERT INTO chat_tools (name, display_name, description, input_schema, executor)
      '{"type":"object","properties":{"query":{"type":"string","description":"검색할 메트릭 패턴 내용 (한국어 자연어, 예: 결제 서비스 CPU 급증 패턴)"},"system_name":{"type":"string","description":"시스템명 필터 (선택, 예: cxm)"},"limit":{"type":"integer","default":5,"description":"최대 반환 건수 (1-10)"}},"required":["query"]}'::jsonb, 'qdrant'),
     ('qdrant_search_knowledge', 'V1 Knowledge 통합 검색',
      'V1 knowledge 컬렉션(Jira/Confluence/Documents) federated Hybrid+Reranker 검색. 운영 매뉴얼·정책·사내 문서·Jira 티켓 등 knowledge 베이스에서 의미+키워드 통합 검색. system_id 필터로 특정 시스템 지식만 조회 가능.',
-     '{"type":"object","properties":{"query":{"type":"string","description":"검색할 내용 (한국어 자연어, 예: DB 점검 절차)"},"system_id":{"type":"integer","description":"시스템 ID 필터 (선택)"},"system_name":{"type":"string","description":"시스템명 필터 (선택)"},"sources":{"type":"array","items":{"type":"string"},"description":"검색 소스 제한 (선택, 예: [\"jira\",\"confluence\",\"documents\"])"},"limit":{"type":"integer","default":5,"description":"최대 반환 건수 (1-10)"},"rerank":{"type":"boolean","default":true,"description":"Reranker 적용 여부 (기본 true — 정확도 우선)"}},"required":["query"]}'::jsonb, 'qdrant')
+     '{"type":"object","properties":{"query":{"type":"string","description":"검색할 내용 (한국어 자연어, 예: DB 점검 절차)"},"system_id":{"type":"integer","description":"시스템 ID 필터 (선택)"},"system_name":{"type":"string","description":"시스템명 필터 (선택)"},"sources":{"type":"array","items":{"type":"string"},"description":"검색 소스 제한 (선택, 예: [\"jira\",\"confluence\",\"documents\"])"},"limit":{"type":"integer","default":5,"description":"최대 반환 건수 (1-10)"},"rerank":{"type":"boolean","default":true,"description":"Reranker 적용 여부 (기본 true — 정확도 우선)"}},"required":["query"]}'::jsonb, 'qdrant'),
+    ('qdrant_search_incident_postmortem', '인시던트 사후분석 검색',
+     '인시던트 사후분석(원인·해결책·첨부 OCR 통합) 시맨틱 검색. 비슷한 사건 사례·해결책 자료 조회용',
+     '{"type":"object","properties":{"query":{"type":"string"},"system_id":{"type":"integer"},"severity":{"type":"string"},"limit":{"type":"integer","default":5}},"required":["query"]}'::jsonb, 'qdrant')
 ON CONFLICT (name) DO UPDATE SET
     display_name = EXCLUDED.display_name,
     description  = EXCLUDED.description,
@@ -670,6 +673,12 @@ CREATE TABLE IF NOT EXISTS guide_images (
 );
 
 CREATE INDEX IF NOT EXISTS idx_guide_images_guide ON guide_images(guide_id);
+
+-- ── 기본 관리자 계정 ──────────────────────────────────────────────────
+-- 비밀번호: 1  (bcrypt — DB 초기화 후 즉시 변경 권장)
+INSERT INTO users (email, password_hash, name, role, is_active, is_approved)
+VALUES ('jeongwonchoi@shinsegae.com', '$2b$12$Cu6HhTH26AUBWCH1MabxuO/2Fxl17qRnDYVh/118//ifheHu47Tvu', '최정원', 'admin', TRUE, TRUE)
+ON CONFLICT (email) DO NOTHING;
 
 -- ── 샘플 데이터 (선택) ────────────────────────────────────────────────
 -- INSERT INTO systems(system_name, display_name, host, os_type, system_type)

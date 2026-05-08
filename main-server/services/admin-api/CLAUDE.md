@@ -476,9 +476,9 @@ log-analyzer → POST /api/v1/analysis
 ## DB 초기화
 
 - **개발/자동**: lifespan에서 `Base.metadata.create_all` 실행 (앱 시작 시 테이블 자동 생성)
-- **운영 권장**: `init.sql` 직접 실행
+- **운영 권장**: `configs/postgres/init.sql` 직접 실행 (정식 스키마 파일은 `main-server/configs/postgres/init.sql`)
   ```bash
-  docker exec -i aoms-postgres psql -U aoms -d aoms < init.sql
+  docker exec -i synapse-postgres psql -U synapse -d synapse < configs/postgres/init.sql
   ```
 
 ---
@@ -587,6 +587,11 @@ Wave 2A 이후 피드백은 인시던트 단위로 관리됨. 승인 워크플�
 ```
 
 **첨부파일**: `POST /api/v1/feedback/upload` (staging 임시 업로드, 피드백 생성/재등록 시 정식 경로로 이동)
+
+**`alert_feedback_attachments` 주요 컬럼**:
+- `ocr_status`: `pending` | `processing` | `done` | `failed`
+- `ocr_progress`: 0~100 정수. SSE 스트리밍 OCR 진행률 실시간 갱신 (`_run_ocr_for_attachment` 백그라운드 태스크가 `AsyncSessionLocal`로 commit). 마이그레이션: `configs/postgres/migrations/20260508_add_ocr_progress.sql`
+- OCR은 피드백 생성/재등록/재시도 모두 `asyncio.create_task(_run_ocr_remaining_detached(feedback_id))` 패턴으로 HTTP 응답과 독립적으로 실행됨
 
 - HTML 폼(`GET /api/v1/feedback/form`)과 n8n WF3은 제거됨
 - 자세한 결정 배경 + 이관 이력은 `.claude/memory/adrs.md` ADR-006 참조

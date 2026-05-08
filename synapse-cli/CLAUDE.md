@@ -75,9 +75,11 @@ RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o synapse .
 COPY --from=cli-builder /build/synapse /app/bin/synapse
 ```
 
-### 로컬 빌드
+### 로컬 빌드 및 테스트
 ```bash
-make build-api   # admin-api + synapse CLI Docker 이미지 빌드
+go test ./...       # 단위 테스트 실행
+go build -o synapse .  # 로컬 바이너리 빌드
+make build-api      # admin-api + synapse CLI Docker 이미지 빌드
 ```
 
 ### 서버 배포 흐름

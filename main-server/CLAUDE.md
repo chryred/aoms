@@ -91,6 +91,7 @@ docker exec -i synapse-postgres psql -U synapse -d synapse < configs/postgres/in
 | `log_incidents` | log-analyzer | **Dense(1024) + Sparse(BM25)** | 로그 분석 이상 이력 (log_analysis_history.qdrant_point_id) |
 | `aggregation_summaries` | log-analyzer (Phase 5) | **Dense(1024) + Sparse(BM25)** | 일/주/월 집계 스케줄러가 저장하는 리포트 요약 — **RAG 챗봇 핵심** |
 | `metric_hourly_patterns` | log-analyzer (Phase 5) | **Dense(1024) + Sparse(BM25)** | `_hourly_agg_scheduler`가 저장하는 1시간 집계 LLM 분석 패턴 — **챗봇 RAG (`qdrant_search_hourly_patterns`)** |
+| `incident_postmortems` | log-analyzer (Wave 1B) | **Dense(1024) + Sparse(BM25)** | 인시던트 사후분석 서사 — lifespan 자동 ensure. 피드백 승인 시 embed |
 
 **검색 방식 (ADR-011)**:
 - 모든 컬렉션 Hybrid: `/points/query` + `prefetch[dense>=0.5, sparse]` + `fusion: rrf`
