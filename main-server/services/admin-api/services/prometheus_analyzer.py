@@ -29,6 +29,15 @@ from models import AlertHistory, Contact, IncidentTimeline, LlmAgentConfig, LogA
 from services.adaptive_card_builder import _build_base_card, build_entities, build_mention_text
 from services.incident_service import get_or_create_incident
 from services.llm_client import call_llm_text, LLM_TYPE
+from services.prompts import (
+    _CPU_THRESHOLD,
+    _MEM_THRESHOLD,
+    _LOG_ERROR_RATE_THRESHOLD,
+    _DISK_IO_MS_THRESHOLD,
+    _NET_MAX_MBPS,
+    _NET_THRESHOLD_PCT,
+    build_prometheus_llm_prompt,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -36,17 +45,15 @@ _PROMETHEUS_URL   = os.getenv("PROMETHEUS_URL", "").rstrip("/")
 _ANALYZE_INTERVAL = int(os.getenv("PROMETHEUS_ANALYZE_INTERVAL_SECONDS", "300"))
 _TEAMS_WEBHOOK_URL = os.getenv("TEAMS_WEBHOOK_URL", "")
 
-# ── 임계치 (warning) ──────────────────────────────────────────────────────────
-_CPU_THRESHOLD          = float(os.getenv("PROM_ALERT_CPU_THRESHOLD",         "70.0"))
-_MEM_THRESHOLD          = float(os.getenv("PROM_ALERT_MEM_THRESHOLD",         "70.0"))
-_HTTP_SLOW_THRESHOLD_MS = float(os.getenv("PROM_ALERT_HTTP_SLOW_MS",         "3000.0"))
-_LOG_ERROR_RATE_THRESHOLD = float(os.getenv("PROM_ALERT_LOG_ERROR_RATE",       "5.0"))   # 건/분
-_DISK_IO_MS_THRESHOLD   = float(os.getenv("PROM_ALERT_DISK_IO_MS",           "200.0"))   # ms
+# ── 임계치 (warning) — prompts.py에서 import ─────────────────────────────────
+# _CPU_THRESHOLD, _MEM_THRESHOLD, _LOG_ERROR_RATE_THRESHOLD,
+# _DISK_IO_MS_THRESHOLD, _NET_MAX_MBPS, _NET_THRESHOLD_PCT → services/prompts.py
+
+# HTTP 응답 지연 (분석 전용 — 프롬프트에 사용 안 함)
+_HTTP_SLOW_THRESHOLD_MS = float(os.getenv("PROM_ALERT_HTTP_SLOW_MS", "3000.0"))
 
 # ── 네트워크 대역폭 ───────────────────────────────────────────────────────────
 # Full-duplex NIC: TX / RX 각각 독립 판정. 합산 사용 금지.
-_NET_MAX_MBPS        = float(os.getenv("PROM_NET_MAX_MBPS",               "1000.0"))  # NIC 속도 Mbps
-_NET_THRESHOLD_PCT   = float(os.getenv("PROM_ALERT_NET_THRESHOLD_PCT",     "70.0"))   # warning %
 _NET_CRITICAL_PCT    = float(os.getenv("PROM_ALERT_NET_CRITICAL_PCT",      "90.0"))   # critical %
 
 # ── 임계치 (critical) ─────────────────────────────────────────────────────────
@@ -388,90 +395,6 @@ def _calc_severity(hc: HostContext) -> str:
     return "warning"
 
 
-# ── LLM 프롬프트 구성 ─────────────────────────────────────────────────────────
-
-def _build_llm_prompt(hc: HostContext, system_infos: dict[str, dict]) -> str:
-    """host 전체 컨텍스트를 포함한 LLM 프롬프트 생성"""
-    lines = [f"[물리 서버: {hc.host}]", ""]
-
-    # 인프라 메트릭
-    infra_lines = []
-    if hc.infra_cpu:
-        sn, val = hc.infra_cpu
-        dn = hc.systems[sn].display_name or sn
-        flag = " ⚠️ 임계치 초과" if val > _CPU_THRESHOLD else ""
-        infra_lines.append(f"  CPU 평균: {val:.1f}%{flag} (수집: {dn})")
-    if hc.infra_mem:
-        sn, val = hc.infra_mem
-        dn = hc.systems[sn].display_name or sn
-        flag = " ⚠️ 임계치 초과" if val > _MEM_THRESHOLD else ""
-        infra_lines.append(f"  메모리 사용률: {val:.1f}%{flag} (수집: {dn})")
-    if hc.infra_net:
-        sn, rx, tx = hc.infra_net
-        net_max_mbps = _NET_MAX_MBPS / 8
-        rx_pct = rx / net_max_mbps * 100
-        tx_pct = tx / net_max_mbps * 100
-        _net_thr = _net_threshold_mbps = _NET_MAX_MBPS / 8 * _NET_THRESHOLD_PCT / 100
-        rx_flag = " ⚠️" if rx > _net_thr else ""
-        tx_flag = " ⚠️" if tx > _net_thr else ""
-        infra_lines.append(
-            f"  네트워크: RX {rx:.1f} MB/s ({rx_pct:.0f}%){rx_flag}"
-            f" / TX {tx:.1f} MB/s ({tx_pct:.0f}%){tx_flag}"
-        )
-    if hc.infra_disk:
-        sn, val = hc.infra_disk
-        flag = " ⚠️ 임계치 초과" if val > _DISK_IO_MS_THRESHOLD else ""
-        infra_lines.append(f"  디스크 I/O: {val:.0f}ms{flag}")
-
-    if infra_lines:
-        lines.append("[인프라 메트릭]")
-        lines.extend(infra_lines)
-        lines.append("")
-
-    # 시스템별 현황
-    lines.append("[시스템별 현황]")
-    for sn, sm in hc.systems.items():
-        dn = sm.display_name or sn
-        label = f"{dn} ({sn})"
-        status_parts = []
-        if sm.http_req_rate is not None:
-            status_parts.append(f"HTTP 요청 {sm.http_req_rate:.0f}건/분")
-        if sm.log_error_rate > 0:
-            level_str = " / ".join(
-                f"{lv} {r:.1f}건/분"
-                for lv, r in sorted(sm.log_by_level.items(), key=lambda x: -x[1])
-            )
-            flag = " ⚠️" if sm.log_error_rate > _LOG_ERROR_RATE_THRESHOLD else ""
-            status_parts.append(f"로그 에러 {sm.log_error_rate:.1f}건/분{flag} ({level_str})")
-        if sm.http_slow:
-            for h in sm.http_slow:
-                status_parts.append(f"HTTP 지연 {h['url']} {h['ms']:.0f}ms ⚠️")
-        if not status_parts:
-            status_parts.append("정상")
-        lines.append(f"  {label}: {' | '.join(status_parts)}")
-    lines.append("")
-
-    # 분석 요청
-    anomalous_systems = [
-        f"{sm.display_name or sn} ({sn})"
-        for sn, sm in hc.systems.items()
-        if sm.anomalies
-    ]
-    if anomalous_systems:
-        lines.append(f"이상 감지 시스템: {', '.join(anomalous_systems)}")
-        lines.append("")
-    lines.append(
-        '위 현황을 종합하여 다음 JSON 형식으로만 응답하세요:\n'
-        '{\n'
-        '  "anomaly_item": "임계치를 초과한 메트릭과 수치 (한국어, 1줄)",\n'
-        '  "root_cause": "자원과 로그 에러의 연관성 및 원인 추정 (한국어, 2문장)",\n'
-        '  "immediate_action": "운영팀이 즉시 취해야 할 조치 (한국어, 1~2문장)"\n'
-        '}'
-    )
-
-    return "\n".join(lines)
-
-
 # ── Teams 알림 전송 ───────────────────────────────────────────────────────────
 
 async def _notify_host(hc: HostContext, analysis: str, severity: str, db: AsyncSession) -> None:
@@ -588,7 +511,7 @@ async def run_analysis_cycle() -> None:
                 if info:
                     system_infos[sn] = info
 
-            prompt = _build_llm_prompt(hc, system_infos)
+            prompt = build_prometheus_llm_prompt(hc, system_infos)
             logger.info("Anomaly detected — host=%s severity=%s systems=%s", host, severity, list(hc.systems.keys()))
 
             analysis: Optional[str] = None

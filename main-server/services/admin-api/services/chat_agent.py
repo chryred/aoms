@@ -20,6 +20,13 @@ from models import ChatMessage, ChatSession, LlmAgentConfig
 from schemas import ScreenContext
 from services.chat_tools.registry import list_enabled_tools, run_tool
 from services.llm_client import call_llm_stream, call_llm_text
+from services.prompts import (
+    decision_prompt as _decision_prompt,
+    final_prompt as _final_prompt,
+    help_decision_prompt as _help_decision_prompt,
+    help_final_prompt as _help_final_prompt,
+    _format_screen_context_line,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -62,142 +69,9 @@ async def _get_agent_code(db: AsyncSession, area_code: str) -> str:
     return (row.agent_code if row and row.is_active else "") or ""
 
 
-def _format_screen_context_line(ctx: ScreenContext | None) -> str | None:
-    """ScreenContext를 LLM 프롬프트용 한 줄 메타 문자열로 변환.
-
-    반환 예: "[현재 사용자 화면: 운영 대시보드 / 시스템: A1 / 인시던트: inc-123]"
-    모든 필드가 비어 있으면 None 반환.
-    """
-    if ctx is None:
-        return None
-    parts: list[str] = []
-    screen_val = ctx.screen_label or ctx.screen
-    if screen_val:
-        parts.append(screen_val)
-    if ctx.system_id:
-        parts.append(f"시스템: {ctx.system_id}")
-    if ctx.incident_id:
-        parts.append(f"인시던트: {ctx.incident_id}")
-    if not parts:
-        return None
-    return "[현재 사용자 화면: " + " / ".join(parts) + "]"
-
-
-def _decision_prompt(
-    tools: list[dict[str, Any]],
-    history: str,
-    user_message: str,
-    screen_context: ScreenContext | None = None,
-) -> str:
-    tools_json = json.dumps(tools, ensure_ascii=False)
-    ctx_line = _format_screen_context_line(screen_context)
-    ctx_block = f"사용자 화면 컨텍스트: {ctx_line}\n" if ctx_line else ""
-    return f"""역할: 당신은 Synapse-V 운영 어시스턴트입니다. 사용자 질문을 해결하기 위해
-아래 도구를 사용할 수 있습니다.
-
-출력 규약 (단일 JSON 객체만 반환, 코드펜스/설명 금지):
-  도구 호출: {{"thought":"...","action":"<tool_name>","args":{{ ... }}}}
-  최종 응답: {{"thought":"...","final_answer_ready":true}}
-
-- 도구가 필요 없으면 바로 final_answer_ready=true 반환.
-- args는 해당 도구의 input_schema를 준수.
-- 사용자가 시스템 이름(예: "고객경험시스템", "주문시스템")을 언급하면 먼저 ems_get_resources_by_system으로 서버 목록(role_label)을 확인한다. 이후 EMS 도구는 모두 system_display_name + (선택) role_label 조합으로 호출한다. resource_id나 IP는 사용자/LLM이 직접 다루지 않는다.
-- 시스템 전체를 조회할 때는 role_label 생략, 특정 서버(was1, db1 등)만 조회할 때는 role_label 지정.
-  예: CPU 사용률 → ems_get_system_usage_summary(system_display_name="고객경험시스템", timeSelector="day")
-  예: db1만 상세 → ems_get_system_server_detail(system_display_name="고객경험시스템", role_label="db1")
-- ems_get_resources_by_system은 같은 시스템에 대해 대화 이력에 이미 결과가 있으면 재호출하지 않는다. 결과의 available_role_labels 필드로 사용 가능한 서버를 확인한다.
-- 같은 도구의 결과가 대화 이력에 여러 번 있는 경우 가장 최근 observation을 사용하고, 이전 실패(null·에러)는 무시한다.
-- admin_list_systems 호출 시 시스템명을 알고 있으면 반드시 display_name 파라미터를 지정해 해당 시스템만 조회한다 (전체 조회 금지).
-- ems_get_team_group_id는 사용자가 EMS Polestar 자체의 팀/그룹명을 직접 지정한 경우에만 사용한다.
-- 과거 장애 원인·해결책·재발 여부를 묻는 질문은 qdrant_search_incident_knowledge 를 사용한다 (Qdrant Hybrid 벡터 검색 — 의미 + 키워드).
-  예: "이 에러 전에도 발생했나?", "OOM 이슈 어떻게 해결했어?", "DB 연결 오류 원인이 뭐야?", "이거랑 비슷한 장애 찾아줘"
-- 특정 기간의 시스템 분석 요약·이슈를 묻는 질문은 qdrant_search_aggregation_summary 를 사용한다.
-  예: "지난달 결제 서비스 상태 요약", "3월에 어떤 장애가 있었나?", "이번 주 DB 서버 이슈"
-- 최근 몇 시간 이내의 시스템 메트릭 패턴·이상 징후를 묻는 질문은 qdrant_search_hourly_patterns 를 사용한다 (1시간 집계 LLM 분석 결과 Hybrid 검색).
-  예: "오늘 오후 3시 결제 시스템 CPU 상태", "아까 DB 서버 메모리 어땠어?", "오전에 로그 에러 급증한 시스템 있었나?"
-- 운영 매뉴얼·정책·Jira 티켓·Confluence 문서·사내 지식 관련 질문은 qdrant_search_knowledge 를 사용한다 (V1 knowledge 컬렉션 federated Hybrid+Reranker 검색).
-  예: "배포 절차 어떻게 되나요?", "DB 점검 매뉴얼 알려줘", "이슈 처리 정책 찾아줘", "Confluence에 등록된 장애 대응 가이드"
-  system_id 또는 system_name 필터를 사용하면 해당 시스템 지식만 조회한다.
-- qdrant_* 도구는 admin_search_alert_history 보다 '의미 기반 검색'이 필요한 경우 우선 사용한다. admin_search_alert_history 는 특정 날짜·알림명·시스템으로 이력 정확 조회 시에만 사용한다.
-
-사용 가능한 도구:
-{tools_json}
-
-대화 이력:
-{history}
-
-{ctx_block}사용자 새 메시지: {user_message}
-
-JSON:"""
-
-
-def _final_prompt(history: str) -> str:
-    return f"""역할: 당신은 Synapse-V 운영 어시스턴트입니다.
-지금까지 도구 호출로 수집된 관측 결과를 바탕으로 사용자에게 한국어로 답변하세요.
-- 필요한 수치·시간·서버명은 근거와 함께 간결히.
-- 과장/추측 금지. 관측에 없는 내용은 "확인 필요"로 명시.
-- 마크다운 사용 가능.
-
-대화 이력 및 관측 결과:
-{history}
-
-최종 한국어 답변:"""
-
-
-# ── 현업(help_inquiry) 전용 프롬프트 ────────────────────────────────────────
+# ── 현업(help_inquiry) 전용 도구 필터 ───────────────────────────────────────
 
 _HELP_ALLOWED_TOOLS = {"qdrant_search_knowledge", "qdrant_search_aggregation_summary"}
-
-
-def _help_decision_prompt(
-    tools: list[dict[str, Any]],
-    history: str,
-    user_message: str,
-    system_id: int | None,
-    screen_context: ScreenContext | None = None,
-) -> str:
-    tools_json = json.dumps(tools, ensure_ascii=False)
-    system_hint = (
-        f"- 질문은 system_id={system_id} 시스템 관련 지식으로 우선 검색한다.\n"
-        if system_id else ""
-    )
-    ctx_line = _format_screen_context_line(screen_context)
-    ctx_block = f"사용자 화면 컨텍스트: {ctx_line}\n" if ctx_line else ""
-    return f"""역할: 당신은 백화점 현업 직원을 지원하는 운영 지식 안내 어시스턴트입니다.
-비기술 사용자에게 운영 매뉴얼·정책·절차를 쉬운 말로 안내합니다.
-
-출력 규약 (단일 JSON 객체만 반환, 코드펜스/설명 금지):
-  도구 호출: {{"thought":"...","action":"<tool_name>","args":{{ ... }}}}
-  최종 응답: {{"thought":"...","final_answer_ready":true}}
-
-- 도구가 필요 없으면 바로 final_answer_ready=true 반환.
-- 운영 매뉴얼·정책·절차·Jira·Confluence 관련 질문은 qdrant_search_knowledge를 사용한다.
-- 특정 기간의 시스템 요약·이슈는 qdrant_search_aggregation_summary를 사용한다.
-- 전문 용어가 나오면 반드시 괄호 안에 쉬운 표현을 덧붙인다.
-{system_hint}
-사용 가능한 도구:
-{tools_json}
-
-대화 이력:
-{history}
-
-{ctx_block}사용자 새 메시지: {user_message}
-
-JSON:"""
-
-
-def _help_final_prompt(history: str) -> str:
-    return f"""역할: 당신은 백화점 현업 직원을 지원하는 운영 지식 안내 어시스턴트입니다.
-지금까지 수집된 정보를 바탕으로 현업 직원이 이해할 수 있게 한국어로 답변하세요.
-- 단계별로 쉽게 설명한다.
-- 전문 용어는 반드시 풀어서 설명한다 (예: "타임아웃(응답 시간 초과)").
-- 과장/추측 금지. 정보가 없으면 "담당자에게 문의해 주세요"로 안내.
-- 마크다운 사용 가능.
-
-대화 이력 및 관측 결과:
-{history}
-
-최종 한국어 답변:"""
 
 
 async def _append_message(

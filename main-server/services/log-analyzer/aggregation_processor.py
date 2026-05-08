@@ -23,6 +23,14 @@ import httpx
 
 import aggregation_vector_client
 import vector_client
+from prompts import (
+    build_hourly_agg_prompt,
+    build_daily_agg_prompt,
+    build_weekly_agg_prompt,
+    build_monthly_agg_prompt,
+    build_longperiod_agg_prompt,
+    build_trend_alert_prompt,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -515,20 +523,10 @@ async def _process_single_config(
                 if lines:
                     trend_section = "\n[최근 추이]\n" + "\n".join(lines) + "\n"
 
-            llm_prompt = (
-                f"시스템: {display_name} ({system_name})\n"
-                f"시간대: {hour_bucket_iso} (1시간 집계)\n"
-                f"수집기: {collector_type} / {metric_group}\n"
-                f"이상 감지 사유: {anomaly_reason}\n{trace_section}{trend_section}\n"
-                f"[현재 시간 집계 메트릭]\n{metrics_formatted}\n\n"
-                "위 메트릭 데이터를 분석하여 다음 JSON 형식으로만 응답하세요:\n"
-                "{\n"
-                '  "severity": "normal 또는 warning 또는 critical 중 하나",\n'
-                '  "trend": "상승 또는 하락 또는 안정 또는 불규칙 (1문장 설명)",\n'
-                '  "prediction": "현재 추세가 지속되면 임계치 도달 예상 (예측 불가 시 null)",\n'
-                '  "root_cause_hypothesis": "가능한 원인 (한국어, 1문장)",\n'
-                '  "recommendation": "권고 조치 (한국어, 1~2문장)"\n'
-                "}"
+            llm_prompt = build_hourly_agg_prompt(
+                display_name, system_name, hour_bucket_iso,
+                collector_type, metric_group, anomaly_reason,
+                metrics_formatted, trace_section, trend_section,
             )
 
             _hourly_agent_code = await get_agent_code_for_area("metric_hourly_aggregation")
@@ -944,11 +942,8 @@ async def run_daily_aggregation() -> dict:
                 + (f", 주요원인: {ds['cause'][:50]}" if ds.get("cause") else "")
                 for ds in daily_system_summary.values()
             ]
-            daily_llm_prompt = (
-                f"다음은 {day_label} 시스템 모니터링 일별 집계 데이터입니다.\n\n"
-                + "\n".join(daily_system_lines)
-                + f"\n\n총 {len(daily_system_summary)}개 시스템. "
-                "한국어로 1-2 문장으로 핵심을 요약해 주세요."
+            daily_llm_prompt = build_daily_agg_prompt(
+                day_label, daily_system_lines, len(daily_system_summary),
             )
             try:
                 _daily_agent_code = await get_agent_code_for_area("metric_daily_aggregation")
@@ -1087,14 +1082,7 @@ async def run_weekly_report() -> dict:
             f"{week_end_dt.strftime('%Y년 %m월 %d일')}"
         )
 
-        llm_prompt = (
-            f"다음은 지난 7일간 시스템 모니터링 집계 데이터입니다.\n\n"
-            f"[시스템별 주간 현황 (이상 시간 순)]\n"
-            + "\n".join(system_lines)
-            + f"\n\n총 {len(system_summary)}개 시스템 모니터링. "
-            "한국어로 2-3 문장의 핵심 요약을 작성해 주세요. "
-            "가장 주의가 필요한 시스템과 전체적인 추세를 포함해 주세요."
-        )
+        llm_prompt = build_weekly_agg_prompt(system_lines, len(system_summary))
 
         _weekly_agent_code = await get_agent_code_for_area("metric_weekly_aggregation")
         llm_text = await call_llm_text(llm_prompt, max_tokens=300, agent_code=_weekly_agent_code)
@@ -1303,14 +1291,7 @@ async def run_monthly_report() -> dict:
             for s in sorted_systems
         ]
 
-        llm_prompt = (
-            f"{month_name} 전체 시스템 모니터링 월간 집계입니다.\n\n"
-            f"[시스템별 월간 현황]\n"
-            + "\n".join(system_lines)
-            + f"\n\n총 {len(system_summary)}개 시스템. "
-            "이번 달의 전반적인 시스템 안정성, 주목할 만한 이슈, "
-            "다음 달 주의사항을 한국어로 3-4 문장으로 요약해 주세요."
-        )
+        llm_prompt = build_monthly_agg_prompt(month_name, system_lines, len(system_summary))
 
         _monthly_agent_code = await get_agent_code_for_area("metric_monthly_aggregation")
         llm_text = await call_llm_text(llm_prompt, max_tokens=400, agent_code=_monthly_agent_code)
@@ -1481,14 +1462,7 @@ async def _run_single_period_report(
         "annual":    "연간",
     }.get(period_type, period_type)
 
-    llm_prompt = (
-        f"{label} 전체 시스템 모니터링 {period_label_kr} 집계입니다.\n\n"
-        f"[시스템별 현황]\n"
-        + "\n".join(system_lines)
-        + f"\n\n총 {len(system_summary)}개 시스템. "
-        "이 기간의 전반적인 시스템 안정성 평가, 개선된 점, "
-        "우려되는 장기 추세, 향후 권고사항을 한국어로 4-5 문장으로 요약해 주세요."
-    )
+    llm_prompt = build_longperiod_agg_prompt(label, period_label_kr, system_lines, len(system_summary))
 
     _longperiod_agent_code = await get_agent_code_for_area("metric_longperiod_aggregation")
     llm_text = await call_llm_text(llm_prompt, max_tokens=500, agent_code=_longperiod_agent_code)
@@ -1655,22 +1629,10 @@ async def _process_single_trend_alert(
             display_name   = item.get("display_name") or sys_info.get("display_name", system_name)
             webhook_url    = sys_info.get("teams_webhook_url") or ""
 
-            llm_prompt = (
-                f"시스템: {display_name} ({system_name})\n"
-                f"분석 기간: 최근 8시간 중 {anomaly_hours}시간 이상 감지\n"
-                f"수집기: {collector_type} / {metric_group}\n"
-                f"최고 심각도: {worst_severity}\n\n"
-                f"[시간별 추세 흐름]\n{trend_sequence}\n\n"
-                f"[기존 예측 목록]\n{predictions}\n\n"
-                "이 시스템이 지속적으로 이상 상태를 보이고 있습니다.\n"
-                "임계치 도달 예상 시점과 조치 우선순위를 다음 JSON 형식으로만 응답해 주세요:\n"
-                "{\n"
-                '  "hours_to_breach": 숫자 또는 null,\n'
-                '  "breach_metric": "임계치에 먼저 도달할 메트릭명",\n'
-                '  "severity": "warning 또는 critical 중 하나",\n'
-                '  "trend_summary": "지속 추세 요약 (1문장)",\n'
-                '  "immediate_actions": "즉시 조치 사항 (1~2문장)"\n'
-                "}"
+            llm_prompt = build_trend_alert_prompt(
+                display_name, system_name, anomaly_hours,
+                collector_type, metric_group, worst_severity,
+                trend_sequence, predictions,
             )
 
             _trend_agent_code = await get_agent_code_for_area("trend_alert")

@@ -31,6 +31,8 @@ from uuid import uuid4
 
 import httpx
 
+from prompts import build_enhanced_prompt  # noqa: F401 — re-export for analyzer.py
+
 logger = logging.getLogger(__name__)
 
 QDRANT_URL        = os.getenv("QDRANT_URL", "http://server-b:6333")
@@ -44,8 +46,9 @@ DENSE_MODEL_CACHE  = os.getenv("DENSE_MODEL_CACHE")   or None
 SPARSE_MODEL_NAME  = os.getenv("SPARSE_EMBED_MODEL", "Qdrant/bm25")
 SPARSE_MODEL_CACHE = os.getenv("SPARSE_MODEL_CACHE") or None
 
-COLLECTION        = "log_incidents"
-METRIC_COLLECTION = "metric_baselines"
+COLLECTION            = "log_incidents"
+METRIC_COLLECTION     = "metric_baselines"
+POSTMORTEM_COLLECTION = "incident_postmortems"
 
 # Qdrant HTTP 클라이언트 (벡터 저장/검색 — 빠름)
 _qdrant_http = httpx.AsyncClient(timeout=15.0)
@@ -524,85 +527,6 @@ def classify_anomaly(similar_results: list[dict]) -> dict:
     }
 
 
-# ── LLM 프롬프트 컨텍스트 강화 ──────────────────────────────────────────────
-
-def build_enhanced_prompt(
-    log_content: str,
-    system_name: str,
-    instance_role: str,
-    anomaly_info: dict,
-    trace_context: str = "",
-    trace_tier: str = "5min",
-) -> str:
-    """
-    유사 이력 + 해결책을 포함한 강화 프롬프트 생성.
-    토큰 예산: 4,000 토큰 이내 (log_content 3,000자 기본 + 컨텍스트 1,000자)
-    trace_context가 있으면 log_content를 tier별로 축소하고 trace 섹션 삽입.
-    """
-    log_limit_map = {"5min": 2600, "hourly": 2700, "daily": 2800}
-    log_limit = log_limit_map.get(trace_tier, 3000) if trace_context else 3000
-    similar      = anomaly_info.get("top_results", [])
-    anomaly_type = anomaly_info["type"]
-    score        = anomaly_info.get("score", 0.0)
-
-    if similar:
-        history_lines = []
-        for i, r in enumerate(similar[:3], 1):
-            p = r["payload"]
-            history_lines.append(
-                f"[이력{i}] 관련도:{r['score']:.3f} "
-                f"심각도:{p.get('severity', '?')} "
-                f"패턴:{p.get('log_pattern', '')[:150]}"
-            )
-        history_ctx = "\n".join(history_lines)
-    else:
-        history_ctx = "없음"
-
-    solutions = [r for r in similar if r["payload"].get("resolution")]
-    if solutions:
-        sol_lines = []
-        for s in solutions[:2]:
-            p = s["payload"]
-            sol_lines.append(
-                f"- 해결: {p['resolution'][:200]}\n"
-                f"  처리자: {p.get('resolver', '미기재')}"
-            )
-        solution_ctx = "\n".join(sol_lines)
-    else:
-        solution_ctx = "등록된 해결책 없음"
-
-    type_label = {
-        "new":       "신규 이상 (유사 사례 없음)",
-        "recurring": f"반복 이상 (RRF {score:.3f})",
-        "related":   f"유사 이상 (RRF {score:.3f})",
-        "duplicate": f"중복 이상 (RRF {score:.3f})",
-    }.get(anomaly_type, "미분류")
-
-    trace_section = ""
-    if trace_context:
-        trace_section = f"\n=== 분산 추적 요약 ({trace_tier}) ===\n{trace_context}\n"
-
-    return f"""=== 현재 이상 분류: {type_label} ===
-시스템: {system_name} / {instance_role}
-{trace_section}
-{log_content[:log_limit]}
-
-=== 과거 유사 장애 이력 (상위 3건) ===
-{history_ctx}
-
-=== 검증된 해결책 ===
-{solution_ctx}
-
-위 정보를 바탕으로 반드시 아래 JSON 형식으로만 응답하세요. 추가 설명 없이 JSON만 출력하세요.
-
-작성 규칙(가독성):
-- root_cause: 한국어. 핵심 원인 한 줄 요약 + 근거 1~2줄. 각 문장은 줄바꿈(\\n)으로 구분. 마크다운(**, -, #) 사용 금지.
-- recommendation: 한국어. 번호 목록 형식으로 작성하되 각 항목을 반드시 줄바꿈(\\n)으로 구분. 예:
-  "1) 즉시 조치: ...\\n2) 원인 분석: ...\\n3) 재발 방지: ..."
-  한 줄에 모든 항목을 이어 쓰지 말 것. 항목 내부는 한 문장으로 간결하게.
-- analysis_type: 로그가 여러 [log_type] 섹션으로 구분되어 있을 때만 작성. 단일 원인에서 연쇄된 경우 "cascade", 서로 독립된 이상인 경우 "independent". 단일 섹션이면 생략.
-
-{{"severity": "critical 또는 warning 또는 info", "root_cause": "원인 요약\\n근거/세부 설명", "recommendation": "1) 즉시 조치: ...\\n2) 원인 분석: ...\\n3) 재발 방지: ...", "error_category": "오류 카테고리 (예: DB_CONNECTION, MEMORY, NETWORK 등)", "estimated_impact": "예상 영향 범위 (한국어, 1문장)", "analysis_type": "cascade 또는 independent (복수 log_type 섹션일 때만)"}}"""
 
 
 # ── 메트릭 벡터 유사도 분석 (metric_baselines) ──────────────────────────────
@@ -835,3 +759,137 @@ async def resolve_metric_vector(point_id: str) -> None:
     )
     resp.raise_for_status()
     logger.info("메트릭 벡터 복구 상태 업데이트: point_id=%s", point_id)
+
+
+# ── incident_postmortems 컬렉션 (Wave 1B) ────────────────────────────────────
+
+async def ensure_postmortem_collection() -> bool:
+    """incident_postmortems 컬렉션 Hybrid(Dense+Sparse) 자동 보증."""
+    return await ensure_collection(POSTMORTEM_COLLECTION, hybrid=True)
+
+
+async def embed_postmortem(
+    incident_id: int,
+    payload: dict,
+    qdrant_point_id: str | None = None,
+) -> str:
+    """
+    인시던트 사후분석(postmortem) 서사를 Hybrid 임베딩하여 incident_postmortems에 upsert.
+
+    payload 필드 (Wave 1A admin-api가 전달):
+      title, system_name, system_id, severity, alert_excerpts,
+      root_cause, solution, ocr_text (선택), tags (선택)
+
+    Returns:
+        Qdrant point_id (신규 생성 또는 기존 qdrant_point_id)
+    """
+    # 서사 텍스트 구성 (임베딩 품질을 위해 의미 있는 필드만 결합)
+    parts = [
+        payload.get("title", ""),
+        payload.get("system_name", ""),
+        f"심각도:{payload.get('severity', '')}" if payload.get("severity") else "",
+        payload.get("alert_excerpts", ""),
+        payload.get("root_cause", ""),
+        payload.get("solution", ""),
+        payload.get("ocr_text", ""),
+    ]
+    narrative = " | ".join(p for p in parts if p)
+
+    dense  = await get_embedding(narrative)
+    sparse = await get_sparse_vector(narrative)
+
+    point_id = qdrant_point_id or str(uuid4())
+
+    store_payload = {
+        "incident_id":    incident_id,
+        "title":          payload.get("title", ""),
+        "system_name":    payload.get("system_name", ""),
+        "system_id":      payload.get("system_id"),
+        "severity":       payload.get("severity", ""),
+        "alert_excerpts": (payload.get("alert_excerpts") or "")[:500],
+        "root_cause":     payload.get("root_cause", ""),
+        "solution":       payload.get("solution", ""),
+        "ocr_text":       (payload.get("ocr_text") or "")[:1000],
+        "tags":           payload.get("tags", []),
+        "timestamp":      datetime.now(timezone.utc).isoformat(),
+    }
+
+    await ensure_postmortem_collection()
+    resp = await _qdrant_http.put(
+        f"{QDRANT_URL}/collections/{POSTMORTEM_COLLECTION}/points",
+        json={
+            "points": [{
+                "id": point_id,
+                "vector": {
+                    "dense": dense,
+                    "sparse": {
+                        "indices": sparse["indices"],
+                        "values":  sparse["values"],
+                    },
+                },
+                "payload": store_payload,
+            }]
+        },
+    )
+    resp.raise_for_status()
+    logger.info("postmortem 임베딩 저장: incident_id=%s point_id=%s", incident_id, point_id)
+    return point_id
+
+
+async def search_postmortem(
+    query: str,
+    system_id: int | None = None,
+    severity: str | None = None,
+    limit: int = 5,
+) -> list[dict]:
+    """
+    incident_postmortems Hybrid 검색 (Dense + Sparse RRF).
+
+    system_id / severity 필터는 선택적.
+    Returns:
+        [{"id", "score": float, "payload": {...}}, ...]
+    """
+    dense  = await get_embedding(query)
+    sparse = await get_sparse_vector(query)
+
+    filter_must: list[dict] = []
+    if system_id is not None:
+        filter_must.append({"key": "system_id", "match": {"value": system_id}})
+    if severity:
+        filter_must.append({"key": "severity", "match": {"value": severity}})
+
+    return await _hybrid_search(
+        collection=POSTMORTEM_COLLECTION,
+        dense=dense,
+        sparse=sparse,
+        filter_must=filter_must or None,
+        limit=limit,
+    )
+
+
+async def get_postmortem_by_incident(incident_id: int) -> dict | None:
+    """
+    incident_id로 postmortem 포인트를 직접 조회 (Qdrant /points/scroll).
+
+    Returns:
+        payload dict (id 포함) 또는 None (미존재)
+    """
+    resp = await _qdrant_http.post(
+        f"{QDRANT_URL}/collections/{POSTMORTEM_COLLECTION}/points/scroll",
+        json={
+            "filter": {
+                "must": [{"key": "incident_id", "match": {"value": incident_id}}]
+            },
+            "limit":        1,
+            "with_payload": True,
+            "with_vector":  False,
+        },
+    )
+    if resp.status_code == 404:
+        return None
+    resp.raise_for_status()
+    points = resp.json().get("result", {}).get("points", [])
+    if not points:
+        return None
+    p = points[0]
+    return {"id": p["id"], **p.get("payload", {})}
