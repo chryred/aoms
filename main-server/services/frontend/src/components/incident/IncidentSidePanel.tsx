@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { X, ExternalLink, Save } from 'lucide-react'
+import { X, ExternalLink, Save, Pencil, Check } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { NeuButton } from '@/components/neumorphic/NeuButton'
 import { NeuSelect } from '@/components/neumorphic/NeuSelect'
@@ -9,6 +9,9 @@ import { ROUTES } from '@/constants/routes'
 import { cn, formatKST, formatRelative } from '@/lib/utils'
 import { useBannerVisible } from '@/hooks/useBannerVisible'
 import { useUpdateIncident } from '@/hooks/queries/useIncidents'
+import { useIncidentFeedback } from '@/hooks/queries/useIncidentFeedback'
+import { FeedbackDetailView } from './FeedbackDetailView'
+import { FeedbackForm } from './FeedbackForm'
 import type { IncidentOut } from '@/api/incidents'
 
 const PANEL_DESC_ID = 'incident-panel-desc'
@@ -148,12 +151,35 @@ function IncidentSidePanelContent({
   const [severity, setSeverity] = useState(incident.severity)
   const [notes, setNotes] = useState(incident.root_cause ?? '')
   const [dirty, setDirty] = useState(false)
+  const [isRegistering, setIsRegistering] = useState(false)
+  const [isRevising, setIsRevising] = useState(false)
+
+  const [isEditingTitle, setIsEditingTitle] = useState(false)
+  const [titleDraft, setTitleDraft] = useState(incident.title)
+  const titleInputRef = useRef<HTMLInputElement>(null)
+
+  // 인시던트 피드백 조회 (all 상태)
+  const { data: feedbacks } = useIncidentFeedback(incident.id, 'all')
+  const latestFeedback =
+    feedbacks?.sort(
+      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+    )[0] ?? null
+
+  const canRegister = ['resolved', 'closed'].includes(incident.status)
 
   useEffect(() => {
     setSeverity(incident.severity)
     setNotes(incident.root_cause ?? '')
     setDirty(false)
+    setIsRegistering(false)
+    setIsRevising(false)
+    setIsEditingTitle(false)
+    setTitleDraft(incident.title)
   }, [incident.id]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (isEditingTitle) titleInputRef.current?.focus()
+  }, [isEditingTitle])
 
   const handleSave = () => {
     update(
@@ -164,6 +190,29 @@ function IncidentSidePanelContent({
           setDirty(false)
         },
         onError: () => toast.error('저장에 실패했습니다'),
+      },
+    )
+  }
+
+  const handleTitleSave = () => {
+    const trimmed = titleDraft.trim()
+    if (!trimmed || trimmed === incident.title) {
+      setTitleDraft(incident.title)
+      setIsEditingTitle(false)
+      return
+    }
+    update(
+      { title: trimmed },
+      {
+        onSuccess: () => {
+          toast.success('제목이 수정됐습니다')
+          setIsEditingTitle(false)
+        },
+        onError: () => {
+          toast.error('제목 수정에 실패했습니다')
+          setTitleDraft(incident.title)
+          setIsEditingTitle(false)
+        },
       },
     )
   }
@@ -187,9 +236,52 @@ function IncidentSidePanelContent({
       <div className="border-border flex items-start gap-3 border-b px-5 py-4">
         <div className="min-w-0 flex-1">
           <div className="text-text-disabled mb-1 font-mono text-xs">#{incident.id}</div>
-          <h2 className="text-text-primary line-clamp-2 text-sm leading-snug font-semibold">
-            {incident.title}
-          </h2>
+          {isEditingTitle ? (
+            <div className="flex items-center gap-1.5">
+              <input
+                ref={titleInputRef}
+                value={titleDraft}
+                onChange={(e) => setTitleDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') handleTitleSave()
+                  if (e.key === 'Escape') {
+                    e.stopPropagation()
+                    setTitleDraft(incident.title)
+                    setIsEditingTitle(false)
+                  }
+                }}
+                onBlur={handleTitleSave}
+                className="bg-bg-base border-border text-text-primary focus:ring-accent shadow-neu-inset min-w-0 flex-1 rounded-sm border px-2 py-0.5 text-sm leading-snug font-semibold focus:ring-1 focus:outline-none"
+                disabled={isPending}
+              />
+              <button
+                type="button"
+                onClick={handleTitleSave}
+                disabled={isPending}
+                className="text-accent hover:text-accent/80 shrink-0 transition-colors"
+                aria-label="제목 저장"
+              >
+                <Check className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          ) : (
+            <div className="group flex items-start gap-1">
+              <h2 className="text-text-primary line-clamp-2 min-w-0 flex-1 text-sm leading-snug font-semibold">
+                {incident.title}
+              </h2>
+              <button
+                type="button"
+                onClick={() => {
+                  setTitleDraft(incident.title)
+                  setIsEditingTitle(true)
+                }}
+                className="text-text-disabled hover:text-text-secondary mt-0.5 shrink-0 opacity-0 transition-colors group-hover:opacity-100"
+                aria-label="제목 수정"
+              >
+                <Pencil className="h-3 w-3" />
+              </button>
+            </div>
+          )}
           <p id={PANEL_DESC_ID} className="text-text-secondary mt-1 text-xs">
             {incident.system_display_name ?? '시스템 미지정'}
           </p>
@@ -278,7 +370,7 @@ function IncidentSidePanelContent({
           </NeuButton>
         )}
 
-        {/* 상태 전환 버튼들 — 현재 상태 제외한 모든 상태 허용 */}
+        {/* 상태 전환 버튼들 */}
         <div>
           <p className="text-text-disabled mb-2 text-[0.75rem]">상태 전환</p>
           <div className="flex flex-wrap gap-2">
@@ -294,6 +386,36 @@ function IncidentSidePanelContent({
               </NeuButton>
             ))}
           </div>
+        </div>
+
+        {/* 해결책 섹션 */}
+        <div>
+          <p className="text-text-disabled mb-2 text-[0.75rem] font-semibold tracking-wider uppercase">
+            해결책
+          </p>
+
+          {!canRegister ? (
+            <p className="text-text-secondary text-sm">
+              사건 종료 후 등록 가능합니다 (현재:{' '}
+              {STATUS_LABELS[incident.status] ?? incident.status})
+            </p>
+          ) : isRegistering || isRevising ? (
+            <FeedbackForm
+              incidentId={incident.id}
+              mode={isRevising ? 'revise' : 'create'}
+              existingFeedback={isRevising ? (latestFeedback ?? undefined) : undefined}
+              onClose={() => {
+                setIsRegistering(false)
+                setIsRevising(false)
+              }}
+            />
+          ) : latestFeedback ? (
+            <FeedbackDetailView feedback={latestFeedback} onResubmit={() => setIsRevising(true)} />
+          ) : (
+            <NeuButton size="sm" onClick={() => setIsRegistering(true)}>
+              해결책 등록
+            </NeuButton>
+          )}
         </div>
       </div>
 

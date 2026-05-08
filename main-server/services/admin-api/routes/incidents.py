@@ -1,26 +1,40 @@
+import asyncio
 import json
 import logging
 from datetime import datetime, timezone, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
-from auth import get_current_user
-from database import get_db
-from models import AlertFeedback, AlertHistory, Incident, IncidentTimeline, LlmAgentConfig, System
+from auth import get_current_user, require_admin
+from database import AsyncSessionLocal, get_db
+from models import AlertFeedback, AlertFeedbackAttachment, AlertHistory, Contact, Incident, IncidentTimeline, LlmAgentConfig, System, User
 from schemas import (
     AlertHistoryOut,
+    FeedbackCreateRequest,
+    FeedbackOut,
+    FeedbackRejectRequest,
+    FeedbackResubmitRequest,
     IncidentAiAnalyzeOut,
     IncidentCommentCreate,
     IncidentDetailOut,
     IncidentCreate,
+    IncidentFeedbackPendingOut,
     IncidentOut,
     IncidentReportOut,
+    IncidentStatsOut,
     IncidentTimelineItemOut,
     IncidentUpdate,
 )
 from services.llm_client import call_llm_text
+from services import incident_postmortem_client as postmortem_client
+from services.notification import TeamsNotifier
+import os
+import uuid
+from pathlib import Path
+from sqlalchemy import delete as sa_delete
 
 logger = logging.getLogger(__name__)
 _KST = timezone(timedelta(hours=9))
@@ -28,9 +42,172 @@ _KST = timezone(timedelta(hours=9))
 router = APIRouter(prefix="/api/v1/incidents", tags=["incidents"])
 
 _VALID_STATUSES = {"open", "acknowledged", "investigating", "resolved", "closed"}
+_STATUS_ORDER = ["open", "acknowledged", "investigating", "resolved", "closed"]
+
+# ── 피드백 첨부파일 헬퍼 (feedback.py와 동일 경로 규칙) ──────────────────────────
+_DEFAULT_WEBHOOK_URL = os.getenv("TEAMS_WEBHOOK_URL", "")
+_notifier = TeamsNotifier(default_webhook_url=_DEFAULT_WEBHOOK_URL)
+_KNOWLEDGE_DOCS_DIR = Path(os.getenv("KNOWLEDGE_DOCS_DIR", "/attaches/knowledge-docs"))
+_FEEDBACK_ATTACH_DIR = _KNOWLEDGE_DOCS_DIR / "feedback"
+_MAX_ATTACHMENTS_PER_FEEDBACK = 10
 
 
-def _to_out(incident: Incident, system_display_name: str | None = None) -> IncidentOut:
+def _staging_dir() -> Path:
+    d = _FEEDBACK_ATTACH_DIR / "staging"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _feedback_dir(feedback_id: int) -> Path:
+    d = _FEEDBACK_ATTACH_DIR / str(feedback_id)
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _validate_staging_path(file_path: str) -> Path:
+    staging = _staging_dir().resolve()
+    try:
+        resolved = (_KNOWLEDGE_DOCS_DIR / file_path).resolve()
+    except Exception:
+        raise HTTPException(status_code=400, detail=f"유효하지 않은 파일 경로: {file_path}")
+    if not str(resolved).startswith(str(staging)):
+        raise HTTPException(status_code=400, detail=f"허용되지 않은 파일 경로: {file_path}")
+    if not resolved.exists():
+        raise HTTPException(status_code=400, detail=f"파일을 찾을 수 없습니다: {file_path}")
+    return resolved
+
+
+def _move_staging_to_feedback(staging_rel_path: str, feedback_id: int) -> str:
+    """staging → feedback/{id}/{uuid}.{ext} 이동. 새 상대경로 반환."""
+    src = _validate_staging_path(staging_rel_path)
+    ext = src.suffix
+    dest_filename = f"{uuid.uuid4()}{ext}"
+    dest_dir = _feedback_dir(feedback_id)
+    dest = dest_dir / dest_filename
+    try:
+        src.rename(dest)
+    except Exception as exc:
+        logger.warning("첨부파일 이동 실패 (%s → %s): %s", src, dest, exc)
+        return staging_rel_path
+    return f"feedback/{feedback_id}/{dest_filename}"
+
+
+def _delete_file_best_effort(file_path: str) -> None:
+    try:
+        full = _KNOWLEDGE_DOCS_DIR / file_path
+        if full.exists():
+            full.unlink()
+    except Exception as exc:
+        logger.warning("파일 삭제 실패 (%s): %s", file_path, exc)
+
+
+# ── OCR 백그라운드 태스크 ──────────────────────────────────────────────────────
+
+async def _run_ocr_for_attachment(attachment_id: int, file_path: str, mime_type: str) -> None:
+    """OCR 백그라운드 처리 — 독립 DB 세션 사용.
+
+    log-analyzer 응답 형식: {"text": str, "char_count": int}
+
+    BaseException(특히 asyncio.CancelledError) 까지 catch하여 ocr_status 가
+    "processing" 으로 영구 잠기는 현상 방지. CancelledError 는 status 확정 후 re-raise.
+    """
+    async with AsyncSessionLocal() as session:
+        try:
+            result = await postmortem_client.trigger_ocr(file_path, mime_type)
+            attach = await session.get(AlertFeedbackAttachment, attachment_id)
+            if attach:
+                # log-analyzer는 'text' 키로 반환. 폴백으로 'ocr_text'도 검사.
+                text = result.get("text") or result.get("ocr_text") or ""
+                attach.ocr_text = text or None
+                attach.ocr_status = "done" if text else "failed"
+                await session.commit()
+        except BaseException as exc:
+            is_cancel = isinstance(exc, asyncio.CancelledError)
+            logger.warning(
+                "OCR 처리 실패 (attachment_id=%s, cancel=%s): %s",
+                attachment_id, is_cancel, exc,
+            )
+            try:
+                # 새 session 사용 — 기존 session 이 cancel 로 dirty 일 수 있음
+                async with AsyncSessionLocal() as fail_session:
+                    attach = await fail_session.get(AlertFeedbackAttachment, attachment_id)
+                    if attach and attach.ocr_status == "processing":
+                        attach.ocr_status = "failed"
+                        await fail_session.commit()
+            except Exception:
+                pass
+            if is_cancel:
+                raise
+
+
+async def _run_ocr_for_feedback(feedback: "AlertFeedback") -> None:
+    """피드백의 모든 첨부에 대해 OCR을 동기적으로 처리.
+
+    BackgroundTasks 대신 응답 전 await로 처리하여 uvicorn reload·worker 재시작
+    상황에서도 task 중단 없이 ocr_status가 done/failed로 확정되도록 보장.
+    각 첨부의 OCR 실패는 격리되어 다른 첨부 처리에 영향 없음.
+    """
+    mime_map = {
+        ".pdf": "application/pdf",
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".webp": "image/webp",
+        ".gif": "image/gif",
+        ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        ".txt": "text/plain",
+    }
+    for attach in feedback.attachments:
+        if attach.ocr_status not in ("processing", None, ""):
+            continue  # 이미 done/failed 처리된 첨부는 스킵 (멱등)
+        ext = Path(attach.file_path).suffix.lower()
+        mime = mime_map.get(ext, "application/octet-stream")
+        try:
+            await _run_ocr_for_attachment(attach.id, attach.file_path, mime)
+        except asyncio.CancelledError:
+            # 클라이언트 disconnect 등으로 request task 가 취소된 경우 — _run_ocr_for_attachment
+            # 가 이미 자기 첨부의 status 를 failed 로 확정한 뒤 re-raise 했음. 잔여 processing
+            # 첨부는 detached task 로 끝까지 처리해 ocr_status 잠김을 방지.
+            logger.warning("OCR 동기 처리 cancel — 잔여 첨부는 detached task 로 진행")
+            asyncio.create_task(_run_ocr_remaining_detached(feedback.id, mime_map))
+            raise
+        except Exception as exc:
+            logger.warning("OCR 동기 처리 실패 (attachment_id=%s): %s", attach.id, exc)
+
+
+async def _run_ocr_remaining_detached(feedback_id: int, mime_map: dict[str, str]) -> None:
+    """request task cancel 시 잔여 processing 첨부를 끝까지 처리하는 detached worker.
+
+    `asyncio.create_task` 로 분리되어 client disconnect 와 무관하게 완료까지 실행.
+    실패해도 `_run_ocr_for_attachment` 가 status 를 done/failed 로 확정함.
+    """
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(AlertFeedbackAttachment).where(
+                AlertFeedbackAttachment.feedback_id == feedback_id,
+                AlertFeedbackAttachment.ocr_status == "processing",
+            )
+        )
+        pending = result.scalars().all()
+    for attach in pending:
+        ext = Path(attach.file_path).suffix.lower()
+        mime = mime_map.get(ext, "application/octet-stream")
+        try:
+            await _run_ocr_for_attachment(attach.id, attach.file_path, mime)
+        except Exception as exc:
+            logger.warning(
+                "detached OCR 실패 (attachment_id=%s): %s", attach.id, exc
+            )
+
+
+def _to_out(
+    incident: Incident,
+    system_display_name: str | None = None,
+    has_approved_feedback: bool = False,
+    latest_feedback_status: str | None = None,
+) -> IncidentOut:
     mtta = mttr = None
     if incident.acknowledged_at:
         mtta = int((incident.acknowledged_at - incident.detected_at).total_seconds() // 60)
@@ -54,6 +231,8 @@ def _to_out(incident: Incident, system_display_name: str | None = None) -> Incid
         mtta_minutes=mtta,
         mttr_minutes=mttr,
         system_display_name=system_display_name,
+        has_approved_feedback=has_approved_feedback,
+        latest_feedback_status=latest_feedback_status,
         created_at=incident.created_at,
         updated_at=incident.updated_at,
     )
@@ -68,7 +247,28 @@ async def list_incidents(
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
 ):
-    stmt = select(Incident, System.display_name.label("system_display_name")).outerjoin(
+    has_approved = (
+        select(1).select_from(AlertFeedback)
+        .where(AlertFeedback.incident_id == Incident.id)
+        .where(AlertFeedback.status == "approved")
+        .exists()
+        .label("has_approved_feedback")
+    )
+    # 가장 최근 피드백 status (latest by created_at)
+    latest_status = (
+        select(AlertFeedback.status)
+        .where(AlertFeedback.incident_id == Incident.id)
+        .order_by(AlertFeedback.created_at.desc())
+        .limit(1)
+        .scalar_subquery()
+        .label("latest_feedback_status")
+    )
+    stmt = select(
+        Incident,
+        System.display_name.label("system_display_name"),
+        has_approved,
+        latest_status,
+    ).outerjoin(
         System, System.id == Incident.system_id
     ).order_by(Incident.detected_at.desc()).offset(offset).limit(limit)
 
@@ -80,7 +280,15 @@ async def list_incidents(
         stmt = stmt.where(Incident.severity == severity)
 
     rows = (await db.execute(stmt)).all()
-    return [_to_out(row.Incident, row.system_display_name) for row in rows]
+    return [
+        _to_out(
+            row.Incident,
+            row.system_display_name,
+            bool(row.has_approved_feedback),
+            row.latest_feedback_status,
+        )
+        for row in rows
+    ]
 
 
 @router.post("", response_model=IncidentOut, status_code=201)
@@ -127,10 +335,684 @@ async def create_incident(
     return _to_out(incident, system_display_name)
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# Wave 2A: 인시던트 피드백 엔드포인트 (literal-path 라우트 먼저 등록)
+# ═══════════════════════════════════════════════════════════════════════════
+
+@router.get("/stats", response_model=IncidentStatsOut)
+async def get_incident_stats(
+    period_from: datetime | None = Query(None),
+    period_to: datetime | None = Query(None),
+    db: AsyncSession = Depends(get_db),
+    _current_user=Depends(get_current_user),
+):
+    """인시던트 3카드 통계: {total, registrable, completed}."""
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    if period_from is None:
+        period_from = datetime(now.year, now.month, now.day) - timedelta(days=30)
+    if period_to is None:
+        period_to = now
+
+    # total
+    total = (await db.execute(
+        select(func.count()).select_from(Incident)
+        .where(Incident.detected_at >= period_from)
+        .where(Incident.detected_at <= period_to)
+    )).scalar_one()
+
+    # registrable: resolved/closed인데 approved 피드백이 없는 것
+    from sqlalchemy.orm import aliased
+    fb_alias = aliased(AlertFeedback)
+    registrable = (await db.execute(
+        select(func.count()).select_from(Incident)
+        .outerjoin(fb_alias, (fb_alias.incident_id == Incident.id) & (fb_alias.status == "approved"))
+        .where(Incident.status.in_(["resolved", "closed"]))
+        .where(fb_alias.id.is_(None))
+        .where(Incident.detected_at >= period_from)
+        .where(Incident.detected_at <= period_to)
+    )).scalar_one()
+
+    # completed: approved 피드백이 있는 인시던트 수
+    completed = (await db.execute(
+        select(func.count(Incident.id.distinct())).select_from(Incident)
+        .join(AlertFeedback, (AlertFeedback.incident_id == Incident.id) & (AlertFeedback.status == "approved"))
+        .where(Incident.detected_at >= period_from)
+        .where(Incident.detected_at <= period_to)
+    )).scalar_one()
+
+    return IncidentStatsOut(total=total, registrable=registrable, completed=completed)
+
+
+@router.get("/feedback/pending", response_model=list[IncidentFeedbackPendingOut])
+async def list_pending_feedbacks(
+    limit: int = Query(50, le=200),
+    offset: int = Query(0, ge=0),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """admin 전용 — 모든 인시던트 중 pending/rejected 피드백 목록."""
+    rows = (await db.execute(
+        select(
+            AlertFeedback,
+            Incident.title,
+            Incident.alert_count,
+            System.display_name.label("system_display_name"),
+            Contact.id.label("approver_contact_id"),
+        )
+        .select_from(AlertFeedback)
+        .join(Incident, AlertFeedback.incident_id == Incident.id)
+        .outerjoin(System, Incident.system_id == System.id)
+        .outerjoin(Contact, AlertFeedback.approver_id == Contact.id)
+        .where(AlertFeedback.status.in_(["pending", "rejected"]))
+        .order_by(AlertFeedback.created_at.desc())
+        .limit(limit)
+        .offset(offset)
+    )).all()
+
+    # 현재 사용자의 contact 조회 (한 번만)
+    is_admin = current_user.role == "admin"
+    current_contact_result = await db.execute(
+        select(Contact).where(Contact.user_id == current_user.id)
+    )
+    current_contact = current_contact_result.scalar_one_or_none()
+
+    result = []
+    for fb, incident_title, alert_count, system_display_name, approver_contact_id in rows:
+        # 승인자 이름 조회
+        approver_name = None
+        if fb.approver_id:
+            approver_contact = await db.get(Contact, fb.approver_id)
+            if approver_contact:
+                approver_user = await db.get(User, approver_contact.user_id)
+                if approver_user:
+                    approver_name = approver_user.name
+
+        is_designated = current_contact is not None and current_contact.id == fb.approver_id
+        result.append(IncidentFeedbackPendingOut(
+            feedback_id=fb.id,
+            incident_id=fb.incident_id,
+            incident_title=incident_title or "Unknown",
+            system_display_name=system_display_name,
+            alert_count=alert_count or 0,
+            resolver=fb.resolver,
+            approver_name=approver_name,
+            created_at=fb.created_at,
+            revision_count=fb.revision_count or 0,
+            status=fb.status,
+            can_approve=is_admin or is_designated,
+        ))
+    return result
+
+
+@router.get("/feedback/search")
+async def search_incident_feedback(
+    query: str = Query(...),
+    system_id: int | None = Query(None),
+    severity: str | None = Query(None),
+    limit: int = Query(10, le=50),
+    _current_user=Depends(get_current_user),
+):
+    """Qdrant Hybrid 검색 — log-analyzer /incident-postmortem/search 프록시."""
+    try:
+        results = await postmortem_client.search_postmortem(
+            query=query,
+            system_id=system_id,
+            severity=severity,
+            limit=limit,
+        )
+        return {"results": results}
+    except Exception as exc:
+        logger.warning("incident postmortem search 실패: %s", exc)
+        raise HTTPException(status_code=502, detail="검색 서비스 응답 없음")
+
+
+# ── 인시던트 피드백 등록 ───────────────────────────────────────────────────────
+
+@router.post("/{incident_id}/feedback", response_model=FeedbackOut)
+async def create_incident_feedback(
+    incident_id: int,
+    payload: FeedbackCreateRequest,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+    _current_user=Depends(get_current_user),
+):
+    """인시던트 피드백 등록 (pending). 인시던트 resolved/closed 상태에서만 허용."""
+    incident = await db.get(Incident, incident_id)
+    if not incident:
+        raise HTTPException(status_code=404, detail="Incident not found")
+    if incident.status not in ("resolved", "closed"):
+        raise HTTPException(status_code=400, detail="사건 종료(resolved/closed) 후 등록 가능합니다")
+
+    approver_result = await db.execute(select(Contact).where(Contact.id == payload.approver_contact_id))
+    approver = approver_result.scalar_one_or_none()
+    if not approver:
+        raise HTTPException(status_code=404, detail="Approver contact not found")
+
+    # 승인자가 활성 사용자인지 확인
+    approver_user = await db.get(User, approver.user_id)
+    if not approver_user or not approver_user.is_active:
+        raise HTTPException(status_code=400, detail="지정 승인자가 유효한 사용자가 아닙니다")
+
+    system = await db.get(System, incident.system_id) if incident.system_id else None
+    system_display_name = system.display_name if system else str(incident.system_id or "Unknown")
+
+    attachment_paths = payload.attachment_paths or []
+    if len(attachment_paths) > _MAX_ATTACHMENTS_PER_FEEDBACK:
+        raise HTTPException(status_code=400, detail=f"첨부파일은 최대 {_MAX_ATTACHMENTS_PER_FEEDBACK}개까지 가능합니다")
+
+    feedback = AlertFeedback(
+        incident_id=incident_id,
+        error_type=payload.error_type,
+        solution=payload.solution,
+        resolver=payload.resolver,
+        status="pending",
+        approver_id=approver.id,
+    )
+    db.add(feedback)
+    await db.flush()
+
+    # 첨부파일: staging → 정식 위치 (원본 파일명은 payload.attachment_filenames에서)
+    attachment_filenames = payload.attachment_filenames or []
+    attach_records = []
+    for idx, staging_rel in enumerate(attachment_paths):
+        original_filename = (
+            attachment_filenames[idx] if idx < len(attachment_filenames) else Path(staging_rel).name
+        )
+        new_rel = _move_staging_to_feedback(staging_rel, feedback.id)
+        attach = AlertFeedbackAttachment(
+            feedback_id=feedback.id,
+            file_path=new_rel,
+            original_filename=original_filename,
+            sort_order=idx,
+            ocr_status="processing",
+        )
+        db.add(attach)
+        attach_records.append((attach, new_rel))
+
+    await db.commit()
+
+    # OCR 동기 처리 (BackgroundTasks 대신 — uvicorn reload/worker 재시작 영향 회피)
+    result_fb = await db.execute(
+        select(AlertFeedback).where(AlertFeedback.id == feedback.id)
+        .options(selectinload(AlertFeedback.attachments))
+    )
+    feedback = result_fb.scalar_one()
+    await _run_ocr_for_feedback(feedback)
+    # OCR 결과 반영을 위해 attachments 재조회
+    await db.refresh(feedback, ["attachments"])
+
+    # 승인자 Teams 카드 발송 (approver_user는 위에서 로드됨 — @멘션용)
+    approver_contact_dict = {"name": approver_user.name, "teams_upn": approver.teams_upn}
+
+    background_tasks.add_task(
+        _notifier.send_approval_request_card,
+        webhook_url=approver.webhook_url,
+        feedback_id=feedback.id,
+        system_display_name=system_display_name,
+        alert_title=incident.title or "Unknown",
+        error_type=payload.error_type,
+        solution=payload.solution,
+        resolver=payload.resolver,
+        attachment_count=len(attachment_paths),
+        revision_count=0,
+        approver_contact=approver_contact_dict,
+    )
+
+    return feedback
+
+
+# ── 피드백 승인 ───────────────────────────────────────────────────────────────
+
+@router.post("/{incident_id}/feedback/{feedback_id}/approve", response_model=FeedbackOut)
+async def approve_incident_feedback(
+    incident_id: int,
+    feedback_id: int,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """피드백 승인 — 지정 승인자 OR admin 모두 처리 가능."""
+    incident = await db.get(Incident, incident_id)
+    if not incident:
+        raise HTTPException(status_code=404, detail="Incident not found")
+
+    result = await db.execute(
+        select(AlertFeedback).where(AlertFeedback.id == feedback_id)
+        .options(selectinload(AlertFeedback.attachments))
+    )
+    feedback = result.scalar_one_or_none()
+    if not feedback:
+        raise HTTPException(status_code=404, detail="Feedback not found")
+    if feedback.incident_id != incident_id:
+        raise HTTPException(status_code=400, detail="해당 인시던트의 피드백이 아닙니다")
+    if feedback.status == "approved":
+        raise HTTPException(status_code=400, detail="이미 승인된 피드백입니다")
+
+    # 권한: 지정 승인자 OR admin
+    current_contact_result = await db.execute(select(Contact).where(Contact.user_id == user.id))
+    current_contact = current_contact_result.scalar_one_or_none()
+    is_admin = user.role == "admin"
+    is_designated = current_contact is not None and current_contact.id == feedback.approver_id
+    if not (is_admin or is_designated):
+        raise HTTPException(status_code=403, detail="관리자 또는 지정 승인자만 처리할 수 있습니다")
+
+    # OCR 완료 확인 (425 — 처리 중이면 재시도)
+    processing_count = sum(
+        1 for a in feedback.attachments if a.ocr_status == "processing"
+    )
+    if processing_count > 0:
+        raise HTTPException(status_code=425, detail="OCR 처리 중입니다. 잠시 후 재시도해 주세요.")
+
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    feedback.status = "approved"
+    feedback.approved_by = current_contact.id if current_contact else None
+    feedback.approved_at = now
+    feedback.rejection_reason = None
+    feedback.rejected_at = None
+    await db.flush()
+
+    # 임베딩 payload 구성
+    system = await db.get(System, incident.system_id) if incident.system_id else None
+    alerts = (await db.execute(
+        select(AlertHistory).where(AlertHistory.incident_id == incident_id)
+        .order_by(AlertHistory.created_at.asc()).limit(10)
+    )).scalars().all()
+
+    # 승인자 이름 — lazy-load 방지를 위해 명시적 async 조회
+    approver_user = (
+        await db.get(User, current_contact.user_id) if current_contact else None
+    )
+
+    alert_types = list({a.alert_type for a in alerts if a.alert_type})
+    alert_excerpts_list = [f"{a.severity}: {a.title}" for a in alerts[:5]]
+    attachment_text = "\n".join(
+        a.ocr_text for a in feedback.attachments if a.ocr_text
+    )
+
+    embed_payload = {
+        "incident_id": incident_id,
+        "system_id": incident.system_id,
+        "system_name": system.system_name if system else "",
+        "title": incident.title or "",
+        "severity": incident.severity or "",
+        "alert_excerpts": "\n".join(alert_excerpts_list),
+        "root_cause": feedback.error_type or "",
+        "solution": feedback.solution or "",
+        "ocr_text": attachment_text or "",
+        "tags": alert_types,
+    }
+
+    # 같은 인시던트의 기존 approved feedback이 보유한 qdrant_point_id를 우선 재사용 →
+    # 한 인시던트당 1 incident_postmortems point 유지 (재등록 시 중복 방지)
+    if not feedback.qdrant_point_id:
+        existing_q = await db.execute(
+            select(AlertFeedback.qdrant_point_id)
+            .where(AlertFeedback.incident_id == incident_id)
+            .where(AlertFeedback.id != feedback_id)
+            .where(AlertFeedback.qdrant_point_id.isnot(None))
+            .order_by(AlertFeedback.approved_at.desc().nullslast())
+            .limit(1)
+        )
+        existing_qdrant_id = existing_q.scalar_one_or_none()
+        if existing_qdrant_id:
+            feedback.qdrant_point_id = existing_qdrant_id
+
+    try:
+        returned_point_id = await postmortem_client.embed_postmortem(
+            payload=embed_payload,
+            qdrant_point_id=feedback.qdrant_point_id,
+        )
+        feedback.qdrant_point_id = returned_point_id
+    except Exception as exc:
+        logger.warning("incident postmortem embed 실패 (feedback_id=%s): %s", feedback_id, exc)
+
+    await db.commit()
+    await db.refresh(feedback)
+    result2 = await db.execute(
+        select(AlertFeedback).where(AlertFeedback.id == feedback_id)
+        .options(selectinload(AlertFeedback.attachments))
+    )
+    return result2.scalar_one()
+
+
+# ── 피드백 반려 ───────────────────────────────────────────────────────────────
+
+@router.post("/{incident_id}/feedback/{feedback_id}/reject", response_model=FeedbackOut)
+async def reject_incident_feedback(
+    incident_id: int,
+    feedback_id: int,
+    payload: FeedbackRejectRequest,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """피드백 반려 — 지정 승인자 OR admin."""
+    incident = await db.get(Incident, incident_id)
+    if not incident:
+        raise HTTPException(status_code=404, detail="Incident not found")
+
+    result = await db.execute(
+        select(AlertFeedback).where(AlertFeedback.id == feedback_id)
+        .options(selectinload(AlertFeedback.attachments))
+    )
+    feedback = result.scalar_one_or_none()
+    if not feedback:
+        raise HTTPException(status_code=404, detail="Feedback not found")
+    if feedback.incident_id != incident_id:
+        raise HTTPException(status_code=400, detail="해당 인시던트의 피드백이 아닙니다")
+    if feedback.status not in ("pending", "rejected"):
+        raise HTTPException(status_code=400, detail=f"pending/rejected 상태인 피드백만 반려할 수 있습니다 (현재: {feedback.status})")
+
+    # 권한: 지정 승인자 OR admin
+    current_contact_result = await db.execute(select(Contact).where(Contact.user_id == user.id))
+    current_contact = current_contact_result.scalar_one_or_none()
+    is_admin = user.role == "admin"
+    is_designated = current_contact is not None and current_contact.id == feedback.approver_id
+    if not (is_admin or is_designated):
+        raise HTTPException(status_code=403, detail="관리자 또는 지정 승인자만 처리할 수 있습니다")
+
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    feedback.status = "rejected"
+    feedback.rejection_reason = payload.rejection_reason
+    feedback.rejected_at = now
+    await db.commit()
+    await db.refresh(feedback)
+    result2 = await db.execute(
+        select(AlertFeedback).where(AlertFeedback.id == feedback_id)
+        .options(selectinload(AlertFeedback.attachments))
+    )
+    feedback = result2.scalar_one()
+
+    # 등록자 Teams 반려 알림 (best-effort) — Contact + User join으로 teams_upn까지 확보 (@멘션용)
+    resolver_webhook: str | None = None
+    resolver_contact_dict: dict | None = None
+    try:
+        resolver_join_result = await db.execute(
+            select(Contact, User).join(User, Contact.user_id == User.id)
+            .where(User.name == feedback.resolver)
+        )
+        row = resolver_join_result.first()
+        if row:
+            resolver_contact, resolver_user = row
+            resolver_webhook = resolver_contact.webhook_url
+            resolver_contact_dict = {
+                "name": resolver_user.name,
+                "teams_upn": resolver_contact.teams_upn,
+            }
+    except Exception as exc:
+        logger.warning("반려 알림 contact 조회 실패 (feedback_id=%s): %s", feedback_id, exc)
+
+    background_tasks.add_task(
+        _notifier.send_rejection_card,
+        webhook_url=resolver_webhook,
+        feedback_id=feedback.id,
+        alert_title=incident.title or "Unknown",
+        rejection_reason=payload.rejection_reason,
+        resolver_contact=resolver_contact_dict,
+    )
+
+    return feedback
+
+
+# ── 피드백 재등록 ─────────────────────────────────────────────────────────────
+
+@router.post("/{incident_id}/feedback/{feedback_id}/resubmit", response_model=FeedbackOut)
+async def resubmit_incident_feedback(
+    incident_id: int,
+    feedback_id: int,
+    payload: FeedbackResubmitRequest,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """피드백 재등록/수정 — pending/rejected/approved 모두 허용. 등록자(resolver) 또는 admin.
+
+    pending 상태: 승인 대기 중인 본인 피드백 보강·수정 (status는 그대로 pending 유지, revision_count+1, 승인자 재알림).
+    rejected 상태: 반려된 피드백을 수정 후 다시 승인 요청.
+    approved 상태: 이미 승인된 피드백을 수정 → status=pending 복귀 → 재승인 필요.
+    재승인되면 같은 qdrant_point_id로 incident_postmortems upsert (RAG 자산 갱신).
+    """
+    incident = await db.get(Incident, incident_id)
+    if not incident:
+        raise HTTPException(status_code=404, detail="Incident not found")
+
+    result = await db.execute(
+        select(AlertFeedback).where(AlertFeedback.id == feedback_id)
+        .options(selectinload(AlertFeedback.attachments))
+    )
+    feedback = result.scalar_one_or_none()
+    if not feedback:
+        raise HTTPException(status_code=404, detail="Feedback not found")
+    if feedback.incident_id != incident_id:
+        raise HTTPException(status_code=400, detail="해당 인시던트의 피드백이 아닙니다")
+    if feedback.status not in ("pending", "rejected", "approved"):
+        raise HTTPException(status_code=400, detail=f"pending/rejected/approved 상태인 피드백만 수정할 수 있습니다 (현재: {feedback.status})")
+
+    # 권한: resolver 이름 일치(best-effort) 또는 admin
+    is_admin = user.role == "admin"
+    is_resolver = user.name == feedback.resolver
+    if not (is_admin or is_resolver):
+        raise HTTPException(status_code=403, detail="등록자 또는 관리자만 재등록할 수 있습니다")
+
+    attachment_paths = payload.attachment_paths or []
+    kept_ids = payload.kept_attachment_ids  # None / [] / [ids]
+
+    # 기존 첨부 처리 (보존 정책):
+    #  - kept_ids is None  → 모든 기존 보존 (텍스트만 수정 케이스, 호환성)
+    #  - kept_ids == []    → 모든 기존 제거
+    #  - kept_ids == [...] → 지정 ID만 보존, 그 외 제거
+    existing_attachments = (await db.execute(
+        select(AlertFeedbackAttachment).where(AlertFeedbackAttachment.feedback_id == feedback_id)
+    )).scalars().all()
+
+    if kept_ids is not None:
+        kept_set = set(kept_ids)
+        for att in existing_attachments:
+            if att.id not in kept_set:
+                _delete_file_best_effort(att.file_path)
+                await db.execute(
+                    sa_delete(AlertFeedbackAttachment).where(AlertFeedbackAttachment.id == att.id)
+                )
+        kept_count = sum(1 for att in existing_attachments if att.id in kept_set)
+    else:
+        kept_count = len(existing_attachments)
+
+    # 합산 10건 제한 검증
+    total_count = kept_count + len(attachment_paths)
+    if total_count > _MAX_ATTACHMENTS_PER_FEEDBACK:
+        raise HTTPException(
+            status_code=400,
+            detail=f"첨부파일은 최대 {_MAX_ATTACHMENTS_PER_FEEDBACK}개까지 가능합니다 (보존 {kept_count}건 + 신규 {len(attachment_paths)}건 = {total_count}건)",
+        )
+
+    # 피드백 내용 갱신 (rejected → pending 또는 approved → pending 복귀)
+    feedback.error_type = payload.error_type
+    feedback.solution = payload.solution
+    feedback.status = "pending"
+    feedback.revision_count = (feedback.revision_count or 0) + 1
+    feedback.rejection_reason = None
+    feedback.rejected_at = None
+    # 재등록 사유 — None / 공백 입력 시 NULL 저장. 매 재등록마다 덮어씀(이력 미보관).
+    revision_reason_text = (payload.revision_reason or "").strip() or None
+    feedback.revision_reason = revision_reason_text
+    # approved에서 수정한 경우 — approved_at 등도 초기화하여 재승인 절차 강제
+    feedback.approved_at = None
+    feedback.approved_by = None
+    await db.flush()
+
+    # 신규 첨부 누적 (sort_order는 보존된 기존 뒤에 이어짐)
+    attachment_filenames = payload.attachment_filenames or []
+    base_sort = kept_count
+    for idx, staging_rel in enumerate(attachment_paths):
+        original_filename = (
+            attachment_filenames[idx] if idx < len(attachment_filenames) else Path(staging_rel).name
+        )
+        new_rel = _move_staging_to_feedback(staging_rel, feedback_id)
+        attach = AlertFeedbackAttachment(
+            feedback_id=feedback_id,
+            file_path=new_rel,
+            original_filename=original_filename,
+            sort_order=base_sort + idx,
+            ocr_status="processing",
+        )
+        db.add(attach)
+
+    await db.commit()
+    result2 = await db.execute(
+        select(AlertFeedback).where(AlertFeedback.id == feedback_id)
+        .options(selectinload(AlertFeedback.attachments))
+    )
+    feedback = result2.scalar_one()
+
+    # OCR 동기 처리 (uvicorn reload/worker 재시작 영향 회피)
+    await _run_ocr_for_feedback(feedback)
+    await db.refresh(feedback, ["attachments"])
+
+    # 승인자 재발송 — User join으로 teams_upn까지 확보 (@멘션용)
+    approver_webhook: str | None = None
+    approver_contact_dict: dict | None = None
+    if feedback.approver_id:
+        approver = await db.get(Contact, feedback.approver_id)
+        if approver:
+            approver_webhook = approver.webhook_url
+            approver_user = await db.get(User, approver.user_id)
+            if approver_user:
+                approver_contact_dict = {
+                    "name": approver_user.name,
+                    "teams_upn": approver.teams_upn,
+                }
+
+    system = await db.get(System, incident.system_id) if incident.system_id else None
+    system_display_name = system.display_name if system else str(incident.system_id or "Unknown")
+
+    background_tasks.add_task(
+        _notifier.send_approval_request_card,
+        webhook_url=approver_webhook,
+        feedback_id=feedback_id,
+        system_display_name=system_display_name,
+        alert_title=incident.title or "Unknown",
+        error_type=feedback.error_type,
+        solution=feedback.solution,
+        resolver=feedback.resolver,
+        attachment_count=len(attachment_paths),
+        revision_count=feedback.revision_count,
+        revision_reason=revision_reason_text,
+        approver_contact=approver_contact_dict,
+    )
+
+    return feedback
+
+
+# ── 인시던트 피드백 목록 ───────────────────────────────────────────────────────
+
+@router.get("/{incident_id}/feedback", response_model=list[FeedbackOut])
+async def list_incident_feedbacks(
+    incident_id: int,
+    status: str | None = Query(None),
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """인시던트에 등록된 피드백 목록 (기본: approved만)."""
+    if status and status != "approved":
+        if current_user.role != "admin":
+            raise HTTPException(status_code=403, detail="관리자 권한이 필요합니다")
+
+    stmt = (
+        select(AlertFeedback)
+        .where(AlertFeedback.incident_id == incident_id)
+        .options(selectinload(AlertFeedback.attachments))
+    )
+    if not status or status == "approved":
+        stmt = stmt.where(AlertFeedback.status == "approved")
+    elif status != "all":
+        stmt = stmt.where(AlertFeedback.status == status)
+    stmt = stmt.order_by(AlertFeedback.created_at.desc())
+
+    return (await db.execute(stmt)).scalars().all()
+
+
+# ── 피드백 단건 조회 (review/revise 페이지용) ─────────────────────────────────
+
+@router.get("/feedback/{feedback_id}", response_model=FeedbackOut)
+async def get_feedback_by_id(
+    feedback_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """피드백 단건 조회. FeedbackOut.incident_id를 포함하여 반환."""
+    result = await db.execute(
+        select(AlertFeedback)
+        .where(AlertFeedback.id == feedback_id)
+        .options(selectinload(AlertFeedback.attachments))
+    )
+    feedback = result.scalar_one_or_none()
+    if not feedback:
+        raise HTTPException(status_code=404, detail="피드백을 찾을 수 없습니다")
+    # 본인(resolver)이거나 admin이거나 지정 승인자만 조회 가능
+    # — 최소한 current_user 인증이 완료된 경우 허용 (read-only)
+    return feedback
+
+
+# ── 피드백 vector asset (incident_postmortems) 조회 ───────────────────────────
+
+@router.get("/feedback/{feedback_id}/postmortem")
+async def get_feedback_postmortem(
+    feedback_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """피드백의 incident_postmortems Qdrant payload 조회.
+    승인된 피드백의 vector 자산을 운영자/admin이 직접 확인 가능."""
+    feedback = await db.get(AlertFeedback, feedback_id)
+    if not feedback:
+        raise HTTPException(status_code=404, detail="피드백을 찾을 수 없습니다")
+    if not feedback.qdrant_point_id:
+        raise HTTPException(
+            status_code=404,
+            detail="아직 승인되지 않은 피드백이거나 Qdrant 자산이 생성되지 않았습니다",
+        )
+
+    payload = await postmortem_client.get_by_incident(feedback.incident_id)
+    if payload is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"incident_postmortems 컬렉션에서 incident_id={feedback.incident_id} point를 찾을 수 없습니다",
+        )
+
+    return {
+        "collection": "incident_postmortems",
+        "point_id": feedback.qdrant_point_id,
+        "incident_id": feedback.incident_id,
+        "payload": payload,
+    }
+
+
+# ── 기존 /{incident_id} 라우트 (이 아래에 위치해야 함) ────────────────────────
+
 @router.get("/{incident_id}", response_model=IncidentDetailOut)
 async def get_incident(incident_id: int, db: AsyncSession = Depends(get_db)):
+    has_approved = (
+        select(1).select_from(AlertFeedback)
+        .where(AlertFeedback.incident_id == Incident.id)
+        .where(AlertFeedback.status == "approved")
+        .exists()
+        .label("has_approved_feedback")
+    )
+    latest_status = (
+        select(AlertFeedback.status)
+        .where(AlertFeedback.incident_id == Incident.id)
+        .order_by(AlertFeedback.created_at.desc())
+        .limit(1)
+        .scalar_subquery()
+        .label("latest_feedback_status")
+    )
     row = (await db.execute(
-        select(Incident, System.display_name.label("system_display_name"))
+        select(
+            Incident,
+            System.display_name.label("system_display_name"),
+            has_approved,
+            latest_status,
+        )
         .outerjoin(System, System.id == Incident.system_id)
         .where(Incident.id == incident_id)
     )).first()
@@ -139,7 +1021,12 @@ async def get_incident(incident_id: int, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Incident not found")
 
     incident, system_display_name = row.Incident, row.system_display_name
-    base = _to_out(incident, system_display_name)
+    base = _to_out(
+        incident,
+        system_display_name,
+        bool(row.has_approved_feedback),
+        row.latest_feedback_status,
+    )
 
     # 타임라인
     timeline_rows = (await db.execute(
@@ -185,14 +1072,28 @@ async def update_incident(
         incident.status = payload.status
         timeline_desc = f"상태 변경: {old_status} → {payload.status}"
 
-        if payload.status == "acknowledged" and not incident.acknowledged_at:
-            incident.acknowledged_at = now
-            incident.acknowledged_by = current_user.id
-        elif payload.status == "resolved" and not incident.resolved_at:
-            incident.resolved_at = now
-            incident.resolved_by = current_user.id
-        elif payload.status == "closed" and not incident.closed_at:
-            incident.closed_at = now
+        old_idx = _STATUS_ORDER.index(old_status) if old_status in _STATUS_ORDER else -1
+        new_idx = _STATUS_ORDER.index(payload.status) if payload.status in _STATUS_ORDER else -1
+
+        if new_idx < old_idx:
+            # 이전 상태로 전환 시 이후 타임스탬프 초기화
+            if new_idx < _STATUS_ORDER.index("acknowledged"):
+                incident.acknowledged_at = None
+                incident.acknowledged_by = None
+            if new_idx < _STATUS_ORDER.index("resolved"):
+                incident.resolved_at = None
+                incident.resolved_by = None
+            if new_idx < _STATUS_ORDER.index("closed"):
+                incident.closed_at = None
+        else:
+            if payload.status == "acknowledged" and not incident.acknowledged_at:
+                incident.acknowledged_at = now
+                incident.acknowledged_by = current_user.id
+            elif payload.status == "resolved" and not incident.resolved_at:
+                incident.resolved_at = now
+                incident.resolved_by = current_user.id
+            elif payload.status == "closed" and not incident.closed_at:
+                incident.closed_at = now
 
     if payload.title is not None:
         incident.title = payload.title
@@ -265,27 +1166,20 @@ async def _collect_incident_context(db: AsyncSession, incident: Incident) -> dic
         .order_by(AlertHistory.created_at.asc())
     )).scalars().all()
 
-    alert_ids = [a.id for a in alerts]
-    feedbacks = []
-    if alert_ids:
-        feedbacks = (await db.execute(
-            select(AlertFeedback)
-            .where(AlertFeedback.alert_history_id.in_(alert_ids))
-            .order_by(AlertFeedback.created_at.asc())
-        )).scalars().all()
-
-    feedbacks_by_alert: dict[int, list[AlertFeedback]] = {}
-    for fb in feedbacks:
-        feedbacks_by_alert.setdefault(fb.alert_history_id, []).append(fb)
+    feedbacks = (await db.execute(
+        select(AlertFeedback)
+        .where(AlertFeedback.incident_id == incident.id)
+        .order_by(AlertFeedback.created_at.asc())
+    )).scalars().all()
 
     return {
         "system_display_name": system_display_name,
         "alerts": alerts,
-        "feedbacks_by_alert": feedbacks_by_alert,
+        "feedbacks": feedbacks,
     }
 
 
-def _format_alert_lines(alerts: list[AlertHistory], feedbacks_by_alert: dict) -> str:
+def _format_alert_lines(alerts: list[AlertHistory], feedbacks: list) -> str:
     """알림 + 피드백을 사람이 읽을 수 있는 텍스트 블록으로 정리."""
     if not alerts:
         return "(연결된 알림 없음)"
@@ -318,10 +1212,13 @@ def _format_alert_lines(alerts: list[AlertHistory], feedbacks_by_alert: dict) ->
         if recommendation:
             lines.append(f"    - 권장 조치: {recommendation}")
 
-        fbs = feedbacks_by_alert.get(alert.id, [])
-        for fb in fbs:
+    # 인시던트 단위 해결책은 알림 목록 아래에 일괄 표시
+    if feedbacks:
+        lines.append("")
+        lines.append("[등록된 해결책]")
+        for fb in feedbacks:
             lines.append(
-                f"    - 운영자 해결책({fb.resolver}, {fb.error_type}): "
+                f"  - 운영자 해결책({fb.resolver}, {fb.error_type}): "
                 f"{(fb.solution or '')[:300]}"
             )
 
@@ -359,7 +1256,7 @@ async def generate_incident_report(
         resolved_str = resolved_kst.strftime("%H시 %M분")
     time_range = f"{detected_str} ~ {resolved_str}"
 
-    alert_block = _format_alert_lines(ctx["alerts"], ctx["feedbacks_by_alert"])
+    alert_block = _format_alert_lines(ctx["alerts"], ctx["feedbacks"])
 
     prompt = f"""다음 인시던트(사건) 정보를 바탕으로 한국어 장애보고서를 작성하세요.
 
@@ -419,7 +1316,7 @@ async def ai_analyze_incident(
     ctx = await _collect_incident_context(db, incident)
     agent_code = await _get_agent_code(db, "incident_ai_analysis")
 
-    alert_block = _format_alert_lines(ctx["alerts"], ctx["feedbacks_by_alert"])
+    alert_block = _format_alert_lines(ctx["alerts"], ctx["feedbacks"])
 
     prompt = f"""다음 인시던트(사건)를 심층 분석하여 임원·관계사 보고용 요약을 작성하세요.
 설명이나 주석 없이 유효한 JSON만 반환해야 합니다.
