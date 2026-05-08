@@ -1,21 +1,18 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { X, CheckCircle, ChevronDown, Pencil, Lightbulb, Siren } from 'lucide-react'
+import { X, CheckCircle, Lightbulb, Siren } from 'lucide-react'
 import { ROUTES } from '@/constants/routes'
 import { NeuButton } from '@/components/neumorphic/NeuButton'
 import { NeuBadge } from '@/components/neumorphic/NeuBadge'
-import { NeuSelect } from '@/components/neumorphic/NeuSelect'
-import { NeuTextarea } from '@/components/neumorphic/NeuTextarea'
 import { AnomalyTypeBadge } from './AnomalyTypeBadge'
 import { SeverityBadge } from '@/components/charts/SeverityBadge'
 import { formatAlertTitle } from './alertTitle'
 import { useAcknowledgeAlert } from '@/hooks/mutations/useAcknowledgeAlert'
-import { useCreateFeedback } from '@/hooks/mutations/useCreateFeedback'
-import { useUpdateFeedback } from '@/hooks/mutations/useUpdateFeedback'
-import { useFeedbacks } from '@/hooks/queries/useFeedbacks'
+import { useIncidentFeedback } from '@/hooks/queries/useIncidentFeedback'
 import { useAuthStore } from '@/store/authStore'
 import { useBannerVisible } from '@/hooks/useBannerVisible'
 import { cn, formatKST } from '@/lib/utils'
+import { FeedbackDetailView } from '@/components/incident/FeedbackDetailView'
 import type { AlertHistory } from '@/types/alert'
 
 const ALERT_TYPE_LABELS: Record<string, string> = {
@@ -23,16 +20,6 @@ const ALERT_TYPE_LABELS: Record<string, string> = {
   metric_resolved: '메트릭 복구',
   log_analysis: '로그 분석',
 }
-
-const ERROR_TYPES = [
-  'DB 연결 오류',
-  '메모리 부족',
-  '디스크 부족',
-  '네트워크 오류',
-  '타임아웃',
-  '애플리케이션 오류',
-  '기타',
-] as const
 
 const PANEL_TITLE_ID = 'alert-detail-panel-title'
 
@@ -63,8 +50,6 @@ function parseDescription(desc: string | null | undefined): ParsedDescription | 
   try {
     const obj = JSON.parse(desc)
     // 분석 결과 JSON 스키마로 인식할 수 있는 키가 하나라도 있으면 "파싱 성공"으로 본다.
-    // root_cause·recommendation이 모두 빈 문자열인 케이스도 파싱된 것으로 처리하여
-    // 하단 fallback 블록이 JSON 원문을 그대로 덤프하지 않게 한다.
     if (
       obj &&
       typeof obj === 'object' &&
@@ -91,18 +76,7 @@ export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
   const user = useAuthStore((s) => s.user)
   const bannerVisible = useBannerVisible()
   const { mutate: acknowledge, isPending } = useAcknowledgeAlert()
-  const { mutate: createFeedback, isPending: isFeedbackPending } = useCreateFeedback()
-  const { mutate: updateFeedback, isPending: isUpdatePending } = useUpdateFeedback()
   const panelRef = useRef<HTMLDivElement>(null)
-
-  const [showSolution, setShowSolution] = useState(false)
-  const [errorType, setErrorType] = useState('기타')
-  const [solution, setSolution] = useState('')
-
-  // 기등록 피드백 수정 상태
-  const [isEditing, setIsEditing] = useState(false)
-  const [editErrorType, setEditErrorType] = useState('기타')
-  const [editSolution, setEditSolution] = useState('')
 
   // 닫힘 애니메이션 중에도 컨텐츠가 보이도록 마지막 alert를 유지
   const lastAlertRef = useRef<AlertHistory | null>(null)
@@ -115,25 +89,12 @@ export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
     [displayAlert?.description],
   )
 
-  // 확인된 알림일 때만 피드백 조회
-  const { data: feedbacks } = useFeedbacks(alert?.acknowledged && alert.id ? alert.id : null)
-  const existingFeedback = feedbacks?.[0] ?? null
-
-  // Reset all transient state when alert changes
-  useEffect(() => {
-    setShowSolution(false)
-    setErrorType('기타')
-    setSolution('')
-    setIsEditing(false)
-  }, [alert?.id])
-
-  // 수정 모드 진입 시 기존 피드백 값으로 폼 초기화
-  useEffect(() => {
-    if (isEditing && existingFeedback) {
-      setEditErrorType(existingFeedback.error_type)
-      setEditSolution(existingFeedback.solution)
-    }
-  }, [isEditing, existingFeedback])
+  // 인시던트 단위 피드백 조회 (incident_id가 있을 때만)
+  const { data: feedbacks } = useIncidentFeedback(displayAlert?.incident_id ?? null, 'all')
+  const latestFeedback =
+    feedbacks?.sort(
+      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+    )[0] ?? null
 
   // When panel closes, blur focused element inside to avoid aria-hidden-on-focus warning
   useEffect(() => {
@@ -188,42 +149,7 @@ export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
 
   const handleAck = () => {
     if (!alert || !displayAlert) return
-    const alertId = displayAlert.id
-    acknowledge(
-      { id: alertId, by: user?.name ?? 'unknown' },
-      {
-        onSuccess: () => {
-          if (showSolution && solution.trim()) {
-            createFeedback(
-              {
-                alert_history_id: alertId,
-                error_type: errorType,
-                solution: solution.trim(),
-                resolver: user?.name ?? 'unknown',
-              },
-              { onSuccess: onClose, onError: onClose },
-            )
-          } else {
-            onClose()
-          }
-        },
-      },
-    )
-  }
-
-  const handleUpdateFeedback = () => {
-    if (!existingFeedback || !editSolution.trim()) return
-    updateFeedback(
-      {
-        id: existingFeedback.id,
-        body: {
-          error_type: editErrorType,
-          solution: editSolution.trim(),
-          resolver: existingFeedback.resolver,
-        },
-      },
-      { onSuccess: () => setIsEditing(false) },
-    )
+    acknowledge({ id: displayAlert.id, by: user?.name ?? 'unknown' }, { onSuccess: onClose })
   }
 
   return (
@@ -392,7 +318,7 @@ export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
                     </p>
                   </div>
                 </>
-              ) : /* 해결방안 — 화면의 시각 앵커. 원인은 상단 타이틀이 이미 보여주므로 중복 제거 */
+              ) : /* 해결방안 */
               parsedDesc?.recommendation ? (
                 <div className="border-accent rounded-sm border p-4">
                   <div className="mb-2.5 flex items-center gap-2">
@@ -429,209 +355,48 @@ export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
                 </div>
               )}
 
-              {/* 피드백 미등록 상태 — 확인 완료 후 신규 등록 */}
-              {displayAlert.acknowledged && !existingFeedback && (
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between">
-                    <p className="type-label">피드백 등록</p>
-                    {!showSolution && (
-                      <button
-                        type="button"
-                        onClick={() => setShowSolution(true)}
-                        className="text-accent hover:text-accent/80 focus:ring-accent inline-flex items-center gap-1 rounded-sm text-xs focus:ring-1 focus:outline-none"
-                      >
-                        <Pencil className="h-3 w-3" />
-                        해결책 등록
-                      </button>
-                    )}
-                  </div>
-                  {!showSolution ? (
-                    <p className="text-text-secondary text-sm">
-                      아직 등록된 피드백이 없습니다. 해결책을 등록하면 벡터 DB에 반영되어 향후 유사
-                      장애 대응에 활용됩니다.
-                    </p>
-                  ) : (
-                    <>
-                      <NeuSelect
-                        id="post-ack-error-type"
-                        label="장애 유형"
-                        value={errorType}
-                        onChange={(e) => setErrorType(e.target.value)}
-                      >
-                        {ERROR_TYPES.map((t) => (
-                          <option key={t} value={t}>
-                            {t}
-                          </option>
-                        ))}
-                      </NeuSelect>
-                      <NeuTextarea
-                        id="post-ack-solution"
-                        label="해결 내용"
-                        rows={5}
-                        placeholder="수행한 조치 내용을 기술해 주세요..."
-                        value={solution}
-                        onChange={(e) => setSolution(e.target.value)}
-                      />
-                      <div className="flex gap-2">
-                        <NeuButton
-                          size="sm"
-                          loading={isFeedbackPending}
-                          disabled={!solution.trim()}
-                          onClick={() =>
-                            createFeedback(
-                              {
-                                alert_history_id: displayAlert.id,
-                                error_type: errorType,
-                                solution: solution.trim(),
-                                resolver: user?.name ?? 'unknown',
-                              },
-                              {
-                                onSuccess: () => {
-                                  setShowSolution(false)
-                                  setSolution('')
-                                  setErrorType('기타')
-                                },
-                              },
-                            )
-                          }
-                        >
-                          등록
-                        </NeuButton>
-                        <NeuButton
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => {
-                            setShowSolution(false)
-                            setSolution('')
-                          }}
-                        >
-                          취소
-                        </NeuButton>
-                      </div>
-                    </>
-                  )}
-                </div>
-              )}
-
-              {/* 등록된 피드백 — 확인된 알림에서만 표시 */}
-              {displayAlert.acknowledged && existingFeedback && !isEditing && (
+              {/* 등록된 피드백 (read-only) — 인시던트 단위 */}
+              {displayAlert.acknowledged && (
                 <div>
-                  <div className="mb-1.5 flex items-center justify-between">
-                    <p className="type-label">등록된 피드백</p>
-                    <button
-                      type="button"
-                      onClick={() => setIsEditing(true)}
-                      className="text-accent hover:text-accent/80 focus:ring-accent inline-flex items-center gap-1 rounded-sm text-xs focus:ring-1 focus:outline-none"
-                    >
-                      <Pencil className="h-3 w-3" />
-                      수정
-                    </button>
-                  </div>
-                  <div className="space-y-2 text-sm">
-                    <div className="flex items-center gap-2">
-                      <NeuBadge variant="info">{existingFeedback.error_type}</NeuBadge>
-                      <span className="text-text-secondary text-xs">
-                        {existingFeedback.resolver} · {formatKST(existingFeedback.created_at)}
-                      </span>
-                    </div>
-                    <div className="bg-bg-base shadow-neu-inset rounded-sm p-4">
-                      <p className="text-text-primary leading-relaxed break-words whitespace-pre-wrap">
-                        {existingFeedback.solution}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* 등록된 피드백 수정 모드 */}
-              {displayAlert.acknowledged && existingFeedback && isEditing && (
-                <div className="space-y-3">
-                  <p className="type-label">피드백 수정</p>
-                  <NeuSelect
-                    id="edit-error-type"
-                    label="장애 유형"
-                    value={editErrorType}
-                    onChange={(e) => setEditErrorType(e.target.value)}
-                  >
-                    {ERROR_TYPES.map((t) => (
-                      <option key={t} value={t}>
-                        {t}
-                      </option>
-                    ))}
-                  </NeuSelect>
-                  <NeuTextarea
-                    id="edit-solution"
-                    label="해결 내용"
-                    rows={5}
-                    value={editSolution}
-                    onChange={(e) => setEditSolution(e.target.value)}
-                  />
-                  <div className="flex gap-2">
-                    <NeuButton
-                      size="sm"
-                      loading={isUpdatePending}
-                      disabled={!editSolution.trim()}
-                      onClick={handleUpdateFeedback}
-                    >
-                      저장
-                    </NeuButton>
-                    <NeuButton variant="ghost" size="sm" onClick={() => setIsEditing(false)}>
-                      취소
-                    </NeuButton>
-                  </div>
+                  <p className="type-label mb-2">등록된 피드백</p>
+                  {!displayAlert.incident_id ? (
+                    <p className="text-text-secondary text-sm">
+                      이 알림은 인시던트와 연결되어 있지 않습니다.
+                    </p>
+                  ) : latestFeedback ? (
+                    <FeedbackDetailView
+                      feedback={latestFeedback}
+                      onResubmit={() => navigate(ROUTES.incidentDetail(displayAlert.incident_id!))}
+                    />
+                  ) : (
+                    <p className="text-text-secondary text-sm">아직 등록된 피드백이 없습니다.</p>
+                  )}
                 </div>
               )}
             </div>
 
             {/* 푸터 */}
-            {!displayAlert.acknowledged && (
-              <div className="border-border space-y-3 border-t px-6 py-4">
-                <button
-                  type="button"
-                  onClick={() => setShowSolution((v) => !v)}
-                  className="text-text-secondary hover:text-text-primary flex w-full items-center gap-2 text-sm focus:outline-none"
-                >
-                  <ChevronDown
-                    className={cn('h-4 w-4 transition-transform', showSolution && 'rotate-180')}
-                  />
-                  해결책 함께 등록
-                </button>
-
-                {showSolution && (
-                  <div className="space-y-3">
-                    <NeuSelect
-                      id="error-type"
-                      label="장애 유형"
-                      value={errorType}
-                      onChange={(e) => setErrorType(e.target.value)}
-                    >
-                      {ERROR_TYPES.map((t) => (
-                        <option key={t} value={t}>
-                          {t}
-                        </option>
-                      ))}
-                    </NeuSelect>
-                    <NeuTextarea
-                      id="solution"
-                      label="해결 내용"
-                      rows={4}
-                      placeholder="수행한 조치 내용을 기술해 주세요..."
-                      value={solution}
-                      onChange={(e) => setSolution(e.target.value)}
-                    />
-                  </div>
-                )}
-
-                <NeuButton
-                  className="w-full"
-                  loading={isPending || isFeedbackPending}
-                  onClick={handleAck}
-                >
+            <div className="border-border space-y-2 border-t px-6 py-4">
+              {!displayAlert.acknowledged && (
+                <NeuButton className="w-full" loading={isPending} onClick={handleAck}>
                   <CheckCircle className="h-4 w-4" />
-                  {showSolution && solution.trim() ? '확인 처리 + 해결책 등록' : '확인 처리'}
+                  확인 처리
                 </NeuButton>
-              </div>
-            )}
+              )}
+              {displayAlert.incident_id && (
+                <NeuButton
+                  variant="ghost"
+                  size="sm"
+                  className="w-full"
+                  onClick={() => {
+                    onClose()
+                    navigate(ROUTES.incidentDetail(displayAlert.incident_id!))
+                  }}
+                >
+                  인시던트에서 해결책 관리
+                </NeuButton>
+              )}
+            </div>
           </>
         )}
       </div>

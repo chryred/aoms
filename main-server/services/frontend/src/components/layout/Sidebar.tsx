@@ -10,7 +10,6 @@ import {
   BarChart3,
   Activity,
   Search,
-  MessageSquare,
   FileSearch,
   UserCircle,
   ShieldCheck,
@@ -206,17 +205,9 @@ export function Sidebar() {
             onNavigate={closeMobileSidebar}
           />
           <NavItem
-            to={ROUTES.FEEDBACK}
-            icon={<MessageSquare className="h-4 w-4" />}
-            label="피드백"
-            collapsed={collapsed}
-            onNavigate={closeMobileSidebar}
-            end
-          />
-          <NavItem
-            to={ROUTES.FEEDBACK_SEARCH}
+            to={ROUTES.FEEDBACK_MANAGE}
             icon={<FileSearch className="h-4 w-4" />}
-            label="해결책 검색"
+            label="해결책 관리"
             collapsed={collapsed}
             onNavigate={closeMobileSidebar}
           />

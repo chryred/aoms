@@ -7,6 +7,7 @@ export type RagCollection =
   | 'metric_baselines'
   | 'aggregation_summaries'
   | 'metric_hourly_patterns'
+  | 'incident_postmortems'
   | 'knowledge_jira_issues'
   | 'knowledge_confluence_pages'
   | 'knowledge_documents'
@@ -16,6 +17,7 @@ export const ALL_COLLECTIONS: RagCollection[] = [
   'metric_baselines',
   'aggregation_summaries',
   'metric_hourly_patterns',
+  'incident_postmortems',
   'knowledge_jira_issues',
   'knowledge_confluence_pages',
   'knowledge_documents',
@@ -26,6 +28,7 @@ export const COLLECTION_LABELS: Record<RagCollection, string> = {
   metric_baselines: 'metric_baselines',
   aggregation_summaries: 'aggregation_summaries',
   metric_hourly_patterns: 'metric_hourly_patterns',
+  incident_postmortems: 'incident_postmortems',
   knowledge_jira_issues: 'knowledge_jira_issues',
   knowledge_confluence_pages: 'knowledge_confluence_pages',
   knowledge_documents: 'knowledge_documents',
@@ -67,6 +70,12 @@ export interface SearchVerifyResult {
   created_at?: string
   // 챗봇 모드 출처 도구
   tool?: string
+  // incident_postmortems 전용 필드 (Wave 3C)
+  incident_id?: number
+  title?: string
+  root_cause?: string
+  alert_excerpts?: string
+  tags?: string[]
   // 기타 메타데이터 (백엔드 응답 형식이 확정되면 축소 가능)
   [key: string]: unknown
 }
@@ -109,17 +118,26 @@ export interface KnowledgeDocumentListResponse {
 }
 
 /** 결과 카드 종류 판별 */
-export type CardKind = 'operator_note' | 'document_chunk' | 'jira_confluence' | 'incident_metric'
+export type CardKind =
+  | 'operator_note'
+  | 'document_chunk'
+  | 'jira_confluence'
+  | 'incident_postmortem'
+  | 'incident_metric'
 
 /**
  * 결과 항목의 컬렉션 + doc_type 을 함께 보고 카드 종류를 결정한다.
  * - 운영자 노트는 `knowledge_documents` 컬렉션에 `doc_type=operator_note` 로 저장되므로
  *   collection 만으로는 일반 문서 청크와 구분할 수 없다.
+ * - `incident_postmortems`: Wave 3C 신규 — 인시던트 사후분석 서사
  */
 export function getCardKind(
   result: Pick<SearchVerifyResult, 'collection'> & { doc_type?: unknown },
 ): CardKind {
   const collection = result.collection
+  if (collection === 'incident_postmortems') {
+    return 'incident_postmortem'
+  }
   if (collection === 'knowledge_documents') {
     return result.doc_type === 'operator_note' ? 'operator_note' : 'document_chunk'
   }

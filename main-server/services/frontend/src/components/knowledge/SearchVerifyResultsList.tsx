@@ -407,10 +407,10 @@ function IncidentCard({
 
   const handleFeedbackSearch = () => {
     const params = new URLSearchParams()
+    params.set('tab', 'search')
     if (result.system_id) params.set('system_id', String(result.system_id))
     if (originalQuery.trim()) params.set('q', originalQuery.trim())
-    const qs = params.toString()
-    navigate(qs ? `${ROUTES.FEEDBACK_SEARCH}?${qs}` : ROUTES.FEEDBACK_SEARCH)
+    navigate(`${ROUTES.FEEDBACK_MANAGE}?${params.toString()}`)
   }
 
   return (
@@ -453,6 +453,86 @@ function IncidentCard({
             해결책 검색
           </NeuButton>
         </div>
+      </div>
+    </NeuCard>
+  )
+}
+
+// ── 인시던트 사후분석(postmortem) 카드 ────────────────────────────────────────
+
+interface IncidentPostmortemCardProps {
+  result: SearchVerifyResult
+  systemName?: string
+  onDetailClick?: () => void
+  scoreKind?: 'sim' | 'rrf'
+}
+
+function IncidentPostmortemCard({
+  result,
+  systemName,
+  onDetailClick,
+  scoreKind,
+}: IncidentPostmortemCardProps) {
+  const navigate = useNavigate()
+
+  const displayedSystemName =
+    systemName || (result.system_name as string | undefined) || '시스템 미지정'
+
+  const incidentId = result.incident_id as number | undefined
+  const title = result.title as string | undefined
+  const severity = result.severity as string | undefined
+  const rootCause = result.root_cause as string | undefined
+  const solution = result.solution as string | undefined
+
+  const severityClass =
+    severity === 'critical'
+      ? 'bg-critical/15 text-critical border-critical/30'
+      : severity === 'warning'
+        ? 'bg-warning/15 text-warning border-warning/30'
+        : null
+
+  return (
+    <NeuCard className="space-y-2 p-4">
+      <div className="min-w-0 flex-1">
+        <div className="mb-1 flex flex-wrap items-center gap-2">
+          <span className="bg-accent-muted text-accent rounded-sm px-2 py-0.5 text-xs font-medium">
+            인시던트 사후분석
+          </span>
+          <span className="text-text-secondary text-xs">{displayedSystemName}</span>
+          {severity && severityClass && (
+            <span
+              className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${severityClass}`}
+            >
+              {severity.toUpperCase()}
+            </span>
+          )}
+          {incidentId && (
+            <span className="text-text-disabled font-mono text-xs">#{incidentId}</span>
+          )}
+          <ScoreBadge score={result.score} kind={scoreKind} />
+        </div>
+        {title && <p className="text-text-primary text-sm font-medium">{title}</p>}
+        {rootCause && <p className="text-text-secondary mt-1 line-clamp-3 text-sm">{rootCause}</p>}
+        {solution && solution !== rootCause && (
+          <p className="text-text-primary mt-1 line-clamp-2 text-sm">{solution}</p>
+        )}
+      </div>
+      <div className="border-border flex items-center border-t pt-2">
+        {result.point_id && onDetailClick && (
+          <PointIdBadge pointId={result.point_id} onClick={onDetailClick} />
+        )}
+        {incidentId && (
+          <div className="ml-auto flex items-center gap-1">
+            <NeuButton
+              variant="ghost"
+              size="sm"
+              onClick={() => navigate(ROUTES.incidentDetail(incidentId))}
+              className="gap-1 px-2 text-xs"
+            >
+              상세 보기
+            </NeuButton>
+          </div>
+        )}
       </div>
     </NeuCard>
   )
@@ -518,6 +598,16 @@ export function ResultCard({
         onDetailClick={onDetailClick}
         scoreKind={scoreKind}
         isResyncing={isResyncing}
+      />
+    )
+  }
+  if (kind === 'incident_postmortem') {
+    return (
+      <IncidentPostmortemCard
+        result={result}
+        systemName={systemName}
+        onDetailClick={onDetailClick}
+        scoreKind={scoreKind}
       />
     )
   }

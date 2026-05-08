@@ -244,19 +244,41 @@ CREATE TABLE IF NOT EXISTS alert_cooldown (
 
 CREATE INDEX IF NOT EXISTS idx_alert_cooldown_lookup ON alert_cooldown(system_id, alert_key);
 
--- ── 피드백 (Phase 4c: WF3 n8n 워크플로우에서 INSERT) ─────────────────
+-- ── 피드백 (인시던트 단위 해결책 등록 — Wave 1A 재정의 2026-05-08) ────
 CREATE TABLE IF NOT EXISTS alert_feedback (
     id               SERIAL PRIMARY KEY,
-    system_id        INTEGER REFERENCES systems(id),
-    alert_history_id INTEGER REFERENCES alert_history(id),
+    incident_id      INTEGER      NOT NULL REFERENCES incidents(id),
     error_type       VARCHAR(100) NOT NULL,
-    solution         TEXT NOT NULL,
+    solution         TEXT         NOT NULL,
     resolver         VARCHAR(200) NOT NULL,
     qdrant_point_id  VARCHAR(36),     -- 해결책 임베딩 후 저장된 Qdrant point ID
-    created_at       TIMESTAMP DEFAULT NOW()
+    status           VARCHAR(20)  NOT NULL DEFAULT 'pending',  -- pending | approved | rejected
+    approver_id      INTEGER      REFERENCES contacts(id) ON DELETE SET NULL,  -- 제출자가 지정한 검토 예정자
+    approved_by      INTEGER      REFERENCES contacts(id) ON DELETE SET NULL,  -- 실제 승인자
+    approved_at      TIMESTAMP,                                                 -- naive UTC
+    rejection_reason TEXT,
+    rejected_at      TIMESTAMP,                                                 -- naive UTC
+    revision_count   INTEGER      NOT NULL DEFAULT 0,
+    revision_reason  TEXT,                                                       -- 재등록 사유 (최신만 보존, 매 재등록마다 덮어씀)
+    created_at       TIMESTAMP    NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_alert_feedback_system ON alert_feedback(system_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_alert_feedback_incident ON alert_feedback(incident_id, status);
+CREATE INDEX IF NOT EXISTS idx_alert_feedback_status   ON alert_feedback(status, created_at);
+
+-- ── 해결책 첨부파일 (OCR 지원 추가 2026-05-08) ────────────────────────
+CREATE TABLE IF NOT EXISTS alert_feedback_attachments (
+    id                SERIAL PRIMARY KEY,
+    feedback_id       INTEGER      NOT NULL REFERENCES alert_feedback(id) ON DELETE CASCADE,
+    file_path         VARCHAR(500) NOT NULL,   -- KNOWLEDGE_DOCS_DIR 기준 상대경로 (예: feedback/{feedback_id}/{uuid}.png)
+    original_filename VARCHAR(255),
+    sort_order        INTEGER      NOT NULL DEFAULT 0,
+    ocr_text          TEXT,
+    ocr_status        VARCHAR(20)  DEFAULT 'pending',  -- pending|processing|done|failed
+    created_at        TIMESTAMP    NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_feedback_attachments_feedback ON alert_feedback_attachments(feedback_id);
 
 -- system_collector_config 제거됨 (D4 결정, 2026-05-01): agent_instances.label_info에서 derive
 

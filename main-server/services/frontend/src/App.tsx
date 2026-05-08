@@ -1,5 +1,5 @@
 import { lazy, Suspense } from 'react'
-import { BrowserRouter, Routes, Route, Navigate, Outlet } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, Outlet, useLocation } from 'react-router-dom'
 import { ROUTES } from '@/constants/routes'
 import { AppLayout } from '@/components/layout/AppLayout'
 import { AuthLayout } from '@/components/layout/AuthLayout'
@@ -49,15 +49,21 @@ const CliManagerPage = lazy(() =>
 const ProfilePage = lazy(() =>
   import('@/pages/ProfilePage').then((m) => ({ default: m.ProfilePage })),
 )
-const FeedbackPage = lazy(() =>
-  import('@/pages/FeedbackPage').then((m) => ({ default: m.FeedbackPage })),
+const FeedbackReviewPage = lazy(() =>
+  import('@/pages/FeedbackReviewPage').then((m) => ({ default: m.FeedbackReviewPage })),
 )
-const FeedbackSubmitPage = lazy(() =>
-  import('@/pages/FeedbackSubmitPage').then((m) => ({ default: m.FeedbackSubmitPage })),
+const FeedbackRevisePage = lazy(() =>
+  import('@/pages/FeedbackRevisePage').then((m) => ({ default: m.FeedbackRevisePage })),
 )
-const FeedbackSearchPage = lazy(() =>
-  import('@/pages/FeedbackSearchPage').then((m) => ({ default: m.FeedbackSearchPage })),
+const FeedbackManagePage = lazy(() =>
+  import('@/pages/FeedbackManagePage').then((m) => ({ default: m.FeedbackManagePage })),
 )
+
+function FeedbackSearchRedirect() {
+  const location = useLocation()
+  const qs = location.search ? `${location.search}&tab=search` : '?tab=search'
+  return <Navigate to={`${ROUTES.FEEDBACK_MANAGE}${qs}`} replace />
+}
 const VectorHealthPage = lazy(() =>
   import('@/pages/VectorHealthPage').then((m) => ({ default: m.VectorHealthPage })),
 )
@@ -129,13 +135,24 @@ export function App() {
           }
         />
 
-        {/* Teams 팝업용 단독 페이지 (사이드바/TopBar 없이 AuthGuard만) */}
+        {/* /feedback/submit — Teams 카드 "해결책 등록" 버튼 제거(Wave 2B) 후 즐겨찾기 진입 대비 redirect */}
+        <Route path={ROUTES.FEEDBACK_SUBMIT} element={<Navigate to={ROUTES.INCIDENTS} replace />} />
         <Route
-          path={ROUTES.FEEDBACK_SUBMIT}
+          path={ROUTES.FEEDBACK_REVIEW}
           element={
             <AuthGuard>
               <Suspense fallback={<LoadingSkeleton shape="card" />}>
-                <FeedbackSubmitPage />
+                <FeedbackReviewPage />
+              </Suspense>
+            </AuthGuard>
+          }
+        />
+        <Route
+          path={ROUTES.FEEDBACK_REVISE}
+          element={
+            <AuthGuard>
+              <Suspense fallback={<LoadingSkeleton shape="card" />}>
+                <FeedbackRevisePage />
               </Suspense>
             </AuthGuard>
           }
@@ -226,19 +243,14 @@ export function App() {
               </Suspense>
             }
           />
+          {/* /feedback — 인시던트 단위로 전환됨 (Wave 3C). /incidents 로 redirect */}
+          <Route path="/feedback" element={<Navigate to={ROUTES.INCIDENTS} replace />} />
+          <Route path={ROUTES.FEEDBACK_SEARCH} element={<FeedbackSearchRedirect />} />
           <Route
-            path="/feedback"
-            element={
-              <Suspense fallback={<LoadingSkeleton shape="card" count={4} />}>
-                <FeedbackPage />
-              </Suspense>
-            }
-          />
-          <Route
-            path={ROUTES.FEEDBACK_SEARCH}
+            path={ROUTES.FEEDBACK_MANAGE}
             element={
               <Suspense fallback={<LoadingSkeleton shape="table" />}>
-                <FeedbackSearchPage />
+                <FeedbackManagePage />
               </Suspense>
             }
           />

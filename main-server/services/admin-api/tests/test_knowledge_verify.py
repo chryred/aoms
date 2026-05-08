@@ -64,6 +64,27 @@ def _mock_aggregation_response() -> dict:
     }
 
 
+def _mock_postmortem_response() -> dict:
+    return {
+        "results": [
+            {
+                "point_id": "point-pm-1",
+                "score": 0.80,
+                "system_id": 1,
+                "system_name": "cxm",
+                "title": "메모리 누수 인시던트",
+                "root_cause": "힙 메모리 누수",
+                "solution": "JVM 옵션 조정",
+                "attachment_text": "첨부 OCR 내용",
+                "severity": "critical",
+                "alert_count": 3,
+                "resolved_at": "2026-01-10T12:00:00",
+                "incident_id": 42,
+            }
+        ]
+    }
+
+
 def _mock_knowledge_response() -> dict:
     """log-analyzer federated_search 의 실제 응답 형식 — { collection, point_id, score, payload }."""
     return {
@@ -166,6 +187,7 @@ async def test_chatbot_operator_allowed(authed_client: AsyncClient):
             mock_cls.return_value.__aexit__ = AsyncMock(return_value=None)
             mock_instance.post = AsyncMock(side_effect=[
                 _make_mock_httpx_response(_mock_incident_response()),
+                _make_mock_httpx_response(_mock_postmortem_response()),
                 _make_mock_httpx_response(_mock_aggregation_response()),
                 _make_mock_httpx_response(_mock_knowledge_response()),
             ])
@@ -184,15 +206,16 @@ async def test_chatbot_operator_allowed(authed_client: AsyncClient):
 # ── 챗봇 모드 통합 결과 ────────────────────────────────────────────────────────
 
 @pytest.mark.asyncio
-async def test_chatbot_mode_integrates_three_tools(authed_client: AsyncClient):
-    """3개 도구 결과가 통합되고 점수 내림차순으로 반환된다."""
+async def test_chatbot_mode_integrates_four_tools(authed_client: AsyncClient):
+    """4개 도구 결과가 통합되고 점수 내림차순으로 반환된다."""
     with patch("httpx.AsyncClient") as mock_cls:
         mock_instance = AsyncMock()
         mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_instance)
         mock_cls.return_value.__aexit__ = AsyncMock(return_value=None)
-        # incident, aggregation, knowledge 순서로 3번 호출
+        # incident, postmortem, aggregation, knowledge 순서로 4번 호출
         mock_instance.post = AsyncMock(side_effect=[
             _make_mock_httpx_response(_mock_incident_response()),
+            _make_mock_httpx_response(_mock_postmortem_response()),
             _make_mock_httpx_response(_mock_aggregation_response()),
             _make_mock_httpx_response(_mock_knowledge_response()),
         ])
@@ -207,14 +230,15 @@ async def test_chatbot_mode_integrates_three_tools(authed_client: AsyncClient):
     assert "results" in data
     assert "used_tools" in data
 
-    # 3개 도구 모두 사용됨
+    # 4개 도구 모두 사용됨
     used = set(data["used_tools"])
     assert "qdrant_search_incident_knowledge" in used
+    assert "qdrant_search_incident_postmortem" in used
     assert "qdrant_search_aggregation_summary" in used
     assert "qdrant_search_knowledge" in used
 
-    # 총 결과 수: log(1) + metric(1) + aggregation(1) + knowledge(2) = 5
-    assert len(data["results"]) == 5
+    # 총 결과 수: log(1) + metric(1) + postmortem(1) + aggregation(1) + knowledge(2) = 6
+    assert len(data["results"]) == 6
 
     # 점수 내림차순 정렬 확인
     scores = [r["score"] for r in data["results"] if r["score"] is not None]
@@ -240,6 +264,7 @@ async def test_chatbot_mode_collection_field_present(authed_client: AsyncClient)
         mock_cls.return_value.__aexit__ = AsyncMock(return_value=None)
         mock_instance.post = AsyncMock(side_effect=[
             _make_mock_httpx_response(_mock_incident_response()),
+            _make_mock_httpx_response(_mock_postmortem_response()),
             _make_mock_httpx_response(_mock_aggregation_response()),
             _make_mock_httpx_response(_mock_knowledge_response()),
         ])
@@ -254,6 +279,7 @@ async def test_chatbot_mode_collection_field_present(authed_client: AsyncClient)
         assert "collection" in item
         assert item["collection"] in {
             "log_incidents", "metric_baselines",
+            "incident_postmortems",
             "aggregation_summaries", "metric_hourly_patterns",
             "knowledge_jira_issues", "knowledge_confluence_pages", "knowledge_documents",
         }
@@ -387,3 +413,94 @@ async def test_collections_mode_log_analyzer_error_graceful(authed_client: Async
 
     assert resp.status_code == 200
     assert resp.json()["results"] == []
+
+
+@pytest.mark.asyncio
+async def test_collections_mode_postmortem_only(authed_client: AsyncClient):
+    """incident_postmortems 만 선택 시 postmortem 엔드포인트만 호출되고 결과가 반환된다."""
+    with patch("httpx.AsyncClient") as mock_cls:
+        mock_instance = AsyncMock()
+        mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_instance)
+        mock_cls.return_value.__aexit__ = AsyncMock(return_value=None)
+        mock_instance.post = AsyncMock(return_value=_make_mock_httpx_response(
+            _mock_postmortem_response()
+        ))
+
+        resp = await authed_client.post(
+            "/api/v1/knowledge/search-verify/collections",
+            json={
+                "query": "메모리 누수",
+                "system_ids": [1],
+                "collections": ["incident_postmortems"],
+                "use_reranker": False,
+            },
+        )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert len(data["results"]) == 1
+    result = data["results"][0]
+    assert result["collection"] == "incident_postmortems"
+    assert result["tool"] == "qdrant_search_incident_postmortem"
+    assert result["doc_type"] == "incident_postmortem"
+    assert result["incident_id"] == 42
+
+
+@pytest.mark.asyncio
+async def test_collections_mode_postmortem_system_filter(authed_client: AsyncClient):
+    """incident_postmortems 검색 시 system_ids 1개면 system_id 필터가 payload에 포함된다."""
+    captured_payloads: list[dict] = []
+
+    async def capturing_post(url: str, json: dict | None = None, **kwargs):
+        if json is not None:
+            captured_payloads.append(json)
+        return _make_mock_httpx_response(_mock_postmortem_response())
+
+    with patch("httpx.AsyncClient") as mock_cls:
+        mock_instance = AsyncMock()
+        mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_instance)
+        mock_cls.return_value.__aexit__ = AsyncMock(return_value=None)
+        mock_instance.post = AsyncMock(side_effect=capturing_post)
+
+        resp = await authed_client.post(
+            "/api/v1/knowledge/search-verify/collections",
+            json={
+                "query": "장애",
+                "system_ids": [7],
+                "collections": ["incident_postmortems"],
+            },
+        )
+
+    assert resp.status_code == 200
+    assert len(captured_payloads) == 1
+    assert captured_payloads[0].get("system_id") == 7
+
+
+@pytest.mark.asyncio
+async def test_collections_mode_postmortem_no_system_filter_for_multiple(authed_client: AsyncClient):
+    """incident_postmortems 검색 시 system_ids 2개 이상이면 system_id 필터 미포함."""
+    captured_payloads: list[dict] = []
+
+    async def capturing_post(url: str, json: dict | None = None, **kwargs):
+        if json is not None:
+            captured_payloads.append(json)
+        return _make_mock_httpx_response(_mock_postmortem_response())
+
+    with patch("httpx.AsyncClient") as mock_cls:
+        mock_instance = AsyncMock()
+        mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_instance)
+        mock_cls.return_value.__aexit__ = AsyncMock(return_value=None)
+        mock_instance.post = AsyncMock(side_effect=capturing_post)
+
+        resp = await authed_client.post(
+            "/api/v1/knowledge/search-verify/collections",
+            json={
+                "query": "장애",
+                "system_ids": [1, 2],
+                "collections": ["incident_postmortems"],
+            },
+        )
+
+    assert resp.status_code == 200
+    assert len(captured_payloads) == 1
+    assert "system_id" not in captured_payloads[0]

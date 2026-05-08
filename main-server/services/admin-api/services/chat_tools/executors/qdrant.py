@@ -215,6 +215,41 @@ async def _search_hourly_patterns(
     }
 
 
+async def _search_incident_postmortem(
+    db: AsyncSession, args: dict[str, Any]
+) -> dict[str, Any]:
+    """인시던트 사후분석(원인·해결책·OCR 첨부 통합) 시맨틱 검색.
+
+    log-analyzer POST /incident-postmortem/search 프록시.
+    """
+    query = (args.get("query") or "").strip()
+    if not query:
+        return {"error": "query 파라미터 필요"}
+
+    system_id = args.get("system_id")
+    severity  = args.get("severity")
+    limit     = min(int(args.get("limit", 5)), 10)
+    base      = await _base_url(db)
+
+    payload: dict[str, Any] = {"query": query, "limit": limit}
+    if system_id is not None:
+        payload["system_id"] = int(system_id)
+    if severity:
+        payload["severity"] = severity
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(f"{base}/incident-postmortem/search", json=payload)
+            if resp.status_code >= 400:
+                return {
+                    "error": f"log-analyzer {resp.status_code}: {resp.text[:200]}",
+                    "query": query,
+                }
+            return resp.json()
+    except Exception as e:
+        return {"error": f"incident-postmortem 검색 실패: {str(e)[:200]}", "query": query}
+
+
 async def _search_knowledge(
     db: AsyncSession, args: dict[str, Any]
 ) -> dict[str, Any]:
@@ -279,6 +314,8 @@ async def execute(db: AsyncSession, name: str, args: dict[str, Any]) -> dict[str
             return await _search_aggregation_summary(db, args)
         if name == "qdrant_search_hourly_patterns":
             return await _search_hourly_patterns(db, args)
+        if name == "qdrant_search_incident_postmortem":
+            return await _search_incident_postmortem(db, args)
         if name == "qdrant_search_knowledge":
             return await _search_knowledge(db, args)
         return {"error": f"unknown qdrant tool: {name}"}

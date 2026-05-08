@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from auth import get_current_user
 from database import get_db
 from models import Contact, SystemContact, System, User
-from schemas import ContactCreate, ContactUpdate, ContactOut, SystemBrief
+from schemas import ContactCreate, ContactUpdate, ContactOut, SystemBrief, ApproverContactOut
 
 router = APIRouter(prefix="/api/v1/contacts", tags=["contacts"])
 
@@ -68,6 +68,34 @@ async def create_contact(payload: ContactCreate, db: AsyncSession = Depends(get_
     await db.commit()
     await db.refresh(contact)
     return _to_contact_out(contact, user)
+
+
+@router.get("/approvers", response_model=list[ApproverContactOut])
+async def list_approvers(
+    db: AsyncSession = Depends(get_db),
+    _user=Depends(get_current_user),
+):
+    """승인자 드롭다운용: User.role='admin' 인 contacts 반환."""
+    result = await db.execute(
+        select(Contact, User)
+        .join(User, Contact.user_id == User.id)
+        .where(User.role == "admin")
+        .where(User.is_active.is_(True))
+        .where(User.is_approved.is_(True))
+        .order_by(User.name)
+    )
+    rows = result.all()
+    return [
+        ApproverContactOut(
+            id=contact.id,
+            user_id=contact.user_id,
+            name=user.name,
+            email=user.email,
+            teams_upn=contact.teams_upn,
+            has_webhook=bool(contact.webhook_url),
+        )
+        for contact, user in rows
+    ]
 
 
 @router.get("/{contact_id}", response_model=ContactOut)

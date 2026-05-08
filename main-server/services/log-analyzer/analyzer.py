@@ -25,6 +25,7 @@ from vector_client import (
     build_enhanced_prompt,
     classify_anomaly,
     get_embedding,
+    get_postmortem_by_incident,
     get_sparse_vector,
     normalize_log_for_embedding,
     search_similar_incidents,
@@ -224,12 +225,38 @@ async def analyze_with_vector_context(
             f"(score={anomaly_info['score']:.2f}) → LLM 재분석 진행"
         )
 
-    # 4. 강화 프롬프트 구성 + LLM 호출
+    # 4. Wave 1B: postmortem 병렬 조회 → 강화 프롬프트 구성 + LLM 호출
     # trace_context / trace_tier는 run_analysis()에서 주입 (OTel 미적용 시 기본값 유지)
+    top_results = anomaly_info.get("top_results", [])
+    incident_ids = [
+        r["payload"].get("incident_id")
+        for r in top_results
+        if r["payload"].get("incident_id") is not None
+    ]
+
+    postmortems: list[dict] = []
+    if incident_ids:
+        try:
+            pm_results = await asyncio.gather(
+                *[get_postmortem_by_incident(iid) for iid in incident_ids],
+                return_exceptions=True,
+            )
+            postmortems = [pm for pm in pm_results if isinstance(pm, dict) and pm]
+        except Exception as e:
+            logger.warning("postmortem 병렬 조회 실패: %s — 해결책 섹션 폴백", e)
+
+    # postmortem 기반 has_solution 재산정
+    has_solution = (
+        any(pm.get("solution") for pm in postmortems)
+        if postmortems
+        else anomaly_info["has_solution"]
+    )
+
     prompt   = build_enhanced_prompt(
         log_text, system_name, instance_role, anomaly_info,
         trace_context=_trace_context,
         trace_tier=_trace_tier,
+        postmortems=postmortems if postmortems else None,
     )
     analysis = await call_llm_structured(prompt, agent_code=agent_code)
 
@@ -257,7 +284,7 @@ async def analyze_with_vector_context(
             "log_pattern": r["payload"].get("log_pattern", ""),
             "resolution":  r["payload"].get("resolution"),
         }
-        for r in anomaly_info.get("top_results", [])
+        for r in top_results
     ]
 
     return {
@@ -265,7 +292,7 @@ async def analyze_with_vector_context(
         "anomaly_type":       anomaly_info["type"],
         "similarity_score":   anomaly_info["score"],
         "qdrant_point_id":    point_id,
-        "has_solution":       anomaly_info["has_solution"],
+        "has_solution":       has_solution,
         "similar_incidents":  similar_incidents,
         "qdrant_store_error": qdrant_store_error,  # 값 있으면 LLM 성공했으나 벡터 저장 실패
     }

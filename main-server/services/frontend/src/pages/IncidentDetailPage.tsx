@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import toast from 'react-hot-toast'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useRegisterScreenContext } from '@/store/chatContextStore'
@@ -26,20 +26,16 @@ import { NeuButton } from '@/components/neumorphic/NeuButton'
 import { LoadingSkeleton } from '@/components/common/LoadingSkeleton'
 import { ErrorCard } from '@/components/common/ErrorCard'
 import { ROUTES } from '@/constants/routes'
+import { INCIDENT_STATUS_LABELS, INCIDENT_SEVERITY_STYLES } from '@/constants/incident'
 import { formatKST, formatRelative } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 import { AlertDetailPanel } from '@/components/alert/AlertDetailPanel'
 import { IncidentReportModal } from '@/components/incident/IncidentReportModal'
+import { FeedbackDetailView } from '@/components/incident/FeedbackDetailView'
+import { FeedbackForm } from '@/components/incident/FeedbackForm'
+import { useIncidentFeedback } from '@/hooks/queries/useIncidentFeedback'
 import type { IncidentTimelineItem } from '@/api/incidents'
 import type { AlertHistory } from '@/types/alert'
-
-const STATUS_LABELS: Record<string, string> = {
-  open: '신규',
-  acknowledged: '확인됨',
-  investigating: '원인파악 중',
-  resolved: '해결됨',
-  closed: '종료',
-}
 
 const STATUS_NEXT: Record<string, { label: string; value: string }[]> = {
   open: [
@@ -54,11 +50,6 @@ const STATUS_NEXT: Record<string, { label: string; value: string }[]> = {
   investigating: [{ label: '해결 처리', value: 'resolved' }],
   resolved: [{ label: '종료 처리', value: 'closed' }],
   closed: [],
-}
-
-const SEVERITY_STYLES: Record<string, string> = {
-  critical: 'text-critical',
-  warning: 'text-warning',
 }
 
 const EVENT_ICONS: Record<string, React.ReactNode> = {
@@ -85,9 +76,9 @@ function MttrLabel({
   })()
   return (
     <div className="flex items-center gap-1.5">
-      <span className="text-text-secondary text-xs" title={title}>
+      <abbr className="text-text-secondary text-xs no-underline" title={title}>
         {label}
-      </span>
+      </abbr>
       <span
         className={cn(
           'text-sm font-medium tabular-nums',
@@ -119,6 +110,20 @@ export function IncidentDetailPage() {
   const [selectedAlert, setSelectedAlert] = useState<AlertHistory | null>(null)
   const [showReportModal, setShowReportModal] = useState(false)
   const [confirmAnalyze, setConfirmAnalyze] = useState(false)
+  const [isRegisteringFeedback, setIsRegisteringFeedback] = useState(false)
+  const [isRevisingFeedback, setIsRevisingFeedback] = useState(false)
+
+  // 인시던트 피드백 조회 (all 상태)
+  const { data: feedbacks } = useIncidentFeedback(incidentId, 'all')
+  const latestFeedback = useMemo(
+    () =>
+      feedbacks?.length
+        ? [...feedbacks].sort(
+            (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+          )[0]
+        : null,
+    [feedbacks],
+  )
 
   const aiAnalyzeMut = useAiAnalyzeIncident()
 
@@ -195,18 +200,23 @@ export function IncidentDetailPage() {
             <span
               className={cn(
                 'text-sm font-semibold whitespace-nowrap uppercase',
-                SEVERITY_STYLES[incident.severity] ?? 'text-text-secondary',
+                INCIDENT_SEVERITY_STYLES[incident.severity] ?? 'text-text-secondary',
               )}
+              aria-label={`심각도: ${incident.severity}`}
             >
               {incident.severity}
             </span>
-            <span className="text-text-disabled">·</span>
+            <span aria-hidden="true" className="text-text-disabled">
+              ·
+            </span>
             <span className="text-text-primary text-sm font-medium whitespace-nowrap">
-              {STATUS_LABELS[incident.status] ?? incident.status}
+              {INCIDENT_STATUS_LABELS[incident.status] ?? incident.status}
             </span>
             {incident.system_display_name && (
               <>
-                <span className="text-text-disabled">·</span>
+                <span aria-hidden="true" className="text-text-disabled">
+                  ·
+                </span>
                 <span className="text-text-secondary text-sm whitespace-nowrap">
                   {incident.system_display_name}
                 </span>
@@ -218,7 +228,7 @@ export function IncidentDetailPage() {
               </span>
             )}
           </div>
-          <div className="ml-auto flex items-center gap-2">
+          <div className="flex w-full items-center justify-end gap-2 sm:ml-auto sm:w-auto">
             {incident.status === 'closed' && (
               <span className="text-text-disabled border-border rounded-sm border px-2 py-1 text-xs">
                 종료된 인시던트
@@ -298,6 +308,8 @@ export function IncidentDetailPage() {
               <NeuButton
                 size="sm"
                 variant="ghost"
+                aria-expanded={editMode}
+                aria-controls="incident-analysis-edit"
                 onClick={() => {
                   if (!editMode) {
                     setRootCause(incident.root_cause ?? '')
@@ -317,6 +329,7 @@ export function IncidentDetailPage() {
                 'grid transition-[grid-template-rows,opacity] duration-700 ease-[cubic-bezier(0.25,1,0.5,1)]',
                 editMode ? 'grid-rows-[0fr] opacity-0' : 'grid-rows-[1fr] opacity-100',
               )}
+              {...(editMode ? { inert: '' as const } : {})}
             >
               <div className="overflow-hidden">
                 {!incident.root_cause && !incident.resolution && !incident.postmortem ? (
@@ -356,11 +369,13 @@ export function IncidentDetailPage() {
 
             {/* Edit mode — editMode=false 시 grid-rows-[0fr]로 축소 애니메이션 */}
             <div
+              id="incident-analysis-edit"
               className={cn(
                 'grid transition-[grid-template-rows,opacity] duration-700 ease-[cubic-bezier(0.25,1,0.5,1)]',
                 editMode ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0',
               )}
               aria-hidden={!editMode}
+              {...(!editMode ? { inert: '' as const } : {})}
             >
               <div className="overflow-hidden">
                 <div className="space-y-3">
@@ -369,7 +384,7 @@ export function IncidentDetailPage() {
                     <span className="text-text-secondary mr-1 text-xs">AI 도우미:</span>
                     {confirmAnalyze ? (
                       <>
-                        <span className="text-warning text-xs whitespace-nowrap">
+                        <span role="alert" className="text-warning text-xs whitespace-nowrap">
                           기존 내용을 덮어씁니다
                         </span>
                         <NeuButton size="sm" variant="ghost" onClick={runDevxAnalyze}>
@@ -415,10 +430,14 @@ export function IncidentDetailPage() {
                   </div>
 
                   <div>
-                    <label className="text-text-primary mb-1.5 block text-xs font-medium">
+                    <label
+                      htmlFor="incident-root-cause"
+                      className="text-text-primary mb-1.5 block text-xs font-medium"
+                    >
                       근본 원인
                     </label>
                     <textarea
+                      id="incident-root-cause"
                       className="bg-bg-base text-text-primary placeholder:text-text-secondary focus:border-accent focus:ring-accent shadow-neu-inset w-full resize-none rounded-sm border border-transparent p-2.5 text-sm focus:border focus:ring-1 focus:outline-none"
                       rows={8}
                       value={rootCause}
@@ -427,10 +446,14 @@ export function IncidentDetailPage() {
                     />
                   </div>
                   <div>
-                    <label className="text-text-primary mb-1.5 block text-xs font-medium">
+                    <label
+                      htmlFor="incident-resolution"
+                      className="text-text-primary mb-1.5 block text-xs font-medium"
+                    >
                       조치 내용
                     </label>
                     <textarea
+                      id="incident-resolution"
                       className="bg-bg-base text-text-primary placeholder:text-text-secondary focus:border-accent focus:ring-accent shadow-neu-inset w-full resize-none rounded-sm border border-transparent p-2.5 text-sm focus:border focus:ring-1 focus:outline-none"
                       rows={8}
                       value={resolution}
@@ -439,10 +462,14 @@ export function IncidentDetailPage() {
                     />
                   </div>
                   <div>
-                    <label className="text-text-primary mb-1.5 block text-xs font-medium">
+                    <label
+                      htmlFor="incident-postmortem"
+                      className="text-text-primary mb-1.5 block text-xs font-medium"
+                    >
                       사후 분석
                     </label>
                     <textarea
+                      id="incident-postmortem"
                       className="bg-bg-base text-text-primary placeholder:text-text-secondary focus:border-accent focus:ring-accent shadow-neu-inset w-full resize-none rounded-sm border border-transparent p-2.5 text-sm focus:border focus:ring-1 focus:outline-none"
                       rows={8}
                       value={postmortem}
@@ -461,6 +488,38 @@ export function IncidentDetailPage() {
                 </div>
               </div>
             </div>
+          </NeuCard>
+
+          {/* 해결책 섹션 */}
+          <NeuCard>
+            <h3 className="text-text-secondary mb-3 text-xs font-semibold tracking-wider uppercase">
+              해결책
+            </h3>
+            {!['resolved', 'closed'].includes(incident.status) ? (
+              <p className="text-text-secondary text-sm">
+                사건 종료 후 등록 가능합니다 (현재:{' '}
+                {INCIDENT_STATUS_LABELS[incident.status] ?? incident.status})
+              </p>
+            ) : isRegisteringFeedback || isRevisingFeedback ? (
+              <FeedbackForm
+                incidentId={incidentId}
+                mode={isRevisingFeedback ? 'revise' : 'create'}
+                existingFeedback={isRevisingFeedback ? (latestFeedback ?? undefined) : undefined}
+                onClose={() => {
+                  setIsRegisteringFeedback(false)
+                  setIsRevisingFeedback(false)
+                }}
+              />
+            ) : latestFeedback ? (
+              <FeedbackDetailView
+                feedback={latestFeedback}
+                onResubmit={() => setIsRevisingFeedback(true)}
+              />
+            ) : (
+              <NeuButton size="sm" onClick={() => setIsRegisteringFeedback(true)}>
+                해결책 등록
+              </NeuButton>
+            )}
           </NeuCard>
 
           {/* 연결된 알림 이력 */}
@@ -485,6 +544,7 @@ export function IncidentDetailPage() {
                         'mt-0.5 shrink-0 text-xs font-semibold uppercase',
                         alert.severity === 'critical' ? 'text-critical' : 'text-warning',
                       )}
+                      aria-label={`심각도: ${alert.severity}`}
                     >
                       {alert.severity}
                     </span>
@@ -521,10 +581,13 @@ export function IncidentDetailPage() {
             {incident.timeline.length === 0 ? (
               <p className="text-text-disabled text-xs">아직 기록된 이벤트가 없습니다</p>
             ) : (
-              <div className="relative space-y-0">
-                <div className="bg-border absolute top-2 bottom-2 left-[11px] w-px" />
+              <ol className="relative space-y-0">
+                <div
+                  aria-hidden="true"
+                  className="bg-border absolute top-2 bottom-2 left-[11px] w-px"
+                />
                 {incident.timeline.map((item: IncidentTimelineItem) => (
-                  <div key={item.id} className="relative flex gap-3 pb-3 last:pb-0">
+                  <li key={item.id} className="relative flex gap-3 pb-3 last:pb-0">
                     <div className="bg-surface border-border relative z-10 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border">
                       {EVENT_ICONS[item.event_type] ?? (
                         <Clock className="text-text-disabled h-3 w-3" />
@@ -538,15 +601,18 @@ export function IncidentDetailPage() {
                         {item.actor_name} · {formatRelative(item.created_at)}
                       </p>
                     </div>
-                  </div>
+                  </li>
                 ))}
-              </div>
+              </ol>
             )}
 
             {/* 댓글 입력 */}
             <div className="border-border mt-4 space-y-2 border-t pt-3">
-              <label htmlFor="incident-comment" className="sr-only">
-                활동 메모
+              <label
+                htmlFor="incident-comment"
+                className="text-text-primary mb-1.5 block text-xs font-medium"
+              >
+                메모 작성
               </label>
               <textarea
                 id="incident-comment"

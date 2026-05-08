@@ -1,123 +1,201 @@
-import { useEffect, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
-import { ChevronLeft, ChevronRight, Search, X } from 'lucide-react'
-import { useFeedbackSearch } from '@/hooks/queries/useFeedbackSearch'
+import { useState } from 'react'
+import { useNavigate, useSearchParams } from 'react-router-dom'
+import { Search, ArrowRight } from 'lucide-react'
+import { useQuery } from '@tanstack/react-query'
+import { incidentsApi } from '@/api/incidents'
 import { useSystems } from '@/hooks/queries/useSystems'
 import { NeuCard } from '@/components/neumorphic/NeuCard'
 import { NeuSelect } from '@/components/neumorphic/NeuSelect'
 import { NeuInput } from '@/components/neumorphic/NeuInput'
 import { NeuButton } from '@/components/neumorphic/NeuButton'
+import { NeuBadge } from '@/components/neumorphic/NeuBadge'
 import { LoadingSkeleton } from '@/components/common/LoadingSkeleton'
 import { ErrorCard } from '@/components/common/ErrorCard'
 import { EmptyState } from '@/components/common/EmptyState'
-import { SeverityBadge } from '@/components/charts/SeverityBadge'
-import { cn, formatKST } from '@/lib/utils'
-import { useBannerVisible } from '@/hooks/useBannerVisible'
-import type { FeedbackSearchItem } from '@/api/alerts'
-import type { Severity } from '@/types/alert'
+import { cn } from '@/lib/utils'
+import { ROUTES } from '@/constants/routes'
+import type { IncidentPostmortemItem } from '@/api/incidents'
 
-const PAGE_SIZE = 20
+const SEVERITY_STYLES: Record<string, string> = {
+  critical: 'bg-critical/15 text-critical border-critical/30',
+  warning: 'bg-warning/15 text-warning border-warning/30',
+}
 
-const ALERT_TYPE_LABEL: Record<string, string> = {
-  metric: '메트릭',
-  metric_resolved: '메트릭(복구)',
-  log_analysis: '로그분석',
+function SeverityBadge({ severity }: { severity?: string }) {
+  if (!severity) return null
+  const LABELS: Record<string, string> = { critical: 'CRITICAL', warning: 'WARNING' }
+  return (
+    <span
+      className={cn(
+        'inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium',
+        SEVERITY_STYLES[severity] ?? 'bg-surface text-text-secondary border-border',
+      )}
+    >
+      {LABELS[severity] ?? severity.toUpperCase()}
+    </span>
+  )
+}
+
+function PostmortemCard({ item }: { item: IncidentPostmortemItem }) {
+  const navigate = useNavigate()
+  const p = item.payload
+  const incidentId = p.incident_id
+
+  return (
+    <NeuCard className="flex flex-col gap-3 p-4">
+      {/* 헤더 */}
+      <div className="flex flex-wrap items-start gap-2">
+        {incidentId && <span className="text-text-disabled font-mono text-xs">#{incidentId}</span>}
+        {p.severity && <SeverityBadge severity={p.severity} />}
+        {p.system_name && <span className="text-text-secondary text-xs">{p.system_name}</span>}
+        <span className="text-text-disabled ml-auto font-mono text-xs">
+          {item.score.toFixed(4)} RRF
+        </span>
+      </div>
+
+      {/* 제목 */}
+      {p.title && <p className="text-text-primary leading-snug font-semibold">{p.title}</p>}
+
+      {/* 원인 */}
+      {p.root_cause && (
+        <div>
+          <p className="text-text-disabled mb-0.5 text-xs font-medium tracking-wider uppercase">
+            원인
+          </p>
+          <p className="text-text-secondary line-clamp-2 text-sm">{p.root_cause}</p>
+        </div>
+      )}
+
+      {/* 해결 */}
+      {p.solution && (
+        <div>
+          <p className="text-text-disabled mb-0.5 text-xs font-medium tracking-wider uppercase">
+            해결
+          </p>
+          <p className="text-text-secondary line-clamp-3 text-sm">{p.solution}</p>
+        </div>
+      )}
+
+      {/* 푸터 */}
+      <div className="border-border flex items-center border-t pt-2">
+        {p.tags && p.tags.length > 0 && (
+          <div className="flex flex-wrap gap-1">
+            {p.tags.slice(0, 3).map((tag) => (
+              <NeuBadge key={tag} variant="muted" className="text-xs">
+                {tag}
+              </NeuBadge>
+            ))}
+          </div>
+        )}
+        {incidentId && (
+          <NeuButton
+            variant="ghost"
+            size="sm"
+            onClick={() => navigate(ROUTES.incidentDetail(incidentId))}
+            className="ml-auto gap-1 px-2 text-xs"
+          >
+            상세 보기
+            <ArrowRight className="h-3 w-3" />
+          </NeuButton>
+        )}
+      </div>
+    </NeuCard>
+  )
 }
 
 export function FeedbackSearchPage() {
   const [searchParams, setSearchParams] = useSearchParams()
 
   const initialSystemId = searchParams.get('system_id') ?? ''
-  const initialKeyword = searchParams.get('q') ?? ''
+  const initialQuery = searchParams.get('q') ?? ''
+  const initialSeverity = searchParams.get('severity') ?? ''
 
   const [systemId, setSystemId] = useState<string>(initialSystemId)
-  const [keyword, setKeyword] = useState(initialKeyword)
-  const [appliedKeyword, setAppliedKeyword] = useState(initialKeyword)
-  const [offset, setOffset] = useState(0)
-  const [selected, setSelected] = useState<FeedbackSearchItem | null>(null)
+  const [severity, setSeverity] = useState<string>(initialSeverity)
+  const [query, setQuery] = useState(initialQuery)
+  const [appliedQuery, setAppliedQuery] = useState(initialQuery)
+  const [appliedSystemId, setAppliedSystemId] = useState(initialSystemId)
+  const [appliedSeverity, setAppliedSeverity] = useState(initialSeverity)
 
   const { data: systems = [] } = useSystems()
 
-  const { data, isLoading, error, refetch } = useFeedbackSearch({
-    system_id: systemId ? Number(systemId) : undefined,
-    q: appliedKeyword || undefined,
-    limit: PAGE_SIZE,
-    offset,
+  const enabled = appliedQuery.trim().length > 0
+
+  const { data, isLoading, isError, refetch } = useQuery({
+    queryKey: ['incidents', 'postmortem-search', appliedQuery, appliedSystemId, appliedSeverity],
+    queryFn: () =>
+      incidentsApi.searchPostmortem({
+        query: appliedQuery.trim(),
+        system_id: appliedSystemId ? Number(appliedSystemId) : undefined,
+        severity: appliedSeverity || undefined,
+        limit: 20,
+      }),
+    enabled,
+    staleTime: 30_000,
   })
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setSelected(null)
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [])
-
-  useEffect(() => {
-    const sid = searchParams.get('system_id') ?? ''
-    const q = searchParams.get('q') ?? ''
-    setSystemId(sid)
-    setKeyword(q)
-    setAppliedKeyword(q)
-    setOffset(0)
-  }, [searchParams])
-
   const applySearch = () => {
-    const trimmed = keyword.trim()
-    setAppliedKeyword(trimmed)
-    setOffset(0)
+    const trimmed = query.trim()
+    setAppliedQuery(trimmed)
+    setAppliedSystemId(systemId)
+    setAppliedSeverity(severity)
     setSearchParams(
       (prev) => {
         const next = new URLSearchParams(prev)
         if (trimmed) next.set('q', trimmed)
         else next.delete('q')
+        if (systemId) next.set('system_id', systemId)
+        else next.delete('system_id')
+        if (severity) next.set('severity', severity)
+        else next.delete('severity')
         return next
       },
       { replace: true },
     )
   }
 
-  const onKeywordKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+  const onQueryKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter') {
       e.preventDefault()
       applySearch()
     }
   }
 
-  const onSystemChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const newId = e.target.value
-    setSystemId(newId)
-    setOffset(0)
-    setSearchParams(
-      (prev) => {
-        const next = new URLSearchParams(prev)
-        if (newId) next.set('system_id', newId)
-        else next.delete('system_id')
-        return next
-      },
-      { replace: true },
-    )
+  const resetSearch = () => {
+    setQuery('')
+    setAppliedQuery('')
+    setSystemId('')
+    setAppliedSystemId('')
+    setSeverity('')
+    setAppliedSeverity('')
+    setSearchParams({}, { replace: true })
   }
 
-  const items = data?.items ?? []
-  const total = data?.total ?? 0
-  const currentPage = Math.floor(offset / PAGE_SIZE) + 1
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
-  const hasPrev = offset > 0
-  const hasNext = offset + PAGE_SIZE < total
+  const results = data?.results ?? []
+  const hasFilters = appliedQuery || appliedSystemId || appliedSeverity
 
   return (
     <>
       <div className="mb-3 flex items-baseline gap-3">
         <h1 className="text-text-primary text-base font-bold">해결책 검색</h1>
         <p className="text-text-secondary text-xs">
-          과거 등록된 원인/해결책을 시스템·키워드로 빠르게 찾아봅니다
+          과거 인시던트 사후분석(postmortem)을 시맨틱 검색으로 찾습니다
         </p>
       </div>
 
+      {/* 검색 폼 */}
       <div className="mb-4 flex flex-wrap items-center gap-3">
-        <div className="w-56">
-          <NeuSelect value={systemId} onChange={onSystemChange}>
+        <div className="min-w-[280px] flex-1">
+          <NeuInput
+            placeholder="증상·원인·해결책 자연어 검색"
+            leftIcon={<Search className="h-4 w-4" />}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={onQueryKeyDown}
+          />
+        </div>
+        <div className="w-48">
+          <NeuSelect value={systemId} onChange={(e) => setSystemId(e.target.value)}>
             <option value="">전체 시스템</option>
             {systems.map((s) => (
               <option key={s.id} value={String(s.id)}>
@@ -126,218 +204,48 @@ export function FeedbackSearchPage() {
             ))}
           </NeuSelect>
         </div>
-        <div className="min-w-[240px] flex-1">
-          <NeuInput
-            placeholder="원인 또는 해결책 키워드"
-            leftIcon={<Search className="h-4 w-4" />}
-            value={keyword}
-            onChange={(e) => setKeyword(e.target.value)}
-            onKeyDown={onKeywordKeyDown}
-          />
+        <div className="w-36">
+          <NeuSelect value={severity} onChange={(e) => setSeverity(e.target.value)}>
+            <option value="">전체 심각도</option>
+            <option value="critical">CRITICAL</option>
+            <option value="warning">WARNING</option>
+          </NeuSelect>
         </div>
-        <NeuButton onClick={applySearch}>검색</NeuButton>
-        {(appliedKeyword || systemId) && (
-          <NeuButton
-            variant="ghost"
-            onClick={() => {
-              setKeyword('')
-              setAppliedKeyword('')
-              setSystemId('')
-              setOffset(0)
-              setSearchParams({}, { replace: true })
-            }}
-          >
+        <NeuButton onClick={applySearch} disabled={!query.trim()}>
+          검색
+        </NeuButton>
+        {hasFilters && (
+          <NeuButton variant="ghost" onClick={resetSearch}>
             초기화
           </NeuButton>
         )}
       </div>
 
-      {isLoading ? (
-        <LoadingSkeleton shape="table" count={8} />
-      ) : error ? (
-        <ErrorCard onRetry={refetch} />
-      ) : items.length === 0 ? (
+      {/* 결과 */}
+      {!enabled ? (
         <EmptyState
           icon={<Search className="h-8 w-8" />}
-          title="등록된 해결책이 없습니다"
-          description="검색 조건을 변경해 보세요"
+          title="검색어를 입력하세요"
+          description="증상, 원인, 해결책 관련 키워드를 자연어로 입력하고 검색 버튼을 누르세요"
+        />
+      ) : isLoading ? (
+        <LoadingSkeleton shape="card" count={5} />
+      ) : isError ? (
+        <ErrorCard onRetry={refetch} />
+      ) : results.length === 0 ? (
+        <EmptyState
+          icon={<Search className="h-8 w-8" />}
+          title="검색 결과가 없습니다"
+          description="다른 키워드로 검색해 보세요"
         />
       ) : (
-        <NeuCard className="overflow-hidden p-0">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="border-border text-text-primary border-b text-left text-xs font-semibold tracking-wider uppercase">
-                <tr>
-                  <th className="px-3 py-2.5 whitespace-nowrap">번호</th>
-                  <th className="px-3 py-2.5 whitespace-nowrap">심각도</th>
-                  <th className="px-3 py-2.5 whitespace-nowrap">유형</th>
-                  <th className="px-3 py-2.5 whitespace-nowrap">시스템명</th>
-                  <th className="px-3 py-2.5">제목</th>
-                  <th className="px-3 py-2.5 whitespace-nowrap">등록자</th>
-                  <th className="px-3 py-2.5 whitespace-nowrap">등록일</th>
-                </tr>
-              </thead>
-              <tbody>
-                {items.map((row) => {
-                  const active = selected?.id === row.id
-                  return (
-                    <tr
-                      key={row.id}
-                      onClick={() => setSelected(row)}
-                      className={cn(
-                        'border-border text-text-primary cursor-pointer border-b transition-colors last:border-b-0',
-                        active ? 'bg-accent-muted' : 'hover:bg-hover-subtle',
-                      )}
-                    >
-                      <td className="text-text-secondary px-3 py-2.5 font-mono text-xs whitespace-nowrap">
-                        {row.id}
-                      </td>
-                      <td className="px-3 py-2.5 whitespace-nowrap">
-                        {row.severity ? (
-                          <SeverityBadge severity={row.severity as Severity} />
-                        ) : (
-                          <span className="text-text-disabled">-</span>
-                        )}
-                      </td>
-                      <td className="text-text-secondary px-3 py-2.5 text-xs whitespace-nowrap">
-                        {row.alert_type
-                          ? (ALERT_TYPE_LABEL[row.alert_type] ?? row.alert_type)
-                          : '-'}
-                      </td>
-                      <td className="px-3 py-2.5 whitespace-nowrap">
-                        {row.system_display_name ?? row.system_name ?? '-'}
-                      </td>
-                      <td className="px-3 py-2.5" title={row.title ?? undefined}>
-                        <span className="block max-w-[260px] truncate">{row.title ?? '-'}</span>
-                      </td>
-                      <td className="px-3 py-2.5 whitespace-nowrap">{row.resolver}</td>
-                      <td className="text-text-secondary px-3 py-2.5 text-xs whitespace-nowrap">
-                        {formatKST(row.created_at, 'datetime')}
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-        </NeuCard>
-      )}
-
-      {!isLoading && !error && items.length > 0 && (
-        <div className="mt-4 flex items-center justify-between">
-          <span className="text-text-secondary text-sm">
-            총 {total}건 · 페이지 {currentPage} / {totalPages}
-          </span>
-          <div className="flex gap-2">
-            <NeuButton
-              variant="ghost"
-              size="sm"
-              disabled={!hasPrev}
-              onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
-            >
-              <ChevronLeft className="h-4 w-4" />
-              이전
-            </NeuButton>
-            <NeuButton
-              variant="ghost"
-              size="sm"
-              disabled={!hasNext}
-              onClick={() => setOffset(offset + PAGE_SIZE)}
-            >
-              다음
-              <ChevronRight className="h-4 w-4" />
-            </NeuButton>
-          </div>
+        <div className="flex flex-col gap-3">
+          <p className="text-text-secondary text-sm">{results.length}건 검색됨</p>
+          {results.map((item) => (
+            <PostmortemCard key={item.id} item={item} />
+          ))}
         </div>
       )}
-
-      <FeedbackDetailDrawer item={selected} onClose={() => setSelected(null)} />
-    </>
-  )
-}
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <section>
-      <h3 className="text-text-secondary mb-1.5 text-xs font-semibold tracking-wider uppercase">
-        {label}
-      </h3>
-      <p className="text-text-primary text-sm leading-relaxed break-words">{children}</p>
-    </section>
-  )
-}
-
-interface FeedbackDetailDrawerProps {
-  item: FeedbackSearchItem | null
-  onClose: () => void
-}
-
-function FeedbackDetailDrawer({ item, onClose }: FeedbackDetailDrawerProps) {
-  const open = !!item
-  const bannerVisible = useBannerVisible()
-
-  return (
-    <>
-      <div
-        className={cn(
-          'bg-overlay fixed inset-0 z-40 transition-opacity duration-300',
-          open ? 'opacity-100' : 'pointer-events-none opacity-0',
-        )}
-        onClick={onClose}
-      />
-      <aside
-        className={cn(
-          'border-border bg-bg-base fixed right-0 bottom-0 z-50 flex w-full max-w-[480px] flex-col border-l transition-[translate,top] duration-300',
-          bannerVisible ? 'top-12' : 'top-0',
-          open ? 'translate-x-0' : 'translate-x-full',
-        )}
-        aria-hidden={!open}
-      >
-        {item && (
-          <>
-            <header className="border-border flex items-start justify-between gap-3 border-b px-6 pt-7 pb-5">
-              <div className="min-w-0">
-                <div className="text-text-secondary mb-2 flex items-center gap-2 text-xs">
-                  {item.severity && <SeverityBadge severity={item.severity as Severity} />}
-                  {item.alert_type && (
-                    <span>{ALERT_TYPE_LABEL[item.alert_type] ?? item.alert_type}</span>
-                  )}
-                  <span>·</span>
-                  <span>{formatKST(item.created_at, 'datetime')}</span>
-                </div>
-                <h2 className="text-text-primary text-base leading-snug font-semibold">
-                  해결책 상세
-                </h2>
-              </div>
-              <button
-                onClick={onClose}
-                aria-label="닫기"
-                className="text-text-secondary hover:text-text-primary focus:ring-accent rounded-sm p-1 focus:ring-1 focus:outline-none"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </header>
-
-            <div className="flex-1 space-y-6 overflow-y-auto px-6 py-6">
-              <Field label="번호">
-                <span className="font-mono">#{item.id}</span>
-              </Field>
-              <Field label="시스템명">{item.system_display_name ?? item.system_name ?? '-'}</Field>
-              <Field label="제목">{item.title ?? '-'}</Field>
-              <Field label="오류 타입">{item.error_type}</Field>
-              <section>
-                <h3 className="text-text-secondary mb-2 text-xs font-semibold tracking-wider uppercase">
-                  해결책
-                </h3>
-                <div className="bg-bg-base shadow-neu-inset text-text-primary min-h-[16rem] rounded-sm p-4 text-sm leading-relaxed whitespace-pre-wrap">
-                  {item.solution}
-                </div>
-              </section>
-              <Field label="등록자">{item.resolver}</Field>
-            </div>
-          </>
-        )}
-      </aside>
     </>
   )
 }

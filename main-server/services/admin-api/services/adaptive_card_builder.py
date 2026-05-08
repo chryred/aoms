@@ -181,15 +181,6 @@ def build_metric_alert_card(
             "title": "인시던트 보기",
             "url": f"{_FRONTEND_EXTERNAL_URL}/incidents/{incident_id}",
         }] if incident_id else []),
-        {
-            "type": "Action.OpenUrl",
-            "title": "해결책 등록",
-            "url": (
-                f"{_FRONTEND_EXTERNAL_URL}/feedback/submit"
-                f"?alert_history_id={alert_history_id or ''}"
-                f"&system={system_name}&point_id={point_id or ''}"
-            ),
-        },
     ]
 
     return _build_base_card(
@@ -262,15 +253,6 @@ def build_log_analysis_card(
             "title": "인시던트 보기",
             "url": f"{_FRONTEND_EXTERNAL_URL}/incidents/{incident_id}",
         }] if incident_id else []),
-        {
-            "type": "Action.OpenUrl",
-            "title": "해결책 등록",
-            "url": (
-                f"{_FRONTEND_EXTERNAL_URL}/feedback/submit"
-                f"?alert_history_id={alert_history_id or ''}"
-                f"&system={system_name}&point_id={point_id or ''}"
-            ),
-        },
     ]
 
     severity_color = (

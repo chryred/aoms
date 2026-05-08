@@ -1,6 +1,14 @@
 import { useState, useRef, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { Upload, BookMarked, RefreshCw, TrendingUp, Tag, ThumbsDown, Search } from 'lucide-react'
+import {
+  Upload,
+  BookMarked,
+  RefreshCw,
+  TrendingUp,
+  Tag,
+  ThumbsDown,
+  Search,
+} from 'lucide-react'
 import { PageHeader } from '@/components/common/PageHeader'
 import { DocumentUploadTab } from '@/components/knowledge/DocumentUploadTab'
 import { GuidesTab } from '@/components/knowledge/GuidesTab'
@@ -23,13 +31,10 @@ const TABS: Array<{ key: KnowledgeTab; label: string; icon: React.ReactNode }> =
   { key: 'verify', label: '검색 검증', icon: <Search className="h-4 w-4" /> },
 ]
 
-const isValidTab = (v: string | null): v is KnowledgeTab =>
-  ['documents', 'guides', 'sync', 'frequent', 'notes', 'feedback', 'verify'].includes(v ?? '')
-
 export function KnowledgePage() {
   const [searchParams, setSearchParams] = useSearchParams()
-  const tabParam = searchParams.get('tab')
-  const activeTab: KnowledgeTab = isValidTab(tabParam) ? tabParam : 'documents'
+  const tabParam = searchParams.get('tab') as KnowledgeTab | null
+  const activeTab: KnowledgeTab = TABS.some((t) => t.key === tabParam) ? tabParam! : 'documents'
 
   // 자주 묻는 질문 → 운영자 노트 추가 크로스탭 흐름 상태
   const [addNoteFromQuestion, setAddNoteFromQuestion] = useState<string | undefined>()

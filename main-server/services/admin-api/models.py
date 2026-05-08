@@ -209,20 +209,54 @@ class LogAnalysisHistory(Base):
 
 
 class AlertFeedback(Base):
-    """WF3: n8n 피드백 처리 워크플로우에서 INSERT"""
+    """인시던트 단위 해결책 등록 — incident_id 기준으로 그루핑"""
     __tablename__ = "alert_feedback"
 
     id               = Column(Integer, primary_key=True)
-    system_id        = Column(Integer, ForeignKey("systems.id"), nullable=True)
-    alert_history_id = Column(Integer, ForeignKey("alert_history.id"), nullable=True)
+    incident_id      = Column(Integer, ForeignKey("incidents.id"), nullable=False, index=True)
     error_type       = Column(String(100), nullable=False)
     solution         = Column(Text, nullable=False)
     resolver         = Column(String(200), nullable=False)
     qdrant_point_id  = Column(String(36), nullable=True)   # 해결책 임베딩 후 저장된 Qdrant point ID
     created_at       = Column(DateTime, default=func.now())
+    # 승인 워크플로우
+    status           = Column(String(20), nullable=False, default="pending", server_default="pending")  # pending | approved | rejected
+    approver_id      = Column(Integer, ForeignKey("contacts.id", ondelete="SET NULL"), nullable=True)   # 제출자가 지정한 검토 예정자
+    approved_by      = Column(Integer, ForeignKey("contacts.id", ondelete="SET NULL"), nullable=True)   # 실제 승인자
+    approved_at      = Column(DateTime, nullable=True)      # naive UTC
+    rejection_reason = Column(Text, nullable=True)
+    rejected_at      = Column(DateTime, nullable=True)      # naive UTC
+    revision_count   = Column(Integer, nullable=False, default=0, server_default="0")
+    # 재등록 시 등록자가 작성한 사유 (재승인 컨텍스트). 매 재등록마다 덮어쓰며 별도 이력은 보관하지 않음.
+    revision_reason  = Column(Text, nullable=True)
+
+    attachments = relationship("AlertFeedbackAttachment", back_populates="feedback",
+                               cascade="all, delete-orphan", order_by="AlertFeedbackAttachment.sort_order")
+    incident    = relationship("Incident", foreign_keys=[incident_id])
 
     __table_args__ = (
-        Index("idx_alert_feedback_system", "system_id", "created_at"),
+        Index("idx_alert_feedback_incident", "incident_id", "status"),
+        Index("idx_alert_feedback_status", "status", "created_at"),
+    )
+
+
+class AlertFeedbackAttachment(Base):
+    """해결책 첨부파일 — feedback/{feedback_id}/{uuid}.png (KNOWLEDGE_DOCS_DIR 기준 상대경로)"""
+    __tablename__ = "alert_feedback_attachments"
+
+    id                = Column(Integer, primary_key=True)
+    feedback_id       = Column(Integer, ForeignKey("alert_feedback.id", ondelete="CASCADE"), nullable=False, index=True)
+    file_path         = Column(String(500), nullable=False)   # 예: feedback/{feedback_id}/{uuid}.png
+    original_filename = Column(String(255), nullable=True)
+    sort_order        = Column(Integer, nullable=False, default=0, server_default="0")
+    ocr_text          = Column(Text, nullable=True)
+    ocr_status        = Column(String(20), nullable=False, default="pending", server_default="pending")  # pending|processing|done|failed
+    created_at        = Column(DateTime, default=func.now())
+
+    feedback = relationship("AlertFeedback", back_populates="attachments")
+
+    __table_args__ = (
+        Index("idx_feedback_attachments_feedback", "feedback_id"),
     )
 
 

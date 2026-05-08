@@ -1,15 +1,18 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { CheckCircle2, AlertTriangle } from 'lucide-react'
+import { CheckCircle2, AlertTriangle, Paperclip, X, FileText } from 'lucide-react'
 import { NeuCard } from '@/components/neumorphic/NeuCard'
 import { NeuSelect } from '@/components/neumorphic/NeuSelect'
 import { NeuTextarea } from '@/components/neumorphic/NeuTextarea'
 import { NeuButton } from '@/components/neumorphic/NeuButton'
 import { NeuBadge } from '@/components/neumorphic/NeuBadge'
 import { useCreateFeedback } from '@/hooks/mutations/useCreateFeedback'
+import { useFeedbackUpload } from '@/hooks/mutations/useFeedbackUpload'
+import { useApprovers } from '@/hooks/queries/useApprovers'
 import { useApprovedUsers } from '@/hooks/queries/useApprovedUsers'
 import { useAuthStore } from '@/store/authStore'
 import { ROUTES } from '@/constants/routes'
+import type { FeedbackUploadResponse } from '@/types/feedback'
 
 const ERROR_TYPES = [
   'DB 연결 오류',
@@ -21,6 +24,15 @@ const ERROR_TYPES = [
   '기타',
 ] as const
 
+interface LocalAttachment {
+  previewUrl: string | null // object URL for images, null for non-images
+  originalFilename: string
+  filePath: string
+  mimeType: string
+}
+
+const IMAGE_MIME_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/svg+xml']
+
 export function FeedbackSubmitPage() {
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
@@ -29,23 +41,78 @@ export function FeedbackSubmitPage() {
   const alertHistoryIdRaw = searchParams.get('alert_history_id') ?? ''
   const alertHistoryId = Number(alertHistoryIdRaw)
   const system = searchParams.get('system') ?? ''
-  const pointId = searchParams.get('point_id') ?? ''
   const invalidId = !alertHistoryIdRaw || Number.isNaN(alertHistoryId) || alertHistoryId <= 0
 
   const [errorType, setErrorType] = useState<string>('DB 연결 오류')
   const [solution, setSolution] = useState('')
   const [resolver, setResolver] = useState(user?.name ?? '')
+  const [approverContactId, setApproverContactId] = useState<number | ''>('')
+  const [attachments, setAttachments] = useState<LocalAttachment[]>([])
   const [done, setDone] = useState(false)
 
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
   const { mutate, isPending, isError, error, reset } = useCreateFeedback()
+  const uploadMutation = useFeedbackUpload()
   const { data: approvedUsers = [] } = useApprovedUsers()
+  const { data: approvers = [], isLoading: isLoadingApprovers } = useApprovers()
+
+  const selectedApprover = approvers.find((a) => a.id === approverContactId)
 
   const handleClose = () => {
+    // Revoke object URLs on close to avoid memory leaks
+    attachments.forEach((a) => {
+      if (a.previewUrl) URL.revokeObjectURL(a.previewUrl)
+    })
     window.close()
     setTimeout(() => {
       if (!window.closed) navigate(ROUTES.DASHBOARD, { replace: true })
     }, 200)
   }
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? [])
+    if (files.length === 0) return
+    // Reset input so same file can be re-selected after removal
+    e.target.value = ''
+
+    files.forEach((file) => {
+      const isImage = IMAGE_MIME_TYPES.includes(file.type)
+      const previewUrl = isImage ? URL.createObjectURL(file) : null
+
+      uploadMutation.mutate(file, {
+        onSuccess: (result: FeedbackUploadResponse) => {
+          setAttachments((prev) => [
+            ...prev,
+            {
+              previewUrl,
+              originalFilename: result.original_filename,
+              filePath: result.file_path,
+              mimeType: file.type,
+            },
+          ])
+        },
+        onError: () => {
+          if (previewUrl) URL.revokeObjectURL(previewUrl)
+        },
+      })
+    })
+  }
+
+  const handleRemoveAttachment = (idx: number) => {
+    setAttachments((prev) => {
+      const item = prev[idx]
+      if (item?.previewUrl) URL.revokeObjectURL(item.previewUrl)
+      return prev.filter((_, i) => i !== idx)
+    })
+  }
+
+  const isSubmitDisabled =
+    isPending ||
+    uploadMutation.isPending ||
+    !solution.trim() ||
+    !resolver.trim() ||
+    approverContactId === ''
 
   if (invalidId) {
     return (
@@ -76,7 +143,8 @@ export function FeedbackSubmitPage() {
           <div className="flex flex-col items-center gap-3 text-center">
             <CheckCircle2 className="text-normal h-10 w-10" />
             <h1 className="type-heading text-text-primary text-xl font-semibold">
-              해결책이 등록되었습니다
+              해결책이 등록되어 승인 대기 중입니다
+              {selectedApprover ? ` (승인자: ${selectedApprover.name})` : ''}
             </h1>
             <p className="text-text-secondary text-sm">
               벡터 DB에 반영되어 향후 유사 장애 대응에 활용됩니다. 이 창을 닫아도 됩니다.
@@ -107,7 +175,7 @@ export function FeedbackSubmitPage() {
           className="space-y-4"
           onSubmit={(e) => {
             e.preventDefault()
-            if (!solution.trim() || !resolver.trim()) return
+            if (isSubmitDisabled) return
             reset()
             mutate(
               {
@@ -115,6 +183,8 @@ export function FeedbackSubmitPage() {
                 error_type: errorType,
                 solution: solution.trim(),
                 resolver: resolver.trim(),
+                approver_contact_id: approverContactId as number,
+                attachment_paths: attachments.map((a) => a.filePath),
               },
               { onSuccess: () => setDone(true) },
             )
@@ -161,11 +231,85 @@ export function FeedbackSubmitPage() {
             )}
           </NeuSelect>
 
-          {pointId && (
-            <p className="text-text-disabled text-xs">
-              참조 vector point: <span className="font-mono">{pointId}</span>
-            </p>
-          )}
+          {/* 승인자 선택 */}
+          <NeuSelect
+            id="approver"
+            label="승인자 *"
+            value={approverContactId === '' ? '' : String(approverContactId)}
+            onChange={(e) => {
+              const v = e.target.value
+              setApproverContactId(v === '' ? '' : Number(v))
+            }}
+            disabled={isLoadingApprovers}
+          >
+            <option value="">— 승인자 선택 —</option>
+            {approvers.map((a) => (
+              <option key={a.id} value={String(a.id)}>
+                {a.name} ({a.email})
+              </option>
+            ))}
+          </NeuSelect>
+
+          {/* 첨부파일 */}
+          <div className="flex flex-col gap-2">
+            <span className="text-text-secondary text-sm font-medium">첨부파일</span>
+
+            {/* 첨부 미리보기 목록 */}
+            {attachments.length > 0 && (
+              <ul className="flex flex-col gap-2">
+                {attachments.map((att, idx) => (
+                  <li
+                    key={`${att.filePath}-${idx}`}
+                    className="border-border bg-bg-deep flex items-center gap-3 rounded-sm border p-2"
+                  >
+                    {att.previewUrl ? (
+                      <img
+                        src={att.previewUrl}
+                        alt={att.originalFilename}
+                        className="h-10 w-10 rounded-sm object-cover"
+                      />
+                    ) : (
+                      <span className="text-text-secondary flex h-10 w-10 shrink-0 items-center justify-center">
+                        <FileText className="h-6 w-6" />
+                      </span>
+                    )}
+                    <span className="text-text-primary min-w-0 flex-1 truncate text-sm">
+                      {att.originalFilename}
+                    </span>
+                    <button
+                      type="button"
+                      aria-label={`${att.originalFilename} 제거`}
+                      onClick={() => handleRemoveAttachment(idx)}
+                      className="text-text-secondary hover:text-critical focus:ring-accent shrink-0 rounded-sm p-1 focus:ring-1 focus:outline-none"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            {/* 업로드 버튼 */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              accept="image/*,.pdf,.xlsx,.xls,.docx,.doc,.txt"
+              className="hidden"
+              onChange={handleFileChange}
+            />
+            <NeuButton
+              type="button"
+              variant="ghost"
+              size="sm"
+              disabled={uploadMutation.isPending}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <Paperclip className="mr-1.5 h-4 w-4" />
+              {uploadMutation.isPending ? '업로드 중...' : '파일 첨부'}
+            </NeuButton>
+            <p className="text-text-disabled text-xs">이미지, PDF, Excel, Word, 텍스트 파일 지원</p>
+          </div>
 
           {isError && (
             <p className="text-critical text-sm">
@@ -173,11 +317,7 @@ export function FeedbackSubmitPage() {
             </p>
           )}
 
-          <NeuButton
-            type="submit"
-            className="w-full"
-            disabled={isPending || !solution.trim() || !resolver.trim()}
-          >
+          <NeuButton type="submit" className="w-full" disabled={isSubmitDisabled}>
             {isPending ? '등록 중...' : '해결책 등록'}
           </NeuButton>
         </form>

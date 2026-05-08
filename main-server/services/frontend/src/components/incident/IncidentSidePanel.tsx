@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { X, ExternalLink, Save, Pencil, Check } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -6,6 +6,11 @@ import { NeuButton } from '@/components/neumorphic/NeuButton'
 import { NeuSelect } from '@/components/neumorphic/NeuSelect'
 import { NeuTextarea } from '@/components/neumorphic/NeuTextarea'
 import { ROUTES } from '@/constants/routes'
+import {
+  INCIDENT_STATUS_LABELS,
+  INCIDENT_STATUS_STYLES,
+  INCIDENT_SEVERITY_STYLES,
+} from '@/constants/incident'
 import { cn, formatKST, formatRelative } from '@/lib/utils'
 import { useBannerVisible } from '@/hooks/useBannerVisible'
 import { useUpdateIncident } from '@/hooks/queries/useIncidents'
@@ -16,28 +21,6 @@ import type { IncidentOut } from '@/api/incidents'
 
 const PANEL_DESC_ID = 'incident-panel-desc'
 const FOCUSABLE = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
-
-const STATUS_LABELS: Record<string, string> = {
-  open: '신규',
-  acknowledged: '확인됨',
-  investigating: '원인파악 중',
-  resolved: '해결됨',
-  closed: '종료',
-}
-
-const STATUS_STYLES: Record<string, string> = {
-  open: 'bg-critical/15 text-critical border-critical/30',
-  acknowledged: 'bg-warning/15 text-warning border-warning/30',
-  investigating: 'bg-accent/15 text-accent border-accent/30',
-  resolved: 'bg-normal/15 text-normal border-normal/30',
-  closed: 'bg-surface text-text-disabled border-border',
-}
-
-const SEVERITY_STYLES: Record<string, string> = {
-  critical: 'text-critical',
-  warning: 'text-warning',
-  info: 'text-text-secondary',
-}
 
 const ALL_STATUSES: { label: string; value: string }[] = [
   { label: '신규', value: 'open' },
@@ -160,10 +143,15 @@ function IncidentSidePanelContent({
 
   // 인시던트 피드백 조회 (all 상태)
   const { data: feedbacks } = useIncidentFeedback(incident.id, 'all')
-  const latestFeedback =
-    feedbacks?.sort(
-      (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
-    )[0] ?? null
+  const latestFeedback = useMemo(
+    () =>
+      feedbacks?.length
+        ? [...feedbacks].sort(
+            (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime(),
+          )[0]
+        : null,
+    [feedbacks],
+  )
 
   const canRegister = ['resolved', 'closed'].includes(incident.status)
 
@@ -196,8 +184,13 @@ function IncidentSidePanelContent({
 
   const handleTitleSave = () => {
     const trimmed = titleDraft.trim()
-    if (!trimmed || trimmed === incident.title) {
+    if (!trimmed) {
+      toast.error('제목을 입력해주세요')
       setTitleDraft(incident.title)
+      setIsEditingTitle(false)
+      return
+    }
+    if (trimmed === incident.title) {
       setIsEditingTitle(false)
       return
     }
@@ -222,7 +215,9 @@ function IncidentSidePanelContent({
       { status: nextStatus },
       {
         onSuccess: () =>
-          toast.success(`상태가 "${STATUS_LABELS[nextStatus] ?? nextStatus}"로 변경됐습니다`),
+          toast.success(
+            `상태가 "${INCIDENT_STATUS_LABELS[nextStatus] ?? nextStatus}"로 변경됐습니다`,
+          ),
         onError: () => toast.error('상태 변경에 실패했습니다'),
       },
     )
@@ -265,7 +260,7 @@ function IncidentSidePanelContent({
               </button>
             </div>
           ) : (
-            <div className="group flex items-start gap-1">
+            <div className="flex items-start gap-1">
               <h2 className="text-text-primary line-clamp-2 min-w-0 flex-1 text-sm leading-snug font-semibold">
                 {incident.title}
               </h2>
@@ -275,10 +270,10 @@ function IncidentSidePanelContent({
                   setTitleDraft(incident.title)
                   setIsEditingTitle(true)
                 }}
-                className="text-text-disabled hover:text-text-secondary mt-0.5 shrink-0 opacity-0 transition-colors group-hover:opacity-100"
+                className="text-text-secondary hover:text-accent focus:ring-accent mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-sm transition-colors focus:ring-1 focus:outline-none"
                 aria-label="제목 수정"
               >
-                <Pencil className="h-3 w-3" />
+                <Pencil className="h-3.5 w-3.5" />
               </button>
             </div>
           )}
@@ -303,13 +298,16 @@ function IncidentSidePanelContent({
           <span
             className={cn(
               'inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium whitespace-nowrap',
-              STATUS_STYLES[incident.status] ?? 'bg-surface text-text-secondary border-border',
+              INCIDENT_STATUS_STYLES[incident.status] ??
+                'bg-surface text-text-secondary border-border',
             )}
           >
-            {STATUS_LABELS[incident.status] ?? incident.status}
+            {INCIDENT_STATUS_LABELS[incident.status] ?? incident.status}
           </span>
           <span className="text-text-disabled text-xs">
-            {formatRelative(incident.detected_at)} · {formatKST(incident.detected_at, 'datetime')}
+            {formatRelative(incident.detected_at)}
+            <span aria-hidden="true"> · </span>
+            {formatKST(incident.detected_at, 'datetime')}
           </span>
         </div>
 
@@ -344,7 +342,9 @@ function IncidentSidePanelContent({
         </NeuSelect>
         <p className="text-text-disabled -mt-3 text-xs">
           현재:{' '}
-          <span className={cn('font-medium uppercase', SEVERITY_STYLES[incident.severity])}>
+          <span
+            className={cn('font-medium uppercase', INCIDENT_SEVERITY_STYLES[incident.severity])}
+          >
             {incident.severity}
           </span>
         </p>
@@ -397,7 +397,7 @@ function IncidentSidePanelContent({
           {!canRegister ? (
             <p className="text-text-secondary text-sm">
               사건 종료 후 등록 가능합니다 (현재:{' '}
-              {STATUS_LABELS[incident.status] ?? incident.status})
+              {INCIDENT_STATUS_LABELS[incident.status] ?? incident.status})
             </p>
           ) : isRegistering || isRevising ? (
             <FeedbackForm

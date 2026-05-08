@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import Annotated, Optional
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pydantic.functional_serializers import PlainSerializer
 
 # API 응답 datetime: JSON 직렬화 시 'Z' suffix 포함 UTC ISO 8601
@@ -259,11 +259,24 @@ class AcknowledgeRequest(BaseModel):
 
 
 # ── Feedback ───────────────────────────────────────────────────────────
+class FeedbackAttachmentOut(BaseModel):
+    id: int
+    file_path: str
+    original_filename: Optional[str] = None
+    sort_order: int = 0
+    ocr_text: Optional[str] = None
+    ocr_status: str = "pending"
+    created_at: datetime
+    model_config = ConfigDict(from_attributes=True)
+
+
 class FeedbackCreateRequest(BaseModel):
-    alert_history_id: int
     error_type: str
     solution: str
     resolver: str
+    approver_contact_id: int
+    attachment_paths: list[str] = []
+    attachment_filenames: list[str] | None = None  # 업로드 시 원본 파일명 (attachment_paths와 같은 순서)
 
 
 class FeedbackUpdateRequest(BaseModel):
@@ -274,20 +287,28 @@ class FeedbackUpdateRequest(BaseModel):
 
 class FeedbackOut(BaseModel):
     id: int
-    system_id: Optional[int]
-    alert_history_id: Optional[int]
+    incident_id: int
     error_type: str
     solution: str
     resolver: str
     created_at: UtcDatetime
+    status: str = "approved"
+    approver_id: Optional[int] = None
+    approved_by: Optional[int] = None
+    approved_at: Optional[datetime] = None
+    rejection_reason: Optional[str] = None
+    rejected_at: Optional[datetime] = None
+    revision_count: int = 0
+    revision_reason: Optional[str] = None
+    qdrant_point_id: Optional[str] = None
+    attachments: list[FeedbackAttachmentOut] = []
 
     model_config = {"from_attributes": True}
 
 
 class FeedbackSearchOut(BaseModel):
     id: int
-    system_id: Optional[int] = None
-    alert_history_id: Optional[int] = None
+    incident_id: int
     error_type: str
     solution: str
     resolver: str
@@ -297,11 +318,64 @@ class FeedbackSearchOut(BaseModel):
     title: Optional[str] = None
     system_name: Optional[str] = None
     system_display_name: Optional[str] = None
+    status: str = "approved"
+    approved_at: Optional[datetime] = None
 
 
 class FeedbackSearchResponse(BaseModel):
     items: list[FeedbackSearchOut]
     total: int
+
+
+class FeedbackRejectRequest(BaseModel):
+    rejection_reason: str
+
+
+class FeedbackResubmitRequest(BaseModel):
+    error_type: str
+    solution: str
+    attachment_paths: list[str] = []
+    attachment_filenames: list[str] | None = None  # 업로드 시 원본 파일명 (attachment_paths와 같은 순서)
+    kept_attachment_ids: list[int] | None = None  # 보존할 기존 첨부 ID. None=모두 보존, []=모두 제거, [...]=명시 ID만 보존
+    revision_reason: Optional[str] = None  # 재등록 사유 (선택). 승인자가 변경 의도를 확인하도록 사용.
+
+
+class FeedbackUploadResponse(BaseModel):
+    file_path: str
+    original_filename: str
+
+
+class ApproverContactOut(BaseModel):
+    id: int                    # contact.id
+    user_id: int
+    name: str
+    email: str
+    teams_upn: Optional[str] = None
+    has_webhook: bool          # webhook_url 보유 여부 (URL 자체는 노출 금지)
+    model_config = ConfigDict(from_attributes=True)
+
+
+# ── Incident Feedback (Wave 2A) ───────────────────────────────────────────
+class IncidentStatsOut(BaseModel):
+    """GET /api/v1/incidents/stats 응답 — 3카드 통계"""
+    total: int
+    registrable: int
+    completed: int
+
+
+class IncidentFeedbackPendingOut(BaseModel):
+    """GET /api/v1/incidents/feedback/pending 목록 카드용"""
+    feedback_id: int
+    incident_id: int
+    incident_title: str
+    system_display_name: Optional[str]
+    alert_count: int
+    resolver: str
+    approver_name: Optional[str]
+    created_at: UtcDatetime
+    revision_count: int
+    status: str  # pending | rejected
+    can_approve: bool = False  # admin 또는 지정 승인자 여부
 
 
 # ── AlertExclusion ───────────────────────────────────────────────────────
@@ -739,6 +813,8 @@ class IncidentOut(BaseModel):
     mtta_minutes: Optional[int] = None
     mttr_minutes: Optional[int] = None
     system_display_name: Optional[str] = None
+    has_approved_feedback: bool = False
+    latest_feedback_status: Optional[str] = None  # 가장 최근 피드백의 status (pending/approved/rejected/None)
     created_at: UtcDatetime
     updated_at: UtcDatetime
 

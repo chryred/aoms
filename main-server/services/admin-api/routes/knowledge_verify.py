@@ -29,6 +29,7 @@ _TIMEOUT = 20.0
 # 컬렉션 → log-analyzer 엔드포인트 분류 (Qdrant 실제 컬렉션 이름 기준)
 _INCIDENT_COLLECTIONS = {"log_incidents", "metric_baselines"}
 _AGGREGATION_COLLECTIONS = {"aggregation_summaries", "metric_hourly_patterns"}
+_POSTMORTEM_COLLECTIONS = {"incident_postmortems"}
 _KNOWLEDGE_COLLECTIONS = {
     "knowledge_jira_issues",
     "knowledge_confluence_pages",
@@ -54,7 +55,7 @@ class CollectionsSearchRequest(BaseModel):
     query: str
     system_ids: list[int] = []
     collections: list[str] = list(
-        _INCIDENT_COLLECTIONS | _AGGREGATION_COLLECTIONS | _KNOWLEDGE_COLLECTIONS
+        _INCIDENT_COLLECTIONS | _AGGREGATION_COLLECTIONS | _POSTMORTEM_COLLECTIONS | _KNOWLEDGE_COLLECTIONS
     )
     use_reranker: bool = True
 
@@ -157,6 +158,68 @@ async def _call_incident_search(
                 "resolver": r.get("resolver"),
                 "timestamp": r.get("timestamp"),
                 "point_id": r.get("point_id"),
+            },
+        ))
+
+    return items
+
+
+async def _call_postmortem_search(
+    query: str,
+    system_ids: list[int],
+    limit: int = 10,
+) -> list[SearchResultItem]:
+    """log-analyzer POST /incident-postmortem/search → incident_postmortems 결과.
+
+    system_ids: 단일 system_id 필터 (1개만 적용 — 인시던트는 1 시스템 단위).
+    """
+    payload: dict[str, Any] = {"query": query, "limit": limit}
+    if len(system_ids) == 1:
+        payload["system_id"] = system_ids[0]
+
+    try:
+        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+            resp = await client.post(f"{_base()}/incident-postmortem/search", json=payload)
+            if resp.status_code >= 400:
+                logger.warning("incident-postmortem/search %s: %s", resp.status_code, resp.text[:200])
+                return []
+            data = resp.json()
+    except Exception as exc:
+        logger.warning("incident-postmortem/search 호출 실패: %s", exc)
+        return []
+
+    # log-analyzer returns a list directly; tolerate both list and {"results": [...]}
+    raw_list: list = data if isinstance(data, list) else (data.get("results") or [])
+
+    items: list[SearchResultItem] = []
+    for r in raw_list:
+        # Each item has a "payload" wrapper from log-analyzer SearchResultItem format
+        payload_data = r.get("payload", r) if isinstance(r, dict) else {}
+        title = payload_data.get("title") or ""
+        root_cause = payload_data.get("root_cause") or ""
+        solution = payload_data.get("solution") or ""
+        attachment_text = (payload_data.get("ocr_text") or payload_data.get("attachment_text") or "")[:500]
+        content = "\n".join(filter(None, [
+            title,
+            f"원인: {root_cause}" if root_cause else None,
+            f"해결: {solution}" if solution else None,
+            f"첨부: {attachment_text}" if attachment_text else None,
+        ]))
+        raw_sid = payload_data.get("system_id")
+        items.append(SearchResultItem(
+            tool="qdrant_search_incident_postmortem",
+            collection="incident_postmortems",
+            score=r.get("score"),
+            content=content,
+            system_id=int(raw_sid) if raw_sid is not None else None,
+            system_name=payload_data.get("system_name"),
+            extra={
+                "doc_type": "incident_postmortem",
+                "incident_id": payload_data.get("incident_id"),
+                "severity": payload_data.get("severity"),
+                "alert_count": payload_data.get("alert_count"),
+                "resolved_at": payload_data.get("resolved_at"),
+                "point_id": str(r["id"]) if r.get("id") is not None else None,
             },
         ))
 
@@ -320,9 +383,10 @@ async def search_verify_chatbot(
     body: ChatbotSearchRequest,
     _user: User = Depends(get_current_user),
 ) -> SearchVerifyResponse:
-    """챗봇 RAG 3개 도구와 동일 로직으로 검색 — LLM 호출 없음.
+    """챗봇 RAG 4개 도구와 동일 로직으로 검색 — LLM 호출 없음.
 
     - qdrant_search_incident_knowledge → /incident/search (system_ids 필터)
+    - qdrant_search_incident_postmortem → /incident-postmortem/search (system_id 단일 필터)
     - qdrant_search_aggregation_summary → /aggregation/search (system_ids 필터)
     - qdrant_search_knowledge → /knowledge/search (documents 만 system_id 필터)
     """
@@ -332,9 +396,12 @@ async def search_verify_chatbot(
 
     system_ids = body.system_ids or []
 
-    # 3개 도구 병렬 호출
+    # 4개 도구 병렬 호출
     incident_task = asyncio.create_task(
         _call_incident_search(query, system_ids)
+    )
+    postmortem_task = asyncio.create_task(
+        _call_postmortem_search(query, system_ids)
     )
     aggregation_task = asyncio.create_task(
         _call_aggregation_search(query, system_ids, collection="aggregation_summaries")
@@ -348,16 +415,17 @@ async def search_verify_chatbot(
         )
     )
 
-    incident_results, aggregation_results, knowledge_results = await asyncio.gather(
-        incident_task, aggregation_task, knowledge_task
+    incident_results, postmortem_results, aggregation_results, knowledge_results = await asyncio.gather(
+        incident_task, postmortem_task, aggregation_task, knowledge_task
     )
 
-    all_results = incident_results + aggregation_results + knowledge_results
+    all_results = incident_results + postmortem_results + aggregation_results + knowledge_results
 
     return SearchVerifyResponse(
         results=_flatten_items(_sort_by_score(all_results)),
         used_tools=[
             "qdrant_search_incident_knowledge",
+            "qdrant_search_incident_postmortem",
             "qdrant_search_aggregation_summary",
             "qdrant_search_knowledge",
         ],
@@ -395,6 +463,13 @@ async def search_verify_collections(
             _call_incident_search(query, system_ids)
         ))
         task_labels.append("incident")
+
+    # incident_postmortems 컬렉션
+    if "incident_postmortems" in collections:
+        tasks.append(asyncio.create_task(
+            _call_postmortem_search(query, system_ids)
+        ))
+        task_labels.append("incident_postmortems")
 
     # aggregation 컬렉션 (각각 별도 호출 — 컬렉션명이 다름)
     for col in ("aggregation_summaries", "metric_hourly_patterns"):

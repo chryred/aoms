@@ -131,6 +131,18 @@ function getMetaFields(collection: string): [string, string][] {
       ['source_reference', '출처 참조'],
     ]
   }
+  if (collection === 'incident_postmortems') {
+    return [
+      ['incident_id', '인시던트 ID'],
+      ['title', '제목'],
+      ['severity', '심각도'],
+      ['system_name', '시스템'],
+      ['system_id', 'System ID'],
+      ['alert_excerpts', '알림 요약'],
+      ['tags', '태그'],
+      ['created_at', '생성 시각'],
+    ]
+  }
   return [
     ['source', '출처'],
     ['system_name', '시스템'],

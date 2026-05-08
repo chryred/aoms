@@ -903,6 +903,66 @@ async def resubmit_incident_feedback(
     return feedback
 
 
+# ── 첨부 OCR 재시도 ───────────────────────────────────────────────────────────
+
+@router.post("/{incident_id}/feedback/{feedback_id}/retry-ocr")
+async def retry_feedback_ocr(
+    incident_id: int,
+    feedback_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """피드백 첨부의 OCR 재시도 — processing(잠김) / failed 첨부 모두 대상.
+
+    detached task 로 OCR 을 시작하고 즉시 응답 반환. 클라이언트 disconnect 와 무관하게
+    완료까지 진행되며 _run_ocr_for_attachment 가 status 를 done/failed 로 확정함.
+
+    권한: admin 또는 등록자(resolver) 본인.
+    """
+    incident = await db.get(Incident, incident_id)
+    if not incident:
+        raise HTTPException(status_code=404, detail="Incident not found")
+
+    feedback = await db.get(AlertFeedback, feedback_id)
+    if not feedback:
+        raise HTTPException(status_code=404, detail="Feedback not found")
+    if feedback.incident_id != incident_id:
+        raise HTTPException(status_code=400, detail="해당 인시던트의 피드백이 아닙니다")
+
+    if user.role != "admin" and user.name != feedback.resolver:
+        raise HTTPException(status_code=403, detail="등록자 또는 관리자만 OCR 재시도할 수 있습니다")
+
+    # 대상 첨부 조회 + processing 으로 reset (failed 였던 항목 포함)
+    targets_result = await db.execute(
+        select(AlertFeedbackAttachment).where(
+            AlertFeedbackAttachment.feedback_id == feedback_id,
+            AlertFeedbackAttachment.ocr_status.in_(("processing", "failed")),
+        )
+    )
+    targets = targets_result.scalars().all()
+    if not targets:
+        return {"retried": 0, "message": "재시도할 첨부가 없습니다 (모두 done 상태)."}
+
+    for att in targets:
+        att.ocr_status = "processing"
+    await db.commit()
+
+    mime_map = {
+        ".pdf": "application/pdf",
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".webp": "image/webp",
+        ".gif": "image/gif",
+        ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        ".txt": "text/plain",
+    }
+    asyncio.create_task(_run_ocr_remaining_detached(feedback_id, mime_map))
+    return {"retried": len(targets), "message": "OCR 재처리를 시작했습니다."}
+
+
 # ── 인시던트 피드백 목록 ───────────────────────────────────────────────────────
 
 @router.get("/{incident_id}/feedback", response_model=list[FeedbackOut])

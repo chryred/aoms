@@ -67,11 +67,15 @@ log-analyzer/
 ├── analyzer.py                    # 핵심 분석 로직 (Prometheus 조회 → LLM 호출 → admin-api 전송)
 ├── log_normalizer.py              # 순수 유틸: mask_sensitive_data, _sample_logs_by_type, _format_logs_by_type
 ├── aggregation_processor.py       # Phase 5: 집계 스케줄러 코어 (asyncio 병렬, semaphore=20)
-├── vector_client.py               # log_incidents / metric_baselines 컬렉션 관리
+├── vector_client.py               # log_incidents / metric_baselines / incident_postmortems 컬렉션 관리
 ├── aggregation_vector_client.py   # metric_hourly_patterns / aggregation_summaries 컬렉션 관리
 ├── knowledge_vector_client.py     # V1 Knowledge 3종 컬렉션 (Jira/Confluence/Documents) 관리
 ├── reranker.py                    # bge-reranker-v2-m3 cross-encoder 재순위화 (ADR-011 후속, FP32)
 ├── chunking.py                    # 문서 포맷별 청킹 전략 (DOCX/PDF/XLSX/PPTX/Confluence)
+├── ocr_worker.py                  # 첨부 OCR 처리 (이미지/PDF/문서 통합 텍스트 추출)
+├── routes/
+│   ├── __init__.py
+│   └── incident_postmortem.py     # Wave 1B: /incident-postmortem 라우터 (embed/search/by-incident/ocr)
 ├── Dockerfile
 └── requirements/
 ```
@@ -92,6 +96,12 @@ log-analyzer/
 - `POST /incident/search` — admin-api chat_tools의 `qdrant_search_incident_knowledge` 도구가 호출. `log_incidents` + `metric_baselines`를 Hybrid(RRF) 통합 검색하여 과거 장애 이력·해결책 반환
 - `POST /aggregation/search` — chat_tools의 `qdrant_search_aggregation_summary` 도구가 재활용. `aggregation_summaries` Hybrid 검색
 - `POST /metric/resolve`    — admin-api가 resolved 이벤트 수신 시 호출. Qdrant 포인트에 `resolved=True` 업데이트
+
+### Wave 1B: incident_postmortems (사후분석 벡터)
+- `POST /incident-postmortem/embed` — 인시던트 postmortem 서사 Hybrid 임베딩 upsert (admin-api Wave 1A 피드백 흐름 호출)
+- `POST /incident-postmortem/search` — 자연어 쿼리로 Hybrid 검색 (system_id/severity 필터 선택적)
+- `GET  /incident-postmortem/by-incident/{incident_id}` — incident_id 직접 조회 (미존재 시 null)
+- `POST /incident-postmortem/ocr/process` — KNOWLEDGE_DOCS_DIR 하위 파일 OCR 처리 (경로 탈출 방지)
 
 ### 컬렉션 관리
 - `POST /collections/{type}/create`  — 컬렉션 생성 (`log`, `metric`, `hourly`, `summary`)
@@ -139,6 +149,7 @@ log-analyzer/
 |---|---|---|
 | `log_incidents` | `log` | 로그 분석 이상 이력 |
 | `metric_baselines` | `metric` | 메트릭 알림 이상 이력 |
+| `incident_postmortems` | — | Wave 1B: 인시던트 사후분석 서사 (incident_id/system_id/severity payload) — lifespan 자동 ensure |
 | `metric_hourly_patterns` | `hourly` | `_hourly_agg_scheduler` 저장 — 1시간 집계 LLM 분석 패턴 |
 | `aggregation_summaries` | `summary` | 일/주/월/장기 스케줄러 저장 — 리포트 요약 |
 | `knowledge_jira_issues` | — | V1 Knowledge: Jira 이슈 (project/status/system_name payload 인덱스) |

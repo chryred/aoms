@@ -53,7 +53,7 @@ admin-api/
 │   ├── contacts.py          # /api/v1/contacts
 │   ├── alerts.py            # /api/v1/alerts
 │   ├── analysis.py          # /api/v1/analysis
-│   ├── feedback.py          # /api/v1/feedback (frontend /feedback/submit이 직접 호출, /search = 해결책 검색)
+│   ├── feedback.py          # /api/v1/feedback — Wave 2A 이후: /upload + /attachments/{path} 유지, 나머지 모두 410 Gone
 │   ├── collector_config.py  # /api/v1/collector-config (Phase 5)
 │   ├── aggregations.py      # /api/v1/aggregations (Phase 5)
 │   ├── reports.py           # /api/v1/reports (Phase 5)
@@ -297,11 +297,19 @@ class InstanceStatusOut(BaseModel):
 - **alerts.py** — `POST /receive`에서 alert 저장 후 `notify_alert_fired()` / `notify_alert_resolved()` 호출
 - **analysis.py** — `POST /` 분석 결과 저장 후 severity가 warning/critical일 때 `notify_log_analysis()` 호출
 
-### 인시던트 `/api/v1/incidents` (Incident Lifecycle)
+### 인시던트 `/api/v1/incidents` (Incident Lifecycle + Wave 2A 피드백)
 - `GET /` — 목록 조회 (필터: `system_id`, `status`, `severity`, `limit`, `offset`)
+- `GET /stats` — 인시던트 통계 (`{ total, registrable, completed }`)
+- `GET /feedback/pending` — 승인 대기 피드백 목록 (admin 전용)
+- `GET /feedback/search` — 해결책 벡터 검색 (log-analyzer `/incident/search` 프록시)
 - `GET /{id}` — 상세 조회 (타임라인 + 연결된 알림 최대 20건 포함, `mtta_minutes`/`mttr_minutes` 계산됨)
+- `GET /{id}/feedback` — 인시던트에 등록된 피드백 목록 (status 미지정: approved만)
 - `PATCH /{id}` — 상태/근본원인/조치/사후분석 업데이트 (status 전이 시 타임라인 자동 기록)
 - `POST /{id}/comments` — 댓글 추가 (타임라인에 `event_type=comment`로 저장)
+- `POST /{id}/feedback` — 피드백 등록 (status=pending, 승인자 지정 필수)
+- `POST /{id}/feedback/{fid}/approve` — 피드백 승인 (admin OR 지정 승인자, OCR 완료 확인 후 Qdrant upsert)
+- `POST /{id}/feedback/{fid}/reject` — 피드백 반려 (reason 필수)
+- `POST /{id}/feedback/{fid}/resubmit` — 피드백 재등록 (pending/rejected/approved 모두 허용. approved 수정 시 status=pending 복귀 → 재승인 필요. body의 `revision_reason` 선택 — 승인자 검토용)
 
 **자동 그루핑 규칙** (`routes/alerts._get_or_create_incident`):
 - 알림 수신 시 같은 `system_id`의 **30분 이내 open/acknowledged/investigating** 인시던트가 있으면 연결 (`alert_count` 증가)
@@ -477,28 +485,24 @@ log-analyzer → POST /api/v1/analysis
 
 ## 개발 주의사항 (실수 방지)
 
-### Teams Adaptive Card — 피드백 버튼
+### Teams Adaptive Card — 카드 액션 (Wave 2B 변경)
 
-`notification.py`의 `send_metric_alert` / `send_log_analysis_alert` 두 함수 모두
-Adaptive Card에 `"actions"` 블록으로 **해결책 등록 버튼**이 포함되어 있습니다.
+`adaptive_card_builder.py`의 `build_metric_alert_card` / `build_log_analysis_card` 두 함수 모두
+**"해결책 등록" 버튼이 제거됨 (Wave 2B)**. 현재 액션은 `incident_id`가 있을 때만 표시:
 
 ```python
-"actions": [
-    {
+actions: list[dict] = [
+    *([{
         "type": "Action.OpenUrl",
-        "title": "해결책 등록",
-        "url": f"{_FRONTEND_EXTERNAL_URL}/feedback/submit"
-               f"?alert_history_id={alert_history_id or ''}"
-               f"&system={system_name}&point_id={point_id or ''}",
-    }
-],
+        "title": "인시던트 보기",
+        "url": f"{_FRONTEND_EXTERNAL_URL}/incidents/{incident_id}",
+    }] if incident_id else []),
+]
 ```
 
-- 버튼 URL은 `FRONTEND_EXTERNAL_URL` 환경변수로 구성 (기본: `http://localhost:3001`)
-- **Teams에서 버튼을 클릭하는 것은 브라우저에서 열리므로**, 운영 배포 시 반드시 `FRONTEND_EXTERNAL_URL=http://{server-a-ip}:3001` 설정 필요
-- `alert_history_id` 전달을 위해 `alerts.py` / `analysis.py`에서 `db.add(history)` → `await db.flush()`로 PK를 미리 발급한 뒤 notifier에 전달
-- `point_id`는 Qdrant 포인트 UUID — 메트릭 알림은 `anomaly.get("point_id")`, 로그 분석은 `payload.qdrant_point_id`로 전달
-- React 페이지(`/feedback/submit`)는 로그인 세션이 없으면 `AuthGuard`가 `/login?redirect=...`로 보내고, 로그인 성공 후 자동 복귀
+- `incident_id`가 NULL인 경우 `actions` 블록 자체가 비어 안내 카드만 발송됨
+- `FRONTEND_EXTERNAL_URL` 환경변수로 버튼 URL 구성 (기본: `http://localhost:3001`)
+- `alert_history_id`/`point_id` 파라미터는 함수 시그니처에 유지되나 액션에 더 이상 사용되지 않음
 
 ### TeamsNotifier 함수 시그니처 (현재)
 
@@ -556,24 +560,42 @@ if alert.status == "resolved":
 
 테스트 작성 시: `status=resolved` 알림은 `processed[0]["status"] == "resolved"` 반환을 검증하고, 원본 row 의 `resolved_at` 이 세팅되는지 확인해야 합니다. 중복 resolved 시나리오는 `processed[0]["status"] == "resolved_duplicate_skipped"` 로 검증 (`test_receive_resolved_duplicate_skipped` 참고).
 
-### 피드백 등록 흐름 (n8n 의존 제거 · ADR-006)
+### 피드백 등록 흐름 — Wave 2A (인시던트 단위)
+
+Wave 2A 이후 피드백은 인시던트 단위로 관리됨. 승인 워크플로우 포함.
 
 ```
-Teams 카드 "해결책 등록" 버튼
-  → frontend `/feedback/submit?alert_history_id=N&system=...&point_id=UUID`
-    → (필요 시) `/login?redirect=...` 경유 후 자동 복귀
-  → POST `/api/v1/feedback` (admin-api 네이티브 엔드포인트)
-    → alert_feedback insert + log-analyzer `/solution/update`로 Qdrant 전파
+인시던트 상세 페이지
+  → POST /api/v1/incidents/{incident_id}/feedback
+    → alert_feedback insert (status=pending, approver_contact_id 지정)
+    → 지정 승인자에게 알림
+
+승인:
+  → POST /api/v1/incidents/{incident_id}/feedback/{id}/approve
+    → OCR 완료 확인 (425 if processing)
+    → status=approved + log-analyzer /incident/embed로 Qdrant upsert
+    → feedback.qdrant_point_id 저장
+
+반려:
+  → POST /api/v1/incidents/{incident_id}/feedback/{id}/reject
+    → status=rejected + rejection_reason 저장 + Teams 알림
+
+재등록 (수정):
+  → POST /api/v1/incidents/{incident_id}/feedback/{id}/resubmit
+    → status=pending + revision_count 증가 + revision_reason 갱신(선택, 매 회차마다 덮어씀)
+    → approved → 수정 시 approved_at/approved_by 초기화 → 승인자 재알림 (Teams 카드에 재등록 사유 노출)
 ```
+
+**첨부파일**: `POST /api/v1/feedback/upload` (staging 임시 업로드, 피드백 생성/재등록 시 정식 경로로 이동)
 
 - HTML 폼(`GET /api/v1/feedback/form`)과 n8n WF3은 제거됨
-- 동일 백엔드 엔드포인트를 `AlertDetailPanel` 인라인 폼도 그대로 사용하므로 한 곳만 유지보수
 - 자세한 결정 배경 + 이관 이력은 `.claude/memory/adrs.md` ADR-006 참조
+- Wave 2A 신규 파일: `services/incident_postmortem_client.py` (log-analyzer embed/search/ocr 클라이언트)
 
-### 해결책 검색 API
+### 해결책 검색 API — Wave 2A 이후
 
-- `GET /api/v1/feedback/search?system_id=&q=&limit=&offset=`
-  - 프론트 `/feedback/search` 페이지 전용
-  - `AlertHistory`/`System` outer join → `severity`, `alert_type`, `title`, `system_name`, `system_display_name` 동반 반환 (alert_history 연결이 없으면 각 필드 null)
-  - `q`는 `alert_feedback.error_type` / `solution` 두 컬럼 ILIKE OR 검색
-  - 응답: `FeedbackSearchResponse { items: FeedbackSearchOut[], total: number }`
+- `GET /api/v1/incidents/feedback/search?q=&system_id=&severity=&limit=` ← **현행 엔드포인트**
+  - log-analyzer `/incident/search` 프록시 (Qdrant Hybrid Search)
+  - 승인된 피드백만 검색됨
+
+- `GET /api/v1/feedback/search` → **410 Gone** (Wave 2A에서 이전됨)

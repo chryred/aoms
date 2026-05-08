@@ -31,8 +31,9 @@
 
 ### Server B
 - **Qdrant** (6333): Dense+Sparse Hybrid Search (ADR-011)
-  - `log_incidents`, `metric_baselines`, `aggregation_summaries`: Dense(1024) + Sparse(BM25) Hybrid
+  - `log_incidents`, `metric_baselines`, `aggregation_summaries`, `incident_postmortems`: Dense(1024) + Sparse(BM25) Hybrid
   - `metric_hourly_patterns`: Dense 전용
+  - `incident_postmortems`: Wave 1B — 인시던트 사후분석 서사 (lifespan 자동 ensure, log-analyzer 전담)
   - Ollama는 ADR-011로 제거됨 — 임베딩은 log-analyzer 컨테이너 내 FastEmbed ONNX가 담당
 
 ### 핵심 환경변수
