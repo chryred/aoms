@@ -498,7 +498,7 @@ INSERT INTO llm_agent_configs (area_code, area_name, agent_code, description) VA
      '운영 어시스턴트: EMS/admin/log-analyzer 도구를 활용한 대화형 분석')
 ON CONFLICT (area_code) DO NOTHING;
 
--- chat_executor_configs 시드 (ems는 URL/ID/비밀번호 필드, admin/log_analyzer/qdrant는 비자격증명)
+-- chat_executor_configs 시드 (ems만 자격증명 필드, 나머지는 내부 시스템 — 환경변수로 URL 결정)
 INSERT INTO chat_executor_configs (executor, config, config_schema) VALUES
     ('ems', '{}'::jsonb, '[
         {"key":"base_url","label":"EMS URL","type":"url","required":true},
@@ -506,12 +506,8 @@ INSERT INTO chat_executor_configs (executor, config, config_schema) VALUES
         {"key":"password","label":"비밀번호","type":"password","required":true,"secret":true}
      ]'::jsonb),
     ('admin', '{}'::jsonb, '[]'::jsonb),
-    ('log_analyzer', '{}'::jsonb, '[
-        {"key":"base_url","label":"log-analyzer URL","type":"url","required":false}
-     ]'::jsonb),
-    ('qdrant', '{}'::jsonb, '[
-        {"key":"base_url","label":"log-analyzer URL (Qdrant 프록시)","type":"url","required":false}
-     ]'::jsonb)
+    ('log_analyzer', '{}'::jsonb, '[]'::jsonb),
+    ('qdrant', '{}'::jsonb, '[]'::jsonb)
 ON CONFLICT (executor) DO NOTHING;
 
 -- chat_tools 시드 (EMS 9 + admin 3 + log_analyzer 2)
