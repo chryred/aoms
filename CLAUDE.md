@@ -34,6 +34,7 @@
   - `log_incidents`, `metric_baselines`, `aggregation_summaries`, `incident_postmortems`: Dense(1024) + Sparse(BM25) Hybrid
   - `metric_hourly_patterns`: Dense(1024) + Sparse(BM25) Hybrid (챗봇 RAG + UI 검색)
   - `incident_postmortems`: Wave 1B — 인시던트 사후분석 서사 (lifespan 자동 ensure, log-analyzer 전담)
+  - `knowledge_guides`: Dense(1024) + Sparse(BM25) Hybrid (운영 가이드 + Synapse 사용법, lifespan 자동 ensure, log-analyzer 전담). system_id=NULL은 전체 공용 가이드, system_id=N은 시스템별 가이드. 챗봇 ReAct 도구 `qdrant_search_guide`로 조회
   - Ollama는 ADR-011로 제거됨 — 임베딩은 log-analyzer 컨테이너 내 FastEmbed ONNX가 담당
 
 ### 핵심 환경변수

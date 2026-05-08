@@ -4,6 +4,9 @@ log-analyzer HTTP 프록시를 통해 Qdrant Hybrid 검색 결과를 챗봇에 �
 - qdrant_search_incident_knowledge: log_incidents + metric_baselines 통합 검색
 - qdrant_search_aggregation_summary: aggregation_summaries 기간별 요약 검색
 - qdrant_search_hourly_patterns: metric_hourly_patterns 1시간 집계 패턴 검색
+- qdrant_search_guide: knowledge_guides Hybrid 검색 (시스템별 + 공통 가이드)
+- qdrant_search_incident_postmortem: incident_postmortems 사후분석 검색
+- qdrant_search_knowledge: V1 knowledge federated 검색 (jira/confluence/documents)
 """
 
 import os
@@ -305,6 +308,58 @@ async def _search_knowledge(
     }
 
 
+async def _search_guides(
+    db: AsyncSession, args: dict[str, Any]
+) -> dict[str, Any]:
+    """knowledge_guides Hybrid 검색 (시스템별 운영 가이드 + 전체 공용 가이드).
+
+    log-analyzer POST /guides/search 호출.
+    `system_ids` 지정 시 "system_id IN list OR system_id IS NULL" 필터가
+    log-analyzer 측에서 적용된다 (공용 가이드는 항상 함께 노출).
+    """
+    query = (args.get("query") or "").strip()
+    if not query:
+        return {"error": "query 파라미터 필요"}
+
+    system_ids = args.get("system_ids")
+    limit      = min(int(args.get("limit", 5)), 10)
+    base       = await _base_url(db)
+
+    payload: dict[str, Any] = {"query": query, "limit": limit}
+    if system_ids:
+        payload["system_ids"] = [int(sid) for sid in system_ids]
+
+    try:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            resp = await client.post(f"{base}/guides/search", json=payload)
+            if resp.status_code >= 400:
+                return {
+                    "error": f"log-analyzer {resp.status_code}: {resp.text[:200]}",
+                    "query": query,
+                }
+            data = resp.json()
+    except Exception as e:
+        return {"error": f"가이드 검색 실패: {str(e)[:200]}", "query": query}
+
+    if not isinstance(data, list):
+        data = []
+
+    return {
+        "query":   query,
+        "count":   len(data),
+        "results": [
+            {
+                "guide_id":   (r.get("payload") or {}).get("guide_id") or r.get("id"),
+                "system_id":  (r.get("payload") or {}).get("system_id"),
+                "title":      ((r.get("payload") or {}).get("title") or "")[:200],
+                "content":    ((r.get("payload") or {}).get("content") or "")[:1500],
+                "score":      r.get("score"),
+            }
+            for r in data
+        ],
+    }
+
+
 async def execute(db: AsyncSession, name: str, args: dict[str, Any]) -> dict[str, Any]:
     """도구 디스패처."""
     try:
@@ -318,6 +373,8 @@ async def execute(db: AsyncSession, name: str, args: dict[str, Any]) -> dict[str
             return await _search_incident_postmortem(db, args)
         if name == "qdrant_search_knowledge":
             return await _search_knowledge(db, args)
+        if name == "qdrant_search_guide":
+            return await _search_guides(db, args)
         return {"error": f"unknown qdrant tool: {name}"}
     except Exception as e:
         return {"error": f"qdrant 도구 실패: {str(e)[:200]}"}

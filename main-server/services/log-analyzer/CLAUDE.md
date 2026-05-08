@@ -70,12 +70,14 @@ log-analyzer/
 ├── vector_client.py               # log_incidents / metric_baselines / incident_postmortems 컬렉션 관리
 ├── aggregation_vector_client.py   # metric_hourly_patterns / aggregation_summaries 컬렉션 관리
 ├── knowledge_vector_client.py     # V1 Knowledge 3종 컬렉션 (Jira/Confluence/Documents) 관리
+├── guides_vector_client.py        # knowledge_guides 컬렉션 (운영 가이드 Hybrid 임베딩·검색)
 ├── reranker.py                    # bge-reranker-v2-m3 cross-encoder 재순위화 (ADR-011 후속, FP32)
 ├── chunking.py                    # 문서 포맷별 청킹 전략 (DOCX/PDF/XLSX/PPTX/Confluence)
 ├── ocr_worker.py                  # 첨부 OCR 처리 (이미지/PDF/문서 통합 텍스트 추출)
 ├── routes/
 │   ├── __init__.py
-│   └── incident_postmortem.py     # Wave 1B: /incident-postmortem 라우터 (embed/search/by-incident/ocr)
+│   ├── incident_postmortem.py     # Wave 1B: /incident-postmortem 라우터 (embed/search/by-incident/ocr)
+│   └── guides.py                  # /guides 라우터 (embed/delete/search) — knowledge_guides Hybrid
 ├── Dockerfile
 └── requirements/
 ```
@@ -94,6 +96,11 @@ log-analyzer/
 - `POST /incident/search` — admin-api chat_tools의 `qdrant_search_incident_knowledge` 도구가 호출. `log_incidents` + `metric_baselines`를 Hybrid(RRF) 통합 검색하여 과거 장애 이력·해결책 반환
 - `POST /aggregation/search` — chat_tools의 `qdrant_search_aggregation_summary` 도구가 재활용. `aggregation_summaries` Hybrid 검색
 - `POST /metric/resolve`    — admin-api가 resolved 이벤트 수신 시 호출. Qdrant 포인트에 `resolved=True` 업데이트
+
+### knowledge_guides (운영 가이드 벡터)
+- `POST /guides/embed` — 가이드 Hybrid(Dense+Sparse) upsert. guide_id를 Qdrant point ID로 직접 사용. 재호출 시 upsert(내용 업데이트).
+- `DELETE /guides/{guide_id}` — knowledge_guides에서 포인트 삭제. 응답: `{"deleted": bool}`
+- `POST /guides/search` — 자연어 쿼리 Hybrid 검색. system_ids 지정 시 "system_id IN list OR system_id IS NULL" 필터. 응답: `[{id, score, payload}]`
 
 ### Wave 1B: incident_postmortems (사후분석 벡터)
 - `POST /incident-postmortem/embed` — 인시던트 postmortem 서사 Hybrid 임베딩 upsert (admin-api Wave 1A 피드백 흐름 호출)
@@ -154,6 +161,7 @@ log-analyzer/
 | `knowledge_jira_issues` | — | V1 Knowledge: Jira 이슈 (project/status/system_name payload 인덱스) |
 | `knowledge_confluence_pages` | — | V1 Knowledge: Confluence 페이지 청크 (space/system_name payload 인덱스) |
 | `knowledge_documents` | — | V1 Knowledge: 문서 청크 + 운영자 노트 (doc_type/system_id/tags payload 인덱스). doc_type="operator_note"는 운영자 Q&A |
+| `knowledge_guides` | — | 운영 가이드 (guide_id/system_id/title payload 인덱스). system_id=null은 전체 공용. lifespan 자동 ensure |
 
 ### 컬렉션별 시스템 필터 정책 (V1 확정)
 

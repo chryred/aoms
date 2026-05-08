@@ -34,6 +34,17 @@ MAX_ITERS = int(os.getenv("CHAT_MAX_ITERS", "5"))
 HISTORY_WINDOW = int(os.getenv("CHAT_HISTORY_WINDOW", "20"))
 TOOL_RESULT_MAX = int(os.getenv("CHAT_TOOL_RESULT_MAX", "8192"))  # observation bytes
 
+# run_react_stream이 저장하는 시스템 에러 메시지 prefix 목록.
+# 이 prefix로 시작하는 assistant 메시지는 _history_lines에서 제외한다.
+# LLM 실패 후 재시도 시 에러 텍스트가 ReAct 히스토리에 주입되어 JSON 파싱을 깨뜨리는 문제를 방지.
+_SYSTEM_ERROR_PREFIXES = (
+    "LLM 호출에 실패했습니다:",
+    "응답 형식을 해석하지 못했습니다.",
+    "응답 구조가 불완전합니다.",
+    "최종 답변 생성 실패:",
+    "도구 호출이 ",
+)
+
 
 def _truncate(text: str, limit: int) -> str:
     if not text:
@@ -56,7 +67,8 @@ def _history_lines(messages: list[ChatMessage]) -> str:
             lines.append(f"observation: {_truncate(result, TOOL_RESULT_MAX)}")
         elif m.role == "assistant":
             if m.content:
-                lines.append(f"assistant: {m.content}")
+                if not any(m.content.startswith(p) for p in _SYSTEM_ERROR_PREFIXES):
+                    lines.append(f"assistant: {m.content}")
             elif m.thought:
                 lines.append(f"assistant: (thought) {m.thought}")
     return "\n".join(lines)
@@ -71,7 +83,11 @@ async def _get_agent_code(db: AsyncSession, area_code: str) -> str:
 
 # ── 현업(help_inquiry) 전용 도구 필터 ───────────────────────────────────────
 
-_HELP_ALLOWED_TOOLS = {"qdrant_search_knowledge", "qdrant_search_aggregation_summary"}
+_HELP_ALLOWED_TOOLS = {
+    "qdrant_search_knowledge",
+    "qdrant_search_aggregation_summary",
+    "qdrant_search_guide",
+}
 
 
 async def _append_message(

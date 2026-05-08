@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+
+_KST = timezone(timedelta(hours=9))
 from typing import Any
 from urllib.parse import quote, urlencode
 
@@ -41,7 +43,7 @@ def parse_korean_date(s: str | None) -> int | None:
     if not isinstance(s, str) or not s.strip():
         return None
     s = s.strip()
-    now = datetime.now()
+    now = datetime.now(_KST)
     y, mo, d, h, mi, sec = now.year, None, None, 0, 0, 0
 
     m = re.match(r"^(\d{4})\D?(\d{1,2})\D?(\d{1,2})?", s)
@@ -72,17 +74,17 @@ def parse_korean_date(s: str | None) -> int | None:
     if mo is None:
         return None
     try:
-        return int(datetime(y, mo, d or 1, h, mi, sec).timestamp() * 1000)
+        return int(datetime(y, mo, d or 1, h, mi, sec, tzinfo=_KST).timestamp() * 1000)
     except Exception:
         return None
 
 
 def end_of_month_ms(t: int) -> int:
-    d = datetime.fromtimestamp(t / 1000)
+    d = datetime.fromtimestamp(t / 1000, tz=_KST)
     if d.month == 12:
-        end = datetime(d.year + 1, 1, 1) - timedelta(milliseconds=1)
+        end = datetime(d.year + 1, 1, 1, tzinfo=_KST) - timedelta(milliseconds=1)
     else:
-        end = datetime(d.year, d.month + 1, 1) - timedelta(milliseconds=1)
+        end = datetime(d.year, d.month + 1, 1, tzinfo=_KST) - timedelta(milliseconds=1)
     return int(end.timestamp() * 1000)
 
 

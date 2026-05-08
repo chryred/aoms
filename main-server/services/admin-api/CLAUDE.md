@@ -400,8 +400,10 @@ DB 변경: `chat_sessions.user_id` nullable, `visitor_employee_id/email/system_i
   - `ems`: ems-mcp 9개 (Polestar 서버 모니터링). 자격증명은 `chat_executor_configs.ems` 에서 로드 (60s TTL 캐시)
   - `admin`: `admin_list_systems` / `admin_search_alert_history` / `admin_list_contacts` (DB 직접 조회)
   - `log_analyzer`: 최근 LLM 로그 분석 조회 + log-analyzer HTTP 프록시
-  - `qdrant` (ADR-011 RAG): `qdrant_search_incident_knowledge` (log_incidents + metric_baselines Hybrid 검색) / `qdrant_search_aggregation_summary` (aggregation_summaries Hybrid 검색) / `qdrant_search_knowledge` (V1 knowledge federated 검색 — log-analyzer `/knowledge/search` 호출). 구현은 `services/chat_tools/executors/qdrant.py`. `chat_agent.py._decision_prompt()` 에 사용 트리거 가이드 포함
+  - `qdrant` (ADR-011 RAG): `qdrant_search_incident_knowledge` (log_incidents + metric_baselines Hybrid) / `qdrant_search_aggregation_summary` (aggregation_summaries Hybrid) / `qdrant_search_hourly_patterns` (metric_hourly_patterns Hybrid) / `qdrant_search_incident_postmortem` (incident_postmortems Hybrid) / `qdrant_search_knowledge` (V1 knowledge federated — log-analyzer `/knowledge/search`) / `qdrant_search_guide` (knowledge_guides Hybrid — log-analyzer `/guides/search`, system_id 필터 + NULL 공용 가이드 OR). 구현은 `services/chat_tools/executors/qdrant.py`. `services/prompts.py._decision_prompt()` 에 사용 트리거 가이드 포함
   - `qdrant_search_knowledge` 도구 결과에서 `rag_top1_score`, `rag_sources_count`를 추출해 직전 user 메시지의 `chat_messages` 컬럼에 UPDATE (`chat_agent.py run_react_stream` 내 score 캡처 로직)
+  - `services/qdrant_guides.py`는 ADR-011 Hybrid 통일 이후 log-analyzer `/guides/*` HTTP 프록시로 동작 (Qdrant 직접 호출 폐지). 기존 함수 시그니처(`index_guide`, `delete_guide_index`, `search_guides` 등)는 호환 유지. `update_image_count`는 noop. `routes/guides.py`(가이드 CRUD)에서 import 그대로 사용 가능
+  - `routes/chat.py`의 가이드 사전 검색 코드(`search_guides` 호출 + 이미지 meta 이벤트)는 제거됨. LLM이 ReAct 루프에서 `qdrant_search_guide`로 능동 검색
 
 ### 예방적 패턴 감지
 - `MetricHourlyAggregation.llm_prediction` 필드가 있는 최근 8시간 집계 항목을 조회

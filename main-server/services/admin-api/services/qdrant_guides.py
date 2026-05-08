@@ -1,8 +1,10 @@
-"""knowledge_guides Qdrant 컬렉션 관리 및 검색.
+"""knowledge_guides Qdrant 컬렉션 — log-analyzer 프록시 클라이언트.
 
-admin-api는 FastEmbed ONNX 모델 없음 → Dense 임베딩은 log-analyzer /embed/text 경유.
-컬렉션: Dense-only (bge-m3 1024차원, Cosine) — metric_hourly_patterns 선례와 동일.
-Sparse 미지원 이유: admin-api에 SparseTextEmbedding 미설치.
+ADR-011 Hybrid 통일에 따라 admin-api는 더 이상 Qdrant를 직접 호출하지 않는다.
+인덱싱·검색·삭제 모두 log-analyzer `/guides/*` 엔드포인트로 위임한다.
+
+**호환성**: 기존 시그니처(index_guide, search_guides 등)를 유지하여 이미 사용
+중인 라우트(routes/guides.py 등)가 코드 변경 없이 동작하도록 한다.
 """
 
 from __future__ import annotations
@@ -15,83 +17,19 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-COLLECTION_NAME = "knowledge_guides"
-VECTOR_SIZE = 1024
-SCORE_THRESHOLD = 0.6
-
-QDRANT_URL = os.getenv("QDRANT_URL", "http://server-b:6333")
 LOG_ANALYZER_URL = os.getenv("LOG_ANALYZER_URL", "http://log-analyzer:8000")
 
-# 재사용 클라이언트 (연결 풀)
-_qdrant_http = httpx.AsyncClient(base_url=QDRANT_URL, timeout=15.0)
-_log_analyzer_http = httpx.AsyncClient(base_url=LOG_ANALYZER_URL, timeout=20.0)
+_log_analyzer_http = httpx.AsyncClient(base_url=LOG_ANALYZER_URL, timeout=30.0)
 
 
-# ── 임베딩 ───────────────────────────────────────────────────────────────────
-
-async def _get_embedding(text: str) -> Optional[list[float]]:
-    """log-analyzer /embed/text 호출 → dense vector 반환."""
-    try:
-        resp = await _log_analyzer_http.post(
-            "/embed/text",
-            json={"text": text[:2000]},  # 과도한 입력 방지
-        )
-        if resp.status_code >= 400:
-            logger.warning("embed/text 오류 %d: %s", resp.status_code, resp.text[:200])
-            return None
-        return resp.json().get("embedding")
-    except Exception as exc:
-        logger.warning("embed/text 요청 실패: %s", str(exc)[:200])
-        return None
-
-
-# ── 컬렉션 관리 ─────────────────────────────────────────────────────────────
+# ── 컬렉션 관리 (no-op) ─────────────────────────────────────────────────────
 
 async def ensure_collection() -> None:
-    """knowledge_guides 컬렉션이 없으면 Dense-only로 생성.
-
-    이미 존재하면 noop. Qdrant 미연결 시 경고만 출력하고 무시.
+    """이전엔 admin-api가 직접 컬렉션을 만들었지만 ADR-011 Hybrid 통일 이후
+    log-analyzer 부팅 lifespan이 ensure_guides_collection()을 호출한다.
+    호환성을 위해 함수는 유지하되 noop으로 둔다.
     """
-    try:
-        # 존재 여부 확인
-        resp = await _qdrant_http.get(f"/collections/{COLLECTION_NAME}")
-        if resp.status_code == 200:
-            return  # 이미 존재
-
-        if resp.status_code != 404:
-            logger.warning(
-                "knowledge_guides 컬렉션 확인 실패 %d: %s",
-                resp.status_code,
-                resp.text[:200],
-            )
-            return
-
-        # 신규 생성 (Dense-only)
-        create_resp = await _qdrant_http.put(
-            f"/collections/{COLLECTION_NAME}",
-            json={
-                "vectors": {
-                    "dense": {
-                        "size": VECTOR_SIZE,
-                        "distance": "Cosine",
-                    }
-                },
-                "hnsw_config": {
-                    "m": 16,
-                    "ef_construct": 100,
-                },
-            },
-        )
-        if create_resp.status_code in (200, 201):
-            logger.info("knowledge_guides 컬렉션 생성 완료 (Dense 1024, Cosine)")
-        else:
-            logger.warning(
-                "knowledge_guides 컬렉션 생성 실패 %d: %s",
-                create_resp.status_code,
-                create_resp.text[:200],
-            )
-    except Exception as exc:
-        logger.warning("knowledge_guides ensure_collection 오류: %s", str(exc)[:200])
+    return None
 
 
 # ── 인덱싱 ──────────────────────────────────────────────────────────────────
@@ -105,148 +43,84 @@ async def index_guide(
     tags: list[str],
     image_count: int,
 ) -> None:
-    """가이드를 Qdrant knowledge_guides 컬렉션에 upsert.
+    """가이드를 log-analyzer로 임베딩 위임.
 
-    guide_id를 point id로 사용. 실패 시 경고만 출력 (graceful).
+    category / tags / image_count는 현 시점에 LLM 검색 품질에 영향이 적어
+    log-analyzer 측 payload에 포함하지 않는다 (필요 시 attachments 텍스트로 합침).
+    실패 시 경고만 출력 (graceful — 가이드 등록 자체를 막지 않는다).
     """
-    embed_text = f"{title}\n{content[:1000]}"
-    vector = await _get_embedding(embed_text)
-    if vector is None:
-        logger.warning("guide %s 임베딩 실패 — 인덱싱 생략", guide_id)
-        return
-
     payload: dict[str, Any] = {
         "guide_id": guide_id,
+        "system_id": system_id,
         "title": title,
-        "category": category or "",
-        "tags": tags or [],
-        "image_count": image_count,
+        "content": content,
     }
-    if system_id is not None:
-        payload["system_id"] = system_id
-
     try:
-        resp = await _qdrant_http.put(
-            f"/collections/{COLLECTION_NAME}/points",
-            json={
-                "points": [
-                    {
-                        "id": guide_id,
-                        "vector": {"dense": vector},
-                        "payload": payload,
-                    }
-                ]
-            },
-        )
+        resp = await _log_analyzer_http.post("/guides/embed", json=payload)
         if resp.status_code >= 400:
             logger.warning(
-                "guide %s Qdrant upsert 실패 %d: %s",
+                "guide %s log-analyzer embed 실패 %d: %s",
                 guide_id,
                 resp.status_code,
                 resp.text[:200],
             )
         else:
-            logger.debug("guide %s Qdrant 인덱싱 완료", guide_id)
+            logger.debug("guide %s log-analyzer 인덱싱 완료", guide_id)
     except Exception as exc:
-        logger.warning("guide %s Qdrant upsert 오류: %s", guide_id, str(exc)[:200])
+        logger.warning("guide %s log-analyzer embed 오류: %s", guide_id, str(exc)[:200])
 
 
 # ── payload 부분 업데이트 ───────────────────────────────────────────────────
 
 async def update_image_count(guide_id: str, image_count: int) -> None:
-    """Qdrant payload의 image_count만 업데이트 (재임베딩 없음)."""
-    try:
-        resp = await _qdrant_http.post(
-            f"/collections/{COLLECTION_NAME}/points/payload",
-            json={"payload": {"image_count": image_count}, "points": [guide_id]},
-        )
-        if resp.status_code >= 400:
-            logger.warning(
-                "guide %s image_count 업데이트 실패 %d: %s",
-                guide_id,
-                resp.status_code,
-                resp.text[:200],
-            )
-        else:
-            logger.debug("guide %s image_count=%d 업데이트 완료", guide_id, image_count)
-    except Exception as exc:
-        logger.warning("guide %s image_count 업데이트 오류: %s", guide_id, str(exc)[:200])
+    """이미지 개수만 변경 시 재임베딩이 의미 없으므로 noop.
+
+    log-analyzer 측 payload에 image_count가 없어 동기화 대상이 아님.
+    가이드 본문이 바뀐 경우엔 index_guide()가 다시 호출된다.
+    """
+    return None
 
 
 # ── 삭제 ────────────────────────────────────────────────────────────────────
 
 async def delete_guide_index(guide_id: str) -> None:
-    """Qdrant에서 해당 guide_id 포인트 삭제. 실패 시 경고만 출력."""
+    """log-analyzer를 통해 knowledge_guides 포인트 삭제."""
     try:
-        resp = await _qdrant_http.post(
-            f"/collections/{COLLECTION_NAME}/points/delete",
-            json={"points": [guide_id]},
-        )
+        resp = await _log_analyzer_http.delete(f"/guides/{guide_id}")
         if resp.status_code >= 400:
             logger.warning(
-                "guide %s Qdrant 삭제 실패 %d: %s",
+                "guide %s log-analyzer delete 실패 %d: %s",
                 guide_id,
                 resp.status_code,
                 resp.text[:200],
             )
         else:
-            logger.debug("guide %s Qdrant 인덱스 삭제 완료", guide_id)
+            logger.debug("guide %s log-analyzer 삭제 완료", guide_id)
     except Exception as exc:
-        logger.warning("guide %s Qdrant 삭제 오류: %s", guide_id, str(exc)[:200])
+        logger.warning("guide %s log-analyzer delete 오류: %s", guide_id, str(exc)[:200])
 
 
-# ── 검색 ────────────────────────────────────────────────────────────────────
+# ── 검색 (호환 유지용 — 신규 코드는 chat_tools/executors/qdrant.py 사용) ──
 
 async def search_guides(
     query: str,
     system_id: Optional[int] = None,
     limit: int = 3,
 ) -> list[dict[str, Any]]:
-    """knowledge_guides Dense 유사도 검색.
+    """log-analyzer /guides/search 호출.
 
-    system_id가 주어지면 (system_id == X OR system_id is null) 필터 적용.
-    실패 시 빈 리스트 반환 (graceful).
-
-    반환 형식:
-        [{"guide_id": str, "score": float, "system_id": int|None,
-          "title": str, "category": str}]
+    system_id 단건 인터페이스(레거시)를 system_ids 리스트로 변환.
+    `system_id IN [x] OR system_id IS NULL` 필터가 log-analyzer 측에서 적용됨.
     """
     if not query or not query.strip():
         return []
 
-    vector = await _get_embedding(query.strip())
-    if vector is None:
-        return []
-
-    # Qdrant 필터 구성
-    qdrant_filter: Optional[dict[str, Any]] = None
+    body: dict[str, Any] = {"query": query.strip(), "limit": limit}
     if system_id is not None:
-        qdrant_filter = {
-            "should": [
-                {
-                    "key": "system_id",
-                    "match": {"value": system_id},
-                },
-                {
-                    "is_null": {"key": "system_id"},
-                },
-            ]
-        }
-
-    query_body: dict[str, Any] = {
-        "vector": {"name": "dense", "vector": vector},
-        "limit": limit,
-        "score_threshold": SCORE_THRESHOLD,
-        "with_payload": True,
-    }
-    if qdrant_filter:
-        query_body["filter"] = qdrant_filter
+        body["system_ids"] = [int(system_id)]
 
     try:
-        resp = await _qdrant_http.post(
-            f"/collections/{COLLECTION_NAME}/points/search",
-            json=query_body,
-        )
+        resp = await _log_analyzer_http.post("/guides/search", json=body)
         if resp.status_code >= 400:
             logger.warning(
                 "knowledge_guides 검색 실패 %d: %s",
@@ -259,8 +133,11 @@ async def search_guides(
         logger.warning("knowledge_guides 검색 오류: %s", str(exc)[:200])
         return []
 
-    results = []
-    for hit in data.get("result") or []:
+    if not isinstance(data, list):
+        return []
+
+    results: list[dict[str, Any]] = []
+    for hit in data:
         payload = hit.get("payload") or {}
         results.append(
             {
@@ -268,7 +145,7 @@ async def search_guides(
                 "score": hit.get("score", 0.0),
                 "system_id": payload.get("system_id"),
                 "title": payload.get("title", ""),
-                "category": payload.get("category", ""),
+                "category": "",  # 호환 필드 — 더 이상 저장하지 않음
             }
         )
     return results

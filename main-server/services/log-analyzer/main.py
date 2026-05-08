@@ -29,8 +29,10 @@ import vector_client
 import aggregation_vector_client
 import aggregation_processor
 import knowledge_vector_client
+import guides_vector_client
 import scheduler_tasks
 from routes import incident_postmortem
+from routes import guides
 
 logging.basicConfig(
     level=logging.INFO,
@@ -80,6 +82,12 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning("incident_postmortems 컬렉션 초기화 실패 — 요청 시 재시도됨: %s", e)
 
+    # knowledge_guides 컬렉션 보장
+    try:
+        await guides_vector_client.ensure_guides_collection()
+    except Exception as e:
+        logger.warning("knowledge_guides 컬렉션 초기화 실패 — 요청 시 재시도됨: %s", e)
+
     tasks = [
         asyncio.create_task(scheduler_tasks._scheduler()),
         asyncio.create_task(scheduler_tasks._hourly_agg_scheduler()),
@@ -104,6 +112,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Synapse Log Analyzer", version="1.0.0", lifespan=lifespan)
 
 app.include_router(incident_postmortem.router)
+app.include_router(guides.router)
 
 
 @app.get("/health")

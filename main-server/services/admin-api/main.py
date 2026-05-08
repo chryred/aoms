@@ -22,10 +22,8 @@ from routes import help as help_router
 from routes import oauth as oauth_router
 from routes import guides as guides_router
 from services.ssh_session import run_cleanup_loop
-try:
-    from services.qdrant_guides import ensure_collection as _ensure_guides_collection  # type: ignore
-except ImportError:
-    _ensure_guides_collection = None  # type: ignore
+# knowledge_guides 컬렉션 초기화는 ADR-011 Hybrid 통일 이후 log-analyzer가 담당.
+# admin-api 측 qdrant_guides.ensure_collection 은 호환을 위해 noop으로 유지된다.
 from services.prometheus_analyzer import run_prometheus_analyzer_loop
 from services.db_collector import db_collection_loop
 from services.chat_tools.executors.ems import aclose_client as ems_aclose
@@ -36,9 +34,7 @@ async def lifespan(app: FastAPI):
     # 테이블 자동 생성 (운영에서는 init.sql / Alembic 사용 권장)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-    # Knowledge Guides Qdrant 컬렉션 초기화 (qdrant_guides 임포트된 경우에만)
-    if _ensure_guides_collection is not None:
-        asyncio.create_task(_ensure_guides_collection())
+    # knowledge_guides 컬렉션 ensure는 log-analyzer lifespan이 담당 (ADR-011)
     # SSH 세션 만료 정리 루프 시작
     cleanup_task = asyncio.create_task(run_cleanup_loop())
     # Prometheus 메트릭 자동 분석 루프 (PROMETHEUS_URL 설정 시 활성화)

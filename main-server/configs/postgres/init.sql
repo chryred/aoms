@@ -562,7 +562,10 @@ INSERT INTO chat_tools (name, display_name, description, input_schema, executor)
      '{"type":"object","properties":{"query":{"type":"string","description":"검색할 내용 (한국어 자연어, 예: DB 점검 절차)"},"system_id":{"type":"integer","description":"시스템 ID 필터 (선택)"},"system_name":{"type":"string","description":"시스템명 필터 (선택)"},"sources":{"type":"array","items":{"type":"string"},"description":"검색 소스 제한 (선택, 예: [\"jira\",\"confluence\",\"documents\"])"},"limit":{"type":"integer","default":5,"description":"최대 반환 건수 (1-10)"},"rerank":{"type":"boolean","default":true,"description":"Reranker 적용 여부 (기본 true — 정확도 우선)"}},"required":["query"]}'::jsonb, 'qdrant'),
     ('qdrant_search_incident_postmortem', '인시던트 사후분석 검색',
      '인시던트 사후분석(원인·해결책·첨부 OCR 통합) 시맨틱 검색. 비슷한 사건 사례·해결책 자료 조회용',
-     '{"type":"object","properties":{"query":{"type":"string"},"system_id":{"type":"integer"},"severity":{"type":"string"},"limit":{"type":"integer","default":5}},"required":["query"]}'::jsonb, 'qdrant')
+     '{"type":"object","properties":{"query":{"type":"string"},"system_id":{"type":"integer"},"severity":{"type":"string"},"limit":{"type":"integer","default":5}},"required":["query"]}'::jsonb, 'qdrant'),
+    ('qdrant_search_guide', '운영 가이드 검색',
+     'knowledge_guides 컬렉션 Hybrid 검색. 기능 사용법·UI 조작·시스템 운영 매뉴얼·절차 안내 등 가이드 문서를 의미+키워드 조합으로 조회. 세션의 system_ids가 자동 주입되며, 시스템별 가이드와 전체 공용 가이드(system_id=NULL)가 함께 검색된다.',
+     '{"type":"object","properties":{"query":{"type":"string","description":"검색할 가이드 내용 (한국어 자연어, 예: 알림 임계값 설정 방법)"},"system_ids":{"type":"array","items":{"type":"integer"},"description":"시스템 ID 다중 필터 (선택, 자동 주입됨)"},"limit":{"type":"integer","default":5,"description":"최대 반환 건수 (1-10)"}},"required":["query"]}'::jsonb, 'qdrant')
 ON CONFLICT (name) DO UPDATE SET
     display_name = EXCLUDED.display_name,
     description  = EXCLUDED.description,
