@@ -66,8 +66,10 @@ def decision_prompt(
 - args는 해당 도구의 input_schema를 준수.
 
 [도구 선택 우선순위 — 질문 의도에 따라 첫 도구를 결정한다]
-- 메트릭·이상·패턴·과거 시간대(오늘 오전, 어제, 지난주 등) → 먼저 qdrant_search_hourly_patterns 호출 (1시간 집계 LLM 분석 결과 Hybrid 검색).
-  예: "오늘 오전 결제 시스템 CPU 어땠어?", "아까 DB 서버 메모리 상태", "오전에 로그 에러 급증한 시스템 있었나?"
+- 정확한 raw 수치(15일 이내) → prometheus_query 우선 (instance_role별 분리). Prometheus 보관 기간 초과 시 도구가 자동 에러 반환 → 그 때 ems_get_system_period_usage 또는 qdrant_search_aggregation_summary로 폴백.
+  예: "지금 결제 시스템 CPU 얼마야?", "오늘 3시 was1 메모리 사용률", "어제 14시 DB tps", "최근 1시간 평균 디스크 IO"
+- 메트릭·이상·패턴(요약/추세/예측이 핵심) → qdrant_search_hourly_patterns (1시간 집계 LLM 분석 결과 Hybrid 검색).
+  예: "오전에 패턴 어땠어?", "아까 DB 메모리 추세", "로그 에러 급증한 시스템 있었나?", "비슷한 메트릭 패턴"
 - 장애·알림·인시던트 이력·재발 여부 → qdrant_search_incident_knowledge (log_incidents + metric_baselines Hybrid).
   예: "이 에러 전에도 발생했나?", "OOM 이슈 어떻게 해결했어?", "DB 연결 오류 원인이 뭐야?"
 - 사건 사례·사후분석 narrative·해결책 전체 내용 → qdrant_search_incident_postmortem (incident_postmortems 컬렉션).
@@ -80,7 +82,7 @@ def decision_prompt(
 - 기능 사용법·UI 조작·운영 가이드·시스템 매뉴얼 → qdrant_search_guide (knowledge_guides Hybrid 검색).
   예: "알림 임계값 어떻게 바꿔요?", "인시던트 등록 절차 알려줘", "결제 시스템 배치 복구 매뉴얼", "이 기능 어떻게 써요?"
   세션 system_ids는 자동으로 주입됨. 시스템별 가이드 + 전체 공용 가이드(system_id=NULL)가 함께 검색된다.
-- "지금 / 현재 / 실시간" 명시되거나 EMS 전용 데이터(실시간 알람·프로세스·서버 상세)가 필요한 경우만 EMS 도구를 사용한다.
+- EMS 전용 데이터(Polestar 알람 리포트·Top 프로세스·서버 OS/가동시간 상세)가 필요하거나, 15일 초과 과거 데이터 → EMS 도구 사용.
 - 서버 목록(role_label)·인스턴스 구성 정보만 필요하면 ems_get_resources_by_system.
 
 [EMS 도구 사용 규칙]

@@ -53,6 +53,7 @@
 | `FRONTEND_EXTERNAL_URL` | Teams 카드 "인시던트 보기" 버튼이 여는 React 페이지 외부 접근 URL (예: `http://{server-a-ip}:3001`) — Wave 2B에서 "해결책 등록" 버튼 제거됨 |
 | `ANALYSIS_INTERVAL_SECONDS` | 300 (로그 분석 주기) |
 | `PROMETHEUS_ANALYZE_INTERVAL_SECONDS` | 300 (admin-api 메트릭 교차 분석 주기) |
+| `PROMETHEUS_RETENTION_DAYS` | 15 (운영) / 3 (개발) — 챗봇 `prometheus_query` 도구가 시각 입력 검증에 사용. `docker-compose.yml` `--storage.tsdb.retention.time` 과 일치시킬 것 |
 | `TEMPO_URL` | `http://tempo:3200` — admin-api + log-analyzer Tempo HTTP API (ADR-008) |
 | `OTEL_COLLECTOR_ENDPOINT` | `http://otel-collector:4317` — Java Agent OTLP gRPC 전송 목적지 (ADR-008) |
 | `SYNAPSE_CLI_BINARY_PATH` | `/app/bin/synapse` — CLI 배포용 바이너리 경로 (Docker 이미지 내 번들) |

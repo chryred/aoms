@@ -561,7 +561,10 @@ INSERT INTO chat_tools (name, display_name, description, input_schema, executor)
      '{"type":"object","properties":{"query":{"type":"string"},"system_id":{"type":"integer"},"severity":{"type":"string"},"limit":{"type":"integer","default":5}},"required":["query"]}'::jsonb, 'qdrant'),
     ('qdrant_search_guide', '운영 가이드 검색',
      'knowledge_guides 컬렉션 Hybrid 검색. 기능 사용법·UI 조작·시스템 운영 매뉴얼·절차 안내 등 가이드 문서를 의미+키워드 조합으로 조회. 세션의 system_ids가 자동 주입되며, 시스템별 가이드와 전체 공용 가이드(system_id=NULL)가 함께 검색된다.',
-     '{"type":"object","properties":{"query":{"type":"string","description":"검색할 가이드 내용 (한국어 자연어, 예: 알림 임계값 설정 방법)"},"system_ids":{"type":"array","items":{"type":"integer"},"description":"시스템 ID 다중 필터 (선택, 자동 주입됨)"},"limit":{"type":"integer","default":5,"description":"최대 반환 건수 (1-10)"}},"required":["query"]}'::jsonb, 'qdrant')
+     '{"type":"object","properties":{"query":{"type":"string","description":"검색할 가이드 내용 (한국어 자연어, 예: 알림 임계값 설정 방법)"},"system_ids":{"type":"array","items":{"type":"integer"},"description":"시스템 ID 다중 필터 (선택, 자동 주입됨)"},"limit":{"type":"integer","default":5,"description":"최대 반환 건수 (1-10)"}},"required":["query"]}'::jsonb, 'qdrant'),
+    ('prometheus_query', 'Prometheus raw 메트릭 조회',
+     'Prometheus에서 system_name + metric_group 기반으로 raw 메트릭 값을 조회. 보관 기간(운영 15일) 이내의 정확한 수치를 instance_role별로 분리하여 반환. KST 입력 → 내부 UTC 변환, 결과 timestamp는 KST 포맷. "지금 결제 시스템 CPU 얼마야", "오늘 3시 메모리 사용률" 같은 raw 수치 질문에 사용.',
+     '{"type":"object","properties":{"system_name":{"type":"string","description":"시스템명 (Prometheus label, 예: cxm)"},"metric_group":{"type":"string","enum":["cpu","memory","disk","network","log","web","db"],"description":"메트릭 그룹"},"time":{"type":"string","description":"조회 시각 (KST). 예: ''now'', ''오늘 3시'', ''2026-05-09 14:00''. 생략 시 현재."},"window":{"type":"string","description":"집계 윈도우 (Prometheus 기간 표현). 예: 5m, 1h, 24h. 기본 5m."},"aggregation":{"type":"string","enum":["avg","max","min","p95","sum"],"default":"avg","description":"집계 방식"}},"required":["system_name","metric_group"]}'::jsonb, 'prometheus')
 ON CONFLICT (name) DO UPDATE SET
     display_name = EXCLUDED.display_name,
     description  = EXCLUDED.description,
