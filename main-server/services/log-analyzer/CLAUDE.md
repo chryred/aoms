@@ -97,10 +97,10 @@ log-analyzer/
 - `POST /aggregation/search` — chat_tools의 `qdrant_search_aggregation_summary` 도구가 재활용. `aggregation_summaries` Hybrid 검색
 - `POST /metric/resolve`    — admin-api가 resolved 이벤트 수신 시 호출. Qdrant 포인트에 `resolved=True` 업데이트
 
-### knowledge_guides (운영 가이드 벡터)
-- `POST /guides/embed` — 가이드 Hybrid(Dense+Sparse) upsert. guide_id를 Qdrant point ID로 직접 사용. 재호출 시 upsert(내용 업데이트).
-- `DELETE /guides/{guide_id}` — knowledge_guides에서 포인트 삭제. 응답: `{"deleted": bool}`
-- `POST /guides/search` — 자연어 쿼리 Hybrid 검색. system_ids 지정 시 "system_id IN list OR system_id IS NULL" 필터. 응답: `[{id, score, payload}]`
+### knowledge_guides (운영 가이드 벡터, 청킹 기반)
+- `POST /guides/embed` — 가이드 Hybrid(Dense+Sparse) upsert. **content를 1500자 청크(overlap 200)로 분할**해 청크별로 별도 포인트 저장. 재호출 시 `payload.guide_id` 필터로 기존 청크 일괄 삭제 후 재생성. 청크 point_id = `sha256("guide:{guide_id}:{chunk_index}")[:8]` → uint64. 응답: `{point_id, status}` (현재 첫 청크의 point_id를 반환 — 호환성)
+- `DELETE /guides/{guide_id}` — payload.guide_id 필터로 모든 청크 일괄 삭제 (레거시 UUID 단일 포인트 포함). 응답: `{"deleted": bool}`
+- `POST /guides/search` — 자연어 쿼리 Hybrid 검색. system_ids 지정 시 "system_id IN list OR system_id IS NULL" 필터. 응답: `[{id, score, payload}]` — 같은 guide_id의 여러 청크가 결과에 함께 반환될 수 있음 (LLM이 컨텍스트로 활용)
 
 ### Wave 1B: incident_postmortems (사후분석 벡터)
 - `POST /incident-postmortem/embed` — 인시던트 postmortem 서사 Hybrid 임베딩 upsert (admin-api Wave 1A 피드백 흐름 호출)
@@ -161,7 +161,7 @@ log-analyzer/
 | `knowledge_jira_issues` | — | V1 Knowledge: Jira 이슈 (project/status/system_name payload 인덱스) |
 | `knowledge_confluence_pages` | — | V1 Knowledge: Confluence 페이지 청크 (space/system_name payload 인덱스) |
 | `knowledge_documents` | — | V1 Knowledge: 문서 청크 + 운영자 노트 (doc_type/system_id/tags payload 인덱스). doc_type="operator_note"는 운영자 Q&A |
-| `knowledge_guides` | — | 운영 가이드 (guide_id/system_id/title payload 인덱스). system_id=null은 전체 공용. lifespan 자동 ensure |
+| `knowledge_guides` | — | 운영 가이드 (1500자 청크 단위, overlap 200). payload 인덱스: guide_id/system_id/title/chunk_index. point_id = `sha256("guide:{guide_id}:{chunk_index}")[:8]` uint64. system_id=null은 전체 공용. lifespan 자동 ensure |
 
 ### 컬렉션별 시스템 필터 정책 (V1 확정)
 

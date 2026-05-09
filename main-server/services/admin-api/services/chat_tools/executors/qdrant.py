@@ -349,11 +349,13 @@ async def _search_guides(
         "count":   len(data),
         "results": [
             {
-                "guide_id":   (r.get("payload") or {}).get("guide_id") or r.get("id"),
-                "system_id":  (r.get("payload") or {}).get("system_id"),
-                "title":      ((r.get("payload") or {}).get("title") or "")[:200],
-                "content":    ((r.get("payload") or {}).get("content") or "")[:1500],
-                "score":      r.get("score"),
+                "guide_id":     (r.get("payload") or {}).get("guide_id") or r.get("id"),
+                "system_id":    (r.get("payload") or {}).get("system_id"),
+                "title":        ((r.get("payload") or {}).get("title") or "")[:200],
+                "content":      ((r.get("payload") or {}).get("content") or "")[:1500],
+                "chunk_index":  (r.get("payload") or {}).get("chunk_index"),
+                "total_chunks": (r.get("payload") or {}).get("total_chunks"),
+                "score":        r.get("score"),
             }
             for r in data
         ],

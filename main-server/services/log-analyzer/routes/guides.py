@@ -31,8 +31,9 @@ class EmbedGuideRequest(BaseModel):
 
 
 class EmbedGuideResponse(BaseModel):
-    point_id: str
-    status:   str = "ok"
+    guide_id:    str
+    chunk_count: int
+    status:      str = "ok"
 
 
 class DeleteGuideResponse(BaseModel):
@@ -55,13 +56,13 @@ class SearchResultItem(BaseModel):
 
 @router.post("/embed", response_model=EmbedGuideResponse)
 async def embed_guide(req: EmbedGuideRequest):
-    """가이드를 Hybrid 임베딩하여 knowledge_guides에 upsert.
+    """가이드를 1500자 청크로 분할 후 Hybrid 임베딩하여 knowledge_guides에 upsert.
 
-    guide_id (UUID 문자열)를 Qdrant point ID로 직접 사용.
-    재호출 시 upsert이므로 내용 업데이트에도 사용 가능.
+    재호출 시 payload.guide_id 필터로 기존 청크/레거시 포인트를 일괄 삭제 후 재생성.
+    응답 chunk_count = 0 → 빈 본문 (포인트 없음).
     """
     try:
-        point_id = await guides_vector_client.embed_guide(
+        chunk_count = await guides_vector_client.embed_guide(
             guide_id=req.guide_id,
             system_id=req.system_id,
             title=req.title,
@@ -72,7 +73,7 @@ async def embed_guide(req: EmbedGuideRequest):
         logger.error("가이드 임베딩 실패: guide_id=%s — %s", req.guide_id, exc)
         raise HTTPException(status_code=500, detail=f"임베딩 저장 실패: {exc}")
 
-    return EmbedGuideResponse(point_id=point_id, status="ok")
+    return EmbedGuideResponse(guide_id=req.guide_id, chunk_count=chunk_count, status="ok")
 
 
 @router.delete("/{guide_id}", response_model=DeleteGuideResponse)
