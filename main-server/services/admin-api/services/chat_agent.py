@@ -87,6 +87,9 @@ _HELP_ALLOWED_TOOLS = {
     "qdrant_search_knowledge",
     "qdrant_search_aggregation_summary",
     "qdrant_search_guide",
+    "qdrant_get_guide_full",
+    "qdrant_get_document_full",
+    "qdrant_get_confluence_full",
 }
 
 

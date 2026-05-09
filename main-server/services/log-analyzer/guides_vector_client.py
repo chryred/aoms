@@ -284,6 +284,64 @@ async def delete_guide(guide_id: str) -> bool:
         return False
 
 
+# ── 전체 청크 조회 ───────────────────────────────────────────────────────────
+
+async def get_guide_chunks(guide_id: str, max_chunks: int = 50) -> list[dict]:
+    """guide_id의 모든 청크를 chunk_index 순서로 반환 (검색 limit 우회용).
+
+    검색에서 일부 청크만 노출됐을 때 LLM이 가이드 전문이 필요하다고 판단하면
+    호출. payload.guide_id 필터로 scroll 후 chunk_index 오름차순 정렬.
+
+    Returns:
+        list of {"id", "chunk_index", "total_chunks", "title", "content", "system_id", ...}
+        가이드 미존재 시 빈 리스트.
+    """
+    filter_body: dict = {
+        "must": [{"key": "guide_id", "match": {"value": guide_id}}]
+    }
+
+    all_points: list[dict] = []
+    next_offset: str | int | None = None
+    while True:
+        body: dict = {
+            "filter":       filter_body,
+            "limit":        min(100, max_chunks - len(all_points)),
+            "with_payload": True,
+            "with_vector":  False,
+        }
+        if next_offset is not None:
+            body["offset"] = next_offset
+
+        try:
+            resp = await _qdrant_http.post(
+                f"{QDRANT_URL}/collections/{GUIDES_COLLECTION}/points/scroll",
+                json=body,
+            )
+            resp.raise_for_status()
+            data = resp.json().get("result", {})
+            all_points.extend(data.get("points", []))
+            next_offset = data.get("next_page_offset")
+            if next_offset is None or len(all_points) >= max_chunks:
+                break
+        except Exception as exc:
+            logger.warning("guide chunks scroll 실패 guide_id=%s: %s", guide_id, exc)
+            break
+
+    all_points.sort(key=lambda p: (p.get("payload") or {}).get("chunk_index", 0))
+    return [
+        {
+            "id":           str(p["id"]),
+            "chunk_index":  (p.get("payload") or {}).get("chunk_index"),
+            "total_chunks": (p.get("payload") or {}).get("total_chunks"),
+            "title":        (p.get("payload") or {}).get("title", ""),
+            "content":      (p.get("payload") or {}).get("content", ""),
+            "system_id":    (p.get("payload") or {}).get("system_id"),
+            "indexed_at":   (p.get("payload") or {}).get("indexed_at"),
+        }
+        for p in all_points
+    ]
+
+
 # ── 검색 ─────────────────────────────────────────────────────────────────────
 
 async def search_guides(

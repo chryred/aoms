@@ -986,6 +986,20 @@ async def get_document_chunks_endpoint(file_hash: str):
     return {"chunks": chunks}
 
 
+@app.get("/knowledge/confluence/{page_id}/chunks")
+async def get_confluence_chunks_endpoint(page_id: str, max_chunks: int = 50):
+    """
+    page_id 기반 Confluence 청크 상세 조회 (chunk_index 오름차순).
+    챗봇이 검색에서 부분 청크만 받고 전문이 필요할 때 호출.
+    Response: {"page_id", "chunks": [{point_id, chunk_index, text, page_title, ...}]}
+    """
+    try:
+        chunks = await knowledge_vector_client.get_confluence_chunks(page_id, max_chunks=max_chunks)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"청크 조회 실패: {exc}")
+    return {"page_id": page_id, "chunks": chunks}
+
+
 @app.delete("/knowledge/documents/{file_hash}")
 async def delete_document_endpoint(file_hash: str):
     """

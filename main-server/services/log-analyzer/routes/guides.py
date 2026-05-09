@@ -88,6 +88,26 @@ async def delete_guide(guide_id: str):
     return DeleteGuideResponse(deleted=deleted)
 
 
+@router.get("/{guide_id}/chunks")
+async def get_guide_chunks(guide_id: str, max_chunks: int = 50):
+    """guide_id의 모든 청크를 chunk_index 순서로 반환.
+
+    챗봇이 검색 결과에서 일부 청크만 보고 전문이 필요하다고 판단할 때 사용.
+    Response: {"guide_id", "total_chunks", "chunks": [{chunk_index, content, title, ...}]}
+    """
+    try:
+        chunks = await guides_vector_client.get_guide_chunks(guide_id, max_chunks=max_chunks)
+    except Exception as exc:
+        logger.error("guide 청크 조회 실패 guide_id=%s: %s", guide_id, exc)
+        raise HTTPException(status_code=500, detail=f"청크 조회 실패: {exc}")
+
+    return {
+        "guide_id":     guide_id,
+        "total_chunks": chunks[0]["total_chunks"] if chunks else 0,
+        "chunks":       chunks,
+    }
+
+
 @router.post("/search", response_model=list[SearchResultItem])
 async def search_guides(req: SearchGuidesRequest):
     """knowledge_guides Hybrid 검색.

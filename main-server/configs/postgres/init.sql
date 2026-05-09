@@ -565,7 +565,16 @@ INSERT INTO chat_tools (name, display_name, description, input_schema, executor)
      '{"type":"object","properties":{"query":{"type":"string","description":"검색할 가이드 내용 (한국어 자연어, 예: 알림 임계값 설정 방법)"},"system_ids":{"type":"array","items":{"type":"integer"},"description":"시스템 ID 다중 필터 (선택, 자동 주입됨)"},"limit":{"type":"integer","default":5,"description":"최대 반환 건수 (1-10)"}},"required":["query"]}'::jsonb, 'qdrant'),
     ('prometheus_query', 'Prometheus raw 메트릭 조회',
      'Prometheus에서 system_name + metric_group 기반으로 raw 메트릭 값을 조회. 보관 기간(운영 15일) 이내의 정확한 수치를 instance_role별로 분리하여 반환. KST 입력 → 내부 UTC 변환, 결과 timestamp는 KST 포맷. "지금 결제 시스템 CPU 얼마야", "오늘 3시 메모리 사용률" 같은 raw 수치 질문에 사용.',
-     '{"type":"object","properties":{"system_name":{"type":"string","description":"시스템명 (Prometheus label, 예: cxm)"},"metric_group":{"type":"string","enum":["cpu","memory","disk","network","log","web","db"],"description":"메트릭 그룹"},"time":{"type":"string","description":"조회 시각 (KST). 예: ''now'', ''오늘 3시'', ''2026-05-09 14:00''. 생략 시 현재."},"window":{"type":"string","description":"집계 윈도우 (Prometheus 기간 표현). 예: 5m, 1h, 24h. 기본 5m."},"aggregation":{"type":"string","enum":["avg","max","min","p95","sum"],"default":"avg","description":"집계 방식"}},"required":["system_name","metric_group"]}'::jsonb, 'prometheus')
+     '{"type":"object","properties":{"system_name":{"type":"string","description":"시스템명 (Prometheus label, 예: cxm)"},"metric_group":{"type":"string","enum":["cpu","memory","disk","network","log","web","db"],"description":"메트릭 그룹"},"time":{"type":"string","description":"조회 시각 (KST). 예: ''now'', ''오늘 3시'', ''2026-05-09 14:00''. 생략 시 현재."},"window":{"type":"string","description":"집계 윈도우 (Prometheus 기간 표현). 예: 5m, 1h, 24h. 기본 5m."},"aggregation":{"type":"string","enum":["avg","max","min","p95","sum"],"default":"avg","description":"집계 방식"}},"required":["system_name","metric_group"]}'::jsonb, 'prometheus'),
+    ('qdrant_get_guide_full', '운영 가이드 전문 조회',
+     'qdrant_search_guide 결과에서 일부 청크만 받아 답변에 부족한 경우, 해당 가이드의 전체 청크를 chunk_index 순서로 반환. 사용자가 "전문/전체 보여줘"라고 명시하거나 절차가 끊겨 보일 때 사용.',
+     '{"type":"object","properties":{"guide_id":{"type":"string","description":"검색 결과의 guide_id (UUID)"},"max_chunks":{"type":"integer","default":50,"description":"최대 청크 수 (기본 50, 최대 100)"}},"required":["guide_id"]}'::jsonb, 'qdrant'),
+    ('qdrant_get_document_full', '문서 전문 조회',
+     'qdrant_search_knowledge 결과 중 source=documents에 file_hash가 있을 때, 해당 문서의 모든 청크를 chunk_index 순서로 반환. 페이지/시트/슬라이드 메타도 포함.',
+     '{"type":"object","properties":{"file_hash":{"type":"string","description":"검색 결과의 file_hash"}},"required":["file_hash"]}'::jsonb, 'qdrant'),
+    ('qdrant_get_confluence_full', 'Confluence 페이지 전문 조회',
+     'qdrant_search_knowledge 결과 중 source=confluence에 page_id가 있을 때, 해당 페이지의 모든 청크를 chunk_index 순서로 반환. 헤딩 구조 포함.',
+     '{"type":"object","properties":{"page_id":{"type":"string","description":"검색 결과의 page_id"},"max_chunks":{"type":"integer","default":50,"description":"최대 청크 수 (기본 50, 최대 100)"}},"required":["page_id"]}'::jsonb, 'qdrant')
 ON CONFLICT (name) DO UPDATE SET
     display_name = EXCLUDED.display_name,
     description  = EXCLUDED.description,

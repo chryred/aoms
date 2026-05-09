@@ -789,6 +789,58 @@ async def delete_document_chunks_by_file_hash(file_hash: str) -> int:
     return count
 
 
+async def get_confluence_chunks(page_id: str, max_chunks: int = 50) -> list[dict]:
+    """page_id의 모든 Confluence 청크를 chunk_index 순서로 반환 (전문 조회).
+
+    챗봇이 검색에서 일부 청크만 보고 전문이 필요하다고 판단할 때 호출.
+    """
+    filter_body: dict = {"must": [{"key": "page_id", "match": {"value": page_id}}]}
+
+    all_points: list[dict] = []
+    next_offset: str | int | None = None
+    while True:
+        body: dict = {
+            "filter":       filter_body,
+            "limit":        min(100, max_chunks - len(all_points)),
+            "with_payload": True,
+            "with_vector":  False,
+        }
+        if next_offset is not None:
+            body["offset"] = next_offset
+        try:
+            resp = await _qdrant_http.post(
+                f"{QDRANT_URL}/collections/{CONFLUENCE_COLLECTION}/points/scroll",
+                json=body,
+            )
+            resp.raise_for_status()
+            data = resp.json().get("result", {})
+            all_points.extend(data.get("points", []))
+            next_offset = data.get("next_page_offset")
+            if next_offset is None or len(all_points) >= max_chunks:
+                break
+        except Exception as exc:
+            logger.warning("Confluence chunks scroll 실패 page_id=%s: %s", page_id, exc)
+            break
+
+    all_points.sort(key=lambda p: (p.get("payload") or {}).get("chunk_index", 0))
+    result = []
+    for p in all_points:
+        payload = p.get("payload", {}) or {}
+        item: dict = {
+            "point_id":    str(p["id"]),
+            "chunk_index": payload.get("chunk_index"),
+            "page_id":     payload.get("page_id"),
+            "page_title":  payload.get("page_title", ""),
+            "space":       payload.get("space"),
+            "url":         payload.get("url"),
+            "text":        payload.get("text", ""),
+        }
+        if "heading" in payload:
+            item["heading"] = payload["heading"]
+        result.append(item)
+    return result
+
+
 async def delete_confluence_chunks_by_page_id(page_id: str) -> int:
     """knowledge_confluence_pages 컬렉션에서 page_id 기준으로 청크 일괄 삭제.
 

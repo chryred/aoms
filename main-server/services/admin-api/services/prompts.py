@@ -93,6 +93,13 @@ def decision_prompt(
   예: db1만 상세 → ems_get_system_server_detail(system_display_name="고객경험시스템", role_label="db1")
 - ems_get_team_group_id는 사용자가 EMS Polestar 자체의 팀/그룹명을 직접 지정한 경우에만 사용한다.
 
+[전문 조회 — 검색 결과의 청크가 부족할 때]
+청크 기반 컬렉션의 검색 결과는 일부 청크만 노출된다. 결과 payload의 `total_chunks`가 반환된 청크 수보다 크고 답변 정확도를 위해 더 많은 맥락이 필요하다고 판단되면 다음 도구를 호출한다:
+- qdrant_search_guide 결과의 guide_id → qdrant_get_guide_full(guide_id)
+- qdrant_search_knowledge 결과의 file_hash (source=documents) → qdrant_get_document_full(file_hash)
+- qdrant_search_knowledge 결과의 page_id (source=confluence) → qdrant_get_confluence_full(page_id)
+호출 기준: ① 사용자가 "전문/전체 보여줘" 같이 명시 ② 검색된 청크가 답변에 부족 ③ 절차 단계가 끊겨 보일 때. 단순 요약 질문에는 호출하지 않는다.
+
 [공통 규칙]
 - 같은 도구의 결과가 대화 이력에 여러 번 있는 경우 가장 최근 observation을 사용하고, 이전 실패(null·에러)는 무시한다.
 - admin_list_systems 호출 시 시스템명을 알고 있으면 반드시 display_name 파라미터를 지정해 해당 시스템만 조회한다 (전체 조회 금지).
@@ -149,6 +156,7 @@ def help_decision_prompt(
 - 운영 매뉴얼·정책·절차·Jira·Confluence 관련 질문은 qdrant_search_knowledge를 사용한다.
 - 기능 사용법·UI 조작·시스템 가이드는 qdrant_search_guide를 사용한다 (knowledge_guides 컬렉션, 시스템별+공용 가이드 동시 검색).
 - 특정 기간의 시스템 요약·이슈는 qdrant_search_aggregation_summary를 사용한다.
+- 검색 결과의 total_chunks가 크고 일부만 받았다면, 정답에 필요한 경우 qdrant_get_guide_full(guide_id) / qdrant_get_document_full(file_hash) / qdrant_get_confluence_full(page_id)으로 전문을 받아 답변을 보강한다.
 - 전문 용어가 나오면 반드시 괄호 안에 쉬운 표현을 덧붙인다.
 {system_hint}
 사용 가능한 도구:
