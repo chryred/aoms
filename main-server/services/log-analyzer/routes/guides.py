@@ -10,7 +10,7 @@ knowledge_guides 라우터 — log-analyzer 측 Hybrid 임베딩·검색 엔드�
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
 import guides_vector_client
@@ -89,14 +89,26 @@ async def delete_guide(guide_id: str):
 
 
 @router.get("/{guide_id}/chunks")
-async def get_guide_chunks(guide_id: str, max_chunks: int = 50):
-    """guide_id의 모든 청크를 chunk_index 순서로 반환.
+async def get_guide_chunks(
+    guide_id: str,
+    chunk_indexes: Optional[list[int]] = Query(default=None),
+    max_chunks: int = 50,
+):
+    """guide_id의 청크를 chunk_index 순서로 반환.
 
-    챗봇이 검색 결과에서 일부 청크만 보고 전문이 필요하다고 판단할 때 사용.
+    Query:
+      - chunk_indexes: 특정 청크 인덱스 다중 지정 (예: ?chunk_indexes=2&chunk_indexes=4&chunk_indexes=5).
+        생략 시 전체 청크 (max_chunks 한도).
+      - max_chunks: chunk_indexes 미지정 시 전체 조회 시 상한.
+
     Response: {"guide_id", "total_chunks", "chunks": [{chunk_index, content, title, ...}]}
     """
     try:
-        chunks = await guides_vector_client.get_guide_chunks(guide_id, max_chunks=max_chunks)
+        chunks = await guides_vector_client.get_guide_chunks(
+            guide_id,
+            chunk_indexes=chunk_indexes,
+            max_chunks=max_chunks,
+        )
     except Exception as exc:
         logger.error("guide 청크 조회 실패 guide_id=%s: %s", guide_id, exc)
         raise HTTPException(status_code=500, detail=f"청크 조회 실패: {exc}")

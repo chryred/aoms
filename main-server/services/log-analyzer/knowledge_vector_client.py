@@ -789,12 +789,19 @@ async def delete_document_chunks_by_file_hash(file_hash: str) -> int:
     return count
 
 
-async def get_confluence_chunks(page_id: str, max_chunks: int = 50) -> list[dict]:
-    """page_id의 모든 Confluence 청크를 chunk_index 순서로 반환 (전문 조회).
+async def get_confluence_chunks(
+    page_id: str,
+    chunk_indexes: list[int] | None = None,
+    max_chunks: int = 50,
+) -> list[dict]:
+    """page_id의 Confluence 청크를 chunk_index 순서로 반환.
 
-    챗봇이 검색에서 일부 청크만 보고 전문이 필요하다고 판단할 때 호출.
+    chunk_indexes가 주어지면 해당 인덱스 청크만, 생략 시 전체 (max_chunks 한도).
     """
-    filter_body: dict = {"must": [{"key": "page_id", "match": {"value": page_id}}]}
+    filter_must: list[dict] = [{"key": "page_id", "match": {"value": page_id}}]
+    if chunk_indexes:
+        filter_must.append({"key": "chunk_index", "match": {"any": list(chunk_indexes)}})
+    filter_body: dict = {"must": filter_must}
 
     all_points: list[dict] = []
     next_offset: str | int | None = None
@@ -954,10 +961,19 @@ async def list_documents(system_id: int | None = None) -> list[dict]:
     return list(groups.values())
 
 
-async def get_document_chunks(file_hash: str) -> list[dict]:
-    """file_hash 기반 청크 상세 목록 (text, metadata 포함, chunk_index 오름차순)."""
+async def get_document_chunks(
+    file_hash: str,
+    chunk_indexes: list[int] | None = None,
+) -> list[dict]:
+    """file_hash 기반 청크 상세 목록 (text, metadata 포함, chunk_index 오름차순).
+
+    chunk_indexes가 주어지면 해당 인덱스 청크만, 생략 시 전체.
+    """
+    filter_must: list[dict] = [{"key": "file_hash", "match": {"value": file_hash}}]
+    if chunk_indexes:
+        filter_must.append({"key": "chunk_index", "match": {"any": list(chunk_indexes)}})
     filter_body: dict = {
-        "must": [{"key": "file_hash", "match": {"value": file_hash}}],
+        "must": filter_must,
         "must_not": [{"key": "doc_type", "match": {"value": "operator_note"}}],
     }
 

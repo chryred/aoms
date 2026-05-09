@@ -101,7 +101,7 @@ log-analyzer/
 - `POST /guides/embed` — 가이드 Hybrid(Dense+Sparse) upsert. **content를 1500자 청크(overlap 200)로 분할**해 청크별로 별도 포인트 저장. 재호출 시 `payload.guide_id` 필터로 기존 청크 일괄 삭제 후 재생성. 청크 point_id = `sha256("guide:{guide_id}:{chunk_index}")[:8]` → uint64. 응답: `{guide_id, chunk_count, status}`
 - `DELETE /guides/{guide_id}` — payload.guide_id 필터로 모든 청크 일괄 삭제 (레거시 UUID 단일 포인트 포함). 응답: `{"deleted": bool}`
 - `POST /guides/search` — 자연어 쿼리 Hybrid 검색. system_ids 지정 시 "system_id IN list OR system_id IS NULL" 필터. 응답: `[{id, score, payload}]` — 같은 guide_id의 여러 청크가 결과에 함께 반환될 수 있음 (LLM이 컨텍스트로 활용)
-- `GET /guides/{guide_id}/chunks?max_chunks=50` — guide_id의 모든 청크를 chunk_index 순서로 반환. 챗봇 검색에서 일부 청크만 받았을 때 LLM이 전문이 필요하다고 판단하면 호출. 응답: `{guide_id, total_chunks, chunks: [{chunk_index, content, title, system_id, ...}]}`
+- `GET /guides/{guide_id}/chunks?chunk_indexes=2&chunk_indexes=4&max_chunks=50` — guide_id의 청크를 chunk_index 순서로 반환. `chunk_indexes`가 주어지면 해당 인덱스 청크만 (surgical fetch — 챗봇이 빠진 청크만 명시), 생략 시 전체 청크. 응답: `{guide_id, total_chunks, chunks: [{chunk_index, content, title, system_id, ...}]}`
 
 ### Wave 1B: incident_postmortems (사후분석 벡터)
 - `POST /incident-postmortem/embed` — 인시던트 postmortem 서사 Hybrid 임베딩 upsert (admin-api Wave 1A 피드백 흐름 호출)
@@ -144,8 +144,8 @@ log-analyzer/
 - `POST /knowledge/correction`       — 검색 결과 피드백 적용 (corrected=True + correction_text). 요청 body `point_id`는 **문자열**. (CorrectionRequest.point_id: str)
 - `POST /knowledge/search`           — Federated 검색 결과의 각 item `point_id`는 **문자열** (uint64 → str 직렬화, endpoint 반환 직전 coerce)
 - `GET  /knowledge/documents`        — 적재된 문서 목록 조회 (file_hash 단위 그룹핑, operator_note 제외). `?system_id=N` 필터 가능
-- `GET  /knowledge/documents/{file_hash}/chunks` — 문서 전체 청크 (chunk_index 순서, point_id/text/page_no 등 메타 포함). 챗봇 전문 조회용
-- `GET  /knowledge/confluence/{page_id}/chunks?max_chunks=50` — Confluence 페이지 전체 청크 (chunk_index 순서, heading 메타 포함). 챗봇 전문 조회용
+- `GET  /knowledge/documents/{file_hash}/chunks?chunk_indexes=2&chunk_indexes=4` — 문서 청크 (chunk_index 순서, page_no/sheet/slide/heading 메타 포함). `chunk_indexes` 지정 시 surgical fetch, 생략 시 전체
+- `GET  /knowledge/confluence/{page_id}/chunks?chunk_indexes=...&max_chunks=50` — Confluence 페이지 청크 (heading 메타 포함). 동일 패턴
 - `DELETE /knowledge/documents/{file_hash}` — file_hash 기반 Qdrant 청크 일괄 삭제 + 디스크 원본 파일 삭제. 응답: `{"deleted_points": int, "deleted_file": bool}`
 - `POST /knowledge/sync/jira/trigger`            — Jira 동기화 수동 즉시 트리거 (background)
 - `POST /knowledge/sync/confluence/trigger`     — Confluence 동기화 수동 즉시 트리거 (background)

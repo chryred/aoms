@@ -10,10 +10,11 @@ log-analyzer HTTP 프록시를 통해 Qdrant Hybrid 검색 결과를 챗봇에 �
 - qdrant_search_incident_postmortem: incident_postmortems 사후분석 검색
 - qdrant_search_knowledge: V1 knowledge federated 검색 (jira/confluence/documents)
 
-전문 조회(Get-Full) 도구 — 검색 결과의 청크가 부족하다고 판단되면 LLM이 호출:
-- qdrant_get_guide_full: guide_id로 가이드 전체 청크 (chunk_index 순서)
-- qdrant_get_document_full: file_hash로 문서 전체 청크
-- qdrant_get_confluence_full: page_id로 Confluence 페이지 전체 청크
+청크 조회(Get-Chunks) 도구 — 검색 결과의 청크가 부족하면 LLM이 호출:
+- qdrant_get_guide_chunks(guide_id, chunk_indexes?): chunk_indexes 명시 시 surgical fetch,
+  생략 시 전체 (max_chunks 한도). 컨텍스트 절약을 위해 기본은 surgical 권장.
+- qdrant_get_document_chunks(file_hash, chunk_indexes?)
+- qdrant_get_confluence_chunks(page_id, chunk_indexes?)
 """
 
 import os
@@ -373,38 +374,58 @@ async def _search_guides(
     }
 
 
-# ── 전문 조회 (chunked collections) ──────────────────────────────────────────
+# ── 청크 조회 (chunked collections) ──────────────────────────────────────────
 
-async def _get_guide_full(db: AsyncSession, args: dict[str, Any]) -> dict[str, Any]:
-    """가이드 전체 청크를 chunk_index 순서로 반환.
+def _coerce_chunk_indexes(args: dict[str, Any]) -> list[int] | None:
+    raw = args.get("chunk_indexes")
+    if raw is None or raw == "":
+        return None
+    if isinstance(raw, str):
+        raw = [s.strip() for s in raw.split(",") if s.strip()]
+    if not isinstance(raw, (list, tuple)):
+        return None
+    out: list[int] = []
+    for v in raw:
+        try:
+            out.append(int(v))
+        except (TypeError, ValueError):
+            continue
+    return out or None
 
-    검색 결과에서 일부 청크만 보고 가이드 전문이 필요하다고 판단될 때 LLM이 호출.
-    log-analyzer GET /guides/{guide_id}/chunks 호출.
+
+async def _get_guide_chunks(db: AsyncSession, args: dict[str, Any]) -> dict[str, Any]:
+    """가이드 청크 조회. chunk_indexes 명시 시 surgical, 생략 시 전체 (max_chunks 한도).
+
+    log-analyzer GET /guides/{guide_id}/chunks 프록시.
     """
     guide_id = (args.get("guide_id") or "").strip()
     if not guide_id:
         return {"error": "guide_id 파라미터 필요 (검색 결과의 guide_id 사용)"}
+    chunk_indexes = _coerce_chunk_indexes(args)
     max_chunks = min(int(args.get("max_chunks", 50)), 100)
     base = await _base_url(db)
 
+    params: list[tuple[str, str | int]] = [("max_chunks", max_chunks)]
+    if chunk_indexes:
+        for ci in chunk_indexes:
+            params.append(("chunk_indexes", ci))
+
     try:
         async with httpx.AsyncClient(timeout=20.0) as client:
-            resp = await client.get(
-                f"{base}/guides/{guide_id}/chunks",
-                params={"max_chunks": max_chunks},
-            )
+            resp = await client.get(f"{base}/guides/{guide_id}/chunks", params=params)
             if resp.status_code >= 400:
                 return {"error": f"log-analyzer {resp.status_code}: {resp.text[:200]}", "guide_id": guide_id}
             data = resp.json()
     except Exception as e:
-        return {"error": f"가이드 전문 조회 실패: {str(e)[:200]}", "guide_id": guide_id}
+        return {"error": f"가이드 청크 조회 실패: {str(e)[:200]}", "guide_id": guide_id}
 
     chunks = data.get("chunks") or []
     return {
-        "guide_id":     guide_id,
-        "total_chunks": data.get("total_chunks") or len(chunks),
-        "title":        chunks[0].get("title") if chunks else "",
-        "system_id":    chunks[0].get("system_id") if chunks else None,
+        "guide_id":       guide_id,
+        "total_chunks":   data.get("total_chunks") or len(chunks),
+        "fetched_chunks": len(chunks),
+        "title":          chunks[0].get("title") if chunks else "",
+        "system_id":      chunks[0].get("system_id") if chunks else None,
         "chunks": [
             {
                 "chunk_index": c.get("chunk_index"),
@@ -415,30 +436,39 @@ async def _get_guide_full(db: AsyncSession, args: dict[str, Any]) -> dict[str, A
     }
 
 
-async def _get_document_full(db: AsyncSession, args: dict[str, Any]) -> dict[str, Any]:
-    """문서 전체 청크를 chunk_index 순서로 반환.
+async def _get_document_chunks(db: AsyncSession, args: dict[str, Any]) -> dict[str, Any]:
+    """문서 청크 조회. chunk_indexes 명시 시 surgical, 생략 시 전체.
 
-    qdrant_search_knowledge 결과에서 file_hash가 있는 문서가 일부만 노출됐을 때 사용.
-    log-analyzer GET /knowledge/documents/{file_hash}/chunks 호출.
+    log-analyzer GET /knowledge/documents/{file_hash}/chunks 프록시.
     """
     file_hash = (args.get("file_hash") or "").strip()
     if not file_hash:
         return {"error": "file_hash 파라미터 필요 (검색 결과의 file_hash 사용)"}
+    chunk_indexes = _coerce_chunk_indexes(args)
     base = await _base_url(db)
+
+    params: list[tuple[str, str | int]] = []
+    if chunk_indexes:
+        for ci in chunk_indexes:
+            params.append(("chunk_indexes", ci))
 
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.get(f"{base}/knowledge/documents/{file_hash}/chunks")
+            resp = await client.get(
+                f"{base}/knowledge/documents/{file_hash}/chunks",
+                params=params or None,
+            )
             if resp.status_code >= 400:
                 return {"error": f"log-analyzer {resp.status_code}: {resp.text[:200]}", "file_hash": file_hash}
             data = resp.json()
     except Exception as e:
-        return {"error": f"문서 전문 조회 실패: {str(e)[:200]}", "file_hash": file_hash}
+        return {"error": f"문서 청크 조회 실패: {str(e)[:200]}", "file_hash": file_hash}
 
     chunks = data.get("chunks") or []
     return {
-        "file_hash":    file_hash,
-        "total_chunks": len(chunks),
+        "file_hash":      file_hash,
+        "total_chunks":   len(chunks),
+        "fetched_chunks": len(chunks),
         "chunks": [
             {
                 "chunk_index": c.get("chunk_index"),
@@ -453,36 +483,42 @@ async def _get_document_full(db: AsyncSession, args: dict[str, Any]) -> dict[str
     }
 
 
-async def _get_confluence_full(db: AsyncSession, args: dict[str, Any]) -> dict[str, Any]:
-    """Confluence 페이지 전체 청크를 chunk_index 순서로 반환.
+async def _get_confluence_chunks(db: AsyncSession, args: dict[str, Any]) -> dict[str, Any]:
+    """Confluence 페이지 청크 조회. chunk_indexes 명시 시 surgical, 생략 시 전체.
 
-    qdrant_search_knowledge 결과에서 source=confluence + page_id가 노출된 결과의 후속 조회.
-    log-analyzer GET /knowledge/confluence/{page_id}/chunks 호출.
+    log-analyzer GET /knowledge/confluence/{page_id}/chunks 프록시.
     """
     page_id = (args.get("page_id") or "").strip()
     if not page_id:
         return {"error": "page_id 파라미터 필요 (검색 결과의 page_id 사용)"}
+    chunk_indexes = _coerce_chunk_indexes(args)
     max_chunks = min(int(args.get("max_chunks", 50)), 100)
     base = await _base_url(db)
+
+    params: list[tuple[str, str | int]] = [("max_chunks", max_chunks)]
+    if chunk_indexes:
+        for ci in chunk_indexes:
+            params.append(("chunk_indexes", ci))
 
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.get(
                 f"{base}/knowledge/confluence/{page_id}/chunks",
-                params={"max_chunks": max_chunks},
+                params=params,
             )
             if resp.status_code >= 400:
                 return {"error": f"log-analyzer {resp.status_code}: {resp.text[:200]}", "page_id": page_id}
             data = resp.json()
     except Exception as e:
-        return {"error": f"Confluence 전문 조회 실패: {str(e)[:200]}", "page_id": page_id}
+        return {"error": f"Confluence 청크 조회 실패: {str(e)[:200]}", "page_id": page_id}
 
     chunks = data.get("chunks") or []
     return {
-        "page_id":      page_id,
-        "page_title":   chunks[0].get("page_title") if chunks else "",
-        "url":          chunks[0].get("url") if chunks else None,
-        "total_chunks": len(chunks),
+        "page_id":        page_id,
+        "page_title":     chunks[0].get("page_title") if chunks else "",
+        "url":            chunks[0].get("url") if chunks else None,
+        "total_chunks":   len(chunks),
+        "fetched_chunks": len(chunks),
         "chunks": [
             {
                 "chunk_index": c.get("chunk_index"),
@@ -509,12 +545,12 @@ async def execute(db: AsyncSession, name: str, args: dict[str, Any]) -> dict[str
             return await _search_knowledge(db, args)
         if name == "qdrant_search_guide":
             return await _search_guides(db, args)
-        if name == "qdrant_get_guide_full":
-            return await _get_guide_full(db, args)
-        if name == "qdrant_get_document_full":
-            return await _get_document_full(db, args)
-        if name == "qdrant_get_confluence_full":
-            return await _get_confluence_full(db, args)
+        if name == "qdrant_get_guide_chunks":
+            return await _get_guide_chunks(db, args)
+        if name == "qdrant_get_document_chunks":
+            return await _get_document_chunks(db, args)
+        if name == "qdrant_get_confluence_chunks":
+            return await _get_confluence_chunks(db, args)
         return {"error": f"unknown qdrant tool: {name}"}
     except Exception as e:
         return {"error": f"qdrant 도구 실패: {str(e)[:200]}"}

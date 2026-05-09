@@ -21,7 +21,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
 
 import httpx
-from fastapi import BackgroundTasks, FastAPI, HTTPException
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Query
 from pydantic import BaseModel
 
 import analyzer
@@ -974,27 +974,41 @@ async def list_documents_endpoint(system_id: int | None = None):
 
 
 @app.get("/knowledge/documents/{file_hash}/chunks")
-async def get_document_chunks_endpoint(file_hash: str):
+async def get_document_chunks_endpoint(
+    file_hash: str,
+    chunk_indexes: list[int] | None = Query(default=None),
+):
     """
-    file_hash 기반 문서 청크 상세 조회 (point_id, text, metadata 포함).
+    file_hash 기반 문서 청크 조회 (point_id, text, metadata 포함, chunk_index 오름차순).
+    chunk_indexes 지정 시 해당 인덱스 청크만 반환 (예: ?chunk_indexes=2&chunk_indexes=4).
     Response: {"chunks": [{point_id, chunk_index, text, stored_at, ...}]}
     """
     try:
-        chunks = await knowledge_vector_client.get_document_chunks(file_hash)
+        chunks = await knowledge_vector_client.get_document_chunks(
+            file_hash, chunk_indexes=chunk_indexes,
+        )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"청크 조회 실패: {exc}")
     return {"chunks": chunks}
 
 
 @app.get("/knowledge/confluence/{page_id}/chunks")
-async def get_confluence_chunks_endpoint(page_id: str, max_chunks: int = 50):
+async def get_confluence_chunks_endpoint(
+    page_id: str,
+    chunk_indexes: list[int] | None = Query(default=None),
+    max_chunks: int = 50,
+):
     """
-    page_id 기반 Confluence 청크 상세 조회 (chunk_index 오름차순).
-    챗봇이 검색에서 부분 청크만 받고 전문이 필요할 때 호출.
+    page_id 기반 Confluence 청크 조회 (chunk_index 오름차순).
+    chunk_indexes 지정 시 해당 인덱스 청크만 반환.
     Response: {"page_id", "chunks": [{point_id, chunk_index, text, page_title, ...}]}
     """
     try:
-        chunks = await knowledge_vector_client.get_confluence_chunks(page_id, max_chunks=max_chunks)
+        chunks = await knowledge_vector_client.get_confluence_chunks(
+            page_id,
+            chunk_indexes=chunk_indexes,
+            max_chunks=max_chunks,
+        )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"청크 조회 실패: {exc}")
     return {"page_id": page_id, "chunks": chunks}

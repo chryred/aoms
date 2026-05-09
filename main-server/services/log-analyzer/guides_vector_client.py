@@ -286,19 +286,29 @@ async def delete_guide(guide_id: str) -> bool:
 
 # ── 전체 청크 조회 ───────────────────────────────────────────────────────────
 
-async def get_guide_chunks(guide_id: str, max_chunks: int = 50) -> list[dict]:
-    """guide_id의 모든 청크를 chunk_index 순서로 반환 (검색 limit 우회용).
+async def get_guide_chunks(
+    guide_id: str,
+    chunk_indexes: Optional[list[int]] = None,
+    max_chunks: int = 50,
+) -> list[dict]:
+    """guide_id의 청크를 chunk_index 순서로 반환.
 
-    검색에서 일부 청크만 노출됐을 때 LLM이 가이드 전문이 필요하다고 판단하면
-    호출. payload.guide_id 필터로 scroll 후 chunk_index 오름차순 정렬.
+    chunk_indexes가 주어지면 해당 인덱스 청크만 반환 (surgical fetch).
+    생략 시 모든 청크 반환 (full fetch, max_chunks 한도).
+
+    LLM 사용 흐름:
+      1. qdrant_search_guide 결과로 받은 chunk_index/total_chunks 비교
+      2. 빠진 부분만 chunk_indexes=[2,4,5]로 명시 → 컨텍스트 절약
+      3. 사용자가 "전부 보여줘"라면 chunk_indexes 생략
 
     Returns:
         list of {"id", "chunk_index", "total_chunks", "title", "content", "system_id", ...}
-        가이드 미존재 시 빈 리스트.
+        가이드/요청 인덱스 미존재 시 빈 리스트.
     """
-    filter_body: dict = {
-        "must": [{"key": "guide_id", "match": {"value": guide_id}}]
-    }
+    filter_must: list[dict] = [{"key": "guide_id", "match": {"value": guide_id}}]
+    if chunk_indexes:
+        filter_must.append({"key": "chunk_index", "match": {"any": list(chunk_indexes)}})
+    filter_body: dict = {"must": filter_must}
 
     all_points: list[dict] = []
     next_offset: str | int | None = None
