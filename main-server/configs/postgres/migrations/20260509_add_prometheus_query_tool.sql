@@ -7,7 +7,14 @@
 --  - admin-api: services/chat_tools/executors/prometheus.py 신규
 --  - admin-api: services/chat_tools/registry.py _EXECUTORS에 prometheus 등록
 --  - admin-api: services/prompts.py 트리거 추가
+--  - frontend: ChatToolsPage EXECUTOR_LABELS + types/chat.ts executor union 추가
 
+-- 1) chat_executor_configs: prometheus 그룹이 어드민 UI에 노출되도록 행 추가 (자격증명 없음)
+INSERT INTO chat_executor_configs (executor, config, config_schema)
+VALUES ('prometheus', '{}'::jsonb, '[]'::jsonb)
+ON CONFLICT (executor) DO NOTHING;
+
+-- 2) chat_tools 도구 등록
 INSERT INTO chat_tools (name, display_name, description, input_schema, executor)
 VALUES (
     'prometheus_query',

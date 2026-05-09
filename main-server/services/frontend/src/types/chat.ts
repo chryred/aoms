@@ -49,7 +49,7 @@ export interface ChatTool {
   name: string
   display_name: string
   description: string
-  executor: 'ems' | 'admin' | 'log_analyzer'
+  executor: 'ems' | 'admin' | 'log_analyzer' | 'qdrant' | 'prometheus'
   input_schema: Record<string, unknown>
   is_enabled: boolean
 }

@@ -18,6 +18,8 @@ const EXECUTOR_LABELS: Record<string, string> = {
   ems: 'EMS (서버 모니터링)',
   admin: 'Admin (시스템/알림)',
   log_analyzer: 'Log Analyzer (로그/집계)',
+  qdrant: 'Qdrant (벡터 검색)',
+  prometheus: 'Prometheus (Raw 메트릭)',
 }
 
 export default function ChatToolsPage() {

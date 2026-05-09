@@ -507,7 +507,8 @@ INSERT INTO chat_executor_configs (executor, config, config_schema) VALUES
      ]'::jsonb),
     ('admin', '{}'::jsonb, '[]'::jsonb),
     ('log_analyzer', '{}'::jsonb, '[]'::jsonb),
-    ('qdrant', '{}'::jsonb, '[]'::jsonb)
+    ('qdrant', '{}'::jsonb, '[]'::jsonb),
+    ('prometheus', '{}'::jsonb, '[]'::jsonb)
 ON CONFLICT (executor) DO NOTHING;
 
 -- chat_tools 시드 (EMS 9 + admin 3 + log_analyzer 2)
