@@ -137,6 +137,50 @@ def _ocr_image_blob(blob: bytes) -> str:
 
 # ── Confluence 페이지 (HTML or 텍스트) ─────────────────────────────────────────
 
+_MIN_SECTION_CHARS = 300  # 이 미만 섹션은 인접 섹션과 병합
+
+
+def _merge_short_sections(
+    sections: list[tuple[str, str]],
+    min_chars: int = _MIN_SECTION_CHARS,
+) -> list[tuple[str, str]]:
+    """300자 미만 섹션을 인접 섹션과 병합해 단독 포인트 생성 방지.
+
+    짧은 섹션은 다음 섹션 body 앞에 '## heading\\nbody' 형태로 이어붙인다.
+    첫 heading은 병합 체인 내내 유지 — 최종 포인트의 metadata.heading이 됨.
+    마지막 섹션이 짧으면 직전 확정 섹션 뒤에 붙인다 (뒤로 병합).
+    """
+    if not sections:
+        return sections
+
+    result: list[tuple[str, str]] = []
+    acc_heading, acc_body = sections[0]
+
+    for heading, body in sections[1:]:
+        if len(acc_body) < min_chars:
+            # acc 섹션이 짧으면 현재 섹션을 acc에 흡수
+            if heading:
+                acc_body = f"{acc_body}\n\n## {heading}\n{body}".strip()
+            else:
+                acc_body = f"{acc_body}\n\n{body}".strip()
+            # acc_heading은 체인의 첫 heading 유지
+        else:
+            result.append((acc_heading, acc_body))
+            acc_heading, acc_body = heading, body
+
+    # 마지막 acc 처리
+    if acc_body:
+        if result and len(acc_body) < min_chars:
+            # 마지막 섹션이 짧으면 직전 확정 섹션 뒤에 붙임
+            prev_h, prev_b = result.pop()
+            suffix = f"## {acc_heading}\n{acc_body}" if acc_heading else acc_body
+            result.append((prev_h, f"{prev_b}\n\n{suffix}".strip()))
+        else:
+            result.append((acc_heading, acc_body))
+
+    return result
+
+
 _TABLE_CELL = {"td", "th"}
 _TEXT_BLOCK = {"p", "li", "pre", "blockquote", "h1", "h4", "h5", "h6"}
 _SECTION_BREAK = {"h2", "h3"}
@@ -256,6 +300,9 @@ def chunk_confluence_page(
     if not sections:
         plain = soup.get_text(separator="\n", strip=True)
         return chunk_text(plain, base_metadata=base_meta)
+
+    # 300자 미만 짧은 섹션을 인접 섹션과 병합 — 한 줄짜리 단독 포인트 방지
+    sections = _merge_short_sections(sections)
 
     chunks: list[dict] = []
     chunk_index = 0

@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import chunking  # noqa: E402
 from chunking import (  # noqa: E402
     _find_break_point,
+    _merge_short_sections,
     chunk_confluence_page,
     chunk_docx,
     chunk_pdf,
@@ -90,7 +91,7 @@ def test_find_break_point_no_boundary():
 # ── chunk_confluence_page ─────────────────────────────────────────────────────
 
 def test_chunk_confluence_page_html_with_h2_h3():
-    """H2/H3 경계로 섹션 분할되는지 검증."""
+    """H2/H3 섹션 분할 + 짧은 섹션 병합 후 모든 내용이 보존되는지 검증."""
     html = """
     <html><body>
       <h1>전체 제목</h1>
@@ -107,19 +108,87 @@ def test_chunk_confluence_page_html_with_h2_h3():
     chunks = chunk_confluence_page(
         html, page_id="123", page_title="테스트 페이지", space="DOC"
     )
-    # 인트로 + 섹션1 + 섹션2 + 섹션2-1 = 최소 3개 이상
-    assert len(chunks) >= 3
+    # 단편 섹션이 많아 병합되므로 청크 수는 1 이상이면 충분
+    assert len(chunks) >= 1
     # 모든 청크가 공통 메타 보존
     for c in chunks:
         assert c["metadata"]["source_type"] == "confluence"
         assert c["metadata"]["page_id"] == "123"
         assert c["metadata"]["page_title"] == "테스트 페이지"
         assert c["metadata"]["space"] == "DOC"
-    # 헤딩이 메타에 들어갔는지
-    headings = {c["metadata"].get("heading") for c in chunks if c["metadata"].get("heading")}
-    assert "섹션 1" in headings
-    assert "섹션 2" in headings
-    assert "섹션 2-1" in headings
+    # 모든 본문이 어느 청크에든 포함됨
+    all_text = "\n".join(c["text"] for c in chunks)
+    assert "인트로 단락" in all_text
+    assert "섹션 1 본문 첫 단락" in all_text
+    assert "섹션 2 본문" in all_text
+    assert "하위 섹션 본문" in all_text
+
+
+def test_merge_short_sections_forward():
+    """짧은 앞 섹션이 다음 섹션에 병합되는지 검증."""
+    sections = [
+        ("작업 절차", "1단계: 서버 점검"),       # 10자 < 300
+        ("주의사항", "점검 전 공지 필수"),         # 9자 < 300
+        ("담당자", "홍길동" * 100),               # 300자 이상
+    ]
+    result = _merge_short_sections(sections, min_chars=300)
+    assert len(result) == 1
+    h, body = result[0]
+    assert h == "작업 절차"           # 체인의 첫 heading 유지
+    assert "1단계: 서버 점검" in body
+    assert "## 주의사항" in body
+    assert "점검 전 공지 필수" in body
+    assert "## 담당자" in body
+    assert "홍길동" in body
+
+
+def test_merge_short_sections_last_backward():
+    """마지막 섹션이 짧으면 직전 섹션 뒤에 붙는지 검증."""
+    long_body = "내용" * 200   # 400자 ≥ 300
+    sections = [
+        ("본문 섹션", long_body),
+        ("짧은 마지막", "한 줄"),   # 3자 < 300
+    ]
+    result = _merge_short_sections(sections, min_chars=300)
+    assert len(result) == 1
+    h, body = result[0]
+    assert h == "본문 섹션"
+    assert long_body in body
+    assert "## 짧은 마지막" in body
+    assert "한 줄" in body
+
+
+def test_merge_short_sections_long_sections_unchanged():
+    """충분히 긴 섹션은 병합 없이 그대로 유지."""
+    long_body = "내용" * 200   # 400자 ≥ 300
+    sections = [
+        ("섹션 A", long_body),
+        ("섹션 B", long_body),
+        ("섹션 C", long_body),
+    ]
+    result = _merge_short_sections(sections, min_chars=300)
+    assert len(result) == 3
+    assert result[0][0] == "섹션 A"
+    assert result[1][0] == "섹션 B"
+    assert result[2][0] == "섹션 C"
+
+
+def test_chunk_confluence_page_short_sections_merged():
+    """한 줄짜리 섹션들이 병합되어 포인트 수가 줄어드는지 검증."""
+    html = (
+        "<body>"
+        "<h2>작업 절차</h2><p>1단계: 서버 점검</p>"
+        "<h2>주의사항</h2><p>점검 전 공지 필수</p>"
+        "<h2>본문</h2><p>" + ("내용" * 200) + "</p>"  # 긴 섹션
+        "</body>"
+    )
+    chunks = chunk_confluence_page(html, page_id="p1", page_title="가이드")
+    # 짧은 두 섹션이 긴 섹션에 병합되어 1개 포인트여야 함
+    assert len(chunks) == 1
+    body = chunks[0]["text"]
+    assert "1단계: 서버 점검" in body
+    assert "점검 전 공지 필수" in body
+    assert "내용" in body
 
 
 def test_chunk_confluence_page_plain_text():
