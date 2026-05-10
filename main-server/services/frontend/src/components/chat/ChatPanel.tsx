@@ -14,7 +14,8 @@ import { useSystems } from '@/hooks/queries/useSystems'
 import { qk } from '@/constants/queryKeys'
 import type { ChatMessage, ChatStreamEvent, MessageImage, ScreenContext } from '@/types/chat'
 import { cn } from '@/lib/utils'
-import { SCREEN_PROMPTS } from '@/config/chatPrompts'
+import { getContextualPrompts } from '@/config/chatPrompts'
+import { useIncidentNextAction } from '@/hooks/queries/useIncidentNextAction'
 import { ChatComposer } from './ChatComposer'
 import { ChatHeader } from './ChatHeader'
 import { ChatMessageView, StreamingAssistantMessage } from './ChatMessage'
@@ -42,6 +43,10 @@ export function ChatPanel() {
 
   // 패널이 열릴 때 1회 소비하여 로컬 state에 보관
   const [latestScreenContext, setLatestScreenContext] = useState<ScreenContext | null>(null)
+
+  // Feature 5C-1: 인시던트 컨텍스트가 있을 때 next_action_meta 조회 → status별 prompt chip
+  const { data: nextActionMeta } = useIncidentNextAction(latestScreenContext?.incident_id)
+  const incidentStatus = nextActionMeta?.status ?? null
 
   const { data: systems = [] } = useSystems()
 
@@ -425,34 +430,46 @@ export function ChatPanel() {
                 어떤 도움이 필요하신가요?
               </p>
 
-              {/* 화면별 quick prompt chips */}
-              {latestScreenContext?.screen && SCREEN_PROMPTS[latestScreenContext.screen] && (
-                <div className="mb-3">
-                  {latestScreenContext.screen_label && (
-                    <p className="text-text-secondary mb-1.5 text-[11px]">
-                      현재 화면: {latestScreenContext.screen_label}
-                    </p>
-                  )}
-                  <div className="flex flex-wrap gap-1.5">
-                    {SCREEN_PROMPTS[latestScreenContext.screen].map((chip) => (
-                      <button
-                        key={chip}
-                        type="button"
-                        onClick={() => setRestoreValue({ content: chip, nonce: Date.now() })}
-                        disabled={isStreaming || !currentSessionId}
-                        className={cn(
-                          'border-border rounded-sm border px-2.5 py-1 text-left text-xs transition-colors',
-                          'text-text-secondary hover:bg-accent-muted hover:border-accent hover:text-text-primary',
-                          'focus:ring-accent focus:ring-1 focus:outline-none',
-                          'disabled:cursor-not-allowed disabled:opacity-40',
+              {/* 화면별 / 인시던트 status별 quick prompt chips */}
+              {(() => {
+                const contextualChips = getContextualPrompts(
+                  latestScreenContext?.screen,
+                  incidentStatus,
+                )
+                if (!latestScreenContext?.screen || contextualChips.length === 0) return null
+                return (
+                  <div className="mb-3">
+                    {latestScreenContext.screen_label && (
+                      <p className="text-text-secondary mb-1.5 text-[11px]">
+                        현재 화면: {latestScreenContext.screen_label}
+                        {nextActionMeta && (
+                          <span className="text-accent ml-2">
+                            · 인시던트: {nextActionMeta.status_ko} ({nextActionMeta.progress_pct}%)
+                          </span>
                         )}
-                      >
-                        {chip}
-                      </button>
-                    ))}
+                      </p>
+                    )}
+                    <div className="flex flex-wrap gap-1.5">
+                      {contextualChips.map((chip) => (
+                        <button
+                          key={chip}
+                          type="button"
+                          onClick={() => setRestoreValue({ content: chip, nonce: Date.now() })}
+                          disabled={isStreaming || !currentSessionId}
+                          className={cn(
+                            'border-border rounded-sm border px-2.5 py-1 text-left text-xs transition-colors',
+                            'text-text-secondary hover:bg-accent-muted hover:border-accent hover:text-text-primary',
+                            'focus:ring-accent focus:ring-1 focus:outline-none',
+                            'disabled:cursor-not-allowed disabled:opacity-40',
+                          )}
+                        >
+                          {chip}
+                        </button>
+                      ))}
+                    </div>
                   </div>
-                </div>
-              )}
+                )
+              })()}
 
               <div className="space-y-3">
                 {promptCategories.map((group) => (
