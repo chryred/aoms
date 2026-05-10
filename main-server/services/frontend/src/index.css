@@ -101,21 +101,21 @@
   /* 시맨틱: 위험 */
   --t-critical: #ef4444;
   --t-critical-text: #f87171;
-  --t-critical-bg: rgba(239, 68, 68, 0.12);
+  --t-critical-bg: rgba(239, 68, 68, 0.2);
   --t-critical-border: rgba(239, 68, 68, 0.25);
   --t-critical-card-bg: rgba(239, 68, 68, 0.06);
 
   /* 시맨틱: 경고 */
   --t-warning: #f59e0b;
   --t-warning-text: #fcd34d;
-  --t-warning-bg: rgba(245, 158, 11, 0.12);
+  --t-warning-bg: rgba(245, 158, 11, 0.2);
   --t-warning-border: rgba(245, 158, 11, 0.25);
   --t-warning-card-bg: rgba(245, 158, 11, 0.04);
 
   /* 시맨틱: 정상 */
   --t-normal: #22c55e;
   --t-normal-text: #4ade80;
-  --t-normal-bg: rgba(34, 197, 94, 0.12);
+  --t-normal-bg: rgba(34, 197, 94, 0.2);
   --t-normal-border: rgba(34, 197, 94, 0.25);
 
   /* 시맨틱: 정보(뱃지 muted) */
@@ -125,21 +125,21 @@
   /* 시맨틱: 메트릭 알림(blue) — severity 아님, 기능 분류 */
   --t-metric-alert: #3b82f6;
   --t-metric-alert-text: #60a5fa;
-  --t-metric-alert-bg: rgba(59, 130, 246, 0.12);
+  --t-metric-alert-bg: rgba(59, 130, 246, 0.2);
   --t-metric-alert-border: rgba(59, 130, 246, 0.25);
   --t-metric-alert-card-bg: rgba(59, 130, 246, 0.04);
 
   /* 시맨틱: 예방 패턴(teal) */
   --t-proactive: #14b8a6;
   --t-proactive-text: #2dd4bf;
-  --t-proactive-bg: rgba(20, 184, 166, 0.12);
+  --t-proactive-bg: rgba(20, 184, 166, 0.2);
   --t-proactive-border: rgba(20, 184, 166, 0.25);
   --t-proactive-card-bg: rgba(20, 184, 166, 0.04);
 
   /* 시맨틱: 에이전트 수집(sky) */
   --t-agent-collect: #7dd3fc;
   --t-agent-collect-text: #7dd3fc;
-  --t-agent-collect-bg: rgba(125, 211, 252, 0.12);
+  --t-agent-collect-bg: rgba(125, 211, 252, 0.2);
   --t-agent-collect-border: rgba(125, 211, 252, 0.25);
   --t-agent-collect-card-bg: rgba(125, 211, 252, 0.04);
 
@@ -207,21 +207,21 @@
   /* 시맨틱: 위험 */
   --t-critical: #dc2626;
   --t-critical-text: #b91c1c;
-  --t-critical-bg: rgba(220, 38, 38, 0.1);
+  --t-critical-bg: rgba(220, 38, 38, 0.2);
   --t-critical-border: rgba(220, 38, 38, 0.25);
   --t-critical-card-bg: rgba(220, 38, 38, 0.05);
 
   /* 시맨틱: 경고 */
   --t-warning: #d97706;
   --t-warning-text: #92400e;
-  --t-warning-bg: rgba(245, 158, 11, 0.12);
+  --t-warning-bg: rgba(245, 158, 11, 0.2);
   --t-warning-border: rgba(245, 158, 11, 0.28);
   --t-warning-card-bg: rgba(245, 158, 11, 0.05);
 
   /* 시맨틱: 정상 */
   --t-normal: #10b981;
   --t-normal-text: #059669;
-  --t-normal-bg: rgba(16, 185, 129, 0.08);
+  --t-normal-bg: rgba(16, 185, 129, 0.2);
   --t-normal-border: rgba(16, 185, 129, 0.2);
 
   /* 시맨틱: 정보(뱃지 muted) */
@@ -231,21 +231,21 @@
   /* 시맨틱: 메트릭 알림(blue) — light */
   --t-metric-alert: #2563eb;
   --t-metric-alert-text: #1d4ed8;
-  --t-metric-alert-bg: rgba(37, 99, 235, 0.08);
+  --t-metric-alert-bg: rgba(37, 99, 235, 0.2);
   --t-metric-alert-border: rgba(37, 99, 235, 0.2);
   --t-metric-alert-card-bg: rgba(37, 99, 235, 0.04);
 
   /* 시맨틱: 예방 패턴 — light */
   --t-proactive: #0d9488;
   --t-proactive-text: #0f766e;
-  --t-proactive-bg: rgba(13, 148, 136, 0.08);
+  --t-proactive-bg: rgba(13, 148, 136, 0.2);
   --t-proactive-border: rgba(13, 148, 136, 0.2);
   --t-proactive-card-bg: rgba(13, 148, 136, 0.04);
 
   /* 시맨틱: 에이전트 수집 — light */
   --t-agent-collect: #0284c7;
   --t-agent-collect-text: #0369a1;
-  --t-agent-collect-bg: rgba(2, 132, 199, 0.08);
+  --t-agent-collect-bg: rgba(2, 132, 199, 0.2);
   --t-agent-collect-border: rgba(2, 132, 199, 0.2);
   --t-agent-collect-card-bg: rgba(2, 132, 199, 0.04);
 

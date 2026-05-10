@@ -17,7 +17,12 @@ import type { IncidentStatus } from '@/api/incidents'
 export const INCIDENT_STATUS_PROMPTS: Record<IncidentStatus, string[]> = {
   open: ['이 인시던트 영향 범위 분석', '관련 알림 정리해줘', '담당자 누구야?'],
   acknowledged: ['비슷한 사례 찾아줘', '체크해야 할 메트릭은?', '관련 운영 가이드 보여줘'],
-  investigating: ['근본 원인 추정', '관련 LLM 분석 결과', '이 시스템 최근 패턴', '비슷한 사후분석 사례'],
+  investigating: [
+    '근본 원인 추정',
+    '관련 LLM 분석 결과',
+    '이 시스템 최근 패턴',
+    '비슷한 사후분석 사례',
+  ],
   resolved: ['사후분석 초안 작성', '이 해결책 가이드로 저장', '비슷한 재발 사례 있나?'],
   closed: ['이 사건 요약 정리해줘', '교훈을 가이드로 저장'],
 }

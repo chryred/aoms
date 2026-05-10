@@ -65,10 +65,12 @@ function MttrLabel({
   label,
   title,
   minutes,
+  pending,
 }: {
   label: string
   title: string
   minutes: number | null
+  pending?: boolean
 }) {
   const formatted = (() => {
     if (minutes === null) return '—'
@@ -81,14 +83,20 @@ function MttrLabel({
       <abbr className="text-text-secondary text-xs no-underline" title={title}>
         {label}
       </abbr>
-      <span
-        className={cn(
-          'text-sm font-medium tabular-nums',
-          minutes === null ? 'text-text-disabled' : 'text-text-primary',
-        )}
-      >
-        {formatted}
-      </span>
+      {pending && minutes === null ? (
+        <span className="text-text-disabled text-sm italic" aria-label="아직 해결되지 않았습니다">
+          미해결
+        </span>
+      ) : (
+        <span
+          className={cn(
+            'text-sm font-medium tabular-nums',
+            minutes === null ? 'text-text-disabled' : 'text-text-primary',
+          )}
+        >
+          {formatted}
+        </span>
+      )}
     </div>
   )
 }
@@ -200,10 +208,7 @@ export function IncidentDetailPage() {
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
           <div className="flex items-center gap-3">
             <SeverityBadge severity={incident.severity} size="md" />
-            <span aria-hidden="true" className="text-text-disabled">
-              ·
-            </span>
-            <span className="text-text-primary text-sm font-medium whitespace-nowrap">
+            <span className="bg-surface text-text-primary border-border rounded-sm border px-2 py-0.5 text-xs font-medium whitespace-nowrap">
               {INCIDENT_STATUS_LABELS[incident.status] ?? incident.status}
             </span>
             {incident.system_display_name && (
@@ -217,7 +222,7 @@ export function IncidentDetailPage() {
               </>
             )}
             {incident.recurrence_of && (
-              <span className="bg-warning/15 border-warning/30 text-warning rounded-full border px-2 py-0.5 text-xs whitespace-nowrap">
+              <span className="bg-warning-bg border-warning-border text-warning-text rounded-full border px-2 py-0.5 text-xs whitespace-nowrap">
                 재발 (#{incident.recurrence_of})
               </span>
             )}
@@ -231,7 +236,7 @@ export function IncidentDetailPage() {
             {nextActions.map((action, idx) => (
               <NeuButton
                 key={action.value}
-                size="sm"
+                size="md"
                 variant={idx === 0 ? 'primary' : 'ghost'}
                 onClick={() => handleStatusChange(action.value)}
                 disabled={updateMut.isPending}
@@ -288,11 +293,13 @@ export function IncidentDetailPage() {
                   label="MTTA"
                   title="감지 → 확인 처리까지 소요 시간"
                   minutes={incident.mtta_minutes}
+                  pending={incident.acknowledged_at == null}
                 />
                 <MttrLabel
                   label="MTTR"
                   title="감지 → 해결 완료까지 소요 시간"
                   minutes={incident.mttr_minutes}
+                  pending={incident.resolved_at == null}
                 />
               </div>
             </div>
@@ -380,7 +387,6 @@ export function IncidentDetailPage() {
                 <div className="space-y-3">
                   {/* AI 도우미 액션 바 — 흐름: 분석 → 저장 → 요약 */}
                   <div className="bg-surface border-border flex flex-wrap items-center gap-2 rounded-sm border px-3 py-2">
-                    <span className="text-text-secondary mr-1 text-xs">AI 도우미:</span>
                     {confirmAnalyze ? (
                       <>
                         <span role="alert" className="text-warning text-xs whitespace-nowrap">
@@ -423,7 +429,7 @@ export function IncidentDetailPage() {
                         요약 보고서
                       </NeuButton>
                     )}
-                    <span className="text-text-disabled ml-auto text-[11px]">
+                    <span className="text-text-disabled ml-auto text-xs">
                       분석 → 저장 → 요약 순으로 활용하세요
                     </span>
                   </div>
@@ -538,15 +544,9 @@ export function IncidentDetailPage() {
                     className="hover:bg-surface focus:ring-accent focus:bg-surface flex w-full items-start gap-3 px-4 py-2.5 text-left transition-colors focus:ring-1 focus:outline-none"
                     aria-label={`알림 ${alert.id} 상세 열기`}
                   >
-                    <span
-                      className={cn(
-                        'mt-0.5 shrink-0 text-xs font-semibold uppercase',
-                        alert.severity === 'critical' ? 'text-critical' : 'text-warning',
-                      )}
-                      aria-label={`심각도: ${alert.severity}`}
-                    >
-                      {alert.severity}
-                    </span>
+                    <div className="mt-0.5 shrink-0">
+                      <SeverityBadge severity={alert.severity} size="sm" />
+                    </div>
                     <div className="min-w-0 flex-1">
                       <p className="text-text-primary line-clamp-1 text-sm">{alert.title}</p>
                       {alert.instance_role && (

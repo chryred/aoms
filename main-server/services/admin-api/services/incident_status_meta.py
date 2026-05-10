@@ -26,10 +26,10 @@ INCIDENT_PROGRESS: dict[str, int] = {
 
 
 INCIDENT_NEXT_ACTION: dict[str, str] = {
-    "open": "담당자 호출 + 인시던트 acknowledge 처리. 영향 범위 1차 파악.",
-    "acknowledged": "원인 조사 시작. status를 investigating으로 전환.",
-    "investigating": "근본 원인 확정 + resolution 작성. 조치 완료 시 resolved 처리.",
-    "resolved": "사후분석(postmortem) 작성. 문제 재발 방지 대책 수립 후 close.",
+    "open": "담당자 호출 + 인시던트 확인 처리. 영향 범위 1차 파악.",
+    "acknowledged": "원인 조사 시작. 상태를 원인 파악 중으로 전환.",
+    "investigating": "근본 원인 확정 + 조치 내용 작성. 조치 완료 시 해결 처리.",
+    "resolved": "사후 분석 작성. 문제 재발 방지 대책 수립 후 종결.",
     "closed": "종결됨. 추가 액션 불필요.",
 }
 

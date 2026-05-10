@@ -41,22 +41,32 @@ export function NextActionCard({ meta, className }: NextActionCardProps) {
         <Icon className={cn('h-5 w-5 shrink-0', tone.iconClass)} aria-hidden="true" />
         <div className="flex-1">
           <div className="text-text-primary text-sm font-semibold">현재 단계: {meta.status_ko}</div>
-          <div className="text-text-secondary text-[11px]">진행률 {pct}%</div>
+          <div className="text-text-secondary text-xs">진행률 {pct}%</div>
         </div>
       </div>
 
       {/* 진행률 바 (뉴모피즘 inset 트랙 + 컬러 fill) */}
-      <div className="bg-bg-deep shadow-neu-inset mb-3 h-1.5 w-full overflow-hidden rounded-sm">
+      <div
+        className="bg-bg-deep shadow-neu-inset mb-3 h-1.5 w-full overflow-hidden rounded-sm"
+        role="progressbar"
+        aria-valuenow={pct}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-label={`인시던트 진행률 ${pct}퍼센트, 현재 단계 ${meta.status_ko}`}
+      >
         <div
-          className={cn('h-full transition-[width] duration-300 ease-out', tone.barClass)}
-          style={{ width: `${pct}%` }}
+          className={cn(
+            'h-full w-full origin-left transition-transform duration-300 ease-out',
+            tone.barClass,
+          )}
+          style={{ transform: `scaleX(${pct / 100})`, transformOrigin: 'left' }}
           aria-hidden="true"
         />
       </div>
 
       {/* 권장 액션 본문 */}
       <div className="border-border border-t pt-3">
-        <div className="text-text-secondary mb-1 flex items-center gap-1 text-[11px] tracking-wide uppercase">
+        <div className="text-text-secondary mb-1 flex items-center gap-1 text-xs tracking-wide uppercase">
           <FileText className="h-3 w-3" aria-hidden="true" />
           <span>다음 권장 액션</span>
         </div>

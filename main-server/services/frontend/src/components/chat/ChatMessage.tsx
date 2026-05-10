@@ -79,7 +79,8 @@ const markdownComponents: Components = {
   em: ({ children }) => <em className="italic">{children}</em>,
   pre: ({ children }) => {
     const codeEl = Array.isArray(children) ? children[0] : children
-    const props = (codeEl as { props?: { className?: string; children?: React.ReactNode } })?.props ?? {}
+    const props =
+      (codeEl as { props?: { className?: string; children?: React.ReactNode } })?.props ?? {}
     const language = (props.className ?? '').replace(/^language-/, '')
     const codeContent = props.children ?? ''
     return <CodeBlock language={language}>{codeContent}</CodeBlock>

@@ -678,7 +678,7 @@ class TestAdminGetIncidentContext:
         assert isinstance(inc_data["mttr_minutes"], int)
         # mttr ≈ 120분 (3h - 1h = 2h = 120m)
         assert inc_data["mttr_minutes"] == pytest.approx(120, abs=2)
-        assert "사후분석" in result["next_action"]
+        assert "사후 분석" in result["next_action"]
 
     @pytest.mark.asyncio
     async def test_closed_status(self, db_session):

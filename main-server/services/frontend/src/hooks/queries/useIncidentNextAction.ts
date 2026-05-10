@@ -6,9 +6,10 @@ import type { NextActionMeta } from '@/api/incidents'
  * useIncident와 동일한 query key를 사용하므로 IncidentDetailPage가 열려 있으면 dedupe됨.
  * Feature 5C-1 선제적 통찰 — status별 추천 prompt chip 표시용.
  */
-export function useIncidentNextAction(
-  incidentId: string | null | undefined,
-): { data: NextActionMeta | null; isLoading: boolean } {
+export function useIncidentNextAction(incidentId: string | null | undefined): {
+  data: NextActionMeta | null
+  isLoading: boolean
+} {
   const id = incidentId ? Number(incidentId) : 0
   const query = useIncident(id)
   return {
