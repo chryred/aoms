@@ -287,6 +287,11 @@ export function ChatPage() {
                     <MessageSquare className="h-3.5 w-3.5 shrink-0" />
                     <div className="min-w-0 flex-1">
                       <div className="truncate">{session.title || '새 대화'}</div>
+                      {session.matched_in === 'message' && session.match_preview && (
+                        <div className="text-text-secondary mt-0.5 truncate text-[11px]">
+                          💬 {session.match_preview}
+                        </div>
+                      )}
                       <div
                         className={cn(
                           'truncate text-[10px]',

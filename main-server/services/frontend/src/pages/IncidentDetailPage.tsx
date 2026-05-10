@@ -252,14 +252,12 @@ export function IncidentDetailPage() {
         </div>
       </NeuCard>
 
-      {/* 다음 액션 가이드 카드 (Feature 5B) */}
-      {incident.next_action_meta && (
-        <NextActionCard meta={incident.next_action_meta} className="mb-0" />
-      )}
-
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         {/* 좌측: 상세 정보 */}
         <div className="space-y-4 lg:col-span-2">
+          {/* 다음 액션 가이드 카드 (Feature 5B) */}
+          {incident.next_action_meta && <NextActionCard meta={incident.next_action_meta} />}
+
           {/* 시각 정보 */}
           <NeuCard>
             <h3 className="text-text-secondary mb-3 text-xs font-semibold tracking-wider uppercase">
@@ -586,7 +584,7 @@ export function IncidentDetailPage() {
                   className="bg-border absolute top-2 bottom-2 left-[11px] w-px"
                 />
                 {incident.timeline.map((item: IncidentTimelineItem) => (
-                  <li key={item.id} className="relative flex gap-3 pb-3 last:pb-0">
+                  <li key={item.id} className="relative flex gap-3 pb-4 last:pb-0">
                     <div className="bg-surface border-border relative z-10 flex h-6 w-6 shrink-0 items-center justify-center rounded-full border">
                       {EVENT_ICONS[item.event_type] ?? (
                         <Clock className="text-text-disabled h-3 w-3" />

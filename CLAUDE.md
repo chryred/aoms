@@ -23,9 +23,9 @@
 ## Quick Reference — 항상 알아야 할 핵심
 
 ### 서비스 구성 (Server A)
-- **admin-api** (8080): FastAPI. 시스템/담당자 관리, 알림 수신, Teams 발송
+- **admin-api** (8080): FastAPI. 시스템/담당자 관리, 알림 수신, Teams 발송, 챗봇 ReAct 오케스트레이션 (47개 도구)
 - **log-analyzer** (8000): FastAPI. Prometheus `log_error_total` 조회 → LLM 분석 → admin-api 전송. 내부 스케줄러가 모든 주기 작업(과거 n8n WF1/WF6~WF11) 처리
-- **frontend** (3001): React + Vite + TailwindCSS, 뉴모피즘 디자인 시스템
+- **frontend** (3001): React + Vite + TailwindCSS, 뉴모피즘 디자인 시스템. 챗봇 패널 + 인시던트 NextActionCard + 자동 통찰 ✨ 버튼 (Feature 5C)
 - **PostgreSQL** (5432), **Prometheus** (9090), **Alertmanager** (9093), **Grafana** (3000, 운영)
 - **n8n** (5678): 현재 미사용. 컨테이너만 예비 유지(WF4 일일 리포트 / WF5 에스컬레이션은 향후 log-analyzer 이관 예정으로 `main-server/n8n-workflows/`에 JSON만 보존)
 

@@ -1006,3 +1006,79 @@ class TestAutoInsightEndpoint:
             json={"incident_id": 1},
         )
         assert resp.status_code == 401
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# F) _shift_window_kst / _detect_current_shift — night wrap-around 자동 테스트
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestShiftWindowNightWrapAround:
+    """_shift_window_kst night 케이스 — 22:00 → 익일 06:00 spanning 검증."""
+
+    def test_night_window_spans_next_day(self):
+        """night 창은 target_date 22:00 KST 에서 시작해 target_date+1 06:00 KST 에 끝남 (8시간)."""
+        from datetime import date, timedelta, timezone
+        from services.chat_tools.executors.admin import _shift_window_kst
+
+        target = date(2026, 5, 10)
+        start, end = _shift_window_kst(target, "night")
+
+        kst = timezone(timedelta(hours=9))
+
+        # 시작은 target_date 22:00 KST
+        assert start.date() == target
+        assert start.hour == 22
+        # 끝은 target_date+1 06:00 KST
+        assert end.date() == target + timedelta(days=1)
+        assert end.hour == 6
+        # 총 8시간
+        assert (end - start).total_seconds() == 8 * 3600
+        # 양쪽 모두 KST tz
+        assert start.tzinfo == kst
+        assert end.tzinfo == kst
+
+    def test_morning_window_same_day(self):
+        """morning 창: target_date 06:00 ~ 14:00 KST, 8시간, 같은 날."""
+        from datetime import date
+        from services.chat_tools.executors.admin import _shift_window_kst
+
+        target = date(2026, 5, 10)
+        start, end = _shift_window_kst(target, "morning")
+
+        assert start.date() == target and end.date() == target
+        assert start.hour == 6 and end.hour == 14
+        assert (end - start).total_seconds() == 8 * 3600
+
+    def test_afternoon_window_same_day(self):
+        """afternoon 창: target_date 14:00 ~ 22:00 KST, 8시간, 같은 날."""
+        from datetime import date
+        from services.chat_tools.executors.admin import _shift_window_kst
+
+        target = date(2026, 5, 10)
+        start, end = _shift_window_kst(target, "afternoon")
+
+        assert start.date() == target and end.date() == target
+        assert start.hour == 14 and end.hour == 22
+        assert (end - start).total_seconds() == 8 * 3600
+
+    def test_detect_current_shift_at_dawn(self):
+        """_detect_current_shift — 각 경계 시각별 교대 판정 검증."""
+        from datetime import datetime, timedelta, timezone
+        from services.chat_tools.executors.admin import _detect_current_shift
+
+        kst = timezone(timedelta(hours=9))
+
+        # 새벽 3시 → night (전날 야간 교대)
+        assert _detect_current_shift(datetime(2026, 5, 10, 3, 0, tzinfo=kst)) == "night"
+        # 06:00 정각 → morning
+        assert _detect_current_shift(datetime(2026, 5, 10, 6, 0, tzinfo=kst)) == "morning"
+        # 13:59 → morning
+        assert _detect_current_shift(datetime(2026, 5, 10, 13, 59, tzinfo=kst)) == "morning"
+        # 14:00 정각 → afternoon
+        assert _detect_current_shift(datetime(2026, 5, 10, 14, 0, tzinfo=kst)) == "afternoon"
+        # 21:59 → afternoon
+        assert _detect_current_shift(datetime(2026, 5, 10, 21, 59, tzinfo=kst)) == "afternoon"
+        # 22:00 정각 → night
+        assert _detect_current_shift(datetime(2026, 5, 10, 22, 0, tzinfo=kst)) == "night"
+        # 23:59 → night
+        assert _detect_current_shift(datetime(2026, 5, 10, 23, 59, tzinfo=kst)) == "night"

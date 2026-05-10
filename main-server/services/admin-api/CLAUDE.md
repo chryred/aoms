@@ -396,9 +396,14 @@ DB 변경: `chat_sessions.user_id` nullable, `visitor_employee_id/email/system_i
 ### 챗봇 ReAct 루프 요약
 - LLM(`llm_client.py`의 `chat_assistant` area)이 JSON 응답으로 action/final_answer 결정 → `run_tool()`로 도구 실행
 - 대화·도구 이력은 `chat_messages`(user/assistant/tool) 테이블에 저장하고, 매 턴마다 최근 20턴을 프롬프트에 재주입
+- **선제적 통찰 (Feature 5C-2)**: `POST /api/v1/chat/sessions/{id}/auto-insight` — 사용자 메시지 없이 인시던트 자동 분석. `prompts.build_auto_insight_seed(incident_id)`가 user_message를 자동 생성하고 기존 `run_react_stream` 재사용. SSE 첫 이벤트로 `auto_insight_start` emit. 프론트엔드는 빈 챗봇 화면의 ✨ 버튼으로 트리거 (incident_id 있을 때만 노출).
 - 도구 그룹:
   - `ems`: ems-mcp 9개 (Polestar 서버 모니터링). 자격증명은 `chat_executor_configs.ems` 에서 로드 (60s TTL 캐시)
-  - `admin`: `admin_list_systems` / `admin_search_alert_history` / `admin_list_contacts` (DB 직접 조회)
+  - `admin`: DB 직접 조회 + 시스템 액션 도구 8종.
+    - 조회: `admin_list_systems` / `admin_search_alert_history` / `admin_list_contacts`
+    - 컨텍스트: `admin_get_incident_context` (incident_id의 종합 컨텍스트 — status/MTTA/MTTR/연결 알림/타임라인/`next_action_meta`. 화면 컨텍스트에 incident_id 있으면 첫 도구로 자동 호출, Feature 5A)
+    - 액션·내보내기: `admin_save_guide` (대화 해결책을 knowledge_guides Qdrant 인덱싱), `admin_create_feedback` (alert_feedback INSERT, status=pending — 인시던트 resolved/closed에서만), `export_chat_markdown` (현재 세션 markdown 내보내기 — `_session_id` 자동 주입), `generate_shift_handoff` (KST morning/afternoon/night 인수인계 보고서 자동 생성)
+    - 공통 헬퍼: `services/incident_status_meta.py` — `INCIDENT_STATUS_KO`/`INCIDENT_PROGRESS`/`INCIDENT_NEXT_ACTION` + `status_meta()`. `_get_incident_context` 와 `routes/incidents.py GET /{id}` 응답이 동시 사용 (DRY)
   - `log_analyzer`: 최근 LLM 로그 분석 조회 + log-analyzer HTTP 프록시
   - `qdrant` (ADR-011 RAG): 검색(Search) 6종 + 전문 조회(Get-Full) 3종.
     - 검색: `qdrant_search_incident_knowledge` (log_incidents + metric_baselines Hybrid) / `qdrant_search_aggregation_summary` (aggregation_summaries Hybrid) / `qdrant_search_hourly_patterns` (metric_hourly_patterns Hybrid) / `qdrant_search_incident_postmortem` (incident_postmortems Hybrid) / `qdrant_search_knowledge` (V1 knowledge federated — log-analyzer `/knowledge/search`) / `qdrant_search_guide` (knowledge_guides Hybrid — log-analyzer `/guides/search`, system_id 필터 + NULL 공용 가이드 OR)

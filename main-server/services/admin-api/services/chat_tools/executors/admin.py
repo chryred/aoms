@@ -441,7 +441,7 @@ async def _save_guide(db: AsyncSession, args: dict[str, Any]) -> dict[str, Any]:
     if not content:
         return {"error": "content가 필요합니다."}
     if len(title) > 255:
-        return {"error": f"title이 너무 깁니다 ({len(title)}/255)"}
+        return {"error": f"title이 너무 깁니다 ({len(title):,}/255자)."}
     if len(content) < 30:
         return {"error": "content가 너무 짧습니다 (최소 30자). 가이드 본문을 더 풍부하게 작성하세요."}
     if len(content) > 50000:
@@ -725,7 +725,7 @@ async def _create_feedback(db: AsyncSession, args: dict[str, Any]) -> dict[str, 
     if not error_type:
         return {"error": "error_type이 필요합니다 (예: '메모리 누수', 'DB 연결 풀 고갈')."}
     if len(error_type) > 100:
-        return {"error": f"error_type이 너무 깁니다 ({len(error_type)}/100자)."}
+        return {"error": f"error_type이 너무 깁니다 ({len(error_type):,}/100자)."}
     if not solution:
         return {"error": "solution이 필요합니다 (해결 방법 본문)."}
     if len(solution) < 30:
@@ -736,7 +736,7 @@ async def _create_feedback(db: AsyncSession, args: dict[str, Any]) -> dict[str, 
     # resolver: 미지정 시 default
     resolver = (args.get("resolver") or "").strip() or "챗봇 자동 등록"
     if len(resolver) > 200:
-        return {"error": f"resolver가 너무 깁니다 ({len(resolver)}/200자)."}
+        return {"error": f"resolver가 너무 깁니다 ({len(resolver):,}/200자)."}
 
     # 인시던트 + status 검증
     incident = await db.get(Incident, incident_id)
