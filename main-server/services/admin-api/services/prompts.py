@@ -44,27 +44,9 @@ def _format_screen_context_line(ctx: ScreenContext | None) -> str | None:
     return "[현재 사용자 화면: " + " / ".join(parts) + "]"
 
 
-# ── 챗봇 ReAct 프롬프트 (일반 운영자 모드) ──────────────────────────────────
+# ── 챗봇 ReAct 가이드 블록 (decision_prompt 조립용) ──────────────────────────
 
-def decision_prompt(
-    tools: list[dict[str, Any]],
-    history: str,
-    user_message: str,
-    screen_context: ScreenContext | None = None,
-) -> str:
-    tools_json = json.dumps(tools, ensure_ascii=False)
-    ctx_line = _format_screen_context_line(screen_context)
-    ctx_block = f"사용자 화면 컨텍스트: {ctx_line}\n" if ctx_line else ""
-    return f"""역할: 당신은 Synapse-V 운영 어시스턴트입니다. 사용자 질문을 해결하기 위해
-아래 도구를 사용할 수 있습니다.
-
-출력 규약 (단일 JSON 객체만 반환, 코드펜스/설명 금지):
-  도구 호출: {{"thought":"...","action":"<tool_name>","args":{{ ... }}}}
-  최종 응답: {{"thought":"...","final_answer_ready":true}}
-
-- 도구가 필요 없으면 바로 final_answer_ready=true 반환.
-- args는 해당 도구의 input_schema를 준수.
-
+_TOOL_PRIORITY_GUIDE = """\
 [도구 선택 우선순위 — 질문 의도에 따라 첫 도구를 결정한다]
 - 정확한 raw 수치(15일 이내) → prometheus_query 우선 (instance_role별 분리). Prometheus 보관 기간 초과 시 도구가 자동 에러 반환 → 그 때 ems_get_system_period_usage 또는 qdrant_search_aggregation_summary로 폴백.
   예: "지금 결제 시스템 CPU 얼마야?", "오늘 3시 was1 메모리 사용률", "어제 14시 DB tps", "최근 1시간 평균 디스크 IO"
@@ -87,16 +69,18 @@ def decision_prompt(
 - 화면 컨텍스트(`사용자 화면 컨텍스트:`)에 `인시던트: <id>` 가 있으면, 첫 응답을 하기 전에 **반드시** `admin_get_incident_context(incident_id=<id>)` 도구를 호출해 인시던트의 현재 상태·타임라인·연결 알림을 파악한다. 이미 같은 incident_id의 결과가 대화 이력에 있으면 재호출하지 않는다.
   예: 사용자 화면 컨텍스트에 "인시던트: 42"가 있고 사용자가 "지금 상황 알려줘"라고 물으면 → 첫 도구 호출은 admin_get_incident_context(incident_id=42).
 - EMS 전용 데이터(Polestar 알람 리포트·Top 프로세스·서버 OS/가동시간 상세)가 필요하거나, 15일 초과 과거 데이터 → EMS 도구 사용.
-- 서버 목록(role_label)·인스턴스 구성 정보만 필요하면 ems_get_resources_by_system.
+- 서버 목록(role_label)·인스턴스 구성 정보만 필요하면 ems_get_resources_by_system."""
 
+_EMS_USAGE_RULES = """\
 [EMS 도구 사용 규칙]
 - EMS 도구를 호출하기 전, 시스템 이름이 언급되었다면 ems_get_resources_by_system으로 서버 목록(role_label)을 먼저 확인한다. 단, 같은 시스템에 대한 결과가 대화 이력에 이미 있으면 재호출하지 않는다 (available_role_labels 필드 재사용).
 - 다른 EMS 도구는 모두 system_display_name + (선택) role_label 조합으로 호출한다. resource_id나 IP는 LLM이 직접 다루지 않는다.
 - 시스템 전체 조회: role_label 생략. 특정 서버(was1, db1 등)만: role_label 지정.
   예: 현재 CPU 실시간 → ems_get_system_usage_summary(system_display_name="고객경험시스템", timeSelector="day")
   예: db1만 상세 → ems_get_system_server_detail(system_display_name="고객경험시스템", role_label="db1")
-- ems_get_team_group_id는 사용자가 EMS Polestar 자체의 팀/그룹명을 직접 지정한 경우에만 사용한다.
+- ems_get_team_group_id는 사용자가 EMS Polestar 자체의 팀/그룹명을 직접 지정한 경우에만 사용한다."""
 
+_CHUNK_FETCH_GUIDE = """\
 [추가 청크 조회 — 검색 결과가 부족할 때]
 청크 기반 컬렉션은 검색에서 일부 청크만 노출된다. payload의 `chunk_index` / `total_chunks`를 비교해 빠진 청크 번호를 추론하고, 보강이 필요한 경우 다음 도구를 호출한다:
 - qdrant_search_guide 결과 → qdrant_get_guide_chunks(guide_id, chunk_indexes=[...])
@@ -112,12 +96,43 @@ def decision_prompt(
 호출 트리거:
 ① 받은 청크에 답변 핵심 키워드가 없음
 ② 절차 단계가 끊겨 보일 때 (예: 1,2단계만 받고 3,4단계 누락 추정)
-③ 사용자가 "전문/전체" 명시
+③ 사용자가 "전문/전체" 명시"""
 
+_COMMON_RULES = """\
 [공통 규칙]
 - 같은 도구의 결과가 대화 이력에 여러 번 있는 경우 가장 최근 observation을 사용하고, 이전 실패(null·에러)는 무시한다.
 - admin_list_systems 호출 시 시스템명을 알고 있으면 반드시 display_name 파라미터를 지정해 해당 시스템만 조회한다 (전체 조회 금지).
-- qdrant_* 도구는 admin_search_alert_history 보다 '의미 기반 검색'이 필요한 경우 우선 사용한다. admin_search_alert_history 는 특정 날짜·알림명·시스템으로 이력 정확 조회 시에만 사용한다.
+- qdrant_* 도구는 admin_search_alert_history 보다 '의미 기반 검색'이 필요한 경우 우선 사용한다. admin_search_alert_history 는 특정 날짜·알림명·시스템으로 이력 정확 조회 시에만 사용한다."""
+
+
+# ── 챗봇 ReAct 프롬프트 (일반 운영자 모드) ──────────────────────────────────
+
+def decision_prompt(
+    tools: list[dict[str, Any]],
+    history: str,
+    user_message: str,
+    screen_context: ScreenContext | None = None,
+) -> str:
+    tools_json = json.dumps(tools, ensure_ascii=False)
+    ctx_line = _format_screen_context_line(screen_context)
+    ctx_block = f"사용자 화면 컨텍스트: {ctx_line}\n" if ctx_line else ""
+    return f"""역할: 당신은 Synapse-V 운영 어시스턴트입니다. 사용자 질문을 해결하기 위해
+아래 도구를 사용할 수 있습니다.
+
+출력 규약 (단일 JSON 객체만 반환, 코드펜스/설명 금지):
+  도구 호출: {{"thought":"...","action":"<tool_name>","args":{{ ... }}}}
+  최종 응답: {{"thought":"...","final_answer_ready":true}}
+
+- 도구가 필요 없으면 바로 final_answer_ready=true 반환.
+- args는 해당 도구의 input_schema를 준수.
+
+{_TOOL_PRIORITY_GUIDE}
+
+{_EMS_USAGE_RULES}
+
+{_CHUNK_FETCH_GUIDE}
+
+{_COMMON_RULES}
 
 사용 가능한 도구:
 {tools_json}
