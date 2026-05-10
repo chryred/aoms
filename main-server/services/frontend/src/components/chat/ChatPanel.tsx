@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import toast from 'react-hot-toast'
 import { describeChatError } from '@/lib/chatErrorMessage'
 import { useQueryClient } from '@tanstack/react-query'
-import { streamChatMessage } from '@/api/chat'
+import { streamAutoInsight, streamChatMessage } from '@/api/chat'
 import { useChatMessages } from '@/hooks/queries/useChatMessages'
 import { useChatSessions } from '@/hooks/queries/useChatSessions'
 import { useCreateChatSession } from '@/hooks/mutations/useCreateChatSession'
@@ -16,6 +16,7 @@ import type { ChatMessage, ChatStreamEvent, MessageImage, ScreenContext } from '
 import { cn } from '@/lib/utils'
 import { getContextualPrompts } from '@/config/chatPrompts'
 import { useIncidentNextAction } from '@/hooks/queries/useIncidentNextAction'
+import { Sparkles } from 'lucide-react'
 import { ChatComposer } from './ChatComposer'
 import { ChatHeader } from './ChatHeader'
 import { ChatMessageView, StreamingAssistantMessage } from './ChatMessage'
@@ -184,8 +185,50 @@ export function ChatPanel() {
     [currentSessionId, isStreaming, readyKeys, clearAttachments, finishStream, latestScreenContext],
   )
 
+  // Feature 5C-2: 선제적 통찰 트리거
+  const handleAutoInsight = useCallback(
+    async (incidentId: number) => {
+      if (!currentSessionId) {
+        toast.error('세션이 없습니다.')
+        return
+      }
+      if (isStreaming) return
+
+      setIsStreaming(true)
+      setStreamText('')
+      setStreamThought(undefined)
+      setStreamingTools([])
+      setStreamImages([])
+
+      const controller = new AbortController()
+      abortRef.current = controller
+
+      try {
+        await streamAutoInsight(
+          currentSessionId,
+          incidentId,
+          (event: ChatStreamEvent) => {
+            handleEventRef.current(event)
+          },
+          controller.signal,
+          latestScreenContext,
+        )
+      } catch (err) {
+        console.error(err)
+        const msg = describeChatError(err)
+        if (msg) toast.error(msg)
+      } finally {
+        finishStream()
+      }
+    },
+    [currentSessionId, isStreaming, finishStream, latestScreenContext],
+  )
+
   const handleEvent = (event: ChatStreamEvent) => {
     switch (event.type) {
+      case 'auto_insight_start':
+        // Feature 5C-2: 자동 분석 시작 시그널 — 현재는 별도 처리 없음 (향후 토스트/스피너 추가 가능)
+        break
       case 'user_saved':
         if (currentSessionId) {
           qc.invalidateQueries({ queryKey: qk.chat.messages(currentSessionId) })
@@ -429,6 +472,29 @@ export function ChatPanel() {
               <p className="text-text-primary mb-3 text-center text-sm font-medium">
                 어떤 도움이 필요하신가요?
               </p>
+
+              {/* Feature 5C-2: 인시던트 자동 분석 버튼 — incident_id 있을 때만 표시 */}
+              {latestScreenContext?.incident_id && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const id = parseInt(String(latestScreenContext.incident_id ?? '0'), 10)
+                    if (id > 0) handleAutoInsight(id)
+                  }}
+                  disabled={isStreaming || !currentSessionId}
+                  className={cn(
+                    'bg-accent text-accent-contrast shadow-neu-flat',
+                    'mb-3 flex w-full items-center justify-center gap-2 rounded-sm px-3 py-2.5 text-sm font-medium',
+                    'hover:shadow-neu-pressed focus:ring-accent focus:ring-1 focus:outline-none',
+                    'transition-shadow',
+                    'disabled:cursor-not-allowed disabled:opacity-40',
+                  )}
+                  aria-label="인시던트 자동 분석 시작"
+                >
+                  <Sparkles className="h-4 w-4" />
+                  <span>이 인시던트 자동 분석 시작</span>
+                </button>
+              )}
 
               {/* 화면별 / 인시던트 status별 quick prompt chips */}
               {(() => {

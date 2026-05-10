@@ -18,10 +18,11 @@ from auth import get_current_user, require_admin
 from database import AsyncSessionLocal, get_db
 from models import ChatMessage, ChatSession, System
 from schemas import (
-    ChatMessageOut, ChatSendIn, ChatSessionOut, ChatSessionPatchIn,
+    AutoInsightIn, ChatMessageOut, ChatSendIn, ChatSessionOut, ChatSessionPatchIn,
     ScreenContext,
 )
 from services.chat_agent import run_react_stream
+from services.prompts import build_auto_insight_seed
 
 logger = logging.getLogger(__name__)
 
@@ -255,6 +256,56 @@ async def send_message(
 
     return StreamingResponse(
         event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
+
+
+@router.post("/sessions/{session_id}/auto-insight")
+async def auto_insight(
+    session_id: str,
+    payload: AutoInsightIn,
+    user=Depends(get_current_user),
+):
+    """선제적 통찰 — 사용자 메시지 없이 인시던트 자동 분석을 시작합니다 (Feature 5C-2).
+
+    내부적으로 build_auto_insight_seed로 user_message를 자동 생성한 뒤
+    기존 run_react_stream을 호출합니다. SSE 응답은 messages 엔드포인트와 동일.
+    """
+    async def event_generator():
+        async with AsyncSessionLocal() as db:
+            session = await _ensure_owner(db, session_id, user.id)
+            if session.area_code == "help_inquiry":
+                yield _sse("error", {"message": "auto-insight는 일반 운영자 세션에서만 사용 가능합니다"})
+                return
+
+            # 인시던트 존재 검증
+            from models import Incident
+            incident = await db.get(Incident, payload.incident_id)
+            if not incident:
+                yield _sse("error", {"message": f"Incident #{payload.incident_id} not found"})
+                return
+
+            auto_seed = build_auto_insight_seed(payload.incident_id, payload.screen_context)
+
+            try:
+                yield _sse("auto_insight_start", {"incident_id": payload.incident_id})
+                async for event in run_react_stream(
+                    db, session, auto_seed,
+                    attachments=None,
+                    screen_context=payload.screen_context,
+                ):
+                    yield _sse(event["type"], event.get("data", {}))
+            except Exception as e:  # noqa: BLE001
+                logger.exception("auto_insight 스트림 오류")
+                yield _sse("error", {"message": f"자동 통찰 실패: {str(e)[:200]}"})
+
+    return StreamingResponse(
+        event_generator(),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

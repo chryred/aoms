@@ -79,6 +79,7 @@ export interface ChatExecutorTestResult {
 }
 
 export type ChatStreamEventType =
+  | 'auto_insight_start' // Feature 5C-2: 선제적 통찰 시작 시그널
   | 'user_saved'
   | 'iter_start'
   | 'thought'

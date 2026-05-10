@@ -279,4 +279,39 @@ def build_prometheus_llm_prompt(hc: HostContext, system_infos: dict[str, dict]) 
         '}'
     )
 
+
+# ── 챗봇 자동 통찰 (Feature 5C-2) ──────────────────────────────────────────
+
+def build_auto_insight_seed(
+    incident_id: int,
+    screen_context: ScreenContext | None = None,
+) -> str:
+    """선제적 통찰을 트리거하는 user_message seed.
+
+    이 텍스트는 chat_messages.role='user'로 저장되어 대화 이력에 노출됨.
+    LLM(decision_prompt)은 이 메시지를 받으면 다음 단계로 진행:
+      1) admin_get_incident_context(incident_id={incident_id})
+      2) qdrant_search_incident_postmortem (선택, 유사 사례)
+      3) 한국어 통찰 응답 (헤더 + 요약 + 권장 조치)
+    """
+    screen_label = ""
+    if screen_context and screen_context.screen_label:
+        screen_label = f" ({screen_context.screen_label})"
+
+    return (
+        f"🔮 [자동 통찰 요청] 인시던트 #{incident_id}{screen_label}\n\n"
+        f"이 인시던트의 현재 상황을 자동으로 분석해주세요. "
+        f"사용자 입력 없이 트리거된 자동 분석입니다.\n\n"
+        f"다음 순서로 진행:\n"
+        f"1. admin_get_incident_context(incident_id={incident_id}) 호출하여 종합 컨텍스트 (status·MTTA·MTTR·연결 알림·타임라인·다음 액션) 파악\n"
+        f"2. 필요 시 qdrant_search_incident_postmortem 또는 qdrant_search_incident_knowledge 도구로 유사 사례 1-2건 조회\n"
+        f"3. 다음 형식으로 한국어 응답:\n"
+        f"   - 첫 줄: \"🔮 인시던트 #{incident_id} 자동 통찰\"\n"
+        f"   - 현재 상황 (상태·진행률·MTTA/MTTR 핵심만 3-4줄)\n"
+        f"   - 유사 사례 또는 과거 패턴 (있으면 1-2건, 없으면 생략)\n"
+        f"   - 권장 다음 조치 (1-3개, status에 맞게)\n"
+        f"   - 마지막에 \"추가 질문이 있으시면 알려주세요\" 안내\n"
+        f"전체 응답 800자 이내."
+    )
+
     return "\n".join(lines)

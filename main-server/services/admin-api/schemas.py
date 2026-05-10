@@ -955,6 +955,12 @@ class ChatSendIn(BaseModel):
     screen_context: ScreenContext | None = None  # 현재 사용자 화면 컨텍스트 (옵셔널)
 
 
+class AutoInsightIn(BaseModel):
+    """자동 통찰 트리거 — 사용자 메시지 없이 인시던트 자동 분석 시작."""
+    incident_id: int
+    screen_context: ScreenContext | None = None
+
+
 # ── V1 Knowledge RAG ─────────────────────────────────────────────────────────
 
 class KnowledgeCorrectionCreate(BaseModel):

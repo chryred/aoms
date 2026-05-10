@@ -919,3 +919,90 @@ class TestAdminCreateFeedback:
 
         assert "error" in result
         assert "incident_id" in result["error"]
+
+
+# ─────────────────────────── TestAutoInsightSeed ─────────────────────────────
+
+class TestAutoInsightSeed:
+    """build_auto_insight_seed — 자동 통찰 prompt 생성기."""
+
+    def test_basic_format(self):
+        from services.prompts import build_auto_insight_seed
+
+        seed = build_auto_insight_seed(42)
+        assert "인시던트 #42" in seed
+        assert "admin_get_incident_context(incident_id=42)" in seed
+        assert (
+            "qdrant_search_incident_postmortem" in seed
+            or "qdrant_search_incident_knowledge" in seed
+        )
+        assert "🔮" in seed
+        assert "한국어" in seed
+
+    def test_with_screen_context(self):
+        from services.prompts import build_auto_insight_seed
+        from schemas import ScreenContext
+
+        ctx = ScreenContext(
+            screen="incidents",
+            screen_label="인시던트 상세",
+            incident_id="42",
+        )
+        seed = build_auto_insight_seed(42, ctx)
+        assert "인시던트 상세" in seed
+        assert "인시던트 #42" in seed
+
+    def test_screen_context_none(self):
+        from services.prompts import build_auto_insight_seed
+
+        seed = build_auto_insight_seed(7, None)
+        assert "인시던트 #7" in seed
+        # screen_label 없으면 빈 괄호 없어야 함
+        assert "()" not in seed
+
+    def test_response_length_hint(self):
+        from services.prompts import build_auto_insight_seed
+
+        seed = build_auto_insight_seed(1)
+        assert "800자" in seed
+
+    def test_numbered_steps_included(self):
+        from services.prompts import build_auto_insight_seed
+
+        seed = build_auto_insight_seed(100)
+        assert "1." in seed
+        assert "2." in seed
+        assert "3." in seed
+
+
+# ─────────────────────────── TestAutoInsightEndpoint ─────────────────────────
+
+class TestAutoInsightEndpoint:
+    """POST /chat/sessions/{id}/auto-insight — 라우터 등록 + 스키마 검증."""
+
+    @pytest.mark.asyncio
+    async def test_auto_insight_schema_validation_missing_incident_id(self, authed_client):
+        """incident_id 미전달 시 422 Unprocessable Entity."""
+        resp = await authed_client.post(
+            "/api/v1/chat/sessions/any-session-id/auto-insight",
+            json={},  # incident_id 없음
+        )
+        assert resp.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_auto_insight_schema_validation_wrong_type(self, authed_client):
+        """incident_id가 문자열이면 422."""
+        resp = await authed_client.post(
+            "/api/v1/chat/sessions/any-session-id/auto-insight",
+            json={"incident_id": "not-an-int"},
+        )
+        assert resp.status_code == 422
+
+    @pytest.mark.asyncio
+    async def test_auto_insight_requires_auth(self, client):
+        """인증 없이 요청 시 401."""
+        resp = await client.post(
+            "/api/v1/chat/sessions/any-session-id/auto-insight",
+            json={"incident_id": 1},
+        )
+        assert resp.status_code == 401
