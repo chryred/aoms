@@ -154,6 +154,55 @@ async def test_get_incident_includes_timeline_and_alerts(authed_client: AsyncCli
     assert data["timeline"][0]["event_type"] == "alert_added"
 
 
+async def test_incident_detail_includes_next_action_meta(authed_client: AsyncClient):
+    """상세 조회 응답에 next_action_meta 필드가 포함된다."""
+    await _create_system(authed_client)
+    await _fire_alert(authed_client)
+
+    incidents = (await authed_client.get("/api/v1/incidents")).json()
+    incident_id = incidents[0]["id"]
+
+    resp = await authed_client.get(f"/api/v1/incidents/{incident_id}")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "next_action_meta" in data
+    meta = data["next_action_meta"]
+    assert meta["status"] == "open"
+    assert meta["status_ko"] == "신규"
+    assert meta["progress_pct"] == 20
+    assert "담당자 호출" in meta["next_action"]
+
+
+def test_status_meta_helper():
+    """status_meta 헬퍼 — 5개 status + fallback + None + 대문자 정규화."""
+    from services.incident_status_meta import (
+        INCIDENT_PROGRESS,
+        INCIDENT_STATUS_KO,
+        status_meta,
+    )
+
+    for s in ["open", "acknowledged", "investigating", "resolved", "closed"]:
+        m = status_meta(s)
+        assert m["status"] == s
+        assert m["status_ko"] == INCIDENT_STATUS_KO[s]
+        assert m["progress_pct"] == INCIDENT_PROGRESS[s]
+        assert isinstance(m["next_action"], str) and len(m["next_action"]) > 5
+
+    # 알 수 없는 status fallback
+    m = status_meta("unknown_status_xyz")
+    assert m["status"] == "unknown_status_xyz"
+    assert m["progress_pct"] == 0
+    assert m["next_action"] == "상태를 확인 후 다음 단계 진행."
+
+    # None → open 기본값
+    m = status_meta(None)
+    assert m["status"] == "open"
+
+    # 대문자 → 소문자 정규화
+    m = status_meta("OPEN")
+    assert m["status"] == "open"
+
+
 # ── 댓글 ──────────────────────────────────────────────────────────────────
 
 async def test_add_comment(authed_client: AsyncClient):

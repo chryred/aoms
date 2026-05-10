@@ -836,6 +836,8 @@ class IncidentTimelineItemOut(BaseModel):
 class IncidentDetailOut(IncidentOut):
     timeline: list[IncidentTimelineItemOut] = []
     alert_history: list["AlertHistoryOut"] = []
+    # status 기반 정적 가이드 — UI 카드 렌더용 (next_action: 한 줄 권장 행동, status_ko: 한국어 라벨, progress_pct: 0-100)
+    next_action_meta: Optional[dict] = None
 
 
 class IncidentCommentCreate(BaseModel):

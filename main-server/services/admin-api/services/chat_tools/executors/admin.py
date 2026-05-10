@@ -21,6 +21,12 @@ from models import (
     SystemContact,
     SystemHost,
 )
+from services.incident_status_meta import (
+    INCIDENT_NEXT_ACTION,
+    INCIDENT_PROGRESS,
+    INCIDENT_STATUS_KO,
+    status_meta,
+)
 
 
 async def _list_systems(db: AsyncSession, args: dict[str, Any]) -> dict[str, Any]:
@@ -543,22 +549,6 @@ async def _save_guide(db: AsyncSession, args: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-_INCIDENT_STATUS_KO = {
-    "open": "신규",
-    "acknowledged": "확인",
-    "investigating": "조사중",
-    "resolved": "해결",
-    "closed": "종결",
-}
-_INCIDENT_PROGRESS = {
-    "open": 20,
-    "acknowledged": 40,
-    "investigating": 60,
-    "resolved": 80,
-    "closed": 100,
-}
-
-
 def _format_kst(dt: datetime | None) -> str | None:
     """naive UTC → KST 'YYYY-MM-DD HH:MM' 포맷."""
     if dt is None:
@@ -642,14 +632,7 @@ async def _get_incident_context(db: AsyncSession, args: dict[str, Any]) -> dict[
 
     # 다음 권장 액션 — 진행 단계별 가이드
     status = inc.status or "open"
-    next_action_map = {
-        "open": "담당자 호출 + 인시던트 acknowledge 처리. 영향 범위 1차 파악.",
-        "acknowledged": "원인 조사 시작. status를 investigating으로 전환.",
-        "investigating": "근본 원인 확정 + resolution 작성. 조치 완료 시 resolved 처리.",
-        "resolved": "사후분석(postmortem) 작성. 문제 재발 방지 대책 수립 후 close.",
-        "closed": "종결됨. 추가 액션 불필요.",
-    }
-    next_action = next_action_map.get(status, "상태를 확인 후 다음 단계 진행.")
+    next_action = INCIDENT_NEXT_ACTION.get(status, "상태를 확인 후 다음 단계 진행.")
 
     return {
         "incident": {
@@ -657,8 +640,8 @@ async def _get_incident_context(db: AsyncSession, args: dict[str, Any]) -> dict[
             "title": inc.title,
             "severity": inc.severity,
             "status": status,
-            "status_ko": _INCIDENT_STATUS_KO.get(status, status),
-            "progress_pct": _INCIDENT_PROGRESS.get(status, 0),
+            "status_ko": INCIDENT_STATUS_KO.get(status, status),
+            "progress_pct": INCIDENT_PROGRESS.get(status, 0),
             "system_id": inc.system_id,
             "system_name": sys_obj.system_name if sys_obj else None,
             "system_display": (sys_obj.display_name or sys_obj.system_name) if sys_obj else None,

@@ -41,9 +41,19 @@ export interface IncidentTimelineItem {
   created_at: string
 }
 
+export type IncidentStatus = 'open' | 'acknowledged' | 'investigating' | 'resolved' | 'closed'
+
+export interface NextActionMeta {
+  status: IncidentStatus
+  status_ko: string
+  progress_pct: number // 0-100
+  next_action: string
+}
+
 export interface IncidentDetail extends IncidentOut {
   timeline: IncidentTimelineItem[]
   alert_history: AlertHistory[]
+  next_action_meta: NextActionMeta | null
 }
 
 export interface IncidentCreate {

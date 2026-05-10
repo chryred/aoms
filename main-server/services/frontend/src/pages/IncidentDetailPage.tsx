@@ -34,6 +34,7 @@ import { AlertDetailPanel } from '@/components/alert/AlertDetailPanel'
 import { IncidentReportModal } from '@/components/incident/IncidentReportModal'
 import { FeedbackDetailView } from '@/components/incident/FeedbackDetailView'
 import { FeedbackForm } from '@/components/incident/FeedbackForm'
+import { NextActionCard } from '@/components/incident/NextActionCard'
 import { useIncidentFeedback } from '@/hooks/queries/useIncidentFeedback'
 import type { IncidentTimelineItem } from '@/api/incidents'
 import type { AlertHistory } from '@/types/alert'
@@ -245,6 +246,11 @@ export function IncidentDetailPage() {
           </div>
         </div>
       </NeuCard>
+
+      {/* 다음 액션 가이드 카드 (Feature 5B) */}
+      {incident.next_action_meta && (
+        <NextActionCard meta={incident.next_action_meta} className="mb-0" />
+      )}
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         {/* 좌측: 상세 정보 */}

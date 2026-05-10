@@ -10,6 +10,7 @@ from sqlalchemy.orm import selectinload
 
 from auth import get_current_user, require_admin
 from database import AsyncSessionLocal, get_db
+from services.incident_status_meta import status_meta
 from models import AlertFeedback, AlertFeedbackAttachment, AlertHistory, Contact, Incident, IncidentTimeline, LlmAgentConfig, System, User
 from schemas import (
     AlertHistoryOut,
@@ -1080,6 +1081,7 @@ async def get_incident(incident_id: int, db: AsyncSession = Depends(get_db)):
         **base.model_dump(),
         timeline=[IncidentTimelineItemOut.model_validate(t) for t in timeline_rows],
         alert_history=[AlertHistoryOut.model_validate(a) for a in alert_rows],
+        next_action_meta=status_meta(incident.status),
     )
 
 
