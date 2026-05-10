@@ -362,6 +362,11 @@ async def run_react_stream(
                 args = {"system_ids": session_system_ids}
 
         safe_args = args if isinstance(args, dict) else {}
+
+        # export_chat_markdown 도구는 현재 세션 ID가 필요
+        if action == "export_chat_markdown":
+            safe_args["_session_id"] = str(session.id)
+
         yield {"type": "tool_call", "data": {"tool": action, "args": safe_args}}
         result = await run_tool(db, action, safe_args)
 

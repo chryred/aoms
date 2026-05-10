@@ -82,6 +82,8 @@ def decision_prompt(
 - 기능 사용법·UI 조작·운영 가이드·시스템 매뉴얼 → qdrant_search_guide (knowledge_guides Hybrid 검색).
   예: "알림 임계값 어떻게 바꿔요?", "인시던트 등록 절차 알려줘", "결제 시스템 배치 복구 매뉴얼", "이 기능 어떻게 써요?"
   세션 system_ids는 자동으로 주입됨. 시스템별 가이드 + 전체 공용 가이드(system_id=NULL)가 함께 검색된다.
+- 화면 컨텍스트(`사용자 화면 컨텍스트:`)에 `인시던트: <id>` 가 있으면, 첫 응답을 하기 전에 **반드시** `admin_get_incident_context(incident_id=<id>)` 도구를 호출해 인시던트의 현재 상태·타임라인·연결 알림을 파악한다. 이미 같은 incident_id의 결과가 대화 이력에 있으면 재호출하지 않는다.
+  예: 사용자 화면 컨텍스트에 "인시던트: 42"가 있고 사용자가 "지금 상황 알려줘"라고 물으면 → 첫 도구 호출은 admin_get_incident_context(incident_id=42).
 - EMS 전용 데이터(Polestar 알람 리포트·Top 프로세스·서버 OS/가동시간 상세)가 필요하거나, 15일 초과 과거 데이터 → EMS 도구 사용.
 - 서버 목록(role_label)·인스턴스 구성 정보만 필요하면 ems_get_resources_by_system.
 

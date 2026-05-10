@@ -113,6 +113,14 @@ export function ChatPanel() {
     }
   }, [isOpen, resetUnread, consumePendingScreenContext])
 
+  // 닫기 전 포커스를 외부로 이동 — aria-hidden 적용 시 포커스 잔류 경고 방지
+  const closePanel = useCallback(() => {
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur()
+    }
+    setOpen(false)
+  }, [setOpen])
+
   // 스트리밍이 끝나면 message list 재조회로 화면 교체
   const finishStream = useCallback(() => {
     setStreamText('')
@@ -339,14 +347,14 @@ export function ChatPanel() {
           abortRef.current?.abort()
           setRestoreValue({ content: lastSentContentRef.current, nonce: Date.now() })
         } else {
-          setOpen(false)
+          closePanel()
         }
       }
     }
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [isOpen, handleNewChat, setOpen])
+  }, [isOpen, handleNewChat, closePanel])
 
   const handleScroll = useCallback(() => {
     const el = scrollRef.current
@@ -399,7 +407,7 @@ export function ChatPanel() {
           currentSessionId={currentSessionId}
           onSessionSelect={setCurrentSessionId}
           onNewChat={handleNewChat}
-          onClose={() => setOpen(false)}
+          onClose={closePanel}
           disabled={isStreaming}
           systems={systems}
           filterSystemIds={filterSystemIds}

@@ -3,6 +3,7 @@ export type ChatRole = 'user' | 'assistant' | 'tool'
 export interface MessageImage {
   url: string
   alt?: string
+  name?: string
 }
 
 export interface ScreenContext {

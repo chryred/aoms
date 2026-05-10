@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ChevronDown, ChevronRight, Wrench } from 'lucide-react'
+import { ChevronDown, ChevronRight, Download, Wrench } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useChatTools } from '@/hooks/queries/useChatTools'
 
@@ -9,6 +9,38 @@ interface ToolCallCardProps {
   result?: Record<string, unknown> | null
   running?: boolean
   thought?: string | null
+}
+
+function isExportResult(r: unknown): r is { markdown: string; filename: string; export: true } {
+  return (
+    !!r &&
+    typeof r === 'object' &&
+    (r as Record<string, unknown>).export === true &&
+    typeof (r as Record<string, unknown>).markdown === 'string' &&
+    typeof (r as Record<string, unknown>).filename === 'string'
+  )
+}
+
+function handleExportDownload(result: { markdown: string; filename: string }) {
+  const blob = new Blob([result.markdown], { type: 'text/markdown;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = result.filename
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+}
+
+function publicArgs(args?: Record<string, unknown> | null): Record<string, unknown> | null {
+  if (!args) return null
+  const filtered: Record<string, unknown> = {}
+  for (const [k, v] of Object.entries(args)) {
+    if (k.startsWith('_')) continue
+    filtered[k] = v
+  }
+  return filtered
 }
 
 export function ToolCallCard({ toolName, args, result, running, thought }: ToolCallCardProps) {
@@ -44,15 +76,30 @@ export function ToolCallCard({ toolName, args, result, running, thought }: ToolC
       {open && (
         <div className="border-border border-t px-3 py-2">
           {thought && <div className="text-text-secondary mb-2 text-xs italic">💭 {thought}</div>}
-          {args && Object.keys(args).length > 0 && (
-            <>
-              <div className="text-text-secondary mb-1 text-xs">인자</div>
-              <pre className="bg-bg-deep mb-2 max-h-48 overflow-auto rounded-[2px] p-2 text-xs">
-                {JSON.stringify(args, null, 2)}
-              </pre>
-            </>
-          )}
+          {(() => {
+            const cleanArgs = publicArgs(args)
+            if (!cleanArgs || Object.keys(cleanArgs).length === 0) return null
+            return (
+              <>
+                <div className="text-text-secondary mb-1 text-xs">인자</div>
+                <pre className="bg-bg-deep mb-2 max-h-48 overflow-auto rounded-[2px] p-2 text-xs">
+                  {JSON.stringify(cleanArgs, null, 2)}
+                </pre>
+              </>
+            )
+          })()}
           <div className="text-text-secondary mb-1 text-xs">결과</div>
+          {!running && isExportResult(result) && (
+            <button
+              type="button"
+              onClick={() => handleExportDownload(result)}
+              className="bg-accent text-accent-contrast shadow-neu-flat hover:shadow-neu-pressed focus:ring-accent mb-2 inline-flex items-center gap-1.5 rounded-sm px-3 py-1.5 text-xs font-medium transition-shadow focus:ring-1 focus:outline-none"
+              aria-label="Markdown 다운로드"
+            >
+              <Download className="h-3.5 w-3.5" />
+              <span>{result.filename} 다운로드</span>
+            </button>
+          )}
           <pre
             className={cn(
               'bg-bg-deep max-h-64 overflow-auto rounded-[2px] p-2 text-xs',

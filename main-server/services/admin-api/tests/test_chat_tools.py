@@ -129,9 +129,9 @@ def test_format_screen_context_line_partial():
 
 
 def test_decision_prompt_no_screen_context():
-    """screen_context=None 이면 프롬프트에 컨텍스트 라인이 없어야 한다."""
+    """screen_context=None 이면 동적 화면 컨텍스트 라인([현재 사용자 화면: ...])이 없어야 한다."""
     prompt = _decision_prompt([], "이력없음", "안녕", screen_context=None)
-    assert "사용자 화면 컨텍스트" not in prompt
+    assert "[현재 사용자 화면:" not in prompt
     assert "사용자 새 메시지: 안녕" in prompt
 
 

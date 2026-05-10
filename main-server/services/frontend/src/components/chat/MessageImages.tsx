@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import { X } from 'lucide-react'
+import { createPortal } from 'react-dom'
+import { Download, X } from 'lucide-react'
 import type { MessageImage } from '@/types/chat'
 
 interface MessageImagesProps {
@@ -55,6 +56,36 @@ function ImageGrid({
   )
 }
 
+async function downloadImage(url: string, filename: string) {
+  try {
+    const resp = await fetch(url)
+    const blob = await resp.blob()
+    const href = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = href
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(href)
+  } catch {
+    window.open(url, '_blank')
+  }
+}
+
+function pickFilename(img: MessageImage): string {
+  if (img.name) return img.name
+  try {
+    const u = new URL(img.url, window.location.origin)
+    const last = u.pathname.split('/').filter(Boolean).pop()
+    if (last && /\.[a-zA-Z0-9]{2,5}$/.test(last)) return decodeURIComponent(last)
+  } catch {
+    // URL 파싱 실패 시 alt 또는 기본 파일명 사용
+  }
+  if (img.alt) return img.alt.replace(/[^\wㄱ-힝.-]/g, '_') + '.png'
+  return 'image.png'
+}
+
 function Lightbox({
   images,
   index,
@@ -88,7 +119,9 @@ function Lightbox({
     }
   }, [])
 
-  return (
+  // Portal로 document.body에 렌더 — 부모의 transform/animate 영향에서 분리
+  // (parent에 animate-fade-in-up-subtle 등 transform이 있으면 fixed containing block이 뷰포트가 아닌 부모 박스가 됨)
+  return createPortal(
     <div
       className="bg-overlay fixed inset-0 z-[60] flex items-center justify-center"
       onClick={onClose}
@@ -96,6 +129,24 @@ function Lightbox({
       role="dialog"
       aria-label={img.alt ?? '이미지 확대'}
     >
+      {/* Download button */}
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation()
+          void downloadImage(img.url, pickFilename(img))
+        }}
+        className={[
+          'bg-surface text-text-primary shadow-neu-flat',
+          'absolute top-4 right-14 z-10 rounded-sm p-1.5',
+          'hover:shadow-neu-pressed focus:ring-accent focus:ring-1 focus:outline-none',
+          'transition-shadow',
+        ].join(' ')}
+        aria-label="다운로드"
+      >
+        <Download className="h-5 w-5" />
+      </button>
+
       {/* Close button */}
       <button
         type="button"
@@ -104,7 +155,7 @@ function Lightbox({
           onClose()
         }}
         className={[
-          'bg-surface text-accent-contrast shadow-neu-flat',
+          'bg-surface text-text-primary shadow-neu-flat',
           'absolute top-4 right-4 z-10 rounded-sm p-1.5',
           'hover:shadow-neu-pressed focus:ring-accent focus:ring-1 focus:outline-none',
           'transition-shadow',
@@ -130,6 +181,7 @@ function Lightbox({
           </p>
         )}
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }
