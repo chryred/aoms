@@ -902,6 +902,10 @@ class ChatSessionOut(BaseModel):
     deleted_at: Optional[UtcDatetime] = None
     created_at: UtcDatetime
     updated_at: UtcDatetime
+    # q 검색 시 메시지 본문 매칭 미리보기 (최대 120자, 매칭 부분 ±50자 컨텍스트). 미검색/제목만 매칭이면 None.
+    match_preview: Optional[str] = None
+    # 매칭이 메시지에서 발생했는지 (제목 매칭과 구분)
+    matched_in: Optional[str] = None  # 'title' | 'message' | None
 
     model_config = {"from_attributes": True}
 

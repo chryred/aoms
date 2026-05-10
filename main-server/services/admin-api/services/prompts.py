@@ -68,6 +68,8 @@ def decision_prompt(
 [도구 선택 우선순위 — 질문 의도에 따라 첫 도구를 결정한다]
 - 정확한 raw 수치(15일 이내) → prometheus_query 우선 (instance_role별 분리). Prometheus 보관 기간 초과 시 도구가 자동 에러 반환 → 그 때 ems_get_system_period_usage 또는 qdrant_search_aggregation_summary로 폴백.
   예: "지금 결제 시스템 CPU 얼마야?", "오늘 3시 was1 메모리 사용률", "어제 14시 DB tps", "최근 1시간 평균 디스크 IO"
+- 메트릭 시계열·추이·변화·히스토리(15일 이내) → prometheus_range_query (start_time/end_time/step 지정).
+  예: "지난 24시간 결제 시스템 CPU 추이 보여줘", "이번 주 DB 메모리 변화", "오늘 하루 종일 네트워크 사용량 그래프"
 - 메트릭·이상·패턴(요약/추세/예측이 핵심) → qdrant_search_hourly_patterns (1시간 집계 LLM 분석 결과 Hybrid 검색).
   예: "오전에 패턴 어땠어?", "아까 DB 메모리 추세", "로그 에러 급증한 시스템 있었나?", "비슷한 메트릭 패턴"
 - 장애·알림·인시던트 이력·재발 여부 → qdrant_search_incident_knowledge (log_incidents + metric_baselines Hybrid).

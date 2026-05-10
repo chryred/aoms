@@ -10,6 +10,7 @@ from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models import (
+    AlertFeedback,
     AlertHistory,
     ChatMessage,
     Contact,
@@ -20,6 +21,7 @@ from models import (
     System,
     SystemContact,
     SystemHost,
+    User,
 )
 from services.incident_status_meta import (
     INCIDENT_NEXT_ACTION,
@@ -700,6 +702,142 @@ async def _get_incident_context(db: AsyncSession, args: dict[str, Any]) -> dict[
     }
 
 
+async def _create_feedback(db: AsyncSession, args: dict[str, Any]) -> dict[str, Any]:
+    """인시던트 피드백 등록 — 챗봇 경유 alert_feedback INSERT.
+
+    핸들러(POST /api/v1/incidents/{id}/feedback)와 동일한 비즈니스 규칙 적용:
+    - incident가 resolved/closed 상태여야 함
+    - approver는 활성 User에 매핑된 Contact여야 함
+    - 첨부파일은 처리하지 않음 (텍스트만)
+    """
+    # incident_id 검증
+    raw_id = args.get("incident_id")
+    if raw_id is None or raw_id == "":
+        return {"error": "incident_id가 필요합니다."}
+    try:
+        incident_id = int(raw_id)
+    except (ValueError, TypeError):
+        return {"error": f"incident_id가 정수가 아닙니다: {raw_id!r}"}
+
+    # 필수 텍스트
+    error_type = (args.get("error_type") or "").strip()
+    solution = (args.get("solution") or "").strip()
+    if not error_type:
+        return {"error": "error_type이 필요합니다 (예: '메모리 누수', 'DB 연결 풀 고갈')."}
+    if len(error_type) > 100:
+        return {"error": f"error_type이 너무 깁니다 ({len(error_type)}/100자)."}
+    if not solution:
+        return {"error": "solution이 필요합니다 (해결 방법 본문)."}
+    if len(solution) < 30:
+        return {"error": "solution이 너무 짧습니다 (최소 30자). 해결 절차를 더 구체적으로 작성하세요."}
+    if len(solution) > 10000:
+        return {"error": f"solution이 너무 깁니다 ({len(solution):,}/10,000자)."}
+
+    # resolver: 미지정 시 default
+    resolver = (args.get("resolver") or "").strip() or "챗봇 자동 등록"
+    if len(resolver) > 200:
+        return {"error": f"resolver가 너무 깁니다 ({len(resolver)}/200자)."}
+
+    # 인시던트 + status 검증
+    incident = await db.get(Incident, incident_id)
+    if not incident:
+        return {"error": f"인시던트 #{incident_id}를 찾을 수 없습니다."}
+    if incident.status not in ("resolved", "closed"):
+        return {
+            "error": (
+                f"인시던트 #{incident_id}의 상태가 '{incident.status}'입니다. "
+                f"'resolved' 또는 'closed' 상태에서만 피드백을 등록할 수 있습니다."
+            )
+        }
+
+    # approver 결정 — Contact + User 조인으로 name 확보
+    approver_id_raw = args.get("approver_contact_id")
+    approver_contact: Contact | None = None
+    approver_user: User | None = None
+
+    if approver_id_raw is not None and approver_id_raw != "":
+        try:
+            approver_id = int(approver_id_raw)
+        except (ValueError, TypeError):
+            return {"error": f"approver_contact_id가 정수가 아닙니다: {approver_id_raw!r}"}
+        row = (
+            await db.execute(
+                select(Contact, User)
+                .join(User, Contact.user_id == User.id)
+                .where(Contact.id == approver_id)
+            )
+        ).first()
+        if not row:
+            return {"error": f"approver_contact_id={approver_id} 에 해당하는 담당자가 없습니다."}
+        approver_contact, approver_user = row
+    else:
+        # 미지정 — 시스템의 primary contact 자동 선택
+        if incident.system_id is None:
+            return {
+                "error": (
+                    "approver_contact_id가 필요합니다. 인시던트가 시스템에 연결되어 있지 않아 "
+                    "primary contact를 자동 선택할 수 없습니다. 명시적으로 승인자를 지정하세요."
+                )
+            }
+        row = (
+            await db.execute(
+                select(Contact, User)
+                .join(User, Contact.user_id == User.id)
+                .join(SystemContact, SystemContact.contact_id == Contact.id)
+                .where(SystemContact.system_id == incident.system_id)
+                .where(SystemContact.role == "primary")
+                .where(User.is_active.is_(True))
+                .order_by(Contact.id)
+                .limit(1)
+            )
+        ).first()
+        if not row:
+            return {
+                "error": (
+                    f"시스템 #{incident.system_id}에 primary 담당자가 없어 자동 선택 실패. "
+                    f"approver_contact_id를 명시하거나 admin_list_contacts 도구로 담당자를 먼저 조회하세요."
+                )
+            }
+        approver_contact, approver_user = row
+
+    # 활성 User 검증
+    if not approver_user.is_active:
+        return {"error": f"승인자 '{approver_user.name}'(contact_id={approver_contact.id})의 사용자 계정이 비활성 상태입니다."}
+
+    # INSERT
+    now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
+    feedback = AlertFeedback(
+        incident_id=incident_id,
+        error_type=error_type,
+        solution=solution,
+        resolver=resolver,
+        status="pending",
+        approver_id=approver_contact.id,
+        created_at=now_utc,
+    )
+    db.add(feedback)
+    await db.flush()
+    feedback_id = feedback.id
+    await db.commit()
+
+    return {
+        "feedback_id": feedback_id,
+        "incident_id": incident_id,
+        "incident_title": incident.title,
+        "incident_status": incident.status,
+        "error_type": error_type,
+        "solution_length": len(solution),
+        "resolver": resolver,
+        "approver_id": approver_contact.id,
+        "approver_name": approver_user.name,
+        "status": "pending",
+        "message": (
+            f"피드백 #{feedback_id}이 인시던트 #{incident_id} '{incident.title}'에 등록되었습니다. "
+            f"승인자: {approver_user.name}. 승인 후 Qdrant 임베딩되어 RAG 검색에 활용됩니다."
+        ),
+    }
+
+
 async def execute(db: AsyncSession, name: str, args: dict[str, Any]) -> dict[str, Any]:
     try:
         if name == "admin_list_systems":
@@ -716,6 +854,8 @@ async def execute(db: AsyncSession, name: str, args: dict[str, Any]) -> dict[str
             return await _save_guide(db, args)
         if name == "admin_get_incident_context":
             return await _get_incident_context(db, args)
+        if name == "admin_create_feedback":
+            return await _create_feedback(db, args)
         return {"error": f"unknown admin tool: {name}"}
     except Exception as e:  # noqa: BLE001
         return {"error": f"admin 도구 실패: {str(e)[:200]}"}

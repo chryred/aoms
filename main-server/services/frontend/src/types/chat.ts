@@ -44,6 +44,8 @@ export interface ChatSession {
   deleted_at?: string | null
   created_at: string
   updated_at: string
+  match_preview?: string | null
+  matched_in?: 'title' | 'message' | null
 }
 
 export interface ChatTool {

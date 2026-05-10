@@ -74,17 +74,85 @@ async def list_sessions(
     db: AsyncSession = Depends(get_db),
     user=Depends(get_current_user),
 ):
-    stmt = (
+    from sqlalchemy import or_
+
+    base = (
         select(ChatSession)
         .where(ChatSession.user_id == user.id)
         .where(ChatSession.deleted_at.is_(None))
+    )
+
+    if not q:
+        rows = (await db.execute(
+            base.order_by(ChatSession.updated_at.desc()).limit(50)
+        )).scalars().all()
+        return [ChatSessionOut.model_validate(r) for r in rows]
+
+    # q가 있을 때: title ILIKE OR 메시지 본문 ILIKE
+    pattern = f"%{q}%"
+
+    message_match_subq = (
+        select(ChatMessage.id)
+        .where(ChatMessage.session_id == ChatSession.id)
+        .where(ChatMessage.role.in_(["user", "assistant"]))
+        .where(ChatMessage.content.ilike(pattern))
+        .limit(1)
+    ).exists()
+
+    stmt = (
+        base
+        .where(or_(ChatSession.title.ilike(pattern), message_match_subq))
         .order_by(ChatSession.updated_at.desc())
         .limit(50)
     )
-    if q:
-        stmt = stmt.where(ChatSession.title.ilike(f"%{q}%"))
-    rows = (await db.execute(stmt)).scalars().all()
-    return list(rows)
+    sessions = (await db.execute(stmt)).scalars().all()
+
+    results: list[ChatSessionOut] = []
+    for s in sessions:
+        out = ChatSessionOut.model_validate(s)
+        if q.lower() in (s.title or "").lower():
+            out.matched_in = "title"
+            out.match_preview = None
+        else:
+            # 메시지에서 매칭 — 가장 최근 매칭 메시지의 미리보기
+            msg = (await db.execute(
+                select(ChatMessage)
+                .where(ChatMessage.session_id == s.id)
+                .where(ChatMessage.role.in_(["user", "assistant"]))
+                .where(ChatMessage.content.ilike(pattern))
+                .order_by(ChatMessage.created_at.desc())
+                .limit(1)
+            )).scalar_one_or_none()
+            if msg and msg.content:
+                out.matched_in = "message"
+                out.match_preview = _build_match_preview(msg.content, q)
+            else:
+                out.matched_in = "message"
+                out.match_preview = None
+        results.append(out)
+
+    return results
+
+
+def _build_match_preview(content: str, query: str, context_chars: int = 50, max_total: int = 120) -> str:
+    """매칭 부분 ±context_chars 컨텍스트로 미리보기 생성. 최대 max_total자."""
+    lower_content = content.lower()
+    lower_query = query.lower()
+    idx = lower_content.find(lower_query)
+    if idx < 0:
+        return content[:max_total]
+    start = max(0, idx - context_chars)
+    end = min(len(content), idx + len(query) + context_chars)
+    snippet = content[start:end]
+    if start > 0:
+        snippet = "…" + snippet
+    if end < len(content):
+        snippet = snippet + "…"
+    # 줄바꿈은 공백으로 치환 (단일 줄 미리보기)
+    snippet = " ".join(snippet.split())
+    if len(snippet) > max_total:
+        snippet = snippet[:max_total] + "…"
+    return snippet
 
 
 @router.patch("/sessions/{session_id}", response_model=ChatSessionOut)

@@ -22,15 +22,19 @@ from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 
 from database import Base, get_db
 from models import (
+    AlertFeedback,
     AlertHistory,
     ChatMessage,
     ChatSession,
     ChatTool,
+    Contact,
     Incident,
     IncidentTimeline,
     KnowledgeGuide,
     LogAnalysisHistory,
     System,
+    SystemContact,
+    User,
 )
 from services.chat_tools import registry
 
@@ -729,3 +733,189 @@ class TestAdminGetIncidentContext:
 
         assert "error" in result
         assert "정수" in result["error"]
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# E) admin_create_feedback
+# ══════════════════════════════════════════════════════════════════════════════
+
+class TestAdminCreateFeedback:
+    """admin_create_feedback 도구 — 인시던트 피드백 등록"""
+
+    async def _make_user(self, db, email: str, name: str, is_active: bool = True) -> User:
+        user = User(
+            email=email,
+            name=name,
+            password_hash="x",
+            is_active=is_active,
+            is_approved=True,
+        )
+        db.add(user)
+        await db.flush()
+        return user
+
+    async def _make_contact(self, db, user: User) -> Contact:
+        contact = Contact(user_id=user.id)
+        db.add(contact)
+        await db.flush()
+        return contact
+
+    async def _make_system(self, db, system_name: str = "cxm") -> System:
+        sys_obj = System(system_name=system_name, display_name=system_name.upper(), status="active")
+        db.add(sys_obj)
+        await db.flush()
+        return sys_obj
+
+    async def _make_incident(self, db, sys_obj: System, status: str = "resolved") -> Incident:
+        now = _utcnow()
+        inc = Incident(
+            system_id=sys_obj.id,
+            title="테스트 인시던트",
+            severity="critical",
+            status=status,
+            detected_at=now - timedelta(hours=2),
+            acknowledged_at=now - timedelta(hours=1),
+            resolved_at=now if status in ("resolved", "closed") else None,
+        )
+        db.add(inc)
+        await db.flush()
+        return inc
+
+    @pytest.mark.asyncio
+    async def test_normal_with_explicit_approver(self, db_session):
+        """정상: resolved 인시던트 + 명시적 approver_contact_id → feedback_id 반환, DB 검증."""
+        await _seed_tool(db_session, "admin_create_feedback")
+
+        user = await self._make_user(db_session, "approver@test.com", "김승인")
+        approver = await self._make_contact(db_session, user)
+        sys_obj = await self._make_system(db_session, "cxm")
+        inc = await self._make_incident(db_session, sys_obj, status="resolved")
+        await db_session.flush()
+
+        result = await registry.run_tool(
+            db_session,
+            "admin_create_feedback",
+            {
+                "incident_id": inc.id,
+                "error_type": "메모리 누수",
+                "solution": "## 조치\n1. heap dump\n2. JVM 옵션 -Xmx 증가\n3. 재시작\n4. 모니터링 강화",
+                "approver_contact_id": approver.id,
+            },
+        )
+
+        assert "error" not in result, f"예상치 못한 error: {result.get('error')}"
+        assert "feedback_id" in result
+        assert result["incident_id"] == inc.id
+        assert result["approver_id"] == approver.id
+        assert result["approver_name"] == "김승인"
+        assert result["status"] == "pending"
+
+        # DB 검증
+        from sqlalchemy import select as _select
+        fb = (await db_session.execute(
+            _select(AlertFeedback).where(AlertFeedback.id == result["feedback_id"])
+        )).scalar_one()
+        assert fb.solution.startswith("## 조치")
+        assert fb.status == "pending"
+        assert fb.approver_id == approver.id
+
+    @pytest.mark.asyncio
+    async def test_auto_select_primary_approver(self, db_session):
+        """approver_contact_id 미지정 → 시스템 primary contact 자동 선택."""
+        await _seed_tool(db_session, "admin_create_feedback")
+
+        user = await self._make_user(db_session, "primary@test.com", "Primary담당자")
+        primary_contact = await self._make_contact(db_session, user)
+        sys_obj = await self._make_system(db_session, "oms")
+
+        sc = SystemContact(system_id=sys_obj.id, contact_id=primary_contact.id, role="primary", notify_channels="teams")
+        db_session.add(sc)
+
+        inc = await self._make_incident(db_session, sys_obj, status="closed")
+        await db_session.flush()
+
+        result = await registry.run_tool(
+            db_session,
+            "admin_create_feedback",
+            {
+                "incident_id": inc.id,
+                "error_type": "연결 풀 고갈",
+                "solution": "a" * 50,
+                # approver_contact_id 미지정 → 자동 선택
+            },
+        )
+
+        assert "error" not in result, f"예상치 못한 error: {result.get('error')}"
+        assert result.get("approver_id") == primary_contact.id
+
+    @pytest.mark.asyncio
+    async def test_incident_not_resolved_returns_error(self, db_session):
+        """investigating 상태 인시던트 → resolved/closed 아님 에러."""
+        await _seed_tool(db_session, "admin_create_feedback")
+
+        sys_obj = await self._make_system(db_session, "inv")
+        inc = await self._make_incident(db_session, sys_obj, status="investigating")
+        await db_session.flush()
+
+        result = await registry.run_tool(
+            db_session,
+            "admin_create_feedback",
+            {
+                "incident_id": inc.id,
+                "error_type": "X",
+                "solution": "a" * 50,
+            },
+        )
+
+        assert "error" in result
+        assert "resolved" in result["error"] or "closed" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_no_primary_contact_returns_error(self, db_session):
+        """primary contact 없는 시스템 + approver 미지정 → 에러."""
+        await _seed_tool(db_session, "admin_create_feedback")
+
+        sys_obj = await self._make_system(db_session, "npc")
+        inc = await self._make_incident(db_session, sys_obj, status="closed")
+        await db_session.flush()
+
+        result = await registry.run_tool(
+            db_session,
+            "admin_create_feedback",
+            {
+                "incident_id": inc.id,
+                "error_type": "X",
+                "solution": "a" * 50,
+            },
+        )
+
+        assert "error" in result
+        assert "primary" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_solution_too_short(self, db_session):
+        """solution이 30자 미만 → 길이 에러."""
+        await _seed_tool(db_session, "admin_create_feedback")
+
+        result = await registry.run_tool(
+            db_session,
+            "admin_create_feedback",
+            {"incident_id": 1, "error_type": "X", "solution": "짧음"},
+        )
+
+        assert "error" in result
+        assert "짧" in result["error"] or "30" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_missing_incident_id(self, db_session):
+        """incident_id 누락 → 에러."""
+        await _seed_tool(db_session, "admin_create_feedback")
+
+        result = await registry.run_tool(
+            db_session,
+            "admin_create_feedback",
+            {"error_type": "X", "solution": "a" * 50},
+        )
+
+        assert "error" in result
+        assert "incident_id" in result["error"]

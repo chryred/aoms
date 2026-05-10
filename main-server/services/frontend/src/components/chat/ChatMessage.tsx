@@ -1,13 +1,68 @@
-import { useState, useMemo } from 'react'
-import { User, Loader2, RotateCw } from 'lucide-react'
+import { useState, useMemo, useCallback } from 'react'
+import { User, Loader2, RotateCw, Copy, Check } from 'lucide-react'
 import { SynapMini } from '@/components/mascot'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { Components } from 'react-markdown'
+import { cn } from '@/lib/utils'
 import type { ChatMessage as ChatMessageType, MessageImage } from '@/types/chat'
 import { chatApi } from '@/api/chat'
 import { ToolCallCard } from './ToolCallCard'
 import { MessageImages } from './MessageImages'
+
+function CodeBlock({ children, language }: { children: React.ReactNode; language: string }) {
+  const [copied, setCopied] = useState(false)
+
+  const handleCopy = useCallback(() => {
+    const text =
+      typeof children === 'string'
+        ? children
+        : Array.isArray(children)
+          ? children.map((c) => (typeof c === 'string' ? c : '')).join('')
+          : String(children ?? '')
+
+    if (!text.trim()) return
+
+    navigator.clipboard?.writeText(text).then(
+      () => {
+        setCopied(true)
+        setTimeout(() => setCopied(false), 2000)
+      },
+      () => {
+        // 클립보드 실패 시 silent — localhost/HTTPS에서는 거의 발생하지 않음.
+      },
+    )
+  }, [children])
+
+  return (
+    <div className="group relative">
+      <pre className="bg-bg-deep text-text-primary mb-1 overflow-x-auto rounded-sm p-2 pr-10 font-mono text-xs">
+        <code className={`language-${language}`}>{children}</code>
+      </pre>
+      <button
+        type="button"
+        onClick={handleCopy}
+        className={cn(
+          'bg-surface text-text-primary shadow-neu-flat',
+          'absolute top-1 right-1 inline-flex items-center gap-1 rounded-sm px-1.5 py-1',
+          'opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100',
+          'hover:shadow-neu-pressed focus:ring-accent focus:ring-1 focus:outline-none',
+        )}
+        aria-label={copied ? '복사됨' : '코드 복사'}
+        title={copied ? '복사됨' : '코드 복사'}
+      >
+        {copied ? (
+          <>
+            <Check className="text-normal h-3 w-3" />
+            <span className="text-text-secondary text-[10px]">복사됨</span>
+          </>
+        ) : (
+          <Copy className="h-3 w-3" />
+        )}
+      </button>
+    </div>
+  )
+}
 
 const markdownComponents: Components = {
   h1: ({ children }) => (
@@ -22,20 +77,22 @@ const markdownComponents: Components = {
   p: ({ children }) => <p className="text-text-primary mb-1 leading-relaxed">{children}</p>,
   strong: ({ children }) => <strong className="text-text-primary font-semibold">{children}</strong>,
   em: ({ children }) => <em className="italic">{children}</em>,
+  pre: ({ children }) => {
+    const codeEl = Array.isArray(children) ? children[0] : children
+    const props = (codeEl as { props?: { className?: string; children?: React.ReactNode } })?.props ?? {}
+    const language = (props.className ?? '').replace(/^language-/, '')
+    const codeContent = props.children ?? ''
+    return <CodeBlock language={language}>{codeContent}</CodeBlock>
+  },
   code: ({ children, className }) => {
     const isBlock = className?.startsWith('language-')
     if (isBlock) {
-      return (
-        <code className="bg-bg-deep text-text-primary block overflow-x-auto rounded-sm p-2 font-mono text-xs">
-          {children}
-        </code>
-      )
+      return <code className={className}>{children}</code>
     }
     return (
       <code className="bg-bg-deep text-accent rounded-sm px-1 font-mono text-xs">{children}</code>
     )
   },
-  pre: ({ children }) => <pre className="mb-1">{children}</pre>,
   ul: ({ children }) => <ul className="mb-1 list-disc space-y-0.5 pl-4">{children}</ul>,
   ol: ({ children }) => <ol className="mb-1 list-decimal space-y-0.5 pl-4">{children}</ol>,
   li: ({ children }) => <li className="text-text-primary">{children}</li>,

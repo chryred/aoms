@@ -189,3 +189,129 @@ async def test_execute_groups_results_by_instance_role():
     assert insts["was1"]["cpu_percent"] == 75.3
     assert insts["was1"]["load_1m"] == 75.3  # 동일 mock
     assert insts["was2"]["cpu_percent"] == 62.1
+
+
+# ── prometheus_range_query 테스트 ────────────────────────────────────────────
+
+def test_parse_step_seconds():
+    assert p._parse_step_seconds("30s") == 30
+    assert p._parse_step_seconds("5m") == 300
+    assert p._parse_step_seconds("1h") == 3600
+    assert p._parse_step_seconds("1d") == 86400
+    with pytest.raises(ValueError):
+        p._parse_step_seconds("invalid")
+    with pytest.raises(ValueError):
+        p._parse_step_seconds("5M")  # 대소문자 구분
+
+
+def test_validate_range_step_normal():
+    """24시간 + 5m step = 289개 → 한도 이내."""
+    from datetime import datetime, timezone, timedelta
+    start = datetime.now(timezone.utc) - timedelta(hours=24)
+    end = datetime.now(timezone.utc)
+    assert p._validate_range(start, end, "5m") is None
+    assert p._validate_range(start, end, "1h") is None
+
+
+def test_validate_range_exceeds_data_point_limit():
+    """24시간 + 1m step = 1441개 → 한도(1000) 초과."""
+    from datetime import datetime, timezone, timedelta
+    start = datetime.now(timezone.utc) - timedelta(hours=24)
+    end = datetime.now(timezone.utc)
+    err = p._validate_range(start, end, "1m")
+    assert err is not None
+    assert "한도" in err
+
+
+def test_validate_range_end_before_start():
+    from datetime import datetime, timezone, timedelta
+    now = datetime.now(timezone.utc)
+    err = p._validate_range(now, now - timedelta(hours=1), "5m")
+    assert err is not None
+    assert "늦어야" in err
+
+
+@pytest.mark.asyncio
+async def test_range_execute_missing_system_name():
+    out = await p.execute(
+        MagicMock(),
+        "prometheus_range_query",
+        {"metric_group": "cpu", "start_time": "24시간 전"},
+    )
+    assert "error" in out
+    assert "system_name" in out["error"]
+
+
+@pytest.mark.asyncio
+async def test_range_execute_missing_start_time():
+    out = await p.execute(
+        MagicMock(),
+        "prometheus_range_query",
+        {"system_name": "cxm", "metric_group": "cpu"},
+    )
+    assert "error" in out
+    assert "start_time" in out["error"]
+
+
+@pytest.mark.asyncio
+async def test_range_execute_invalid_metric_group():
+    out = await p.execute(
+        MagicMock(),
+        "prometheus_range_query",
+        {"system_name": "cxm", "metric_group": "unknown", "start_time": "24시간 전"},
+    )
+    assert "error" in out
+    assert "metric_group" in out["error"]
+
+
+@pytest.mark.asyncio
+async def test_range_execute_returns_series_by_instance():
+    """mock Prometheus range 응답 → instance_role별 시계열 검증."""
+    fake_resp = MagicMock()
+    fake_resp.raise_for_status = MagicMock()
+    fake_resp.json = MagicMock(
+        return_value={
+            "data": {
+                "result": [
+                    {
+                        "metric": {"system_name": "cxm", "instance_role": "was1"},
+                        "values": [
+                            [1715200000, "75.3"],
+                            [1715200300, "76.1"],
+                        ],
+                    },
+                ]
+            }
+        }
+    )
+    fake_client = AsyncMock()
+    fake_client.get = AsyncMock(return_value=fake_resp)
+    fake_client.__aenter__ = AsyncMock(return_value=fake_client)
+    fake_client.__aexit__ = AsyncMock(return_value=None)
+
+    with patch.object(p.httpx, "AsyncClient", return_value=fake_client):
+        out = await p.execute(
+            MagicMock(),
+            "prometheus_range_query",
+            {
+                "system_name": "cxm",
+                "metric_group": "cpu",
+                "start_time": "2026-05-09 00:00",
+                "end_time": "2026-05-10 00:00",
+                "step": "5m",
+            },
+        )
+
+    assert "error" not in out
+    assert out["system_name"] == "cxm"
+    assert out["metric_group"] == "cpu"
+    assert out["step"] == "5m"
+    assert "start" in out
+    assert "end" in out
+    insts = {it["instance_role"]: it["series"] for it in out["instances"]}
+    assert "was1" in insts
+    # series는 sub_metric → [[ts_kst, value], ...] 형태
+    cpu_series = insts["was1"]["cpu_percent"]
+    assert isinstance(cpu_series, list)
+    assert len(cpu_series) == 2
+    assert cpu_series[0][1] == 75.3

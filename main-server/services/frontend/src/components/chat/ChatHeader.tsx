@@ -111,7 +111,14 @@ export function ChatHeader({
                     <Check
                       className={cn('h-3 w-3 shrink-0', isCurrent ? 'opacity-100' : 'opacity-0')}
                     />
-                    <span className="truncate">{session.title}</span>
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate">{session.title}</div>
+                      {session.matched_in === 'message' && session.match_preview && (
+                        <div className="text-text-secondary mt-0.5 truncate text-[11px]">
+                          💬 {session.match_preview}
+                        </div>
+                      )}
+                    </div>
                   </button>
                 )
               })}
