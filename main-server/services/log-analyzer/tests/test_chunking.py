@@ -263,10 +263,18 @@ def test_chunk_docx_long_paragraphs_split(tmp_path):
 
 # ── chunk_pdf (mock) ─────────────────────────────────────────────────────────
 
-def test_chunk_pdf_mocked(monkeypatch):
-    """pdfplumber를 mock으로 대체 → 페이지별 청킹 검증."""
+def _make_pdf_mocks(monkeypatch, pages_text, pages_images=None):
+    """pdfplumber + pypdf mock 헬퍼.
 
-    class _MockPage:
+    pages_text: list[str] — 각 페이지 텍스트 (빈 문자열 = 빈 페이지)
+    pages_images: list[list[bytes]] | None — 페이지별 이미지 blob 목록
+                  None이면 모든 페이지 이미지 없음
+    """
+    import sys as _sys
+    import types
+
+    # ── pdfplumber mock ──────────────────────────────────────────────
+    class _MockPdfPage:
         def __init__(self, text):
             self._text = text
 
@@ -283,18 +291,49 @@ def test_chunk_pdf_mocked(monkeypatch):
         def __exit__(self, *args):
             return False
 
-    def _mock_open(_path):
-        return _MockPdf([
-            _MockPage("페이지 1 본문입니다."),
-            _MockPage("페이지 2 본문. 좀 더 길게 작성한 내용."),
-            _MockPage(""),  # 빈 페이지는 건너뛰어야 함
-            _MockPage("페이지 4 본문."),
-        ])
+    def _mock_pdfplumber_open(_path):
+        return _MockPdf([_MockPdfPage(t) for t in pages_text])
 
-    import sys as _sys
-    import types
-    fake_pdfplumber = types.SimpleNamespace(open=_mock_open)
+    fake_pdfplumber = types.SimpleNamespace(open=_mock_pdfplumber_open)
     monkeypatch.setitem(_sys.modules, "pdfplumber", fake_pdfplumber)
+
+    # ── pypdf mock ───────────────────────────────────────────────────
+    class _MockImageFile:
+        def __init__(self, blob):
+            self.data = blob
+
+    class _MockPypdfPage:
+        def __init__(self, image_blobs):
+            self._image_blobs = image_blobs
+
+        @property
+        def images(self):
+            return [_MockImageFile(b) for b in self._image_blobs]
+
+    class _MockPypdfReader:
+        def __init__(self, pages):
+            self.pages = pages
+
+    resolved_images = pages_images if pages_images is not None else [[] for _ in pages_text]
+
+    def _mock_pypdf_reader(_path):
+        return _MockPypdfReader([_MockPypdfPage(imgs) for imgs in resolved_images])
+
+    fake_pypdf = types.SimpleNamespace(PdfReader=_mock_pypdf_reader)
+    monkeypatch.setitem(_sys.modules, "pypdf", fake_pypdf)
+
+
+def test_chunk_pdf_mocked(monkeypatch):
+    """pdfplumber + pypdf를 mock으로 대체 → 페이지별 청킹 검증 (이미지 없음)."""
+    _make_pdf_mocks(
+        monkeypatch,
+        pages_text=[
+            "페이지 1 본문입니다.",
+            "페이지 2 본문. 좀 더 길게 작성한 내용.",
+            "",   # 빈 페이지는 건너뛰어야 함
+            "페이지 4 본문.",
+        ],
+    )
 
     chunks = chunk_pdf("/fake/path/dummy.pdf")
     assert len(chunks) == 3  # 빈 페이지 제외

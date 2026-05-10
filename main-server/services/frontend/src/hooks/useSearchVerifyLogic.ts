@@ -2,23 +2,28 @@ import { useState } from 'react'
 import toast from 'react-hot-toast'
 import { useSearchVerifyChatbot, useSearchVerifyCollections } from '@/hooks/queries/useSearchVerify'
 import { knowledgeApi } from '@/api/knowledge'
-import type { SearchVerifyMode, RagCollection, SearchVerifyResult } from '@/types/knowledge-verify'
+import type {
+  SearchVerifyMode,
+  RagCollection,
+  SearchVerifyResult,
+  CollectionGroup,
+  ToolError,
+} from '@/types/knowledge-verify'
 
 interface SearchVerifyLogicParams {
   mode: SearchVerifyMode
   query: string
   selectedSystems: number[]
   selectedCollections: RagCollection[]
-  rerankerEnabled: boolean
   useReranker: boolean
 }
 
 interface SearchVerifyLogicReturn {
-  results: SearchVerifyResult[]
+  groups: CollectionGroup[]
+  errors: ToolError[]
   hasSearched: boolean
   isPending: boolean
   isError: boolean
-  scoreKind: 'sim' | 'rrf'
   resyncingIds: Set<string>
   handleSearch: () => void
   handleResultsRefresh: () => void
@@ -30,10 +35,10 @@ export function useSearchVerifyLogic({
   query,
   selectedSystems,
   selectedCollections,
-  rerankerEnabled,
   useReranker,
 }: SearchVerifyLogicParams): SearchVerifyLogicReturn {
-  const [results, setResults] = useState<SearchVerifyResult[]>([])
+  const [groups, setGroups] = useState<CollectionGroup[]>([])
+  const [errors, setErrors] = useState<ToolError[]>([])
   const [hasSearched, setHasSearched] = useState(false)
   const [resyncingIds, setResyncingIds] = useState<Set<string>>(new Set())
 
@@ -42,7 +47,6 @@ export function useSearchVerifyLogic({
 
   const isPending = searchChatbot.isPending || searchCollections.isPending
   const isError = searchChatbot.isError || searchCollections.isError
-  const scoreKind: 'sim' | 'rrf' = mode === 'chatbot' ? 'sim' : 'rrf'
 
   const handleSearch = () => {
     if (!query.trim()) return
@@ -52,7 +56,8 @@ export function useSearchVerifyLogic({
         { query: query.trim(), system_ids: selectedSystems },
         {
           onSuccess: (data) => {
-            setResults(data.results)
+            setGroups(data.groups ?? [])
+            setErrors(data.errors ?? [])
             setHasSearched(true)
           },
         },
@@ -63,11 +68,12 @@ export function useSearchVerifyLogic({
           query: query.trim(),
           system_ids: selectedSystems,
           collections: selectedCollections,
-          use_reranker: rerankerEnabled && useReranker,
+          use_reranker: useReranker,
         },
         {
           onSuccess: (data) => {
-            setResults(data.results)
+            setGroups(data.groups ?? [])
+            setErrors(data.errors ?? [])
             setHasSearched(true)
           },
         },
@@ -115,11 +121,11 @@ export function useSearchVerifyLogic({
   }
 
   return {
-    results,
+    groups,
+    errors,
     hasSearched,
     isPending,
     isError,
-    scoreKind,
     resyncingIds,
     handleSearch,
     handleResultsRefresh,

@@ -15,16 +15,16 @@ interface GuideStatusBadgeProps {
 export function GuideStatusBadge({ status }: GuideStatusBadgeProps) {
   if (status === 'draft') {
     return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-warning/10 px-2 py-0.5 text-xs font-medium text-warning">
-        <span className="h-1.5 w-1.5 rounded-full bg-warning" aria-hidden="true" />
+      <span className="bg-warning/10 text-warning inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium">
+        <span className="bg-warning h-1.5 w-1.5 rounded-full" aria-hidden="true" />
         검토 대기
       </span>
     )
   }
 
   return (
-    <span className="inline-flex items-center gap-1 rounded-full bg-normal/10 px-2 py-0.5 text-xs font-medium text-normal">
-      <span className="h-1.5 w-1.5 rounded-full bg-normal" aria-hidden="true" />
+    <span className="bg-normal/10 text-normal inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium">
+      <span className="bg-normal h-1.5 w-1.5 rounded-full" aria-hidden="true" />
       게시됨
     </span>
   )

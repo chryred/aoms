@@ -330,7 +330,7 @@ class InstanceStatusOut(BaseModel):
 - `PATCH /operator-note/{point_id}` — 운영자 노트 수정. path param `point_id`는 **문자열**
 - `DELETE /operator-note/{point_id}` — 운영자 노트 삭제. path param `point_id`는 **문자열**
 - `POST /feedback` — 오답 교정 피드백 — `knowledge_corrections` INSERT + log-analyzer /knowledge/correction 호출 (best-effort)
-- `GET /questions/frequent` — 최근 N일 사용자 질문 집계·클러스터링 (cosine 유사도 0.85, 5분 캐시)
+- `GET /questions/frequent` — 최근 N일 사용자 질문 집계·클러스터링 (cosine 유사도 0.80, 기간별 동적 캐시 TTL: 7일=60s / 14일=300s / 30일=900s, 대표 질문 = centroid 최근접)
 - `GET /sync-status` — knowledge_sync_status 조회 (source 필터 지원)
 - `POST /sync-status` — log-analyzer 스케줄러가 호출 (last_sync_at, total_synced UPSERT)
 - `POST /sync/{jira|confluence}` — 전체 소스 동기화 트리거 (background, log-analyzer 프록시)
@@ -339,11 +339,28 @@ class InstanceStatusOut(BaseModel):
 - `GET /documents` — Qdrant 적재 문서 목록 조회 (log-analyzer GET /knowledge/documents 프록시). `?system_id=` 필터 지원. 응답: `{ items: [{ file_hash, file_name, system_id, chunk_count, uploaded_at }] }`
 - `DELETE /documents/{file_hash}` — file_hash 단위 문서 청크 일괄 삭제 (log-analyzer DELETE /knowledge/documents/{file_hash} 프록시). 권한: admin 또는 해당 system_id 의 SystemContact 담당자
 
-### 챗봇 검색 검증 `/api/v1/knowledge/search-verify` (V1 RAG 검증)
-- `POST /search-verify/chatbot` — 챗봇 RAG 3개 도구(incident/aggregation/knowledge)와 동일 로직으로 검색. LLM 호출 없음. body: `{ query, system_ids }`. 3개 도구 병렬 호출 후 점수 내림차순 통합 반환
-- `POST /search-verify/collections` — 사용자가 선택한 컬렉션을 직접 검색. body: `{ query, system_ids, collections, use_reranker }`. 컬렉션별 log-analyzer 엔드포인트 분기 (incident/aggregation/knowledge)
-- 응답 공통 스키마: `{ results: [{ tool, collection, score, content, system_id, system_name, doc_type?, file_name?, file_hash?, ... }], used_tools }` — `extra` 객체는 응답 직렬화 시점에 같은 레벨로 평탄화되어 반환된다 (frontend 가 `result.file_name` 같은 평탄 접근 사용). 운영자 노트는 `doc_type=operator_note` 로 식별
+### 챗봇 검색 검증 `/api/v1/knowledge/search-verify` (V1 RAG 검증, v2 응답 스키마)
+- `POST /search-verify/chatbot` — 챗봇 RAG 3개 도구(incident/aggregation/knowledge)와 동일 로직으로 검색. LLM 호출 없음. body: `{ query, system_ids }`. 3개 도구 병렬 호출. knowledge 컬렉션만 rerank=True (챗봇 qdrant_search_knowledge 도구와 동일).
+- `POST /search-verify/collections` — 사용자가 선택한 컬렉션을 직접 검색. body: `{ query, system_ids, collections, use_reranker }`. `use_reranker=True` 이면 **모든** 컬렉션에 reranker 적용. 컬렉션별 log-analyzer 엔드포인트 분기.
+- **v2 응답 공통 스키마**:
+  ```json
+  {
+    "groups": [
+      { "collection": "log_incidents", "tool": "qdrant_search_incident_knowledge", "reranked": false, "results": [...] },
+      { "collection": "knowledge_documents", "tool": "qdrant_search_knowledge", "reranked": true, "results": [...] }
+    ],
+    "used_tools": ["qdrant_search_incident_knowledge", "qdrant_search_knowledge"],
+    "errors": [
+      { "tool": "qdrant_search_knowledge", "collection": "knowledge_jira_issues", "reason": "..." }
+    ]
+  }
+  ```
+  - `groups` — 컬렉션 단위로 묶인 결과 (canonical 순서: log_incidents → metric_baselines → incident_postmortems → aggregation_summaries → metric_hourly_patterns → knowledge_jira_issues → knowledge_confluence_pages → knowledge_documents)
+  - `groups[*].reranked` — True이면 점수는 reranker logit(sim), False이면 RRF score. **두 스케일은 비교 불가**하므로 UI는 컬렉션 내 정렬만 사용
+  - `errors` — 부분 실패 목록. 전체 실패 아님. 성공 컬렉션 결과는 그대로 반환
+  - 각 result item 내 `extra` 객체는 직렬화 시 같은 레벨로 평탄화 (frontend가 `result.file_name` 같은 평탄 접근 사용). 운영자 노트는 `doc_type=operator_note` 로 식별
 - 구현 파일: `routes/knowledge_verify.py`
+- **BC 주의**: 구버전 `results: list[dict]` 응답 스키마는 제거됨. frontend는 `data.groups` 사용.
 
 **컬렉션별 시스템 필터 정책 (V1)**:
 | 컬렉션 | 시스템 필터 |

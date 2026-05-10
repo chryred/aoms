@@ -303,7 +303,7 @@ _trend_agg_scheduler() (4시간마다)
 | 순수 텍스트 | `chunk_text` | sliding window (1500/200) | 베이스 함수 — 모든 포맷이 재사용 |
 | Confluence | `chunk_confluence_page` | H2/H3 섹션 → 큰 섹션은 sliding window | HTML이면 BeautifulSoup 파싱(다른 HTML 파서 사용 금지). plain text면 chunk_text fallback. heading을 메타에 보존. **`<ac:image>` / `<img>` 태그는 `[이미지: {alt or filename}]` 마커로 변환** |
 | DOCX | `chunk_docx` | paragraphs+tables 합쳐 sliding window | python-docx, 표는 행 단위 `\|` 결합. **inline image는 `doc.part.related_parts`에서 추출 → Tesseract OCR (kor+eng) → `[이미지: ...]` 마커** |
-| PDF | `chunk_pdf` | 페이지 단위로 sliding window | pdfplumber, 페이지마다 빈 텍스트 건너뜀, `page_no` 메타 보존, `chunk_index`는 문서 전역 누적 |
+| PDF | `chunk_pdf` | 페이지 단위로 sliding window | pdfplumber(텍스트) + pypdf(이미지). 페이지마다 빈 텍스트 건너뜀, `page_no` 메타 보존, `chunk_index`는 문서 전역 누적. **페이지별 embedded image → pypdf `ImageFile.data` 추출 → Tesseract OCR → `[이미지: ...]` 마커**. 페이지당 OCR 상한 10장 (`_PDF_MAX_IMAGES_PER_PAGE`) |
 | XLSX | `chunk_xlsx` | **시트 = 1 청크 (분할 안 함)** | openpyxl, 시트를 markdown 표로 변환. 1500자 초과해도 의미 보존 위해 분할 금지 |
 | PPTX | `chunk_pptx` | **슬라이드 = 1 청크 (분할 안 함)** | python-pptx, title + body shapes + speaker notes 합산. 표는 셀별 `\|` 결합. **PICTURE shape는 alt text(`nvPicPr.cNvPr.descr`) + Tesseract OCR (kor+eng, timeout=3s) → `[이미지: ...]` 마커** |
 
@@ -312,9 +312,11 @@ _trend_agg_scheduler() (4시간마다)
 - **언어:** `lang="kor+eng"` (한국어 + 영어 혼합 텍스트 처리)
 - **timeout:** 이미지당 3초 (`pytesseract.image_to_string`의 native kwarg)
 - **노이즈 필터:** OCR 결과가 10자 미만이거나 정상 문자 비율 70% 미만이면 폐기 (`_is_meaningful_ocr`)
-- **마커 형식:** `[이미지: {alt_text} {ocr_text}]` — PPTX/DOCX/Confluence 통일
+- **마커 형식:** `[이미지: {ocr_text}]` — DOCX/PPTX/PDF 통일 (Confluence는 alt/filename 사용)
 - **Vision LLM 업그레이드 경로:** 마커 형식이 통일돼 있어 향후 Qwen2-VL 등으로 교체 시 자리만 바꾸면 됨
 - **시스템 패키지:** Dockerfile에서 `tesseract-ocr` + `tesseract-ocr-kor` apt 설치 (이미지 ~25MB 증가)
+- **PDF 이미지 추출:** pypdf `PdfReader` + `page.images` → `ImageFile.data` (DCTDecode/FlateDecode/CCITTFaxDecode 등 모든 인코딩을 PIL 호환 bytes로 정규화). pdfplumber의 `stream.get_data()`는 raw pixel bytes를 반환해 PIL 호환 안 됨 — pypdf를 사용해야 스캔 PDF도 처리 가능
+- **PDF OCR 상한:** 페이지당 `_PDF_MAX_IMAGES_PER_PAGE = 10` 이미지 초과분 건너뜀 (표지·차트 PDF 타임아웃 방지)
 
 각 함수는 `list[dict]` 반환: `[{"text": str, "metadata": {"chunk_index", "source_type", ...}}]`.
 의존 라이브러리는 `requirements/base.txt` 끝의 "문서 청킹" 블록 참고.

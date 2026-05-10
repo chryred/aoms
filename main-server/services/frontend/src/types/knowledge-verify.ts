@@ -80,9 +80,25 @@ export interface SearchVerifyResult {
   [key: string]: unknown
 }
 
-export interface SearchVerifyResponse {
+/** 컬렉션별 결과 그룹 — admin-api /api/v1/knowledge/search-verify/* v2 응답 */
+export interface CollectionGroup {
+  collection: string
+  tool: string
+  reranked: boolean
   results: SearchVerifyResult[]
+}
+
+/** 도구별 부분 실패 오류 */
+export interface ToolError {
+  tool: string
+  collection: string
+  reason: string
+}
+
+export interface SearchVerifyResponse {
+  groups: CollectionGroup[]
   used_tools?: string[]
+  errors?: ToolError[]
 }
 
 /** file_hash 기반 문서 목록 아이템 (upload job 기반 KnowledgeDocument와 다름) */

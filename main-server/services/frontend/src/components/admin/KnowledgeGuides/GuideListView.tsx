@@ -70,13 +70,21 @@ export function GuideListView({
           <table className="w-full min-w-[480px] text-sm">
             <thead>
               <tr className="border-border border-b">
-                {['상태', '제목', '시스템', '카테고리', '태그', '이미지', '등록일', '작성자', '액션'].map(
-                  (h) => (
-                    <th key={h} className="type-label px-4 py-3 text-left whitespace-nowrap">
-                      {h}
-                    </th>
-                  ),
-                )}
+                {[
+                  '상태',
+                  '제목',
+                  '시스템',
+                  '카테고리',
+                  '태그',
+                  '이미지',
+                  '등록일',
+                  '작성자',
+                  '액션',
+                ].map((h) => (
+                  <th key={h} className="type-label px-4 py-3 text-left whitespace-nowrap">
+                    {h}
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody>
@@ -204,7 +212,7 @@ export function GuideListView({
                   </td>
                   <td className="text-text-secondary hidden px-4 py-3 whitespace-nowrap md:table-cell">
                     {guide.created_by_name ?? (
-                      <span className="text-text-disabled italic text-xs">챗봇</span>
+                      <span className="text-text-disabled text-xs italic">챗봇</span>
                     )}
                   </td>
                   <td className="px-4 py-3 whitespace-nowrap">
@@ -215,7 +223,7 @@ export function GuideListView({
                           onClick={() => onPublish(guide)}
                           title="게시 (Qdrant 인덱싱)"
                           aria-label={`${guide.title} 게시`}
-                          className="focus:ring-accent rounded-sm p-1.5 text-xs text-normal hover:text-normal/80 focus:ring-1 focus:outline-none"
+                          className="focus:ring-accent text-normal hover:text-normal/80 rounded-sm p-1.5 text-xs focus:ring-1 focus:outline-none"
                         >
                           <BookCheck className="h-3.5 w-3.5" />
                         </button>
@@ -225,7 +233,7 @@ export function GuideListView({
                           onClick={() => onUnpublish(guide)}
                           title="게시취소 (Qdrant 삭제)"
                           aria-label={`${guide.title} 게시취소`}
-                          className="focus:ring-warning rounded-sm p-1.5 text-xs text-warning hover:text-warning/80 focus:ring-1 focus:outline-none"
+                          className="focus:ring-warning text-warning hover:text-warning/80 rounded-sm p-1.5 text-xs focus:ring-1 focus:outline-none"
                         >
                           <BookX className="h-3.5 w-3.5" />
                         </button>

@@ -153,8 +153,8 @@ export function GuidesTab() {
           챗봇 응답에 포함될 이미지+텍스트 가이드 문서를 관리합니다.
           <br />
           <span className="text-warning text-xs">
-            ⚠️ LLM이 자동 저장한 가이드는 <strong>검토 대기</strong> 상태로 표시됩니다.
-            게시 전에 내용을 검토하고 게시(Publish) 버튼을 눌러야 RAG 검색에 노출됩니다.
+            ⚠️ LLM이 자동 저장한 가이드는 <strong>검토 대기</strong> 상태로 표시됩니다. 게시 전에
+            내용을 검토하고 게시(Publish) 버튼을 눌러야 RAG 검색에 노출됩니다.
           </span>
         </p>
         <NeuButton size="sm" onClick={openCreate}>
@@ -176,7 +176,7 @@ export function GuidesTab() {
             onClick={() => setStatusTab(tab.value)}
             className={
               statusTab === tab.value
-                ? 'bg-accent shadow-neu-flat rounded-sm px-4 py-1.5 text-sm font-semibold text-accent-contrast transition-all'
+                ? 'bg-accent shadow-neu-flat text-accent-contrast rounded-sm px-4 py-1.5 text-sm font-semibold transition-all'
                 : 'text-text-secondary hover:text-text-primary rounded-sm px-4 py-1.5 text-sm transition-all'
             }
           >

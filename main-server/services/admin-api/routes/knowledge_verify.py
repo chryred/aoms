@@ -1,8 +1,13 @@
 """챗봇 검색 검증 API — LLM 없이 RAG 도구 결과를 그대로 노출.
 
 두 가지 모드:
-  POST /search-verify/chatbot     — 챗봇이 실제 사용하는 3개 RAG 도구 로직 그대로 호출
+  POST /search-verify/chatbot     — 챗봇이 실제 사용하는 4개 RAG 도구 로직 그대로 호출
   POST /search-verify/collections — 사용자가 선택한 컬렉션을 직접 검색
+
+응답 스키마 (v2 — 그룹 기반):
+  groups:  컬렉션별 결과 그룹. 컬렉션 내 점수 순 정렬. 컬렉션 간 교차 정렬 없음
+  errors:  부분 실패 목록 (컬렉션 단위)
+  used_tools: 호출된 도구 이름 목록
 """
 
 from __future__ import annotations
@@ -43,6 +48,18 @@ _KNOWLEDGE_SOURCES_MAP = {
     "knowledge_documents": "documents",
 }
 
+# 컬렉션 표준 순서 (chatbot 모드 고정 순서)
+_CANONICAL_ORDER = [
+    "log_incidents",
+    "metric_baselines",
+    "incident_postmortems",
+    "aggregation_summaries",
+    "metric_hourly_patterns",
+    "knowledge_jira_issues",
+    "knowledge_confluence_pages",
+    "knowledge_documents",
+]
+
 
 # ── Pydantic 스키마 ─────────────────────────────────────────────────────────────
 
@@ -70,25 +87,100 @@ class SearchResultItem(BaseModel):
     extra: dict[str, Any] = {}
 
 
+class CollectionGroup(BaseModel):
+    collection: str
+    tool: str
+    reranked: bool = False
+    results: list[dict[str, Any]]    # extra 필드가 같은 레벨로 평탄화된 dict
+
+
+class ToolError(BaseModel):
+    tool: str
+    collection: str
+    reason: str
+
+
 class SearchVerifyResponse(BaseModel):
-    # results 는 SearchResultItem 의 평탄화된 dict — frontend 가 result.file_name / result.doc_type
-    # 등을 직접 접근하므로 응답 직전에 extra 키를 같은 레벨로 펼친다.
-    results: list[dict[str, Any]]
+    groups: list[CollectionGroup]
     used_tools: list[str]
+    errors: list[ToolError] = []
 
 
-def _flatten_items(items: list[SearchResultItem]) -> list[dict[str, Any]]:
+def _flatten_item(it: SearchResultItem) -> dict[str, Any]:
     """SearchResultItem 의 extra 객체를 같은 레벨로 펼쳐 평탄한 dict 로 직렬화."""
-    flat: list[dict[str, Any]] = []
+    d = it.model_dump()
+    extra = d.pop("extra", {}) or {}
+    for k, v in extra.items():
+        if d.get(k) is None:
+            d[k] = v
+    return d
+
+
+def _build_groups(
+    items: list[SearchResultItem],
+    selected_collections: set[str] | None,
+    reranked_collections: set[str] | None = None,
+) -> list[CollectionGroup]:
+    """SearchResultItem 목록을 컬렉션별로 묶어 CollectionGroup 목록으로 반환.
+
+    - selected_collections: 응답에 포함할 컬렉션 집합 (None이면 items에 있는 것만)
+    - reranked_collections: 해당 컬렉션 그룹에 reranked=True 설정
+    - 그룹 내 점수 내림차순 정렬
+    - _CANONICAL_ORDER 기준으로 그룹 순서 정렬
+    """
+    if reranked_collections is None:
+        reranked_collections = set()
+
+    # 컬렉션별 버킷
+    buckets: dict[str, list[SearchResultItem]] = {}
     for it in items:
-        d = it.model_dump()
-        extra = d.pop("extra", {}) or {}
-        # extra 의 키가 평탄 필드와 충돌하면 평탄 필드 우선 (None 만 덮어쓰기)
-        for k, v in extra.items():
-            if d.get(k) is None:
-                d[k] = v
-        flat.append(d)
-    return flat
+        buckets.setdefault(it.collection, []).append(it)
+
+    # 활성 컬렉션 집합
+    active_cols = selected_collections if selected_collections is not None else set(buckets)
+
+    groups: list[CollectionGroup] = []
+    for col in _CANONICAL_ORDER:
+        if col not in active_cols:
+            continue
+        col_items = buckets.get(col, [])
+        # 그룹 내 점수 내림차순 정렬
+        col_items.sort(key=lambda x: x.score if x.score is not None else 0.0, reverse=True)
+        # tool 이름: 첫 번째 아이템에서 가져오거나 빈 문자열
+        tool = col_items[0].tool if col_items else _collection_to_tool(col)
+        groups.append(CollectionGroup(
+            collection=col,
+            tool=tool,
+            reranked=col in reranked_collections,
+            results=[_flatten_item(it) for it in col_items],
+        ))
+
+    # _CANONICAL_ORDER에 없는 컬렉션 처리 (예비)
+    for col in sorted(active_cols - set(_CANONICAL_ORDER)):
+        col_items = buckets.get(col, [])
+        col_items.sort(key=lambda x: x.score if x.score is not None else 0.0, reverse=True)
+        tool = col_items[0].tool if col_items else _collection_to_tool(col)
+        groups.append(CollectionGroup(
+            collection=col,
+            tool=tool,
+            reranked=col in reranked_collections,
+            results=[_flatten_item(it) for it in col_items],
+        ))
+
+    return groups
+
+
+def _collection_to_tool(collection: str) -> str:
+    """컬렉션 이름으로 기본 tool 이름 추론."""
+    if collection in _INCIDENT_COLLECTIONS:
+        return "qdrant_search_incident_knowledge"
+    if collection in _POSTMORTEM_COLLECTIONS:
+        return "qdrant_search_incident_postmortem"
+    if collection in _AGGREGATION_COLLECTIONS:
+        return "qdrant_search_aggregation_summary"
+    if collection in _KNOWLEDGE_COLLECTIONS:
+        return "qdrant_search_knowledge"
+    return "unknown"
 
 
 # ── 내부 헬퍼 ──────────────────────────────────────────────────────────────────
@@ -101,9 +193,12 @@ async def _call_incident_search(
     query: str,
     system_ids: list[int],
     limit: int = 10,
-) -> list[SearchResultItem]:
+    use_reranker: bool = False,
+) -> tuple[list[SearchResultItem], str | None]:
     """log-analyzer POST /incident/search → log_incidents + metric_baselines 결과."""
     payload: dict[str, Any] = {"query": query, "limit": limit}
+    if use_reranker:
+        payload["rerank"] = True
     if system_ids:
         payload["system_ids"] = system_ids
 
@@ -111,12 +206,13 @@ async def _call_incident_search(
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
             resp = await client.post(f"{_base()}/incident/search", json=payload)
             if resp.status_code >= 400:
-                logger.warning("incident/search %s: %s", resp.status_code, resp.text[:200])
-                return []
+                msg = f"HTTP {resp.status_code}: {resp.text[:200]}"
+                logger.warning("incident/search %s", msg)
+                return [], msg
             data = resp.json()
     except Exception as exc:
         logger.warning("incident/search 호출 실패: %s", exc)
-        return []
+        return [], str(exc)
 
     items: list[SearchResultItem] = []
 
@@ -161,19 +257,23 @@ async def _call_incident_search(
             },
         ))
 
-    return items
+    return items, None
 
 
 async def _call_postmortem_search(
     query: str,
     system_ids: list[int],
     limit: int = 10,
-) -> list[SearchResultItem]:
+    use_reranker: bool = False,
+) -> tuple[list[SearchResultItem], str | None]:
     """log-analyzer POST /incident-postmortem/search → incident_postmortems 결과.
 
     system_ids: 단일 system_id 필터 (1개만 적용 — 인시던트는 1 시스템 단위).
     """
     payload: dict[str, Any] = {"query": query, "limit": limit}
+    if use_reranker:
+        payload["rerank"] = True
+        payload["rerank_top_k"] = limit
     if len(system_ids) == 1:
         payload["system_id"] = system_ids[0]
 
@@ -181,19 +281,19 @@ async def _call_postmortem_search(
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
             resp = await client.post(f"{_base()}/incident-postmortem/search", json=payload)
             if resp.status_code >= 400:
-                logger.warning("incident-postmortem/search %s: %s", resp.status_code, resp.text[:200])
-                return []
+                msg = f"HTTP {resp.status_code}: {resp.text[:200]}"
+                logger.warning("incident-postmortem/search %s", msg)
+                return [], msg
             data = resp.json()
     except Exception as exc:
         logger.warning("incident-postmortem/search 호출 실패: %s", exc)
-        return []
+        return [], str(exc)
 
     # log-analyzer returns a list directly; tolerate both list and {"results": [...]}
     raw_list: list = data if isinstance(data, list) else (data.get("results") or [])
 
     items: list[SearchResultItem] = []
     for r in raw_list:
-        # Each item has a "payload" wrapper from log-analyzer SearchResultItem format
         payload_data = r.get("payload", r) if isinstance(r, dict) else {}
         title = payload_data.get("title") or ""
         root_cause = payload_data.get("root_cause") or ""
@@ -223,7 +323,7 @@ async def _call_postmortem_search(
             },
         ))
 
-    return items
+    return items, None
 
 
 async def _call_aggregation_search(
@@ -231,13 +331,17 @@ async def _call_aggregation_search(
     system_ids: list[int],
     collection: str = "aggregation_summaries",
     limit: int = 10,
-) -> list[SearchResultItem]:
+    use_reranker: bool = False,
+) -> tuple[list[SearchResultItem], str | None]:
     """log-analyzer POST /aggregation/search → aggregation_summaries 또는 metric_hourly_patterns."""
     payload: dict[str, Any] = {
         "query_text": query,
         "collection": collection,
         "limit": limit,
     }
+    if use_reranker:
+        payload["rerank"] = True
+        payload["rerank_top_k"] = limit
     if system_ids:
         payload["system_ids"] = system_ids
 
@@ -245,12 +349,13 @@ async def _call_aggregation_search(
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
             resp = await client.post(f"{_base()}/aggregation/search", json=payload)
             if resp.status_code >= 400:
-                logger.warning("aggregation/search %s: %s", resp.status_code, resp.text[:200])
-                return []
+                msg = f"HTTP {resp.status_code}: {resp.text[:200]}"
+                logger.warning("aggregation/search(%s) %s", collection, msg)
+                return [], msg
             data = resp.json()
     except Exception as exc:
         logger.warning("aggregation/search 호출 실패: %s", exc)
-        return []
+        return [], str(exc)
 
     items: list[SearchResultItem] = []
     for r in data.get("results") or []:
@@ -273,7 +378,7 @@ async def _call_aggregation_search(
             },
         ))
 
-    return items
+    return items, None
 
 
 async def _call_knowledge_search(
@@ -282,11 +387,11 @@ async def _call_knowledge_search(
     sources: list[str] | None,
     use_reranker: bool = True,
     limit: int = 10,
-) -> list[SearchResultItem]:
+) -> tuple[list[SearchResultItem], str | None]:
     """log-analyzer POST /knowledge/search → jira/confluence/documents federated 검색.
 
     documents 는 system_id 필터 적용 (system_ids 첫 번째 값 또는 미적용).
-    jira/confluence 는 필터 미적용 (Subagent A의 federated_search 정책).
+    jira/confluence 는 필터 미적용 (federated_search V1 정책).
     system_ids가 1개이면 system_id로 전달, 2개 이상이면 전달하지 않음 (전체 검색).
     """
     payload: dict[str, Any] = {
@@ -296,7 +401,6 @@ async def _call_knowledge_search(
     }
     if sources:
         payload["sources"] = sources
-    # documents 컬렉션: system_ids 1개면 system_id 전달
     if sources and "documents" in sources and len(system_ids) == 1:
         payload["system_id"] = system_ids[0]
 
@@ -304,20 +408,18 @@ async def _call_knowledge_search(
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
             resp = await client.post(f"{_base()}/knowledge/search", json=payload)
             if resp.status_code >= 400:
-                logger.warning("knowledge/search %s: %s", resp.status_code, resp.text[:200])
-                return []
+                msg = f"HTTP {resp.status_code}: {resp.text[:200]}"
+                logger.warning("knowledge/search %s", msg)
+                return [], msg
             data = resp.json()
     except Exception as exc:
         logger.warning("knowledge/search 호출 실패: %s", exc)
-        return []
+        return [], str(exc)
 
     items: list[SearchResultItem] = []
-    # log-analyzer federated_search 응답 형식: { results: [{ collection, point_id, score, payload }], by_source }
-    # 모든 도메인 필드는 payload 안에 있음. r.get("file_name") 같은 직접 접근은 None을 반환하므로 금지.
     for r in data.get("results") or []:
         payload_data = r.get("payload") or {}
         collection = r.get("collection") or "knowledge_documents"
-        # collection → source 추론 (UI 분기 보조 정보)
         if collection == "knowledge_jira_issues":
             source = "jira"
         elif collection == "knowledge_confluence_pages":
@@ -325,10 +427,8 @@ async def _call_knowledge_search(
         else:
             source = "documents"
 
-        # operator_note 와 일반 문서 청크 구분 — frontend 가 doc_type 으로 카드 분기
         doc_type = payload_data.get("doc_type")
         if doc_type == "operator_note":
-            # 운영자 노트는 question/answer 구조 — 질문/답변을 합쳐 본문에 표출
             q = payload_data.get("question") or ""
             a = payload_data.get("answer") or ""
             content = "\n".join(filter(None, [
@@ -369,11 +469,7 @@ async def _call_knowledge_search(
             },
         ))
 
-    return items
-
-
-def _sort_by_score(items: list[SearchResultItem]) -> list[SearchResultItem]:
-    return sorted(items, key=lambda x: x.score if x.score is not None else 0.0, reverse=True)
+    return items, None
 
 
 # ── 챗봇 시뮬레이션 모드 ──────────────────────────────────────────────────────────
@@ -388,7 +484,10 @@ async def search_verify_chatbot(
     - qdrant_search_incident_knowledge → /incident/search (system_ids 필터)
     - qdrant_search_incident_postmortem → /incident-postmortem/search (system_id 단일 필터)
     - qdrant_search_aggregation_summary → /aggregation/search (system_ids 필터)
-    - qdrant_search_knowledge → /knowledge/search (documents 만 system_id 필터)
+    - qdrant_search_knowledge → /knowledge/search (rerank=True, 챗봇 동일)
+
+    chatbot 모드: knowledge만 rerank (실제 챗봇 동작 일치).
+    응답: groups (컬렉션별 독립 정렬) + errors (부분 실패).
     """
     query = (body.query or "").strip()
     if not query:
@@ -397,38 +496,70 @@ async def search_verify_chatbot(
     system_ids = body.system_ids or []
 
     # 4개 도구 병렬 호출
-    incident_task = asyncio.create_task(
-        _call_incident_search(query, system_ids)
-    )
-    postmortem_task = asyncio.create_task(
-        _call_postmortem_search(query, system_ids)
-    )
-    aggregation_task = asyncio.create_task(
-        _call_aggregation_search(query, system_ids, collection="aggregation_summaries")
-    )
-    knowledge_task = asyncio.create_task(
-        _call_knowledge_search(
-            query,
-            system_ids,
-            sources=["jira", "confluence", "documents"],
-            use_reranker=True,
-        )
+    (
+        (incident_items, incident_err),
+        (postmortem_items, postmortem_err),
+        (aggregation_items, aggregation_err),
+        (knowledge_items, knowledge_err),
+    ) = await asyncio.gather(
+        _call_incident_search(query, system_ids, use_reranker=False),
+        _call_postmortem_search(query, system_ids, use_reranker=False),
+        _call_aggregation_search(query, system_ids, collection="aggregation_summaries", use_reranker=False),
+        _call_knowledge_search(query, system_ids, sources=["jira", "confluence", "documents"], use_reranker=True),
     )
 
-    incident_results, postmortem_results, aggregation_results, knowledge_results = await asyncio.gather(
-        incident_task, postmortem_task, aggregation_task, knowledge_task
-    )
+    all_items = incident_items + postmortem_items + aggregation_items + knowledge_items
 
-    all_results = incident_results + postmortem_results + aggregation_results + knowledge_results
+    # 에러 수집 — 각 도구의 실패를 관련 컬렉션에 매핑
+    errors: list[ToolError] = []
+    if incident_err:
+        for col in ("log_incidents", "metric_baselines"):
+            errors.append(ToolError(
+                tool="qdrant_search_incident_knowledge",
+                collection=col,
+                reason=incident_err,
+            ))
+    if postmortem_err:
+        errors.append(ToolError(
+            tool="qdrant_search_incident_postmortem",
+            collection="incident_postmortems",
+            reason=postmortem_err,
+        ))
+    if aggregation_err:
+        errors.append(ToolError(
+            tool="qdrant_search_aggregation_summary",
+            collection="aggregation_summaries",
+            reason=aggregation_err,
+        ))
+    if knowledge_err:
+        for col in ("knowledge_jira_issues", "knowledge_confluence_pages", "knowledge_documents"):
+            errors.append(ToolError(
+                tool="qdrant_search_knowledge",
+                collection=col,
+                reason=knowledge_err,
+            ))
+
+    # chatbot 모드 활성 컬렉션 (모두 표시)
+    active_cols = (
+        _INCIDENT_COLLECTIONS
+        | _POSTMORTEM_COLLECTIONS
+        | {"aggregation_summaries"}
+        | _KNOWLEDGE_COLLECTIONS
+    )
+    # knowledge만 rerank
+    reranked_cols = _KNOWLEDGE_COLLECTIONS
+
+    groups = _build_groups(all_items, selected_collections=active_cols, reranked_collections=reranked_cols)
 
     return SearchVerifyResponse(
-        results=_flatten_items(_sort_by_score(all_results)),
+        groups=groups,
         used_tools=[
             "qdrant_search_incident_knowledge",
             "qdrant_search_incident_postmortem",
             "qdrant_search_aggregation_summary",
             "qdrant_search_knowledge",
         ],
+        errors=errors,
     )
 
 
@@ -444,7 +575,11 @@ async def search_verify_collections(
     컬렉션 → log-analyzer 엔드포인트 분기:
       log_incidents / metric_baselines → /incident/search
       aggregation_summaries / metric_hourly_patterns → /aggregation/search
+      incident_postmortems → /incident-postmortem/search
       knowledge_jira / knowledge_confluence / knowledge_documents → /knowledge/search
+
+    collections 모드: use_reranker=True 이면 모든 컬렉션에 rerank 적용.
+    응답: groups (컬렉션별 독립 정렬) + errors (부분 실패).
     """
     query = (body.query or "").strip()
     if not query:
@@ -452,58 +587,84 @@ async def search_verify_collections(
 
     system_ids = body.system_ids or []
     collections = set(body.collections)
+    rerank = body.use_reranker
 
-    tasks: list[asyncio.Task[list[SearchResultItem]]] = []
-    task_labels: list[str] = []
+    # 비동기 작업 목록: (awaitable, label)
+    coros: list[Any] = []
+    labels: list[str] = []
 
-    # incident 컬렉션 (둘 다 하나의 호출로 통합)
     incident_cols = collections & _INCIDENT_COLLECTIONS
     if incident_cols:
-        tasks.append(asyncio.create_task(
-            _call_incident_search(query, system_ids)
-        ))
-        task_labels.append("incident")
+        coros.append(_call_incident_search(query, system_ids, use_reranker=rerank))
+        labels.append("incident")
 
-    # incident_postmortems 컬렉션
     if "incident_postmortems" in collections:
-        tasks.append(asyncio.create_task(
-            _call_postmortem_search(query, system_ids)
-        ))
-        task_labels.append("incident_postmortems")
+        coros.append(_call_postmortem_search(query, system_ids, use_reranker=rerank))
+        labels.append("incident_postmortems")
 
-    # aggregation 컬렉션 (각각 별도 호출 — 컬렉션명이 다름)
     for col in ("aggregation_summaries", "metric_hourly_patterns"):
         if col in collections:
-            tasks.append(asyncio.create_task(
-                _call_aggregation_search(query, system_ids, collection=col)
-            ))
-            task_labels.append(col)
+            coros.append(_call_aggregation_search(query, system_ids, collection=col, use_reranker=rerank))
+            labels.append(col)
 
-    # knowledge 컬렉션 (선택된 것들만 sources로 필터)
     knowledge_cols = collections & _KNOWLEDGE_COLLECTIONS
     if knowledge_cols:
         sources = [_KNOWLEDGE_SOURCES_MAP[c] for c in knowledge_cols if c in _KNOWLEDGE_SOURCES_MAP]
-        tasks.append(asyncio.create_task(
-            _call_knowledge_search(query, system_ids, sources=sources, use_reranker=body.use_reranker)
-        ))
-        task_labels.append("knowledge")
+        coros.append(_call_knowledge_search(query, system_ids, sources=sources, use_reranker=rerank))
+        labels.append("knowledge")
 
-    if not tasks:
+    if not coros:
         raise HTTPException(status_code=400, detail="검색할 컬렉션을 하나 이상 선택하세요")
 
-    results_per_task = await asyncio.gather(*tasks)
+    results_with_errors: list[tuple[list[SearchResultItem], str | None]] = await asyncio.gather(*coros)
 
-    all_results: list[SearchResultItem] = []
-    for results in results_per_task:
-        all_results.extend(results)
+    all_items: list[SearchResultItem] = []
+    errors: list[ToolError] = []
 
-    # 컬렉션별 필터링 (incident 통합 호출 시 선택 안 된 컬렉션 결과 제거)
+    for label, (items, err) in zip(labels, results_with_errors):
+        all_items.extend(items)
+        if err:
+            if label == "incident":
+                for col in sorted(incident_cols):
+                    errors.append(ToolError(
+                        tool="qdrant_search_incident_knowledge",
+                        collection=col,
+                        reason=err,
+                    ))
+            elif label == "incident_postmortems":
+                errors.append(ToolError(
+                    tool="qdrant_search_incident_postmortem",
+                    collection="incident_postmortems",
+                    reason=err,
+                ))
+            elif label == "knowledge":
+                for col in sorted(knowledge_cols):
+                    errors.append(ToolError(
+                        tool="qdrant_search_knowledge",
+                        collection=col,
+                        reason=err,
+                    ))
+            else:
+                # aggregation_summaries / metric_hourly_patterns (label == col)
+                errors.append(ToolError(
+                    tool="qdrant_search_aggregation_summary",
+                    collection=label,
+                    reason=err,
+                ))
+
+    # incident 통합 호출 시 선택 안 된 컬렉션 결과 제거
     if incident_cols and incident_cols != _INCIDENT_COLLECTIONS:
-        all_results = [r for r in all_results if r.collection in collections]
+        all_items = [r for r in all_items if r.collection in collections]
 
-    used_tools = sorted({r.tool for r in all_results})
+    # rerank 적용된 컬렉션 집합 (use_reranker=True이면 모든 선택 컬렉션)
+    reranked_cols = collections if rerank else set()
+
+    groups = _build_groups(all_items, selected_collections=collections, reranked_collections=reranked_cols)
+
+    used_tools = sorted({_collection_to_tool(col) for col in collections})
 
     return SearchVerifyResponse(
-        results=_flatten_items(_sort_by_score(all_results)),
+        groups=groups,
         used_tools=used_tools,
+        errors=errors,
     )

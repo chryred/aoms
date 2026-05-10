@@ -55,10 +55,12 @@ class EmbedPostmortemResponse(BaseModel):
 
 
 class SearchPostmortemRequest(BaseModel):
-    query:     str = ""
-    system_id: Optional[int] = None
-    severity:  Optional[str] = None
-    limit:     int = 5
+    query:        str = ""
+    system_id:    Optional[int] = None
+    severity:     Optional[str] = None
+    limit:        int = 5
+    rerank:       bool = False
+    rerank_top_k: int = 5
 
 
 class SearchResultItem(BaseModel):
@@ -118,16 +120,40 @@ async def search_postmortem(req: SearchPostmortemRequest):
             logger.error("postmortem 목록 조회 실패: %s", exc)
             raise HTTPException(status_code=500, detail=f"목록 조회 실패: {exc}")
     else:
+        retrieval_limit = req.limit * 4 if req.rerank else req.limit
         try:
             results = await vector_client.search_postmortem(
                 query=req.query,
                 system_id=req.system_id,
                 severity=req.severity,
-                limit=req.limit,
+                limit=retrieval_limit,
             )
         except Exception as exc:
             logger.error("postmortem 검색 실패: %s", exc)
             raise HTTPException(status_code=500, detail=f"검색 실패: {exc}")
+
+        if req.rerank and results:
+            from reranker import rerank as _rerank
+
+            def _pm_text(h: dict) -> str:
+                p = h.get("payload") or {}
+                return "\n".join(filter(None, [
+                    p.get("title", ""),
+                    p.get("root_cause", ""),
+                    p.get("solution", ""),
+                ]))
+
+            candidates = [{**h, "_text": _pm_text(h)} for h in results]
+            try:
+                reranked = await _rerank(
+                    req.query, candidates, top_k=req.rerank_top_k, text_field="_text"
+                )
+                for r in reranked:
+                    r.pop("_text", None)
+                results = reranked
+            except Exception as exc:
+                logger.warning("Reranker 실패: %s → 원본 RRF 순서 유지", exc)
+                results = results[:req.rerank_top_k]
 
     return [
         SearchResultItem(id=str(r["id"]), score=r["score"], payload=r["payload"])

@@ -58,8 +58,14 @@ _DOCS_ROOT = os.getenv("KNOWLEDGE_DOCS_DIR", "/attaches/knowledge-docs")
 # 인메모리 job 추적 (단일 프로세스, MVP 단순화)
 _jobs: dict[str, dict[str, Any]] = {}
 
-# 질문 빈도 분석 캐시 (5분 TTL)
-_FREQ_CACHE_TTL = 300  # 초
+# 질문 클러스터링 임계값 — bge-m3 한국어 의미 동치 경험적 최솟값
+# 0.85(구) → 0.80: 한국어에서 의미 동치 질문이 0.78~0.83 범위에 분포하여 0.85는 과도하게 엄격함
+_QUESTION_CLUSTER_COSINE_THRESHOLD: float = 0.80
+
+# 질문 빈도 분석 캐시 — 기간별 동적 TTL (초)
+# 7일: 짧은 기간은 빠른 갱신이 유용, 30일: 집계 비용이 높아 더 길게 캐싱
+_FREQ_CACHE_TTL_BY_DAYS: dict[int, int] = {7: 60, 14: 300, 30: 900}
+_FREQ_CACHE_DEFAULT_TTL: int = 300  # 지원 외 기간 fallback
 _FREQ_CACHE_DATA: dict[str, Any] = {}
 
 
@@ -329,16 +335,52 @@ async def _build_question_clusters(
         for row, emb in zip(rows, embeddings)
     ]
 
-    clusters_raw = knowledge_service.cluster_questions_by_cosine(items, threshold=0.85)
+    clusters_raw = knowledge_service.cluster_questions_by_cosine(
+        items, threshold=_QUESTION_CLUSTER_COSINE_THRESHOLD
+    )
 
     clusters: list[dict[str, Any]] = []
     for cluster in clusters_raw:
-        total_count = sum(c["exact_count"] for c in cluster)
-        last_asked = max((c["last_asked_at"] for c in cluster if c["last_asked_at"]), default=None)
-        scores = [c["avg_rag_score"] for c in cluster if c["avg_rag_score"] is not None]
+        # 대표 질문 = centroid 최근접 질문 (임베딩 평균과 cosine 유사도 최대)
+        # 클러스터 내 임베딩이 없으면 첫 번째 질문으로 폴백
+        representative_idx = 0
+        if len(cluster) > 1 and cluster[0].get("embedding"):
+            try:
+                import numpy as np  # noqa: PLC0415
+
+                vecs = np.array(
+                    [c["embedding"] for c in cluster], dtype=np.float32
+                )
+                centroid = vecs.mean(axis=0)
+                centroid_norm = centroid / (np.linalg.norm(centroid) or 1e-9)
+                norms = np.linalg.norm(vecs, axis=1, keepdims=True)
+                norms = np.where(norms == 0, 1e-9, norms)
+                vecs_norm = vecs / norms
+                sims = vecs_norm @ centroid_norm
+                # 동률이면 짧은 텍스트 우선 (안정적 정렬)
+                best = max(
+                    range(len(cluster)),
+                    key=lambda i: (float(sims[i]), -len(cluster[i]["content"])),
+                )
+                representative_idx = best
+            except Exception:
+                representative_idx = 0
+
+        # questions 리스트는 대표 질문이 index 0이 되도록 재정렬
+        # → /frequent-questions의 similar_queries = questions[1:] 슬라이싱이 올바르게 동작
+        reordered = (
+            [cluster[representative_idx]]
+            + [c for i, c in enumerate(cluster) if i != representative_idx]
+        )
+
+        total_count = sum(c["exact_count"] for c in reordered)
+        last_asked = max(
+            (c["last_asked_at"] for c in reordered if c["last_asked_at"]), default=None
+        )
+        scores = [c["avg_rag_score"] for c in reordered if c["avg_rag_score"] is not None]
         avg_score = sum(scores) / len(scores) if scores else None
         clusters.append({
-            "representative": cluster[0]["content"],
+            "representative": reordered[0]["content"],
             "count": total_count,
             "last_asked_at": last_asked,
             "avg_rag_score": round(avg_score, 4) if avg_score is not None else None,
@@ -348,7 +390,7 @@ async def _build_question_clusters(
                     "exact_count": c["exact_count"],
                     "last_asked_at": c["last_asked_at"],
                 }
-                for c in cluster
+                for c in reordered
             ],
         })
 
@@ -364,12 +406,15 @@ async def list_frequent_questions(
 ) -> dict[str, Any]:
     """최근 N일 사용자 질문을 집계하고 유사 질문을 클러스터로 묶어 반환.
 
-    캐시 TTL: 5분. 클러스터링: cosine 유사도 >= 0.85.
+    캐시 TTL: 7일=60s / 14일=300s / 30일=900s (기간별 동적).
+    클러스터링: cosine 유사도 >= 0.80 (bge-m3 한국어 의미 동치 최솟값).
+    대표 질문: 클러스터 centroid 최근접 질문.
     """
+    ttl = _FREQ_CACHE_TTL_BY_DAYS.get(days, _FREQ_CACHE_DEFAULT_TTL)
     cache_key = f"{days}:clusters"
     now = time.monotonic()
     cached = _FREQ_CACHE_DATA.get(cache_key)
-    if cached and (now - cached["ts"]) < _FREQ_CACHE_TTL:
+    if cached and (now - cached["ts"]) < ttl:
         clusters = cached["data"]
     else:
         clusters = await _build_question_clusters(db, days)
@@ -581,11 +626,13 @@ async def list_frequent_questions_v2(
     """최근 N일 질문 클러스터를 FrequentQuestion[] 배열로 반환.
 
     threshold 파라미터: 최소 발생 횟수 (클러스터 count >= threshold 필터).
+    캐시 TTL: 7일=60s / 14일=300s / 30일=900s (기간별 동적).
     """
+    ttl = _FREQ_CACHE_TTL_BY_DAYS.get(days, _FREQ_CACHE_DEFAULT_TTL)
     cache_key = f"{days}:clusters"
     now = time.monotonic()
     cached = _FREQ_CACHE_DATA.get(cache_key)
-    if cached and (now - cached["ts"]) < _FREQ_CACHE_TTL:
+    if cached and (now - cached["ts"]) < ttl:
         clusters = cached["data"]
     else:
         clusters = await _build_question_clusters(db, days)

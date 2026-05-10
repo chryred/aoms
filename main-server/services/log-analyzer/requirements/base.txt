@@ -20,6 +20,7 @@ numpy>=1.24.0
 python-docx>=1.1.0
 python-pptx>=0.6.23
 pdfplumber>=0.11.0
+pypdf>=4.0.0             # PDF 페이지별 이미지 추출 (DCT/Flate/CCITT 인코딩 정규화 → PIL 호환 bytes)
 openpyxl>=3.1.0
 beautifulsoup4>=4.12.0   # Confluence HTML 파싱
 

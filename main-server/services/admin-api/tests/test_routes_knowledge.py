@@ -6,7 +6,9 @@ DB: SQLite in-memory (conftest.py 공통 fixture 사용).
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, patch
+import math
+import time
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from httpx import AsyncClient
@@ -324,3 +326,237 @@ async def test_force_sync_confluence_failure(authed_client: AsyncClient):
     ):
         resp = await authed_client.post("/api/v1/knowledge/sync/confluence/99999/force")
     assert resp.status_code == 502
+
+
+# ── cluster_questions_by_cosine 클러스터링 유닛 테스트 ────────────────────────
+
+class TestClusterQuestionsByCosine:
+    """services.knowledge_service.cluster_questions_by_cosine 직접 테스트."""
+
+    def _make_items(self, embeddings: list[list[float]], contents: list[str]) -> list[dict]:
+        return [
+            {
+                "content": contents[i],
+                "exact_count": 1,
+                "last_asked_at": None,
+                "avg_rag_score": None,
+                "embedding": embeddings[i],
+            }
+            for i in range(len(embeddings))
+        ]
+
+    def _unit_vec(self, d: int, angle_deg: float) -> list[float]:
+        """2D에서 각도(degree) 기준 단위벡터. 나머지 차원은 0."""
+        import math
+        rad = math.radians(angle_deg)
+        vec = [0.0] * d
+        vec[0] = math.cos(rad)
+        vec[1] = math.sin(rad)
+        return vec
+
+    def test_threshold_0_80_same_cluster(self):
+        """cosine > 0.80 두 벡터는 같은 클러스터에 들어간다."""
+        from services.knowledge_service import cluster_questions_by_cosine
+        # 각도 차이 36° → cosine ≈ 0.809
+        v1 = self._unit_vec(4, 0)
+        v2 = self._unit_vec(4, 36)
+        items = self._make_items([v1, v2], ["질문A", "질문B"])
+        clusters = cluster_questions_by_cosine(items, threshold=0.80)
+        assert len(clusters) == 1
+        assert len(clusters[0]) == 2
+
+    def test_threshold_0_80_different_cluster(self):
+        """cosine < 0.80 두 벡터는 별도 클러스터에 들어간다."""
+        from services.knowledge_service import cluster_questions_by_cosine
+        # 각도 차이 40° → cosine ≈ 0.766 < 0.80
+        v1 = self._unit_vec(4, 0)
+        v2 = self._unit_vec(4, 40)
+        items = self._make_items([v1, v2], ["질문A", "질문B"])
+        clusters = cluster_questions_by_cosine(items, threshold=0.80)
+        assert len(clusters) == 2
+
+    def test_threshold_0_85_old_boundary_now_merges(self):
+        """구 임계값(0.85) 기준 분리되던 cosine~0.81 쌍이 새 임계값(0.80)에서는 합쳐진다."""
+        from services.knowledge_service import cluster_questions_by_cosine
+        # 각도 35.9° → cosine ≈ 0.810
+        v1 = self._unit_vec(4, 0)
+        v2 = self._unit_vec(4, 35.9)
+        items = self._make_items([v1, v2], ["DB 연결 실패", "오라클 접속 안 됨"])
+        # 0.85 기준: 별도 클러스터
+        clusters_old = cluster_questions_by_cosine(items, threshold=0.85)
+        assert len(clusters_old) == 2, "0.85 기준에서는 분리되어야 함"
+        # 0.80 기준: 같은 클러스터
+        clusters_new = cluster_questions_by_cosine(items, threshold=0.80)
+        assert len(clusters_new) == 1, "0.80 기준에서는 합쳐져야 함"
+
+    def test_single_item_cluster(self):
+        """클러스터 크기 1 — 대표 질문 = 해당 질문 자신."""
+        from services.knowledge_service import cluster_questions_by_cosine
+        v1 = self._unit_vec(4, 0)
+        items = self._make_items([v1], ["유일한 질문"])
+        clusters = cluster_questions_by_cosine(items, threshold=0.80)
+        assert len(clusters) == 1
+        assert clusters[0][0]["content"] == "유일한 질문"
+
+    def test_no_embedding_fallback(self):
+        """임베딩 없으면 each item이 독립 클러스터로 반환된다."""
+        from services.knowledge_service import cluster_questions_by_cosine
+        items = [
+            {"content": "질문X", "exact_count": 1, "last_asked_at": None, "avg_rag_score": None, "embedding": None},
+            {"content": "질문Y", "exact_count": 1, "last_asked_at": None, "avg_rag_score": None, "embedding": None},
+        ]
+        clusters = cluster_questions_by_cosine(items, threshold=0.80)
+        assert len(clusters) == 2
+
+
+# ── centroid 대표 질문 선정 테스트 ──────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_representative_is_centroid_nearest(authed_client: AsyncClient):
+    """클러스터 내 centroid 최근접 질문이 representative로 선정되는지 검증.
+
+    fixture:
+      - 질문A (0°) — centroid에서 멀리
+      - 질문B (10°) — centroid에 가장 가까움 (shorter text, tiebreak)
+      - 질문C (20°) — 중간
+    클러스터 centroid ≈ 10° 방향 → 질문B가 대표여야 함.
+    """
+    import math as _math
+
+    def unit_vec(angle_deg: float) -> list[float]:
+        rad = _math.radians(angle_deg)
+        return [_math.cos(rad), _math.sin(rad), 0.0, 0.0]
+
+    # 세 질문 모두 cosine >= 0.80 (각도 차이 ≤ 37°) → 같은 클러스터
+    emb_a = unit_vec(0)
+    emb_b = unit_vec(10)
+    emb_c = unit_vec(20)
+
+    mock_rows = [
+        MagicMock(content="DB 연결 실패가 발생했어요", exact_count=1, last_asked_at=None, avg_rag_score=None),
+        MagicMock(content="B", exact_count=1, last_asked_at=None, avg_rag_score=None),  # 짧은 텍스트
+        MagicMock(content="오라클 접속 안 됨", exact_count=1, last_asked_at=None, avg_rag_score=None),
+    ]
+
+    import routes.knowledge as rk
+    rk._FREQ_CACHE_DATA.clear()  # 캐시 오염 방지
+
+    with patch(
+        "routes.knowledge.knowledge_service.call_embed_batch",
+        new=AsyncMock(return_value=[emb_a, emb_b, emb_c]),
+    ):
+        with patch(
+            "routes.knowledge._build_question_clusters",
+            wraps=rk._build_question_clusters,
+        ):
+            # DB 직접 패치 — SQL 실행 결과를 mock_rows로 대체
+            mock_result = MagicMock()
+            mock_result.fetchall.return_value = mock_rows
+
+            async def mock_execute(sql, params=None):
+                return mock_result
+
+            from sqlalchemy.ext.asyncio import AsyncSession
+            with patch.object(AsyncSession, "execute", side_effect=mock_execute):
+                resp = await authed_client.get("/api/v1/knowledge/questions/frequent?days=7")
+
+    assert resp.status_code == 200
+    data = resp.json()
+    clusters = data["clusters"]
+
+    # 모든 벡터가 cosine >= 0.80이므로 1개 클러스터여야 하고, 대표 질문 = centroid 최근접(B)
+    assert len(clusters) == 1, f"3개 벡터가 같은 클러스터여야 하나 {len(clusters)}개 클러스터 반환됨"
+    assert clusters[0]["representative"] == "B", (
+        f"centroid 최근접 질문 'B'가 대표여야 하나, 실제: {clusters[0]['representative']}"
+    )
+
+
+# ── 캐시 TTL 기간별 차등 테스트 ────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_cache_ttl_7days_is_60s(authed_client: AsyncClient):
+    """7일 기간 캐시 TTL이 60초임을 확인."""
+    from routes.knowledge import _FREQ_CACHE_TTL_BY_DAYS
+    assert _FREQ_CACHE_TTL_BY_DAYS[7] == 60
+
+
+@pytest.mark.asyncio
+async def test_cache_ttl_14days_is_300s(authed_client: AsyncClient):
+    """14일 기간 캐시 TTL이 300초임을 확인."""
+    from routes.knowledge import _FREQ_CACHE_TTL_BY_DAYS
+    assert _FREQ_CACHE_TTL_BY_DAYS[14] == 300
+
+
+@pytest.mark.asyncio
+async def test_cache_ttl_30days_is_900s(authed_client: AsyncClient):
+    """30일 기간 캐시 TTL이 900초임을 확인."""
+    from routes.knowledge import _FREQ_CACHE_TTL_BY_DAYS
+    assert _FREQ_CACHE_TTL_BY_DAYS[30] == 900
+
+
+@pytest.mark.asyncio
+async def test_cache_key_separate_per_days(authed_client: AsyncClient):
+    """days=7과 days=14는 독립된 캐시 키를 사용한다."""
+    import routes.knowledge as rk
+    rk._FREQ_CACHE_DATA.clear()
+
+    build_call_count = 0
+
+    async def fake_build(db, days, unique_limit=200):
+        nonlocal build_call_count
+        build_call_count += 1
+        return []
+
+    with patch("routes.knowledge._build_question_clusters", side_effect=fake_build):
+        await authed_client.get("/api/v1/knowledge/questions/frequent?days=7")
+        await authed_client.get("/api/v1/knowledge/questions/frequent?days=14")
+
+    # 두 기간이 별도 캐시 키를 사용하므로 각각 빌드 호출됨
+    assert build_call_count == 2, f"캐시 키가 분리되어야 하나 빌드 {build_call_count}회 호출됨"
+
+
+@pytest.mark.asyncio
+async def test_cache_served_within_ttl(authed_client: AsyncClient):
+    """캐시 TTL 이내 재요청은 _build_question_clusters 재호출 없이 캐시를 반환한다."""
+    import routes.knowledge as rk
+    rk._FREQ_CACHE_DATA.clear()
+
+    build_call_count = 0
+
+    async def fake_build(db, days, unique_limit=200):
+        nonlocal build_call_count
+        build_call_count += 1
+        return []
+
+    with patch("routes.knowledge._build_question_clusters", side_effect=fake_build):
+        await authed_client.get("/api/v1/knowledge/questions/frequent?days=7")
+        await authed_client.get("/api/v1/knowledge/questions/frequent?days=7")
+
+    # 두 번째 요청은 캐시 히트이므로 빌드 1회만 호출
+    assert build_call_count == 1, f"TTL 이내에는 캐시를 써야 하나 빌드 {build_call_count}회 호출됨"
+
+
+@pytest.mark.asyncio
+async def test_cache_expires_after_ttl(authed_client: AsyncClient):
+    """캐시 TTL 만료 후 재요청은 _build_question_clusters를 재호출한다."""
+    import routes.knowledge as rk
+    rk._FREQ_CACHE_DATA.clear()
+
+    build_call_count = 0
+
+    async def fake_build(db, days, unique_limit=200):
+        nonlocal build_call_count
+        build_call_count += 1
+        return []
+
+    with patch("routes.knowledge._build_question_clusters", side_effect=fake_build):
+        # 첫 번째 호출
+        await authed_client.get("/api/v1/knowledge/questions/frequent?days=7")
+
+        # 캐시 타임스탬프를 과거(TTL+1초 전)로 조작하여 만료 시뮬레이션
+        rk._FREQ_CACHE_DATA["7:clusters"]["ts"] = time.monotonic() - (60 + 1)
+
+        # 두 번째 호출 — TTL 만료로 재빌드 필요
+        await authed_client.get("/api/v1/knowledge/questions/frequent?days=7")
+
+    assert build_call_count == 2, f"TTL 만료 후 재빌드가 호출되어야 하나 빌드 {build_call_count}회 호출됨"

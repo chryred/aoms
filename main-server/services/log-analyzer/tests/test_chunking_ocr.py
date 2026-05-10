@@ -3,6 +3,10 @@
 OCR/Tesseract가 설치되지 않은 환경에서도 통과하도록 PIL/pytesseract 의존
 테스트는 monkeypatch로 _ocr_image_blob을 모킹한다. _walk_html 같은 순수
 파싱 로직 테스트는 모킹 없이 직접 호출.
+
+chunk_pdf OCR 테스트도 포함:
+- Tesseract 불필요 (_ocr_image_blob 전체를 monkeypatch로 대체)
+- pdfplumber + pypdf 양쪽을 mock으로 대체
 """
 from __future__ import annotations
 
@@ -163,3 +167,190 @@ class TestOCRImageBlobMonkeypatch:
 
         result = chunking._ocr_image_blob(b"")
         assert result == ""
+
+
+# ── chunk_pdf OCR (monkeypatch) ───────────────────────────────────────────────
+
+
+def _make_pdf_mocks(monkeypatch, pages_text, pages_images=None):
+    """pdfplumber + pypdf mock 헬퍼 (chunk_pdf OCR 테스트 전용).
+
+    pages_text:   list[str]             — 페이지 텍스트 (빈 문자열 = 텍스트 없음)
+    pages_images: list[list[bytes]]     — 페이지별 이미지 blob 목록
+                  None이면 모든 페이지 이미지 없음
+    """
+    import sys as _sys
+    import types
+
+    class _MockPdfPage:
+        def __init__(self, text):
+            self._text = text
+
+        def extract_text(self):
+            return self._text
+
+    class _MockPdf:
+        def __init__(self, pages):
+            self.pages = pages
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    def _mock_pdfplumber_open(_path):
+        return _MockPdf([_MockPdfPage(t) for t in pages_text])
+
+    monkeypatch.setitem(_sys.modules, "pdfplumber", types.SimpleNamespace(open=_mock_pdfplumber_open))
+
+    class _MockImageFile:
+        def __init__(self, blob):
+            self.data = blob
+
+    class _MockPypdfPage:
+        def __init__(self, blobs):
+            self._blobs = blobs
+
+        @property
+        def images(self):
+            return [_MockImageFile(b) for b in self._blobs]
+
+    class _MockPypdfReader:
+        def __init__(self, pages):
+            self.pages = pages
+
+    resolved = pages_images if pages_images is not None else [[] for _ in pages_text]
+    monkeypatch.setitem(
+        _sys.modules,
+        "pypdf",
+        types.SimpleNamespace(PdfReader=lambda _path: _MockPypdfReader([_MockPypdfPage(imgs) for imgs in resolved])),
+    )
+
+
+class TestChunkPdfOCR:
+    """chunk_pdf inline image OCR 경로 검증.
+
+    Tesseract 미설치 환경에서도 통과하도록 _ocr_image_blob을 monkeypatch로 대체.
+    pdfplumber + pypdf 양쪽도 mock으로 대체 — 실제 PDF 파일 불필요.
+    """
+
+    def test_text_only_page_no_markers(self, monkeypatch):
+        """이미지 없는 PDF — 텍스트만 청킹, 마커 없음."""
+        _make_pdf_mocks(monkeypatch, pages_text=["페이지 1 본문입니다."])
+        monkeypatch.setattr(chunking, "_ocr_image_blob", lambda b: "절대 호출 안 됨")
+
+        chunks = chunking.chunk_pdf("/fake/text_only.pdf")
+        assert len(chunks) == 1
+        assert "[이미지:" not in chunks[0]["text"]
+        assert "페이지 1 본문입니다." in chunks[0]["text"]
+
+    def test_image_and_text_page_marker_appended(self, monkeypatch):
+        """텍스트 + 이미지 PDF — 텍스트 뒤에 [이미지: ...] 마커 추가."""
+        _make_pdf_mocks(
+            monkeypatch,
+            pages_text=["본문 텍스트입니다."],
+            pages_images=[[b"fake-image-blob"]],
+        )
+        monkeypatch.setattr(chunking, "_ocr_image_blob", lambda b: "OCR 인식 결과 텍스트")
+
+        chunks = chunking.chunk_pdf("/fake/text_and_image.pdf")
+        full = " ".join(c["text"] for c in chunks)
+        assert "본문 텍스트입니다." in full
+        assert "[이미지: OCR 인식 결과 텍스트]" in full
+
+    def test_scan_only_page_ocr_as_only_content(self, monkeypatch):
+        """스캔 PDF — 텍스트 없고 OCR 결과만 있음 → 마커가 유일한 내용."""
+        _make_pdf_mocks(
+            monkeypatch,
+            pages_text=[""],  # extract_text 결과 없음
+            pages_images=[[b"scan-blob"]],
+        )
+        monkeypatch.setattr(chunking, "_ocr_image_blob", lambda b: "스캔 문서 본문 내용입니다")
+
+        chunks = chunking.chunk_pdf("/fake/scan_only.pdf")
+        assert len(chunks) >= 1
+        assert "[이미지: 스캔 문서 본문 내용입니다]" in chunks[0]["text"]
+
+    def test_ocr_failure_silent_chunking_continues(self, monkeypatch):
+        """OCR 실패(빈 문자열 반환) — 마커 없음, 텍스트 청킹 정상 진행."""
+        _make_pdf_mocks(
+            monkeypatch,
+            pages_text=["정상 텍스트 페이지입니다."],
+            pages_images=[[b"corrupt-blob"]],
+        )
+        # OCR 항상 실패(빈 문자열) 시뮬레이션
+        monkeypatch.setattr(chunking, "_ocr_image_blob", lambda b: "")
+
+        chunks = chunking.chunk_pdf("/fake/ocr_fail.pdf")
+        assert len(chunks) == 1
+        assert "[이미지:" not in chunks[0]["text"]
+        assert "정상 텍스트 페이지입니다." in chunks[0]["text"]
+
+    def test_image_cap_limits_ocr_to_ten(self, monkeypatch):
+        """페이지 이미지가 11장이면 10장까지만 OCR 시도 (상한 초과분 건너뜀)."""
+        call_count = {"n": 0}
+
+        def counting_ocr(blob: bytes) -> str:
+            call_count["n"] += 1
+            return "이미지 텍스트 충분히 길어야 함"
+
+        _make_pdf_mocks(
+            monkeypatch,
+            pages_text=[""],
+            pages_images=[[b"blob"] * 11],  # 11장
+        )
+        monkeypatch.setattr(chunking, "_ocr_image_blob", counting_ocr)
+
+        chunking.chunk_pdf("/fake/many_images.pdf")
+        assert call_count["n"] == chunking._PDF_MAX_IMAGES_PER_PAGE  # 10장만
+
+    def test_both_text_empty_and_ocr_empty_page_skipped(self, monkeypatch):
+        """텍스트 없고 OCR도 빈 결과 → 완전 빈 페이지는 청크 생성 안 함."""
+        _make_pdf_mocks(
+            monkeypatch,
+            pages_text=["", "두 번째 페이지 텍스트"],
+            pages_images=[[b"useless-image"], []],
+        )
+        monkeypatch.setattr(chunking, "_ocr_image_blob", lambda b: "")
+
+        chunks = chunking.chunk_pdf("/fake/mixed.pdf")
+        # 첫 페이지는 텍스트도 OCR도 없음 → 청크 없음
+        # 두 번째 페이지만 청크 생성
+        assert len(chunks) == 1
+        assert chunks[0]["metadata"]["page_no"] == 2
+
+    def test_pypdf_open_failure_falls_back_to_text_only(self, monkeypatch):
+        """pypdf.PdfReader 실패 시 image OCR 건너뛰고 텍스트 청킹은 정상 진행."""
+        import sys as _sys, types
+
+        # pdfplumber mock
+        class _MockPage:
+            def extract_text(self):
+                return "텍스트는 여전히 추출 가능"
+
+        class _MockPdf:
+            pages = [_MockPage()]
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+        monkeypatch.setitem(
+            _sys.modules, "pdfplumber", types.SimpleNamespace(open=lambda _: _MockPdf())
+        )
+
+        # pypdf raises on open
+        def _failing_reader(_path):
+            raise RuntimeError("PDF 파일 손상")
+
+        monkeypatch.setitem(
+            _sys.modules, "pypdf", types.SimpleNamespace(PdfReader=_failing_reader)
+        )
+
+        chunks = chunking.chunk_pdf("/fake/broken.pdf")
+        assert len(chunks) == 1
+        assert "텍스트는 여전히 추출 가능" in chunks[0]["text"]
+        assert "[이미지:" not in chunks[0]["text"]

@@ -1,5 +1,13 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { Search, Info, Plus, AlertTriangle } from 'lucide-react'
+import {
+  Search,
+  Info,
+  Plus,
+  AlertTriangle,
+  ChevronDown,
+  ChevronRight,
+  AlertCircle,
+} from 'lucide-react'
 import { NeuCard } from '@/components/neumorphic/NeuCard'
 import { NeuButton } from '@/components/neumorphic/NeuButton'
 import { LoadingSkeleton } from '@/components/common/LoadingSkeleton'
@@ -18,9 +26,94 @@ import { useSystems } from '@/hooks/queries/useSystems'
 import { useMyPrimarySystems } from '@/hooks/queries/useMyPrimarySystems'
 import { useSearchVerifyLogic } from '@/hooks/useSearchVerifyLogic'
 import { cn } from '@/lib/utils'
-import { ALL_COLLECTIONS, KNOWLEDGE_COLLECTIONS } from '@/types/knowledge-verify'
-import type { SearchVerifyMode, RagCollection, SearchVerifyResult } from '@/types/knowledge-verify'
+import { ALL_COLLECTIONS } from '@/types/knowledge-verify'
+import type {
+  SearchVerifyMode,
+  RagCollection,
+  SearchVerifyResult,
+  CollectionGroup,
+} from '@/types/knowledge-verify'
 import type { OperatorNote } from '@/types/knowledge'
+
+// ── 그룹 섹션 헤더 ────────────────────────────────────────────────────────────
+
+interface GroupSectionProps {
+  group: CollectionGroup
+  systemName: (id?: number) => string | undefined
+  originalQuery: string
+  onNoteDeleted: () => void
+  onNoteEditRequest: (note: OperatorNote) => void
+  onDocDeleted: () => void
+  onResync: (result: SearchVerifyResult) => void
+  onDetailClick: (result: SearchVerifyResult) => void
+  resyncingIds: Set<string>
+}
+
+function GroupSection({
+  group,
+  systemName,
+  originalQuery,
+  onNoteDeleted,
+  onNoteEditRequest,
+  onDocDeleted,
+  onResync,
+  onDetailClick,
+  resyncingIds,
+}: GroupSectionProps) {
+  const [collapsed, setCollapsed] = useState(false)
+  const scoreKind: 'sim' | 'rrf' = group.reranked ? 'sim' : 'rrf'
+
+  return (
+    <div className="space-y-2">
+      {/* 그룹 헤더 */}
+      <button
+        type="button"
+        onClick={() => setCollapsed((v) => !v)}
+        className={cn(
+          'flex w-full items-center gap-2 rounded-sm px-2 py-1',
+          'text-text-secondary hover:text-text-primary transition-colors',
+          'focus:ring-accent focus:ring-1 focus:outline-none',
+        )}
+      >
+        {collapsed ? (
+          <ChevronRight className="h-4 w-4 shrink-0" />
+        ) : (
+          <ChevronDown className="h-4 w-4 shrink-0" />
+        )}
+        <span className="font-mono text-xs">{group.collection}</span>
+        <span className="text-text-disabled text-xs">({group.results.length}건)</span>
+        {group.reranked && (
+          <span className="bg-accent-muted text-accent rounded-full px-2 py-0.5 text-[10px] font-medium">
+            reranked
+          </span>
+        )}
+      </button>
+
+      {/* 결과 카드 목록 */}
+      {!collapsed && (
+        <div className="space-y-3 pl-2">
+          {group.results.map((result, idx) => (
+            <ResultCard
+              key={`${result.collection}-${result.point_id ?? idx}`}
+              result={result}
+              systemName={systemName(result.system_id)}
+              originalQuery={originalQuery}
+              onNoteDeleted={onNoteDeleted}
+              onNoteEditRequest={onNoteEditRequest}
+              onDocDeleted={onDocDeleted}
+              onResync={onResync}
+              onDetailClick={result.point_id ? () => onDetailClick(result) : undefined}
+              scoreKind={scoreKind}
+              isResyncing={resyncingIds.has(result.point_id ?? '')}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── 메인 탭 컴포넌트 ──────────────────────────────────────────────────────────
 
 export function SearchVerifyTab() {
   const { data: systems = [] } = useSystems()
@@ -36,7 +129,10 @@ export function SearchVerifyTab() {
   const [query, setQuery] = useState('')
   const [editNote, setEditNote] = useState<OperatorNote | null>(null)
   const [addNoteOpen, setAddNoteOpen] = useState(false)
-  const [detailResult, setDetailResult] = useState<SearchVerifyResult | null>(null)
+  const [detailResult, setDetailResult] = useState<{
+    result: SearchVerifyResult
+    reranked: boolean
+  } | null>(null)
 
   // 담당 시스템 자동 체크 — 최초 1회만
   const primarySystemsInitialized = useRef(false)
@@ -47,8 +143,8 @@ export function SearchVerifyTab() {
     }
   }, [primarySystems])
 
-  const rerankerEnabled =
-    mode === 'collections' && selectedCollections.some((c) => KNOWLEDGE_COLLECTIONS.includes(c))
+  // collections 모드에서만 reranker 활성화 가능
+  const rerankerEnabled = mode === 'collections'
 
   useEffect(() => {
     if (!rerankerEnabled) setUseReranker(false)
@@ -56,11 +152,11 @@ export function SearchVerifyTab() {
 
   // 비즈니스 로직 훅
   const {
-    results,
+    groups,
+    errors,
     hasSearched,
     isPending,
     isError,
-    scoreKind,
     resyncingIds,
     handleSearch,
     handleResultsRefresh,
@@ -70,9 +166,11 @@ export function SearchVerifyTab() {
     query,
     selectedSystems,
     selectedCollections,
-    rerankerEnabled,
     useReranker,
   })
+
+  const totalCount = groups.reduce((sum, g) => sum + g.results.length, 0)
+  const allEmpty = groups.length === 0 || groups.every((g) => g.results.length === 0)
 
   const getSystemName = useCallback(
     (systemId?: number) => {
@@ -88,6 +186,10 @@ export function SearchVerifyTab() {
       handleSearch()
     }
   }
+
+  const handleDetailClick = useCallback((result: SearchVerifyResult, group: CollectionGroup) => {
+    setDetailResult({ result, reranked: group.reranked })
+  }, [])
 
   return (
     <div className="space-y-4">
@@ -156,7 +258,23 @@ export function SearchVerifyTab() {
 
       {isError && !isPending && <ErrorCard onRetry={handleResultsRefresh} />}
 
-      {!isPending && !isError && hasSearched && results.length === 0 && (
+      {/* 부분 실패 오류 배지 */}
+      {!isPending && !isError && hasSearched && errors.length > 0 && (
+        <div className="space-y-1">
+          {errors.map((err, idx) => (
+            <div
+              key={`${err.tool}-${err.collection}-${idx}`}
+              className="bg-warning-bg text-warning-text flex items-center gap-2 rounded-sm px-3 py-2 text-sm"
+            >
+              <AlertCircle className="h-4 w-4 shrink-0" />
+              <span className="font-mono text-xs">{err.collection}</span>
+              <span className="text-xs opacity-80">— {err.reason}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {!isPending && !isError && hasSearched && allEmpty && errors.length === 0 && (
         <EmptyState
           icon={<Search className="text-text-secondary h-10 w-10" />}
           title="검색 결과가 없습니다"
@@ -164,41 +282,48 @@ export function SearchVerifyTab() {
         />
       )}
 
-      {!isPending && !isError && results.length > 0 && (
+      {!isPending && !isError && hasSearched && !allEmpty && (
         <>
           <div className="flex items-center justify-between">
             <p className="text-text-secondary text-sm">
-              검색 결과 <span className="text-text-primary font-semibold">{results.length}</span>건
+              검색 결과 <span className="text-text-primary font-semibold">{totalCount}</span>건
+              {groups.length > 1 && (
+                <span className="ml-1 opacity-60">({groups.length}개 컬렉션)</span>
+              )}
             </p>
           </div>
-          <div className="space-y-3">
-            {results.map((result, idx) => (
-              <ResultCard
-                key={`${result.collection}-${result.point_id ?? idx}`}
-                result={result}
-                systemName={getSystemName(result.system_id)}
-                originalQuery={query}
-                onNoteDeleted={handleResultsRefresh}
-                onNoteEditRequest={setEditNote}
-                onDocDeleted={handleResultsRefresh}
-                onResync={handleResync}
-                onDetailClick={result.point_id ? () => setDetailResult(result) : undefined}
-                scoreKind={scoreKind}
-                isResyncing={resyncingIds.has(result.point_id ?? '')}
-              />
-            ))}
-          </div>
 
-          <div className="border-border mt-2 border-t pt-4">
-            <NeuButton
-              variant="ghost"
-              onClick={() => setAddNoteOpen(true)}
-              className="text-accent gap-2 text-sm"
-            >
-              <Plus className="h-4 w-4" />이 검색어로 운영자 노트 추가
-            </NeuButton>
+          <div className="space-y-5">
+            {groups
+              .filter((g) => g.results.length > 0)
+              .map((group) => (
+                <GroupSection
+                  key={group.collection}
+                  group={group}
+                  systemName={getSystemName}
+                  originalQuery={query}
+                  onNoteDeleted={handleResultsRefresh}
+                  onNoteEditRequest={setEditNote}
+                  onDocDeleted={handleResultsRefresh}
+                  onResync={handleResync}
+                  onDetailClick={(result) => handleDetailClick(result, group)}
+                  resyncingIds={resyncingIds}
+                />
+              ))}
           </div>
         </>
+      )}
+
+      {hasSearched && !isPending && !isError && (
+        <div className="border-border mt-2 border-t pt-4">
+          <NeuButton
+            variant="ghost"
+            onClick={() => setAddNoteOpen(true)}
+            className="text-accent gap-2 text-sm"
+          >
+            <Plus className="h-4 w-4" />이 검색어로 운영자 노트 추가
+          </NeuButton>
+        </div>
       )}
 
       {editNote && (
@@ -225,9 +350,9 @@ export function SearchVerifyTab() {
 
       {detailResult && (
         <SearchResultDetailPanel
-          result={detailResult}
+          result={detailResult.result}
           onClose={() => setDetailResult(null)}
-          scoreKind={scoreKind}
+          scoreKind={detailResult.reranked ? 'sim' : 'rrf'}
         />
       )}
 

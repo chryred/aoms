@@ -43,11 +43,15 @@ export const guidesApi = {
     adminApi.delete(`api/v1/guides/${id}`).then(() => undefined),
 
   // ── 게시 (draft → published + Qdrant 인덱싱) ───────────────
-  publish: (id: string): Promise<{ id: string; title: string; status: string; updated_at: string }> =>
+  publish: (
+    id: string,
+  ): Promise<{ id: string; title: string; status: string; updated_at: string }> =>
     adminApi.post(`api/v1/guides/${id}/publish`).json(),
 
   // ── 게시취소 (published → draft + Qdrant 삭제) ─────────────
-  unpublish: (id: string): Promise<{ id: string; title: string; status: string; updated_at: string }> =>
+  unpublish: (
+    id: string,
+  ): Promise<{ id: string; title: string; status: string; updated_at: string }> =>
     adminApi.post(`api/v1/guides/${id}/unpublish`).json(),
 
   // ── 이미지 추가 ──────────────────────────────────────────────

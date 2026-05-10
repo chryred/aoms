@@ -381,37 +381,101 @@ def chunk_docx(
 
 # ── PDF ──────────────────────────────────────────────────────────────────────
 
+_PDF_MAX_IMAGES_PER_PAGE = 10  # 페이지당 OCR 시도 상한 (표지·차트 PDF 타임아웃 방지)
+
+
 def chunk_pdf(
     file_path: str,
     max_chars: int = 1500,
     overlap: int = 200,
 ) -> list[dict]:
-    """PDF 파일: 페이지별 텍스트 추출 후 sliding window 청킹.
+    """PDF 파일: 페이지별 텍스트 + inline image OCR 후 sliding window 청킹.
 
-    - pdfplumber로 페이지 단위 추출
-    - 페이지마다 ``chunk_text``로 분할(긴 페이지는 여러 청크가 됨)
+    - pdfplumber로 페이지 단위 텍스트 추출
+    - pypdf로 페이지별 embedded image bytes 추출 → ``_ocr_image_blob`` → ``[이미지: ...]`` 마커
+      (pypdf가 DCTDecode/FlateDecode/CCITTFaxDecode 등 인코딩을 PIL 호환 bytes로 정규화)
+    - 텍스트와 이미지 마커를 ``\\n\\n`` 결합 후 ``chunk_text``로 분할
+    - OCR 실패(예외·노이즈)는 silent — 청킹 자체가 깨지지 않도록 보장
+    - 페이지당 이미지 OCR 상한: ``_PDF_MAX_IMAGES_PER_PAGE`` (기본 10장)
     - metadata: ``{file_name, doc_type: "pdf", page_no}``
     - 청크 인덱스는 문서 전역으로 누적
     """
     import pdfplumber
+    import pypdf
 
     file_name = os.path.basename(file_path)
     chunks: list[dict] = []
     chunk_index = 0
 
+    # pypdf reader: 이미지 추출 전용 (read-only, pdfplumber와 독립)
+    try:
+        pypdf_reader = pypdf.PdfReader(file_path)
+    except Exception as exc:
+        logger.warning("chunk_pdf: pypdf failed to open %s (%s) — image OCR skipped", file_name, exc)
+        pypdf_reader = None
+
     with pdfplumber.open(file_path) as pdf:
         for page_no, page in enumerate(pdf.pages, start=1):
             page_text = page.extract_text() or ""
             page_text = page_text.strip()
-            if not page_text:
+
+            # ── inline image OCR ──────────────────────────────────────────
+            image_markers: list[str] = []
+            if pypdf_reader is not None:
+                pypdf_page_idx = page_no - 1
+                if pypdf_page_idx < len(pypdf_reader.pages):
+                    pypdf_page = pypdf_reader.pages[pypdf_page_idx]
+                    try:
+                        page_images = list(pypdf_page.images)
+                    except Exception as exc:
+                        logger.debug(
+                            "chunk_pdf: page=%d image list failed (%s)", page_no, exc
+                        )
+                        page_images = []
+
+                    ocr_attempted = 0
+                    ocr_success = 0
+                    for img_file in page_images[:_PDF_MAX_IMAGES_PER_PAGE]:
+                        ocr_attempted += 1
+                        try:
+                            blob = img_file.data
+                        except Exception:
+                            continue
+                        if not blob:
+                            continue
+                        ocr_text = _ocr_image_blob(blob)
+                        if ocr_text:
+                            image_markers.append(f"[이미지: {ocr_text}]")
+                            ocr_success += 1
+
+                    skipped = max(0, len(page_images) - _PDF_MAX_IMAGES_PER_PAGE)
+                    logger.debug(
+                        "chunk_pdf: page=%d images=%d ocr_attempted=%d ocr_success=%d skipped_cap=%d",
+                        page_no,
+                        len(page_images),
+                        ocr_attempted,
+                        ocr_success,
+                        skipped,
+                    )
+            # ─────────────────────────────────────────────────────────────
+
+            # 텍스트 + 이미지 마커 결합
+            parts: list[str] = []
+            if page_text:
+                parts.append(page_text)
+            parts.extend(image_markers)
+
+            combined = "\n\n".join(parts).strip()
+            if not combined:
                 continue
+
             page_meta = {
                 "source_type": "pdf",
                 "doc_type": "pdf",
                 "file_name": file_name,
                 "page_no": page_no,
             }
-            sub = chunk_text(page_text, max_chars=max_chars, overlap=overlap, base_metadata=page_meta)
+            sub = chunk_text(combined, max_chars=max_chars, overlap=overlap, base_metadata=page_meta)
             for c in sub:
                 c["metadata"]["chunk_index"] = chunk_index
                 chunks.append(c)
