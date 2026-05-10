@@ -11,10 +11,9 @@ log-analyzer HTTP 프록시를 통해 Qdrant Hybrid 검색 결과를 챗봇에 �
 - qdrant_search_knowledge: V1 knowledge federated 검색 (jira/confluence/documents)
 
 청크 조회(Get-Chunks) 도구 — 검색 결과의 청크가 부족하면 LLM이 호출:
-- qdrant_get_guide_chunks(guide_id, chunk_indexes?): chunk_indexes 명시 시 surgical fetch,
-  생략 시 전체 (max_chunks 한도). 컨텍스트 절약을 위해 기본은 surgical 권장.
-- qdrant_get_document_chunks(file_hash, chunk_indexes?)
-- qdrant_get_confluence_chunks(page_id, chunk_indexes?)
+- qdrant_get_chunks(source, id, chunk_indexes?, max_chunks?): 청크 조회 통합 도구.
+  source: 'guide' (id=guide_id) | 'document' (id=file_hash) | 'confluence' (id=page_id).
+  chunk_indexes 명시 시 surgical fetch, 생략 시 전체 (max_chunks 한도).
 """
 
 import os
@@ -530,6 +529,48 @@ async def _get_confluence_chunks(db: AsyncSession, args: dict[str, Any]) -> dict
     }
 
 
+async def _get_chunks(db: AsyncSession, args: dict[str, Any]) -> dict[str, Any]:
+    """청크 조회 통합 도구 — source에 따라 guide/document/confluence 분기.
+
+    args:
+      source: "guide" | "document" | "confluence" (필수)
+      id: source에 따라 guide_id(uuid) | file_hash(sha256) | page_id (필수)
+      chunk_indexes?: 부분 청크만 받을 때 (surgical fetch)
+      max_chunks?: chunk_indexes 미지정 시 상한 (기본 50, 최대 100). document에는 영향 없음.
+    """
+    source = (args.get("source") or "").strip().lower()
+    target_id = (args.get("id") or "").strip()
+
+    if source not in ("guide", "document", "confluence"):
+        return {
+            "error": f"source는 'guide' | 'document' | 'confluence' 중 하나여야 합니다 (받음: {source!r})."
+        }
+    if not target_id:
+        id_label = "guide_id" if source == "guide" else "file_hash" if source == "document" else "page_id"
+        return {"error": f"id가 필요합니다 (source={source}일 때 {id_label})."}
+
+    if source == "guide":
+        delegate_args = {
+            "guide_id": target_id,
+            "chunk_indexes": args.get("chunk_indexes"),
+            "max_chunks": args.get("max_chunks"),
+        }
+        return await _get_guide_chunks(db, delegate_args)
+    if source == "document":
+        delegate_args = {
+            "file_hash": target_id,
+            "chunk_indexes": args.get("chunk_indexes"),
+        }
+        return await _get_document_chunks(db, delegate_args)
+    # confluence
+    delegate_args = {
+        "page_id": target_id,
+        "chunk_indexes": args.get("chunk_indexes"),
+        "max_chunks": args.get("max_chunks"),
+    }
+    return await _get_confluence_chunks(db, delegate_args)
+
+
 async def execute(db: AsyncSession, name: str, args: dict[str, Any]) -> dict[str, Any]:
     """도구 디스패처."""
     try:
@@ -545,12 +586,8 @@ async def execute(db: AsyncSession, name: str, args: dict[str, Any]) -> dict[str
             return await _search_knowledge(db, args)
         if name == "qdrant_search_guide":
             return await _search_guides(db, args)
-        if name == "qdrant_get_guide_chunks":
-            return await _get_guide_chunks(db, args)
-        if name == "qdrant_get_document_chunks":
-            return await _get_document_chunks(db, args)
-        if name == "qdrant_get_confluence_chunks":
-            return await _get_confluence_chunks(db, args)
+        if name == "qdrant_get_chunks":
+            return await _get_chunks(db, args)
         return {"error": f"unknown qdrant tool: {name}"}
     except Exception as e:
         return {"error": f"qdrant 도구 실패: {str(e)[:200]}"}

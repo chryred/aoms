@@ -57,3 +57,25 @@ export function useDeleteGuideImage() {
     },
   })
 }
+
+export function usePublishGuide() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => guidesApi.publish(id),
+    onSuccess: (_result, id) => {
+      qc.invalidateQueries({ queryKey: ['guides', 'list'] })
+      qc.invalidateQueries({ queryKey: qk.guides.detail(id) })
+    },
+  })
+}
+
+export function useUnpublishGuide() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => guidesApi.unpublish(id),
+    onSuccess: (_result, id) => {
+      qc.invalidateQueries({ queryKey: ['guides', 'list'] })
+      qc.invalidateQueries({ queryKey: qk.guides.detail(id) })
+    },
+  })
+}

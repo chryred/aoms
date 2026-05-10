@@ -480,6 +480,9 @@ async def _save_guide(db: AsyncSession, args: dict[str, Any]) -> dict[str, Any]:
             break
 
     # INSERT (flush로 guide.id 확보, 아직 commit 전)
+    # status='draft' — LLM 자동 저장은 항상 초안으로만 저장.
+    # Qdrant 인덱싱은 운영자가 /admin/guides에서 게시(Publish)를 승인한 후에만 수행됨.
+    # 이는 LLM 환각이 Qdrant에 직접 인덱싱되어 RAG 검색에 노출되는 데이터 오염 피드백 루프 방지를 위한 것.
     now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
     guide = KnowledgeGuide(
         system_id=system_id,
@@ -489,6 +492,7 @@ async def _save_guide(db: AsyncSession, args: dict[str, Any]) -> dict[str, Any]:
         tags=tags,
         created_by=None,  # 챗봇 자동 등록 (사용자 매핑은 향후 확장)
         is_active=True,
+        status="draft",
         created_at=now_utc,
         updated_at=now_utc,
     )
@@ -496,27 +500,7 @@ async def _save_guide(db: AsyncSession, args: dict[str, Any]) -> dict[str, Any]:
     await db.flush()  # guide.id 확보
     guide_id = str(guide.id)
 
-    # Qdrant 인덱싱 (best-effort — 실패해도 DB 저장은 진행. 명시적 try/except로 부정합 방지)
-    indexing_dispatched = False
-    indexing_error: str | None = None
-    try:
-        from services.qdrant_guides import index_guide
-        await index_guide(
-            guide_id=guide_id,
-            title=title,
-            content=content,
-            system_id=system_id,
-            category=category,
-            tags=tags,
-            image_count=0,
-        )
-        indexing_dispatched = True
-    except Exception as exc:  # noqa: BLE001
-        # log-analyzer 호출 자체는 내부에서 예외 swallow하지만, 방어적으로 처리
-        # (import 실패, 네트워크 즉시 차단, 타입 에러 등 예외 케이스 보호)
-        indexing_error = str(exc)[:200]
-
-    # DB 커밋 — Qdrant 호출 성공/실패 무관하게 진행 (indexing_error로 사용자에게 알림)
+    # DB 커밋 (Qdrant 인덱싱은 하지 않음 — draft 상태)
     await db.commit()
 
     # 시스템명 조회 (응답용)
@@ -526,13 +510,12 @@ async def _save_guide(db: AsyncSession, args: dict[str, Any]) -> dict[str, Any]:
         if sys_row is not None:
             system_display = sys_row.display_name or sys_row.system_name
 
-    message_parts = [f"가이드 '{title}'을 등록했습니다."]
-    if system_display:
-        message_parts.append(f"(시스템: {system_display})")
-    else:
-        message_parts.append("(전체 공용)")
-    if not indexing_dispatched:
-        message_parts.append(f"— 단, Qdrant 인덱싱 호출 실패: {indexing_error}. log-analyzer 상태를 확인하세요.")
+    system_label = f"시스템: {system_display}" if system_display else "전체 공용"
+    message = (
+        f"가이드 '{title}'을 **초안(draft)**으로 저장했습니다. ({system_label}) "
+        "⚠️ Qdrant 인덱싱은 아직 수행되지 않았습니다. "
+        "운영자가 /admin/guides 관리 화면에서 검토 후 게시(Publish)를 승인해야 RAG 검색에 노출됩니다."
+    )
 
     return {
         "guide_id": guide_id,
@@ -542,12 +525,8 @@ async def _save_guide(db: AsyncSession, args: dict[str, Any]) -> dict[str, Any]:
         "category": category,
         "tags": tags,
         "content_length": len(content),
-        # indexing_dispatched: log-analyzer로 호출이 성공적으로 완료되었는지 (예외 없이 반환됨)
-        # 실제 임베딩이 Qdrant에 저장되었는지는 log-analyzer 응답을 받지 않으므로 알 수 없음
-        # — best-effort 의미를 분명히 하기 위해 'attempted'가 아닌 'dispatched' 사용
-        "indexing_dispatched": indexing_dispatched,
-        "indexing_error": indexing_error,
-        "message": " ".join(message_parts),
+        "status": "draft",
+        "message": message,
     }
 
 

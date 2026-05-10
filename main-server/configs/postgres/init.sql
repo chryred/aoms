@@ -482,6 +482,7 @@ CREATE TABLE IF NOT EXISTS chat_messages (
     tool_args    JSONB,
     tool_result  JSONB,
     attachments       JSONB NOT NULL DEFAULT '[]'::jsonb,      -- [{type:'image', key, mime, size, w, h}]
+    images            JSONB NOT NULL DEFAULT '[]'::jsonb,      -- [{url, alt?, name?}] — 도구 결과의 이미지 (Feature 5C 영구 저장)
     -- V1 RAG: federated search 품질 추적 (ADR-002)
     rag_top1_score    FLOAT,                                   -- NULL 허용 — federated search RRF top-1 점수
     rag_sources_count INTEGER,                                 -- NULL 허용 — 검색 결과 개수
@@ -569,23 +570,17 @@ INSERT INTO chat_tools (name, display_name, description, input_schema, executor)
     ('prometheus_range_query', 'Prometheus 시계열 추이 조회',
      'Prometheus 시계열 데이터를 instance_role별로 분리 반환. 24시간 CPU 추이, 1주일 메모리 변화 등 ''추이''·''변화''·''히스토리''·''지난 N시간'' 키워드 질문에 사용. 보관 기간(운영 15일) 이내. start_time/end_time은 KST 자연어 또는 ISO 형식. step은 시점 간격 (기본 5m, 24시간이면 5m~30m 권장). 데이터 포인트 1000개 한도.',
      '{"type":"object","properties":{"system_name":{"type":"string","description":"시스템명 (예: cxm)"},"metric_group":{"type":"string","enum":["cpu","memory","disk","network","log","web","db"],"description":"메트릭 그룹"},"start_time":{"type":"string","description":"조회 시작 시각 (KST). 예: ''24시간 전'', ''어제 0시'', ''2026-05-09 00:00''"},"end_time":{"type":"string","description":"조회 종료 시각 (KST). 생략 시 현재."},"step":{"type":"string","default":"5m","description":"시점 간격 (Prometheus 기간 표현). 24시간이면 5m~30m 권장. 1주일이면 1h~6h."},"aggregation":{"type":"string","enum":["avg","max","min","p95","sum"],"default":"avg","description":"집계 방식 (각 step 윈도우 내)"}},"required":["system_name","metric_group","start_time"]}'::jsonb, 'prometheus'),
-    ('qdrant_get_guide_chunks', '운영 가이드 청크 조회',
-     'qdrant_search_guide 결과의 chunk_index/total_chunks 비교로 빠진 청크를 보강 조회. chunk_indexes를 명시하면 surgical fetch (1-3개 권장, 컨텍스트 절약), 생략하면 가이드 전체 (사용자가 "전문/전체" 명시한 경우에만).',
-     '{"type":"object","properties":{"guide_id":{"type":"string","description":"검색 결과의 guide_id (UUID)"},"chunk_indexes":{"type":"array","items":{"type":"integer"},"description":"가져올 청크 인덱스 (예: [2,4,5]). 생략 시 전체."},"max_chunks":{"type":"integer","default":50,"description":"chunk_indexes 미지정 시 상한 (기본 50, 최대 100)"}},"required":["guide_id"]}'::jsonb, 'qdrant'),
-    ('qdrant_get_document_chunks', '문서 청크 조회',
-     'qdrant_search_knowledge 결과 중 source=documents에 file_hash가 있을 때 청크를 보강 조회. chunk_indexes 명시로 surgical fetch 권장. 페이지/시트/슬라이드 메타 포함.',
-     '{"type":"object","properties":{"file_hash":{"type":"string","description":"검색 결과의 file_hash"},"chunk_indexes":{"type":"array","items":{"type":"integer"},"description":"가져올 청크 인덱스. 생략 시 전체."}},"required":["file_hash"]}'::jsonb, 'qdrant'),
-    ('qdrant_get_confluence_chunks', 'Confluence 페이지 청크 조회',
-     'qdrant_search_knowledge 결과 중 source=confluence에 page_id가 있을 때 청크를 보강 조회. chunk_indexes 명시로 surgical fetch 권장. 헤딩 구조 포함.',
-     '{"type":"object","properties":{"page_id":{"type":"string","description":"검색 결과의 page_id"},"chunk_indexes":{"type":"array","items":{"type":"integer"},"description":"가져올 청크 인덱스. 생략 시 전체."},"max_chunks":{"type":"integer","default":50,"description":"chunk_indexes 미지정 시 상한 (기본 50, 최대 100)"}},"required":["page_id"]}'::jsonb, 'qdrant'),
+    ('qdrant_get_chunks', '청크 조회 (통합)',
+     'Qdrant 청크 컬렉션의 청크를 source 별로 분기 조회하는 통합 도구. qdrant_search_guide / qdrant_search_knowledge 결과의 chunk_index/total_chunks를 비교해 빠진 청크 보강 시 사용. **chunk_indexes 명시로 surgical fetch (1-3개 청크만 — 컨텍스트 절약 권장)**, 생략 시 전체 (max_chunks 상한 적용). source=''guide''면 id에 guide_id(UUID), source=''document''면 id에 file_hash, source=''confluence''면 id에 page_id 입력. 단순 요약 질문에는 추가 호출하지 마세요.',
+     '{"type":"object","properties":{"source":{"type":"string","enum":["guide","document","confluence"],"description":"청크 컬렉션 종류"},"id":{"type":"string","description":"source에 따라 guide_id(UUID) | file_hash(sha256) | page_id"},"chunk_indexes":{"type":"array","items":{"type":"integer"},"description":"가져올 청크 인덱스 배열 (예: [2,4,5]). 생략 시 전체."},"max_chunks":{"type":"integer","default":50,"description":"chunk_indexes 미지정 시 상한 (기본 50, 최대 100). document에는 영향 없음."}},"required":["source","id"]}'::jsonb, 'qdrant'),
     ('export_chat_markdown', '대화 Markdown 내보내기',
      '현재 챗봇 세션의 user/assistant 대화 내용을 Markdown 형식으로 내보냅니다. 사용자가 "대화 내용을 markdown으로 저장해줘", "이 대화 .md 파일로 받고 싶어", "여기까지 정리해서 파일로 줘" 등 대화 기록을 파일로 저장하려 할 때 사용하세요. slug 파라미터에는 대화 주제를 영문 kebab-case로 요약한 짧은 식별자를 전달하세요 (예: "cpu-spike-investigation", "deployment-procedure-review", "incident-postmortem-db1"). 슬러그는 영문 소문자/숫자/하이픈만 사용, 50자 이내. 누락 시 타임스탬프만으로 파일명이 생성됩니다.',
      '{"type":"object","properties":{"slug":{"type":"string","description":"대화 주제를 요약한 영문 kebab-case 식별자 (예: cpu-spike-investigation). 영문 소문자·숫자·하이픈만, 50자 이내. 파일명에 포함되어 사용자가 어떤 대화인지 식별할 수 있게 합니다."}},"required":[]}'::jsonb, 'admin'),
     ('generate_shift_handoff', '인수인계 보고서 생성',
      '지정된 교대 시간대의 메트릭 알림·LLM 로그 분석·진행 중 이상을 정리해 Markdown 인수인계 보고서를 생성합니다. 사용자가 "인수인계 보고서 만들어줘", "오전 교대 보고서", "야간 인수인계 정리해줘" 등을 요청할 때 사용하세요. 교대 시간(KST): morning(06-14), afternoon(14-22), night(22-익일 06). shift를 지정하지 않으면 현재 시각으로 자동 판정. target_date 미지정 시 오늘. slug 파라미터에 영문 kebab-case 식별자(예: "incident-night-summary")를 추가로 전달하면 파일명에 포함됩니다.',
      '{"type":"object","properties":{"shift":{"type":"string","enum":["morning","afternoon","night"],"description":"교대 시간 (선택). 미지정 시 현재 시각 자동 판정."},"target_date":{"type":"string","description":"대상 날짜 (KST, YYYY-MM-DD). 미지정 시 오늘. night이면서 새벽(0-6시)에 호출하면 전날 야간으로 자동 보정."},"slug":{"type":"string","description":"파일명에 추가할 영문 kebab-case 식별자 (예: incident-night-summary). 영문 소문자/숫자/하이픈, 50자 이내. 미지정 시 shift+date 기반 기본 파일명."}},"required":[]}'::jsonb, 'admin'),
-    ('admin_save_guide', '운영 가이드 저장',
-     '대화 내용에서 추출한 운영 가이드/해결책/매뉴얼을 knowledge_guides 컬렉션에 저장합니다. 사용자가 "이 해결책을 가이드로 저장해줘", "이 절차 매뉴얼로 등록", "이 내용 지식베이스에 추가해줘" 등을 요청할 때 사용하세요. **title은 한국어 짧은 제목**, **content는 가이드 본문(마크다운, 단계별 절차 권장)**, system_id는 관련 시스템 ID(전체 공용이면 생략), category는 ''incident''/''manual''/''policy''/''troubleshooting'' 등 자유 입력, tags는 검색용 키워드 배열. 저장된 가이드는 향후 qdrant_search_guide 도구로 RAG 검색됩니다. content는 최소 30자, title은 최대 255자.',
+    ('admin_save_guide', '운영 가이드 초안 저장',
+     '대화 내용에서 추출한 운영 가이드/해결책/매뉴얼을 knowledge_guides에 **초안(draft)으로 저장**합니다. 사용자가 "이 해결책을 가이드로 저장해줘", "이 절차 매뉴얼로 등록", "이 내용 지식베이스에 추가해줘" 등을 요청할 때 사용하세요. **title은 한국어 짧은 제목**, **content는 가이드 본문(마크다운, 단계별 절차 권장)**, system_id는 관련 시스템 ID(전체 공용이면 생략), category는 ''incident''/''manual''/''policy''/''troubleshooting'' 등 자유 입력, tags는 검색용 키워드 배열. ⚠️ **초안으로만 저장됩니다** — Qdrant 인덱싱이 즉시 일어나지 않으며, 운영자가 관리 화면(/admin/guides)에서 검토·게시(Publish) 승인 후 RAG 검색에 노출됩니다. content는 최소 30자, title은 최대 255자.',
      '{"type":"object","properties":{"title":{"type":"string","description":"가이드 제목 (한국어, 1줄, 최대 255자)"},"content":{"type":"string","description":"가이드 본문 (마크다운). 단계별 절차·해결책·점검 항목을 풍부하게 작성. 최소 30자."},"system_id":{"type":"integer","description":"관련 시스템 ID. 모든 시스템에 공용이면 생략."},"category":{"type":"string","description":"카테고리 (예: incident, manual, policy, troubleshooting). 자유 입력, 50자 이내."},"tags":{"type":"array","items":{"type":"string"},"description":"검색용 태그 배열 (최대 10개, 각 50자)."}},"required":["title","content"]}'::jsonb, 'admin'),
     ('admin_get_incident_context', '인시던트 컨텍스트 조회',
      '특정 incident_id의 종합 컨텍스트를 반환합니다. 화면 컨텍스트(`사용자 화면 컨텍스트:`)에 "인시던트: <id>" 가 있을 때 LLM이 답변 전에 자동으로 호출해야 합니다. 응답에는 인시던트 기본 정보(title/severity/status/MTTA/MTTR), 연결된 알림 최대 20건, 연결된 LLM 로그 분석 최대 10건, 타임라인 이벤트 최대 30건, 진행률(%), 다음 권장 액션이 포함됩니다. 이미 같은 incident_id의 결과가 대화 이력에 있으면 재호출하지 마세요.',
@@ -681,8 +676,9 @@ CREATE TABLE IF NOT EXISTS knowledge_guides (
     category    VARCHAR(50),                     -- 'howto', 'error', 'navigation'
     tags        TEXT[]       NOT NULL DEFAULT '{}',
     steps       JSONB,                           -- C 확장용: [{step, text, image_id: <UUID>}]
-    created_by  INTEGER      REFERENCES contacts(id) ON DELETE SET NULL,  -- 등록 담당자 (admin 또는 operator)
+    created_by  INTEGER      REFERENCES contacts(id) ON DELETE SET NULL,  -- 등록 담당자 (admin 또는 operator). NULL=챗봇 자동 저장
     is_active   BOOLEAN      NOT NULL DEFAULT TRUE,
+    status      VARCHAR(20)  NOT NULL DEFAULT 'published',               -- draft=LLM 자동저장(Qdrant 미인덱싱), published=운영자 승인(Qdrant 인덱싱)
     created_at  TIMESTAMP    NOT NULL DEFAULT NOW(),
     updated_at  TIMESTAMP    NOT NULL DEFAULT NOW()
 );

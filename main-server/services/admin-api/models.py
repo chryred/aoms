@@ -559,6 +559,7 @@ class ChatMessage(Base):
     tool_args         = Column(JSONB)
     tool_result       = Column(JSONB)
     attachments       = Column(JSONB, nullable=False, default=list)   # [{type,key,mime,size,w,h}]
+    images            = Column(JSONB, nullable=False, default=list, server_default="'[]'::jsonb")  # [{url,alt?,name?}] — 도구 결과의 이미지 (Feature 5C 영구 저장)
     # V1 RAG: federated search 품질 추적 (ADR-002)
     rag_top1_score    = Column(Float)          # NULL 허용 — federated search RRF top-1 점수
     rag_sources_count = Column(Integer)        # NULL 허용 — 검색 결과 개수
@@ -620,6 +621,9 @@ class KnowledgeGuide(Base):
     steps      = Column(JSONB, nullable=True)   # C 확장용: [{step, text, image_id}]
     created_by = Column(Integer, ForeignKey("contacts.id", ondelete="SET NULL"), nullable=True, index=True)
     is_active  = Column(Boolean, nullable=False, server_default="true")
+    # draft = LLM 자동 저장 (Qdrant 미인덱싱, 운영자 검토 필요)
+    # published = 운영자 승인 완료 (Qdrant 인덱싱, RAG 검색 노출)
+    status     = Column(String(20), nullable=False, server_default="published")
     created_at = Column(DateTime, nullable=False, default=func.now())
     updated_at = Column(DateTime, nullable=False, default=func.now(), onupdate=func.now())
 

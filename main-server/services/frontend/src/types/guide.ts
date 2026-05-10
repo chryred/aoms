@@ -10,6 +10,8 @@ export interface GuideImage {
   created_at: string
 }
 
+export type GuideStatus = 'draft' | 'published'
+
 export interface Guide {
   id: string
   system_id: number | null // null = 공통(시스템 무관)
@@ -21,6 +23,7 @@ export interface Guide {
   created_by: number | null
   created_by_name: string | null
   is_active: boolean
+  status: GuideStatus
   created_at: string
   updated_at: string
   images: GuideImage[]
@@ -36,7 +39,10 @@ export interface GuideSummary {
   tags: string[]
   created_by: number | null
   created_by_name: string | null
+  is_active: boolean
+  status: GuideStatus
   created_at: string
+  updated_at: string
   image_count: number
 }
 
@@ -49,6 +55,7 @@ export interface GuideListParams {
   system_id?: number | null
   category?: GuideCategory
   search?: string
+  status?: GuideStatus
   limit?: number
   offset?: number
 }

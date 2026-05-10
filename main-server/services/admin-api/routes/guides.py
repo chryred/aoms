@@ -197,6 +197,29 @@ async def _check_can_delete_guide(
     """삭제 권한 검사. hard=True는 admin만."""
     if hard and user.role != "admin":
         raise HTTPException(status_code=403, detail="완전 삭제는 관리자만 가능합니다")
+
+
+async def _check_can_publish_guide(
+    db: AsyncSession,
+    user: User,
+    guide: KnowledgeGuide,
+) -> None:
+    """게시/게시취소 권한 검사.
+
+    - admin: 항상 허용
+    - operator: 가이드의 system_id가 본인 담당 시스템 중 하나여야 함 (created_by 무관)
+    - system_id=NULL(공통) 가이드: admin만 게시 가능
+    """
+    if user.role == "admin":
+        return
+    if guide.system_id is None:
+        raise HTTPException(status_code=403, detail="공통(system_id=NULL) 가이드는 관리자만 게시할 수 있습니다")
+    contact = await _get_contact_for_user(db, user)
+    if contact is None:
+        raise HTTPException(status_code=403, detail="담당자 등록이 필요합니다")
+    allowed = await _get_operator_system_ids(db, contact.id)
+    if guide.system_id not in allowed:
+        raise HTTPException(status_code=403, detail="해당 시스템의 담당자가 아닙니다")
     if user.role == "admin":
         return
     contact = await _get_contact_for_user(db, user)
@@ -345,6 +368,7 @@ async def list_guides(
     system_id: Optional[str] = Query(None),
     category: Optional[str] = Query(None),
     search: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
@@ -360,6 +384,11 @@ async def list_guides(
       - 미전달 / None: 전체 (필터 없음)
       - "null" 문자열: system_id IS NULL (공통 가이드만)
       - 숫자 문자열: 해당 system_id 가이드만
+
+    status 쿼리파라미터:
+      - 미전달 / None: 전체 (draft + published 모두)
+      - "draft": 초안(운영자 미검토) 가이드만
+      - "published": 게시(Qdrant 인덱싱 완료) 가이드만
     """
     # system_id 파싱: "null" → IS NULL 필터, 숫자 문자열 → 정수 필터
     system_id_filter: Optional[int] = None
@@ -411,6 +440,8 @@ async def list_guides(
         stmt = stmt.where(KnowledgeGuide.system_id.is_(None))
     elif system_id_filter is not None:
         stmt = stmt.where(KnowledgeGuide.system_id == system_id_filter)
+    if status in ("draft", "published"):
+        stmt = stmt.where(KnowledgeGuide.status == status)
     if category:
         stmt = stmt.where(KnowledgeGuide.category == category)
     if search:
@@ -447,6 +478,7 @@ async def list_guides(
             "category": guide.category,
             "tags": tags,
             "is_active": guide.is_active,
+            "status": guide.status,
             "created_by": guide.created_by,
             "created_by_name": created_by_name,
             "created_at": guide.created_at.isoformat() if guide.created_at else None,
@@ -503,6 +535,7 @@ async def get_guide(
         "tags": tags,
         "steps": guide.steps,
         "is_active": guide.is_active,
+        "status": guide.status,
         "created_by": guide.created_by,
         "created_by_name": created_by_name,
         "created_at": guide.created_at.isoformat() if guide.created_at else None,
@@ -547,6 +580,7 @@ async def create_guide(
         tags=tag_list,
         created_by=contact.id if contact else None,
         is_active=True,
+        status="published",  # 운영자 직접 등록 — 즉시 게시 (Qdrant 인덱싱 진행)
         created_at=datetime.now(timezone.utc).replace(tzinfo=None),
         updated_at=datetime.now(timezone.utc).replace(tzinfo=None),
     )
@@ -593,6 +627,7 @@ async def create_guide(
         "tags": guide.tags or [],
         "created_by": guide.created_by,
         "is_active": guide.is_active,
+        "status": guide.status,
         "created_at": guide.created_at.isoformat() if guide.created_at else None,
         "image_count": len(saved_images),
     }
@@ -636,7 +671,66 @@ async def update_guide(
     await db.commit()
     await db.refresh(guide)
 
-    # Qdrant 재인덱싱 (실제 image_count 조회)
+    # Qdrant 재인덱싱 — published 상태일 때만 (draft 가이드는 인덱싱하지 않음)
+    if guide.status == "published":
+        actual_image_count: int = (
+            await db.execute(
+                select(func.count(GuideImage.id)).where(GuideImage.guide_id == guide_id)
+            )
+        ).scalar_one()
+        background_tasks.add_task(
+            _qdrant_index_background,
+            guide.id,
+            guide.title,
+            guide.content,
+            guide.system_id,
+            guide.category,
+            guide.tags or [],
+            actual_image_count,
+        )
+
+    return {
+        "id": guide.id,
+        "title": guide.title,
+        "system_id": guide.system_id,
+        "category": guide.category,
+        "tags": guide.tags or [],
+        "is_active": guide.is_active,
+        "status": guide.status,
+        "updated_at": guide.updated_at.isoformat() if guide.updated_at else None,
+    }
+
+
+# ── 가이드 게시 / 게시취소 ────────────────────────────────────────────────────
+
+@router.post("/{guide_id}/publish", status_code=200)
+async def publish_guide(
+    guide_id: str,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    """가이드 게시 (draft → published + Qdrant 인덱싱).
+
+    권한: admin 전체 / operator는 자신 담당 시스템 가이드만 (created_by 무관).
+    system_id=NULL 공통 가이드는 admin만 게시 가능.
+    이미 published 상태면 400.
+    """
+    guide = await db.get(KnowledgeGuide, guide_id)
+    if guide is None or not guide.is_active:
+        raise HTTPException(status_code=404, detail="가이드를 찾을 수 없습니다")
+
+    await _check_can_publish_guide(db, user, guide)
+
+    if guide.status == "published":
+        raise HTTPException(status_code=400, detail="이미 게시된 가이드입니다")
+
+    guide.status = "published"
+    guide.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    await db.commit()
+    await db.refresh(guide)
+
+    # Qdrant 인덱싱 (best-effort)
     actual_image_count: int = (
         await db.execute(
             select(func.count(GuideImage.id)).where(GuideImage.guide_id == guide_id)
@@ -656,10 +750,45 @@ async def update_guide(
     return {
         "id": guide.id,
         "title": guide.title,
-        "system_id": guide.system_id,
-        "category": guide.category,
-        "tags": guide.tags or [],
-        "is_active": guide.is_active,
+        "status": guide.status,
+        "updated_at": guide.updated_at.isoformat() if guide.updated_at else None,
+    }
+
+
+@router.post("/{guide_id}/unpublish", status_code=200)
+async def unpublish_guide(
+    guide_id: str,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    """가이드 게시취소 (published → draft + Qdrant 청크 삭제, DB row 보존).
+
+    권한: admin 전체 / operator는 자신 담당 시스템 가이드만 (created_by 무관).
+    system_id=NULL 공통 가이드는 admin만 취소 가능.
+    이미 draft 상태면 400.
+    """
+    guide = await db.get(KnowledgeGuide, guide_id)
+    if guide is None or not guide.is_active:
+        raise HTTPException(status_code=404, detail="가이드를 찾을 수 없습니다")
+
+    await _check_can_publish_guide(db, user, guide)
+
+    if guide.status == "draft":
+        raise HTTPException(status_code=400, detail="이미 초안(draft) 상태입니다")
+
+    guide.status = "draft"
+    guide.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    await db.commit()
+    await db.refresh(guide)
+
+    # Qdrant 청크 삭제 (best-effort — DB row는 보존)
+    background_tasks.add_task(_qdrant_delete_background, guide_id)
+
+    return {
+        "id": guide.id,
+        "title": guide.title,
+        "status": guide.status,
         "updated_at": guide.updated_at.isoformat() if guide.updated_at else None,
     }
 

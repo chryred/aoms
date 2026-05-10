@@ -402,19 +402,36 @@ DB 변경: `chat_sessions.user_id` nullable, `visitor_employee_id/email/system_i
   - `admin`: DB 직접 조회 + 시스템 액션 도구 8종.
     - 조회: `admin_list_systems` / `admin_search_alert_history` / `admin_list_contacts`
     - 컨텍스트: `admin_get_incident_context` (incident_id의 종합 컨텍스트 — status/MTTA/MTTR/연결 알림/타임라인/`next_action_meta`. 화면 컨텍스트에 incident_id 있으면 첫 도구로 자동 호출, Feature 5A)
-    - 액션·내보내기: `admin_save_guide` (대화 해결책을 knowledge_guides Qdrant 인덱싱), `admin_create_feedback` (alert_feedback INSERT, status=pending — 인시던트 resolved/closed에서만), `export_chat_markdown` (현재 세션 markdown 내보내기 — `_session_id` 자동 주입), `generate_shift_handoff` (KST morning/afternoon/night 인수인계 보고서 자동 생성)
+    - 액션·내보내기: `admin_save_guide` (**draft로만 저장** — Qdrant 인덱싱 없음, 운영자 게시 승인 후 RAG 노출, P0-1), `admin_create_feedback` (alert_feedback INSERT, status=pending — 인시던트 resolved/closed에서만), `export_chat_markdown` (현재 세션 markdown 내보내기 — `_session_id` 자동 주입), `generate_shift_handoff` (KST morning/afternoon/night 인수인계 보고서 자동 생성)
     - 공통 헬퍼: `services/incident_status_meta.py` — `INCIDENT_STATUS_KO`/`INCIDENT_PROGRESS`/`INCIDENT_NEXT_ACTION` + `status_meta()`. `_get_incident_context` 와 `routes/incidents.py GET /{id}` 응답이 동시 사용 (DRY)
   - `log_analyzer`: 최근 LLM 로그 분석 조회 + log-analyzer HTTP 프록시
-  - `qdrant` (ADR-011 RAG): 검색(Search) 6종 + 전문 조회(Get-Full) 3종.
+  - `qdrant` (ADR-011 RAG): 검색(Search) 6종 + 청크 조회(Get-Chunks) 1종.
     - 검색: `qdrant_search_incident_knowledge` (log_incidents + metric_baselines Hybrid) / `qdrant_search_aggregation_summary` (aggregation_summaries Hybrid) / `qdrant_search_hourly_patterns` (metric_hourly_patterns Hybrid) / `qdrant_search_incident_postmortem` (incident_postmortems Hybrid) / `qdrant_search_knowledge` (V1 knowledge federated — log-analyzer `/knowledge/search`) / `qdrant_search_guide` (knowledge_guides Hybrid — log-analyzer `/guides/search`, system_id 필터 + NULL 공용 가이드 OR)
-    - 청크 조회 (검색에서 부족한 청크만 보강): `qdrant_get_guide_chunks(guide_id, chunk_indexes?)` / `qdrant_get_document_chunks(file_hash, chunk_indexes?)` / `qdrant_get_confluence_chunks(page_id, chunk_indexes?)`. **chunk_indexes 명시 시 surgical fetch (1-3개 청크만 — 컨텍스트 절약)**, 생략 시 전체 (사용자가 "전문/전체" 명시한 경우만). 각각 청킹된 컬렉션(`knowledge_guides`, `knowledge_documents`, `knowledge_confluence_pages`)에서 chunk_index 순서로 반환. log-analyzer `GET /guides/{id}/chunks?chunk_indexes=2&chunk_indexes=4`, `GET /knowledge/documents/{hash}/chunks`, `GET /knowledge/confluence/{id}/chunks` 프록시
-    - 구현은 `services/chat_tools/executors/qdrant.py`. `services/prompts.py._decision_prompt()` 에 사용 트리거 + 전문 조회 가이드 포함. `_HELP_ALLOWED_TOOLS`에는 게스트도 사용 가능한 search 3종 + get_full 3종 포함
+    - 청크 조회 (검색에서 부족한 청크만 보강, 통합 도구): `qdrant_get_chunks(source, id, chunk_indexes?, max_chunks?)`. source='guide'(id=guide_id) | 'document'(id=file_hash) | 'confluence'(id=page_id). **chunk_indexes 명시 시 surgical fetch (1-3개 청크만 — 컨텍스트 절약)**, 생략 시 전체 (max_chunks 상한). 각각 청킹된 컬렉션(`knowledge_guides`, `knowledge_documents`, `knowledge_confluence_pages`)에서 chunk_index 순서로 반환. log-analyzer `GET /guides/{id}/chunks?chunk_indexes=2&chunk_indexes=4`, `GET /knowledge/documents/{hash}/chunks`, `GET /knowledge/confluence/{id}/chunks` 프록시
+    - 구현은 `services/chat_tools/executors/qdrant.py`. `services/prompts.py._decision_prompt()` 에 사용 트리거 + 전문 조회 가이드 포함. `_HELP_ALLOWED_TOOLS`에는 게스트도 사용 가능한 search 3종 + `qdrant_get_chunks` 1종 포함
   - `prometheus`: `prometheus_query` / `prometheus_range_query` — 보관 기간(운영 15d / 개발 3d) 이내 raw 메트릭 조회. 구현: `services/chat_tools/executors/prometheus.py`. 환경변수: `PROMETHEUS_URL`, `PROMETHEUS_RETENTION_DAYS`(기본 15)
     - `prometheus_query` — instant query (`/api/v1/query`). `system_name` + `metric_group` + 선택 `time(KST)` / `window` / `aggregation`. 결과: `instances[].metrics` (한 시점 값).
     - `prometheus_range_query` — range query (`/api/v1/query_range`). `system_name` + `metric_group` + `start_time` + 선택 `end_time(생략 시 now)` / `step(기본 5m)` / `aggregation`. 결과: `instances[].series` (시계열). 데이터 포인트 1000개 한도.
   - `qdrant_search_knowledge` 도구 결과에서 `rag_top1_score`, `rag_sources_count`를 추출해 직전 user 메시지의 `chat_messages` 컬럼에 UPDATE (`chat_agent.py run_react_stream` 내 score 캡처 로직)
   - `services/qdrant_guides.py`는 ADR-011 Hybrid 통일 이후 log-analyzer `/guides/*` HTTP 프록시로 동작 (Qdrant 직접 호출 폐지). 기존 함수 시그니처(`index_guide`, `delete_guide_index`, `search_guides` 등)는 호환 유지. `update_image_count`는 noop. `routes/guides.py`(가이드 CRUD)에서 import 그대로 사용 가능
   - `routes/chat.py`의 가이드 사전 검색 코드(`search_guides` 호출 + 이미지 meta 이벤트)는 제거됨. LLM이 ReAct 루프에서 `qdrant_search_guide`로 능동 검색
+
+### Knowledge Guides `/api/v1/guides` (draft/publish 워크플로우 — P0-1)
+
+- `GET /` — 가이드 목록. 쿼리 파라미터: `system_id`, `category`, `search`, `status` (draft/published), `limit`, `offset`
+- `GET /{id}` — 상세 조회 (status 필드 포함)
+- `POST /` — **운영자 직접 등록** → `status='published'` + Qdrant 인덱싱 (BackgroundTask)
+- `PUT /{id}` — 수정. `status='published'`일 때만 Qdrant 재인덱싱. draft 수정은 Qdrant 미호출
+- `DELETE /{id}` — soft delete (기본) / hard delete (`?hard=true`, admin only)
+- `POST /{id}/publish` — **draft → published** + Qdrant 인덱싱 (BackgroundTask). 권한: admin 전체 / operator 자신 담당 시스템 (created_by 무관). system_id=NULL 공통은 admin만
+- `POST /{id}/unpublish` — **published → draft** + Qdrant 청크 삭제 (BackgroundTask). DB row 보존. 동일 권한 규칙
+- `POST /{id}/images`, `DELETE /{id}/images/{image_id}` — 이미지 관리
+
+**draft/publish 원칙 (P0-1)**:
+- `admin_save_guide` (챗봇 도구): 항상 `status='draft'`, Qdrant 인덱싱 없음 → LLM 환각의 RAG 오염 방지
+- 운영자 직접 등록(POST /guides): `status='published'` + 즉시 Qdrant 인덱싱
+- `qdrant_search_guide`는 Qdrant에 인덱싱된 가이드만 반환 (draft는 자동 제외 — 인덱싱 안 됨)
+- DB 직접 SELECT는 반드시 `status` 필터를 명시할 것 (향후 확장 대비)
 
 ### 예방적 패턴 감지
 - `MetricHourlyAggregation.llm_prediction` 필드가 있는 최근 8시간 집계 항목을 조회

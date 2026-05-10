@@ -82,10 +82,11 @@ _EMS_USAGE_RULES = """\
 
 _CHUNK_FETCH_GUIDE = """\
 [추가 청크 조회 — 검색 결과가 부족할 때]
-청크 기반 컬렉션은 검색에서 일부 청크만 노출된다. payload의 `chunk_index` / `total_chunks`를 비교해 빠진 청크 번호를 추론하고, 보강이 필요한 경우 다음 도구를 호출한다:
-- qdrant_search_guide 결과 → qdrant_get_guide_chunks(guide_id, chunk_indexes=[...])
-- qdrant_search_knowledge (source=documents) → qdrant_get_document_chunks(file_hash, chunk_indexes=[...])
-- qdrant_search_knowledge (source=confluence) → qdrant_get_confluence_chunks(page_id, chunk_indexes=[...])
+청크 기반 컬렉션은 검색에서 일부 청크만 노출된다. payload의 `chunk_index` / `total_chunks`를 비교해 빠진 청크 번호를 추론하고, 보강이 필요한 경우 통합 도구 `qdrant_get_chunks(source, id, chunk_indexes?)`를 호출한다.
+
+- qdrant_search_guide 결과 → qdrant_get_chunks(source="guide", id=<guide_id>, chunk_indexes=[...])
+- qdrant_search_knowledge (source=documents) → qdrant_get_chunks(source="document", id=<file_hash>, chunk_indexes=[...])
+- qdrant_search_knowledge (source=confluence) → qdrant_get_chunks(source="confluence", id=<page_id>, chunk_indexes=[...])
 
 기본 사용 원칙 (컨텍스트 절약):
 - chunk_indexes를 **반드시 명시**해 필요한 1-3개 청크만 받는다 (surgical fetch).
@@ -185,7 +186,7 @@ def help_decision_prompt(
 - 운영 매뉴얼·정책·절차·Jira·Confluence 관련 질문은 qdrant_search_knowledge를 사용한다.
 - 기능 사용법·UI 조작·시스템 가이드는 qdrant_search_guide를 사용한다 (knowledge_guides 컬렉션, 시스템별+공용 가이드 동시 검색).
 - 특정 기간의 시스템 요약·이슈는 qdrant_search_aggregation_summary를 사용한다.
-- 검색 결과 청크가 답변에 부족하면 chunk_index/total_chunks 비교로 빠진 번호를 추론해 qdrant_get_guide_chunks(guide_id, chunk_indexes=[...]) / qdrant_get_document_chunks(file_hash, chunk_indexes=[...]) / qdrant_get_confluence_chunks(page_id, chunk_indexes=[...]) 호출. **chunk_indexes 명시 필수** (1-3개 청크만 받기). "전부 보여줘" 명시된 경우에만 생략.
+- 검색 결과 청크가 답변에 부족하면 chunk_index/total_chunks 비교로 빠진 번호를 추론해 통합 도구 qdrant_get_chunks(source, id, chunk_indexes=[...]) 호출. source="guide"(id=guide_id) / source="document"(id=file_hash) / source="confluence"(id=page_id). **chunk_indexes 명시 필수** (1-3개 청크만 받기). "전부 보여줘" 명시된 경우에만 생략.
 - 전문 용어가 나오면 반드시 괄호 안에 쉬운 표현을 덧붙인다.
 {system_hint}
 사용 가능한 도구:

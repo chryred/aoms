@@ -23,6 +23,7 @@ export const guidesApi = {
         p['system_id'] = params.system_id
       }
     }
+    if (params?.status) p['status'] = params.status
     return adminApi.get('api/v1/guides', { searchParams: filterParams(p) }).json<GuideListResult>()
   },
 
@@ -40,6 +41,14 @@ export const guidesApi = {
   // ── 삭제 (soft delete) ───────────────────────────────────────
   delete: (id: string): Promise<void> =>
     adminApi.delete(`api/v1/guides/${id}`).then(() => undefined),
+
+  // ── 게시 (draft → published + Qdrant 인덱싱) ───────────────
+  publish: (id: string): Promise<{ id: string; title: string; status: string; updated_at: string }> =>
+    adminApi.post(`api/v1/guides/${id}/publish`).json(),
+
+  // ── 게시취소 (published → draft + Qdrant 삭제) ─────────────
+  unpublish: (id: string): Promise<{ id: string; title: string; status: string; updated_at: string }> =>
+    adminApi.post(`api/v1/guides/${id}/unpublish`).json(),
 
   // ── 이미지 추가 ──────────────────────────────────────────────
   uploadImage: (id: string, formData: FormData): Promise<GuideImage> =>

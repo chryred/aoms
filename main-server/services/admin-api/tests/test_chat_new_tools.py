@@ -343,29 +343,39 @@ class TestAdminSaveGuide:
 
     @pytest.mark.asyncio
     async def test_normal_with_system_specified(self, db_session):
-        """정상 (system 지정): guide_id UUID, system_display, tags, indexing_dispatched 검증."""
+        """정상 (system 지정): guide_id UUID, system_display, tags, status='draft' 검증.
+
+        draft/publish 워크플로우 도입 이후:
+        - admin_save_guide는 항상 draft로 저장 (Qdrant 인덱싱 없음)
+        - indexing_dispatched/indexing_error 필드 제거됨
+        """
         await _seed_tool(db_session, "admin_save_guide")
         sys = await _seed_system(db_session, "cxm", "CXM시스템")
 
-        with patch("services.qdrant_guides.index_guide", new_callable=AsyncMock):
-            result = await registry.run_tool(
-                db_session,
-                "admin_save_guide",
-                {
-                    "title": "CPU 급증 대응 가이드",
-                    "content": self.LONG_CONTENT,
-                    "system_id": sys.id,
-                    "category": "incident",
-                    "tags": ["cpu", "high-load"],
-                },
-            )
+        result = await registry.run_tool(
+            db_session,
+            "admin_save_guide",
+            {
+                "title": "CPU 급증 대응 가이드",
+                "content": self.LONG_CONTENT,
+                "system_id": sys.id,
+                "category": "incident",
+                "tags": ["cpu", "high-load"],
+            },
+        )
 
         assert "error" not in result, f"예상치 못한 error: {result.get('error')}"
         assert len(result["guide_id"]) == 36   # UUID 형식
         assert result["system_display"] == "CXM시스템"
         assert result["tags"] == ["cpu", "high-load"]
-        assert result["indexing_dispatched"] is True
-        assert result["indexing_error"] is None
+        assert result["status"] == "draft"  # 항상 draft
+
+        # draft 워크플로우: indexing_dispatched/indexing_error 응답에 없어야 함
+        assert "indexing_dispatched" not in result
+        assert "indexing_error" not in result
+
+        # 메시지에 초안 안내 포함
+        assert "초안" in result["message"] or "draft" in result["message"].lower()
 
         # DB에 실제로 삽입됐는지 확인
         from sqlalchemy import select
@@ -377,32 +387,34 @@ class TestAdminSaveGuide:
         assert row is not None
         assert row.title == "CPU 급증 대응 가이드"
         assert row.system_id == sys.id
+        assert row.status == "draft"
 
     @pytest.mark.asyncio
     async def test_index_failure_does_not_orphan_db(self, db_session):
-        """index_guide가 예외 raise해도 DB commit 진행 + indexing_dispatched=False 명시."""
+        """draft 저장은 Qdrant 미호출이므로 인덱싱 실패 자체가 없음.
+
+        draft/publish 워크플로우 도입 이후:
+        - admin_save_guide는 Qdrant를 호출하지 않으므로 인덱싱 실패 케이스가 없음
+        - 대신 DB commit이 정상 완료되고 status='draft'임을 검증
+        """
         await _seed_tool(db_session, "admin_save_guide")
         sys = await _seed_system(db_session, "cxm", "고객경험시스템")
 
-        with patch("services.qdrant_guides.index_guide", new_callable=AsyncMock) as m:
-            m.side_effect = Exception("Qdrant 연결 실패 (테스트)")
-            result = await registry.run_tool(
-                db_session,
-                "admin_save_guide",
-                {
-                    "title": "테스트 가이드",
-                    "content": self.LONG_CONTENT,
-                    "system_id": sys.id,
-                },
-            )
+        result = await registry.run_tool(
+            db_session,
+            "admin_save_guide",
+            {
+                "title": "테스트 가이드",
+                "content": self.LONG_CONTENT,
+                "system_id": sys.id,
+            },
+        )
 
         # 응답 검증
         assert "error" not in result, f"예상치 못한 error: {result.get('error')}"
         assert result.get("guide_id"), "가이드 ID 반환되어야 함"
         assert len(result["guide_id"]) == 36
-        assert result["indexing_dispatched"] is False
-        assert "Qdrant 연결 실패" in (result.get("indexing_error") or "")
-        assert "Qdrant 인덱싱" in result.get("message", "")
+        assert result["status"] == "draft"
 
         # DB 검증 — guide_id로 row 조회 가능 (commit 진행됨)
         from sqlalchemy import select
@@ -413,6 +425,7 @@ class TestAdminSaveGuide:
         ).scalar_one_or_none()
         assert g is not None
         assert g.title == "테스트 가이드"
+        assert g.status == "draft"
 
     @pytest.mark.asyncio
     async def test_common_guide_no_system_id(self, db_session):
@@ -1082,3 +1095,129 @@ class TestShiftWindowNightWrapAround:
         assert _detect_current_shift(datetime(2026, 5, 10, 22, 0, tzinfo=kst)) == "night"
         # 23:59 → night
         assert _detect_current_shift(datetime(2026, 5, 10, 23, 59, tzinfo=kst)) == "night"
+
+
+# ── qdrant_get_chunks 통합 dispatcher 검증 ──────────────────────────────────
+
+class TestQdrantGetChunksDispatcher:
+    """qdrant_get_chunks 통합 dispatcher — 기존 3개 함수에 위임 검증."""
+
+    @pytest.mark.asyncio
+    async def test_dispatch_guide(self):
+        from unittest.mock import AsyncMock, patch
+        from services.chat_tools.executors.qdrant import _get_chunks
+        with patch("services.chat_tools.executors.qdrant._get_guide_chunks", new_callable=AsyncMock) as m:
+            m.return_value = {"guide_id": "g1", "chunks": []}
+            result = await _get_chunks(None, {"source": "guide", "id": "g1", "chunk_indexes": [0, 1]})
+            assert result == {"guide_id": "g1", "chunks": []}
+            m.assert_called_once_with(None, {"guide_id": "g1", "chunk_indexes": [0, 1], "max_chunks": None})
+
+    @pytest.mark.asyncio
+    async def test_dispatch_document(self):
+        from unittest.mock import AsyncMock, patch
+        from services.chat_tools.executors.qdrant import _get_chunks
+        with patch("services.chat_tools.executors.qdrant._get_document_chunks", new_callable=AsyncMock) as m:
+            m.return_value = {"file_hash": "h1"}
+            result = await _get_chunks(None, {"source": "document", "id": "h1"})
+            assert result == {"file_hash": "h1"}
+            m.assert_called_once_with(None, {"file_hash": "h1", "chunk_indexes": None})
+
+    @pytest.mark.asyncio
+    async def test_dispatch_confluence(self):
+        from unittest.mock import AsyncMock, patch
+        from services.chat_tools.executors.qdrant import _get_chunks
+        with patch("services.chat_tools.executors.qdrant._get_confluence_chunks", new_callable=AsyncMock) as m:
+            m.return_value = {"page_id": "p1"}
+            result = await _get_chunks(None, {"source": "confluence", "id": "p1", "max_chunks": 30})
+            assert result == {"page_id": "p1"}
+            m.assert_called_once_with(None, {"page_id": "p1", "chunk_indexes": None, "max_chunks": 30})
+
+    @pytest.mark.asyncio
+    async def test_invalid_source(self):
+        from services.chat_tools.executors.qdrant import _get_chunks
+        result = await _get_chunks(None, {"source": "unknown", "id": "x"})
+        assert "error" in result
+        assert "source" in result["error"]
+
+    @pytest.mark.asyncio
+    async def test_missing_id(self):
+        from services.chat_tools.executors.qdrant import _get_chunks
+        result = await _get_chunks(None, {"source": "guide"})
+        assert "error" in result
+        assert "id" in result["error"]
+
+
+# ── chat_messages.images 영구 저장 ────────────────────────────────────────────
+
+class TestChatMessageImagesPersistence:
+    """chat_messages.images 영구 저장 — _append_message + DB 컬럼 검증."""
+
+    @pytest.mark.asyncio
+    async def test_append_message_with_images(self, db_session):
+        from services.chat_agent import _append_message
+        from sqlalchemy import select as _select
+
+        u = User(email="imgtest@x.com", name="ImgUser", is_active=True, is_approved=True, password_hash="x")
+        db_session.add(u)
+        await db_session.commit()
+        await db_session.refresh(u)
+
+        sess = ChatSession(user_id=u.id, area_code="general", system_ids=[])
+        db_session.add(sess)
+        await db_session.commit()
+        await db_session.refresh(sess)
+
+        images = [
+            {"url": "https://example.com/a.png", "alt": "image a", "name": "a.png"},
+            {"url": "https://example.com/b.png"},
+        ]
+        msg = await _append_message(
+            db_session,
+            session_id=sess.id,
+            role="assistant",
+            content="이미지 첨부 응답",
+            images=images,
+        )
+        await db_session.commit()
+
+        # 재조회로 영구 저장 검증
+        reloaded = (
+            await db_session.execute(
+                _select(ChatMessage).where(ChatMessage.id == msg.id)
+            )
+        ).scalar_one()
+        assert len(reloaded.images) == 2
+        assert reloaded.images[0]["url"] == "https://example.com/a.png"
+        assert reloaded.images[0]["alt"] == "image a"
+        assert reloaded.images[1]["url"] == "https://example.com/b.png"
+
+    @pytest.mark.asyncio
+    async def test_append_message_default_empty_images(self, db_session):
+        """images 미지정 시 빈 배열로 저장."""
+        from services.chat_agent import _append_message
+        from sqlalchemy import select as _select
+
+        u = User(email="noimg@x.com", name="NoImg", is_active=True, is_approved=True, password_hash="x")
+        db_session.add(u)
+        await db_session.commit()
+        await db_session.refresh(u)
+
+        sess = ChatSession(user_id=u.id, area_code="general", system_ids=[])
+        db_session.add(sess)
+        await db_session.commit()
+        await db_session.refresh(sess)
+
+        msg = await _append_message(
+            db_session,
+            session_id=sess.id,
+            role="assistant",
+            content="이미지 없는 응답",
+        )
+        await db_session.commit()
+
+        reloaded = (
+            await db_session.execute(
+                _select(ChatMessage).where(ChatMessage.id == msg.id)
+            )
+        ).scalar_one()
+        assert reloaded.images == []

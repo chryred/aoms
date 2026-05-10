@@ -933,6 +933,7 @@ class ChatMessageOut(BaseModel):
     tool_args: Optional[dict] = None
     tool_result: Optional[dict] = None
     attachments: list[dict] = []
+    images: list[dict] = []   # 도구 결과의 이미지 (URL/alt/name) — 영구 저장 (Feature 5C)
     # V1 RAG: federated search 품질 추적
     rag_top1_score: Optional[float] = None
     rag_sources_count: Optional[int] = None

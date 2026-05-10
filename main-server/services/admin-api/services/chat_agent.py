@@ -104,6 +104,7 @@ async def _append_message(
     tool_args: dict | None = None,
     tool_result: dict | None = None,
     attachments: list | None = None,
+    images: list | None = None,
     system_id: int | None = None,
 ) -> ChatMessage:
     msg = ChatMessage(
@@ -115,6 +116,7 @@ async def _append_message(
         tool_args=tool_args,
         tool_result=tool_result,
         attachments=attachments or [],
+        images=images or [],
         system_id=system_id,
     )
     db.add(msg)
@@ -222,6 +224,9 @@ async def run_react_stream(
     screen_context: ScreenContext | None = None,
 ) -> AsyncIterator[dict[str, Any]]:
     """SSE 이벤트 async iterator. 각 dict는 `{type, data}` 구조."""
+
+    # 누적 이미지 — 도구 결과에 "images" 키가 있으면 추적하여 final assistant 메시지에 저장 (Path C UX)
+    accumulated_images: list[dict] = []
 
     # 1) user 메시지 저장
     user_msg = await _append_message(
@@ -334,12 +339,13 @@ async def run_react_stream(
                 role="assistant",
                 content=acc_text,
                 thought=thought or None,
+                images=accumulated_images if accumulated_images else None,
             )
             await db.commit()
-            yield {
-                "type": "final",
-                "data": {"message_id": final_msg.id, "content": acc_text},
-            }
+            final_data: dict[str, Any] = {"message_id": final_msg.id, "content": acc_text}
+            if accumulated_images:
+                final_data["images"] = accumulated_images
+            yield {"type": "final", "data": final_data}
             return
 
         # 도구 호출 단계
@@ -369,6 +375,18 @@ async def run_react_stream(
 
         yield {"type": "tool_call", "data": {"tool": action, "args": safe_args}}
         result = await run_tool(db, action, safe_args)
+
+        # 도구 결과의 images 키를 추적 — final assistant 메시지에 영구 저장 (Path C UX)
+        if isinstance(result, dict):
+            raw_images = result.get("images")
+            if isinstance(raw_images, list):
+                for img in raw_images:
+                    if isinstance(img, dict) and img.get("url"):
+                        accumulated_images.append({
+                            "url": str(img.get("url")),
+                            "alt": img.get("alt"),
+                            "name": img.get("name"),
+                        })
 
         # system_id 추출 (동기 우선 폴백)
         extracted_system_id = _extract_system_id_from_tool(safe_args, result, session_system_ids)
