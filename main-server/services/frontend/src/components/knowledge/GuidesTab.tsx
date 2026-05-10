@@ -248,6 +248,7 @@ export function GuidesTab() {
         onView={openView}
         onPublish={handlePublish}
         onUnpublish={handleUnpublish}
+        onOpenCreate={openCreate}
       />
 
       {/* 편집/생성/보기 모달 */}

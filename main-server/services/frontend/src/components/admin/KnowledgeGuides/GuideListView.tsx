@@ -1,4 +1,4 @@
-import { Eye, Pencil, Trash2, ImageIcon, BookCheck, BookX } from 'lucide-react'
+import { Eye, Pencil, Trash2, ImageIcon, BookCheck, BookX, Plus } from 'lucide-react'
 import { cn, formatKST } from '@/lib/utils'
 import type { GuideSummary, GuideCategory } from '@/types/guide'
 import { GuideStatusBadge } from './GuideStatusBadge'
@@ -29,6 +29,7 @@ interface GuideListViewProps {
   onView: (guide: GuideSummary) => void
   onPublish?: (guide: GuideSummary) => void
   onUnpublish?: (guide: GuideSummary) => void
+  onOpenCreate?: () => void
 }
 
 export function GuideListView({
@@ -42,6 +43,7 @@ export function GuideListView({
   onView,
   onPublish,
   onUnpublish,
+  onOpenCreate,
 }: GuideListViewProps) {
   const canEdit = (guide: GuideSummary) => {
     if (userRole === 'admin') return true
@@ -106,8 +108,17 @@ export function GuideListView({
 
   if (guides.length === 0) {
     return (
-      <div className="bg-bg-base shadow-neu-flat flex flex-col items-center justify-center rounded-sm px-4 py-12">
+      <div className="bg-bg-base shadow-neu-flat flex flex-col items-center justify-center gap-3 rounded-sm px-4 py-12">
         <p className="text-text-secondary text-sm">등록된 가이드가 없습니다.</p>
+        {onOpenCreate && (
+          <button
+            onClick={onOpenCreate}
+            className="text-accent border-accent hover:bg-accent/10 focus:ring-accent flex items-center gap-1.5 rounded-sm border px-3 py-1.5 text-sm transition-colors focus:ring-1 focus:outline-none"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            새 가이드 추가
+          </button>
+        )}
       </div>
     )
   }
