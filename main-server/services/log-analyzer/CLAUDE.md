@@ -23,6 +23,8 @@ synapse_agent → Prometheus 로그 메트릭 수집 → LLM 분석 → Teams �
 | `_trend_agg_scheduler()` | 4시간마다 | 지속 이상 추세 알림 (이전: WF11) |
 | `_jira_sync_scheduler()` | 매일 04:00 KST | V1 Knowledge — Jira 증분 동기화 (JIRA_URL/TOKEN/PROJECTS 필요) |
 | `_confluence_sync_scheduler()` | 매일 04:30 KST | V1 Knowledge — Confluence 증분 동기화 (CONFLUENCE_URL/TOKEN/SPACES 필요) |
+| `_jira_cleanup_scheduler()` | 매주 일요일 03:00 KST | V1 Knowledge — Jira 삭제 감지 + Qdrant purge (P1-3). JIRA_URL/TOKEN/PROJECTS 필요 |
+| `_confluence_cleanup_scheduler()` | 매주 일요일 03:30 KST | V1 Knowledge — Confluence 삭제 감지 + Qdrant purge (P1-3). CONFLUENCE_URL/TOKEN/SPACES 필요 |
 
 모든 스케줄러는 실행 완료 후 `_record_run()` 헬퍼가 admin-api `POST /api/v1/scheduler-runs`로 결과(성공/실패 포함)를 기록한다. 실패해도 fire-and-forget이라 스케줄러 동작에 영향 없음.
 
@@ -100,13 +102,17 @@ log-analyzer/
 ### knowledge_guides (운영 가이드 벡터, 청킹 기반)
 - `POST /guides/embed` — 가이드 Hybrid(Dense+Sparse) upsert. **content를 1500자 청크(overlap 200)로 분할**해 청크별로 별도 포인트 저장. 재호출 시 `payload.guide_id` 필터로 기존 청크 일괄 삭제 후 재생성. 청크 point_id = `sha256("guide:{guide_id}:{chunk_index}")[:8]` → uint64. 응답: `{guide_id, chunk_count, status}`
 - `DELETE /guides/{guide_id}` — payload.guide_id 필터로 모든 청크 일괄 삭제 (레거시 UUID 단일 포인트 포함). 응답: `{"deleted": bool}`
-- `POST /guides/search` — 자연어 쿼리 Hybrid 검색. system_ids 지정 시 "system_id IN list OR system_id IS NULL" 필터. 응답: `[{id, score, payload}]` — 같은 guide_id의 여러 청크가 결과에 함께 반환될 수 있음 (LLM이 컨텍스트로 활용)
+- `POST /guides/search` — 자연어 쿼리 Hybrid 검색. system_ids 지정 시 "system_id IN list OR system_id IS NULL" 필터.
+  - `group_by_guide: bool = True` (기본): 가이드 단위로 그룹화하여 반환. `limit`는 "최대 N개 가이드" 의미. 내부적으로 `min(limit*10, 100)` 청크 over-fetch 후 Python 그룹화. payload에 `matched_chunk_indexes` (매칭 청크 인덱스 오름차순), `matched_chunks_count` 추가.
+  - `group_by_guide: bool = False`: 기존 청크 단위 동작. limit은 청크 수.
+  - 응답: `[{id: best_chunk_point_id, score: best_score, payload: {..., matched_chunk_indexes: list[int], matched_chunks_count: int}}]`
 - `GET /guides/{guide_id}/chunks?chunk_indexes=2&chunk_indexes=4&max_chunks=50` — guide_id의 청크를 chunk_index 순서로 반환. `chunk_indexes`가 주어지면 해당 인덱스 청크만 (surgical fetch — 챗봇이 빠진 청크만 명시), 생략 시 전체 청크. 응답: `{guide_id, total_chunks, chunks: [{chunk_index, content, title, system_id, ...}]}`
 
 ### Wave 1B: incident_postmortems (사후분석 벡터)
 - `POST /incident-postmortem/embed` — 인시던트 postmortem 서사 Hybrid 임베딩 upsert (admin-api Wave 1A 피드백 흐름 호출)
 - `POST /incident-postmortem/search` — 자연어 쿼리로 Hybrid 검색 (system_id/severity 필터 선택적)
 - `GET  /incident-postmortem/by-incident/{incident_id}` — incident_id 직접 조회 (미존재 시 null)
+- `POST /incident-postmortem/delete` — 단일 포인트 삭제. body: `{"point_id": str}`. idempotent — 포인트 미존재 시에도 `{"deleted": true}` 반환. admin-api `resubmit_incident_feedback`(approved→pending 전환 시)에서 best-effort 호출
 - `POST /incident-postmortem/ocr/process` — KNOWLEDGE_DOCS_DIR 하위 파일 OCR 처리 (경로 탈출 방지)
 - `POST /incident-postmortem/ocr/process-stream` — SSE 스트리밍 OCR. 진행률 이벤트 형식: `data: {"progress": 0~100, "status": "processing"|"done"|"failed", "text": "..."}`. `text/event-stream` 응답. admin-api `incident_postmortem_client.trigger_ocr_streaming()`이 httpx streaming으로 소비하며 DB `ocr_progress` 컬럼을 실시간 갱신
 
@@ -151,6 +157,8 @@ log-analyzer/
 - `POST /knowledge/sync/confluence/trigger`     — Confluence 동기화 수동 즉시 트리거 (background)
 - `POST /knowledge/sync/jira/{issue_key}/force`       — Jira 단건 이슈 강제 재동기화 (동기 await, 완료 후 결과 반환)
 - `POST /knowledge/sync/confluence/{page_id}/force`   — Confluence 단건 페이지 강제 재동기화 (delete-upsert, 동기 await)
+- `POST /knowledge/cleanup/jira/trigger?dry_run=true|false`       — Jira 삭제 감지 purge 즉시 실행 (background). dry_run=true 이면 삭제 없이 후보 카운트만 (P1-3)
+- `POST /knowledge/cleanup/confluence/trigger?dry_run=true|false` — Confluence 삭제 감지 purge 즉시 실행 (background). dry_run=true 이면 후보만 (P1-3)
 
 ## Qdrant 컬렉션
 
@@ -317,6 +325,46 @@ _trend_agg_scheduler() (4시간마다)
 - **시스템 패키지:** Dockerfile에서 `tesseract-ocr` + `tesseract-ocr-kor` apt 설치 (이미지 ~25MB 증가)
 - **PDF 이미지 추출:** pypdf `PdfReader` + `page.images` → `ImageFile.data` (DCTDecode/FlateDecode/CCITTFaxDecode 등 모든 인코딩을 PIL 호환 bytes로 정규화). pdfplumber의 `stream.get_data()`는 raw pixel bytes를 반환해 PIL 호환 안 됨 — pypdf를 사용해야 스캔 PDF도 처리 가능
 - **PDF OCR 상한:** 페이지당 `_PDF_MAX_IMAGES_PER_PAGE = 10` 이미지 초과분 건너뜀 (표지·차트 PDF 타임아웃 방지)
+
+### OCR 통계 노출 (P1-4)
+
+운영자가 "이 PDF 본문이 왜 비어 보이냐"를 디버깅할 수 있도록 OCR 시도/성공/실패/노이즈 카운터를 수집해 응답에 노출한다.
+
+#### stats 인자 패턴 (옵션 C)
+```python
+from chunking import make_ocr_stats, chunk_pdf, chunk_docx, chunk_pptx
+
+stats = make_ocr_stats()  # {"ocr_attempted": 0, "ocr_succeeded": 0, "ocr_noise_filtered": 0, "ocr_failed": 0}
+chunks = chunk_pdf(file_path, stats=stats)
+# stats 딕셔너리에 카운터가 누적됨
+```
+- `stats=None` (기본값) 이면 기존 동작 그대로 — BC 유지
+- `chunk_pdf`, `chunk_docx`, `chunk_pptx`에 `stats: dict | None = None` 인자 추가
+- `chunk_confluence_page`는 alt/filename 마커 방식(Tesseract 미사용) → stats 인자 없음
+- `chunk_xlsx`는 OCR 없음 → stats 인자 없음
+
+#### 카운터 의미
+| 키 | 설명 |
+|---|---|
+| `ocr_attempted` | `_ocr_image_blob()` 호출 횟수. PDF 페이지당 상한 초과 건너뛴 이미지는 포함 안 됨 |
+| `ocr_succeeded` | `_is_meaningful_ocr()` 통과 — 실제 텍스트 추출 성공 |
+| `ocr_noise_filtered` | OCR 결과 있지만 노이즈 판정으로 폐기 (10자 미만 또는 정상 문자 비율 70% 미만) |
+| `ocr_failed` | 예외 발생 (PIL/Tesseract 오류, 손상된 이미지 등). `logger.warning` 로그 남김 |
+
+**합계 불변식:** `ocr_attempted == ocr_succeeded + ocr_noise_filtered + ocr_failed`
+
+#### 로깅 정책
+- 예외 발생: `logger.warning("OCR exception: {type}: {msg}")` — 운영 로그에 노출
+- 노이즈 폐기: `logger.debug(...)` — 개발 로그만
+
+#### 응답 노출 위치
+| 엔드포인트 | ocr_stats 위치 |
+|---|---|
+| `GET /embed/jobs/{job_id}` | 응답 JSON 최상위 `ocr_stats` 필드 (status=done 시) |
+| `POST /incident-postmortem/ocr/process` | 응답 JSON `ocr_stats` 필드 |
+| `POST /incident-postmortem/ocr/process-stream` (SSE) | done 이벤트 `{"status": "done", "text": "...", "ocr_stats": {...}}` |
+
+ocr_worker.py의 `extract_text_with_stats(file_path, mime_type, progress_cb=_NOOP_CB)` 함수를 사용하면 `(text, ocr_stats)` 튜플로 반환받을 수 있다.
 
 각 함수는 `list[dict]` 반환: `[{"text": str, "metadata": {"chunk_index", "source_type", ...}}]`.
 의존 라이브러리는 `requirements/base.txt` 끝의 "문서 청킹" 블록 참고.

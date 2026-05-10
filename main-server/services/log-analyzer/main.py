@@ -98,6 +98,8 @@ async def lifespan(app: FastAPI):
         asyncio.create_task(scheduler_tasks._longperiod_agg_scheduler()),
         asyncio.create_task(scheduler_tasks._jira_sync_scheduler()),
         asyncio.create_task(scheduler_tasks._confluence_sync_scheduler()),
+        asyncio.create_task(scheduler_tasks._jira_cleanup_scheduler()),
+        asyncio.create_task(scheduler_tasks._confluence_cleanup_scheduler()),
     ]
     yield
     for t in tasks:
@@ -689,16 +691,18 @@ async def _do_embed_task(job_id: str, req: EmbedDocumentRequest) -> None:
     _embed_jobs[job_id]["status"] = "embedding"
     doc_type = req.doc_type.lower()
 
+    ocr_stats = chunking.make_ocr_stats()
+
     def _chunk_text_file() -> list[dict]:
         import pathlib
         text = pathlib.Path(req.file_path).read_text(encoding="utf-8", errors="replace")
         return chunking.chunk_text(text, base_metadata={"source_type": doc_type})
 
     chunkers = {
-        "docx": lambda: chunking.chunk_docx(req.file_path),
-        "pdf":  lambda: chunking.chunk_pdf(req.file_path),
+        "docx": lambda: chunking.chunk_docx(req.file_path, stats=ocr_stats),
+        "pdf":  lambda: chunking.chunk_pdf(req.file_path, stats=ocr_stats),
         "xlsx": lambda: chunking.chunk_xlsx(req.file_path),
-        "pptx": lambda: chunking.chunk_pptx(req.file_path),
+        "pptx": lambda: chunking.chunk_pptx(req.file_path, stats=ocr_stats),
         "txt":  _chunk_text_file,
         "md":   _chunk_text_file,
     }
@@ -714,7 +718,7 @@ async def _do_embed_task(job_id: str, req: EmbedDocumentRequest) -> None:
         return
 
     if not chunks:
-        _embed_jobs[job_id].update({"status": "done", "point_count": 0})
+        _embed_jobs[job_id].update({"status": "done", "point_count": 0, "ocr_stats": ocr_stats})
         return
 
     file_name = os.path.basename(req.file_path)
@@ -726,7 +730,7 @@ async def _do_embed_task(job_id: str, req: EmbedDocumentRequest) -> None:
             chunks=chunks,
             tags=req.tags,
         )
-        _embed_jobs[job_id].update({"status": "done", "point_count": point_count, "file_name": file_name})
+        _embed_jobs[job_id].update({"status": "done", "point_count": point_count, "file_name": file_name, "ocr_stats": ocr_stats})
     except Exception as exc:
         _embed_jobs[job_id].update({"status": "error", "error": f"임베딩 저장 실패: {exc}"})
 
@@ -954,6 +958,28 @@ async def force_sync_confluence_page(page_id: str) -> dict:
         raise HTTPException(status_code=500, detail=f"Qdrant upsert 실패: {str(exc)[:200]}")
     logger.info("Confluence force sync 완료: page_id=%s, chunks=%d", page_id, n)
     return {"synced": True, "page_id": page_id, "synced_chunks": n}
+
+
+# ── V1 Knowledge: 삭제 감지 purge 수동 트리거 ────────────────────────────────
+
+@app.post("/knowledge/cleanup/jira/trigger")
+async def trigger_jira_cleanup(dry_run: bool = False):
+    """Jira Qdrant cleanup 즉시 실행 (관리/테스트용).
+
+    dry_run=True 이면 삭제 없이 후보 카운트만 반환.
+    """
+    asyncio.create_task(scheduler_tasks._jira_cleanup_run(dry_run=dry_run))
+    return {"status": "triggered", "source": "jira", "dry_run": dry_run}
+
+
+@app.post("/knowledge/cleanup/confluence/trigger")
+async def trigger_confluence_cleanup(dry_run: bool = False):
+    """Confluence Qdrant cleanup 즉시 실행 (관리/테스트용).
+
+    dry_run=True 이면 삭제 없이 후보 카운트만 반환.
+    """
+    asyncio.create_task(scheduler_tasks._confluence_cleanup_run(dry_run=dry_run))
+    return {"status": "triggered", "source": "confluence", "dry_run": dry_run}
 
 
 # ── V1 Knowledge: 문서 목록 조회 / 일괄 삭제 ──────────────────────────────────

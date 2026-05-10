@@ -64,6 +64,101 @@ class TestOCRImageBlob:
         assert chunking._ocr_image_blob(b"") == ""
 
 
+# ── _ocr_image_blob stats 카운터 ─────────────────────────────────────────────
+
+
+class TestOCRImageBlobStats:
+    """stats 딕셔너리 전달 시 카운터 누적 검증."""
+
+    def test_exception_increments_failed(self, monkeypatch):
+        """예외 발생 시 ocr_attempted + ocr_failed += 1."""
+        # PIL/pytesseract 없는 환경에서 손상된 blob → 예외 경로
+        stats = chunking.make_ocr_stats()
+        chunking._ocr_image_blob(b"bad-blob", stats=stats)
+        assert stats["ocr_attempted"] == 1
+        assert stats["ocr_failed"] == 1
+        assert stats["ocr_succeeded"] == 0
+        assert stats["ocr_noise_filtered"] == 0
+
+    def test_exception_logs_warning(self, monkeypatch, caplog):
+        """예외 발생 시 logger.warning 호출 검증."""
+        import logging
+        with caplog.at_level(logging.WARNING, logger="chunking"):
+            chunking._ocr_image_blob(b"bad-blob")
+        # logger.warning 메시지에 "OCR exception:" 포함
+        assert any("OCR exception:" in r.message for r in caplog.records)
+
+    def test_noise_filtered_increments(self, monkeypatch):
+        """_is_meaningful_ocr이 False → ocr_noise_filtered += 1."""
+        def _fake_ocr_noise(img, lang, timeout):
+            return "짧"  # 1자 → _is_meaningful_ocr 반환 False
+
+        monkeypatch.setattr("chunking._is_meaningful_ocr", lambda t: False)
+
+        # PIL/pytesseract를 mock으로 대체해 OCR 자체가 노이즈 결과 반환하게 함
+        import types, io
+        fake_pil_image = types.SimpleNamespace(
+            open=lambda buf: types.SimpleNamespace()
+        )
+        monkeypatch.setitem(sys.modules, "PIL", types.SimpleNamespace(Image=fake_pil_image))
+        monkeypatch.setitem(sys.modules, "PIL.Image", fake_pil_image)
+
+        fake_pytesseract = types.SimpleNamespace(
+            image_to_string=lambda img, lang, timeout: "짧"
+        )
+        monkeypatch.setitem(sys.modules, "pytesseract", fake_pytesseract)
+
+        stats = chunking.make_ocr_stats()
+        result = chunking._ocr_image_blob(b"fake-image-bytes", stats=stats)
+        assert result == ""
+        assert stats["ocr_attempted"] == 1
+        assert stats["ocr_noise_filtered"] == 1
+        assert stats["ocr_succeeded"] == 0
+
+    def test_success_increments(self, monkeypatch):
+        """OCR 성공 → ocr_succeeded += 1."""
+        import types
+        fake_pil_image = types.SimpleNamespace(
+            open=lambda buf: types.SimpleNamespace()
+        )
+        monkeypatch.setitem(sys.modules, "PIL", types.SimpleNamespace(Image=fake_pil_image))
+        monkeypatch.setitem(sys.modules, "PIL.Image", fake_pil_image)
+
+        meaningful_text = "1분기 매출 현황 보고서 — 전년 대비 20% 증가"
+        fake_pytesseract = types.SimpleNamespace(
+            image_to_string=lambda img, lang, timeout: meaningful_text
+        )
+        monkeypatch.setitem(sys.modules, "pytesseract", fake_pytesseract)
+
+        stats = chunking.make_ocr_stats()
+        result = chunking._ocr_image_blob(b"fake-image-bytes", stats=stats)
+        assert result == meaningful_text.strip()
+        assert stats["ocr_attempted"] == 1
+        assert stats["ocr_succeeded"] == 1
+        assert stats["ocr_failed"] == 0
+        assert stats["ocr_noise_filtered"] == 0
+
+    def test_none_stats_does_not_raise(self):
+        """stats=None (기본값) 이면 기존 동작 그대로."""
+        # 손상된 blob이어도 예외를 삼키고 빈 문자열 반환
+        result = chunking._ocr_image_blob(b"bad-blob", stats=None)
+        assert result == ""
+
+    def test_make_ocr_stats_keys(self):
+        """make_ocr_stats() 반환값이 4개 키 0 초기화인지 검증."""
+        s = chunking.make_ocr_stats()
+        assert set(s.keys()) == {"ocr_attempted", "ocr_succeeded", "ocr_noise_filtered", "ocr_failed"}
+        assert all(v == 0 for v in s.values())
+
+    def test_counter_invariant(self):
+        """ocr_attempted == ocr_succeeded + ocr_noise_filtered + ocr_failed"""
+        stats = chunking.make_ocr_stats()
+        # 3번 실패 시뮬레이션 (손상된 blob)
+        for _ in range(3):
+            chunking._ocr_image_blob(b"bad", stats=stats)
+        assert stats["ocr_attempted"] == stats["ocr_succeeded"] + stats["ocr_noise_filtered"] + stats["ocr_failed"]
+
+
 # ── _walk_html — 이미지 태그 마커 ────────────────────────────────────────────
 
 
@@ -148,10 +243,11 @@ class TestOCRImageBlobMonkeypatch:
     """monkeypatch로 _ocr_image_blob 대체 시 호출 결과가 올바르게 반환되는지 확인.
 
     실제 Tesseract/PIL 의존 없이 OCR 경로가 교체 가능함을 보증한다.
+    fake_ocr은 stats 인자를 수용해야 BC를 유지할 수 있다.
     """
 
     def test_monkeypatched_ocr_returns_fake_text(self, monkeypatch):
-        def fake_ocr(blob: bytes) -> str:
+        def fake_ocr(blob: bytes, stats: dict | None = None) -> str:
             return "OCR된 텍스트 샘플"
 
         monkeypatch.setattr(chunking, "_ocr_image_blob", fake_ocr)
@@ -160,7 +256,7 @@ class TestOCRImageBlobMonkeypatch:
         assert result == "OCR된 텍스트 샘플"
 
     def test_monkeypatched_ocr_empty_returns_empty(self, monkeypatch):
-        def fake_ocr(blob: bytes) -> str:
+        def fake_ocr(blob: bytes, stats: dict | None = None) -> str:
             return ""
 
         monkeypatch.setattr(chunking, "_ocr_image_blob", fake_ocr)
@@ -233,12 +329,13 @@ class TestChunkPdfOCR:
 
     Tesseract 미설치 환경에서도 통과하도록 _ocr_image_blob을 monkeypatch로 대체.
     pdfplumber + pypdf 양쪽도 mock으로 대체 — 실제 PDF 파일 불필요.
+    monkeypatch lambda는 stats 키워드 인자를 수용해야 함.
     """
 
     def test_text_only_page_no_markers(self, monkeypatch):
         """이미지 없는 PDF — 텍스트만 청킹, 마커 없음."""
         _make_pdf_mocks(monkeypatch, pages_text=["페이지 1 본문입니다."])
-        monkeypatch.setattr(chunking, "_ocr_image_blob", lambda b: "절대 호출 안 됨")
+        monkeypatch.setattr(chunking, "_ocr_image_blob", lambda b, stats=None: "절대 호출 안 됨")
 
         chunks = chunking.chunk_pdf("/fake/text_only.pdf")
         assert len(chunks) == 1
@@ -252,7 +349,7 @@ class TestChunkPdfOCR:
             pages_text=["본문 텍스트입니다."],
             pages_images=[[b"fake-image-blob"]],
         )
-        monkeypatch.setattr(chunking, "_ocr_image_blob", lambda b: "OCR 인식 결과 텍스트")
+        monkeypatch.setattr(chunking, "_ocr_image_blob", lambda b, stats=None: "OCR 인식 결과 텍스트")
 
         chunks = chunking.chunk_pdf("/fake/text_and_image.pdf")
         full = " ".join(c["text"] for c in chunks)
@@ -266,7 +363,7 @@ class TestChunkPdfOCR:
             pages_text=[""],  # extract_text 결과 없음
             pages_images=[[b"scan-blob"]],
         )
-        monkeypatch.setattr(chunking, "_ocr_image_blob", lambda b: "스캔 문서 본문 내용입니다")
+        monkeypatch.setattr(chunking, "_ocr_image_blob", lambda b, stats=None: "스캔 문서 본문 내용입니다")
 
         chunks = chunking.chunk_pdf("/fake/scan_only.pdf")
         assert len(chunks) >= 1
@@ -280,7 +377,7 @@ class TestChunkPdfOCR:
             pages_images=[[b"corrupt-blob"]],
         )
         # OCR 항상 실패(빈 문자열) 시뮬레이션
-        monkeypatch.setattr(chunking, "_ocr_image_blob", lambda b: "")
+        monkeypatch.setattr(chunking, "_ocr_image_blob", lambda b, stats=None: "")
 
         chunks = chunking.chunk_pdf("/fake/ocr_fail.pdf")
         assert len(chunks) == 1
@@ -291,7 +388,7 @@ class TestChunkPdfOCR:
         """페이지 이미지가 11장이면 10장까지만 OCR 시도 (상한 초과분 건너뜀)."""
         call_count = {"n": 0}
 
-        def counting_ocr(blob: bytes) -> str:
+        def counting_ocr(blob: bytes, stats: dict | None = None) -> str:
             call_count["n"] += 1
             return "이미지 텍스트 충분히 길어야 함"
 
@@ -312,7 +409,7 @@ class TestChunkPdfOCR:
             pages_text=["", "두 번째 페이지 텍스트"],
             pages_images=[[b"useless-image"], []],
         )
-        monkeypatch.setattr(chunking, "_ocr_image_blob", lambda b: "")
+        monkeypatch.setattr(chunking, "_ocr_image_blob", lambda b, stats=None: "")
 
         chunks = chunking.chunk_pdf("/fake/mixed.pdf")
         # 첫 페이지는 텍스트도 OCR도 없음 → 청크 없음
@@ -354,3 +451,69 @@ class TestChunkPdfOCR:
         assert len(chunks) == 1
         assert "텍스트는 여전히 추출 가능" in chunks[0]["text"]
         assert "[이미지:" not in chunks[0]["text"]
+
+    def test_stats_accumulated_on_pdf_ocr_success(self, monkeypatch):
+        """chunk_pdf에 stats 전달 시 OCR 성공 카운터 누적 검증."""
+        _make_pdf_mocks(
+            monkeypatch,
+            pages_text=[""],
+            pages_images=[[b"blob1", b"blob2"]],
+        )
+        call_count = {"n": 0}
+
+        def fake_ocr(blob: bytes, stats: dict | None = None) -> str:
+            call_count["n"] += 1
+            if stats is not None:
+                stats["ocr_attempted"] += 1
+                stats["ocr_succeeded"] += 1
+            return "이미지 텍스트 충분히 길어야 함"
+
+        monkeypatch.setattr(chunking, "_ocr_image_blob", fake_ocr)
+
+        stats = chunking.make_ocr_stats()
+        chunking.chunk_pdf("/fake/two_images.pdf", stats=stats)
+        assert call_count["n"] == 2
+        assert stats["ocr_attempted"] == 2
+        assert stats["ocr_succeeded"] == 2
+
+    def test_stats_accumulated_on_pdf_ocr_failure(self, monkeypatch):
+        """chunk_pdf에 stats 전달 시 OCR 실패 카운터 누적 검증."""
+        _make_pdf_mocks(
+            monkeypatch,
+            pages_text=["본문 있음"],
+            pages_images=[[b"bad-blob"]],
+        )
+
+        def fake_ocr_fail(blob: bytes, stats: dict | None = None) -> str:
+            if stats is not None:
+                stats["ocr_attempted"] += 1
+                stats["ocr_failed"] += 1
+            return ""
+
+        monkeypatch.setattr(chunking, "_ocr_image_blob", fake_ocr_fail)
+
+        stats = chunking.make_ocr_stats()
+        chunking.chunk_pdf("/fake/one_fail.pdf", stats=stats)
+        assert stats["ocr_attempted"] == 1
+        assert stats["ocr_failed"] == 1
+
+    def test_cap_skipped_images_not_counted(self, monkeypatch):
+        """상한(10장) 초과로 건너뛴 이미지는 ocr_attempted에 포함 안 됨."""
+        _make_pdf_mocks(
+            monkeypatch,
+            pages_text=[""],
+            pages_images=[[b"blob"] * 11],  # 11장 → 10장만 시도, 1장 건너뜀
+        )
+
+        def fake_ocr(blob: bytes, stats: dict | None = None) -> str:
+            if stats is not None:
+                stats["ocr_attempted"] += 1
+                stats["ocr_succeeded"] += 1
+            return "텍스트 충분히 길어야 통과"
+
+        monkeypatch.setattr(chunking, "_ocr_image_blob", fake_ocr)
+
+        stats = chunking.make_ocr_stats()
+        chunking.chunk_pdf("/fake/eleven.pdf", stats=stats)
+        # 상한 초과 1장은 _ocr_image_blob 호출 자체가 안 됨 → ocr_attempted = 10
+        assert stats["ocr_attempted"] == chunking._PDF_MAX_IMAGES_PER_PAGE

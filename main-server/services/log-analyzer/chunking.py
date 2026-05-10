@@ -118,20 +118,45 @@ def _is_meaningful_ocr(text: str) -> bool:
     return (valid / len(text)) >= _OCR_VALID_RATIO
 
 
-def _ocr_image_blob(blob: bytes) -> str:
+def make_ocr_stats() -> dict:
+    """OCR 통계 카운터 초기화. chunk_* 호출자가 수집에 사용."""
+    return {
+        "ocr_attempted": 0,
+        "ocr_succeeded": 0,
+        "ocr_noise_filtered": 0,
+        "ocr_failed": 0,
+    }
+
+
+def _ocr_image_blob(blob: bytes, stats: dict | None = None) -> str:
     """이미지 blob → Tesseract OCR 텍스트. 실패/노이즈는 빈 문자열.
 
     lang=kor+eng, timeout=3s. import는 함수 내부에서 lazy로 호출해
     Tesseract/Pillow 미설치 환경(테스트 등)에서 모듈 import 자체는 깨지지 않도록 한다.
+
+    stats: make_ocr_stats() 반환 dict를 전달하면 ocr_attempted/ocr_succeeded/
+           ocr_noise_filtered/ocr_failed 카운터를 누적한다. None이면 통계 생략(BC 유지).
     """
+    if stats is not None:
+        stats["ocr_attempted"] += 1
     try:
         from PIL import Image
         import pytesseract
         import io
         img = Image.open(io.BytesIO(blob))
         raw = pytesseract.image_to_string(img, lang="kor+eng", timeout=3).strip()
-        return raw if _is_meaningful_ocr(raw) else ""
-    except Exception:
+        if _is_meaningful_ocr(raw):
+            if stats is not None:
+                stats["ocr_succeeded"] += 1
+            return raw
+        logger.debug("OCR 노이즈 폐기: %d자 (의미없음)", len(raw))
+        if stats is not None:
+            stats["ocr_noise_filtered"] += 1
+        return ""
+    except Exception as e:
+        logger.warning("OCR exception: %s: %s", type(e).__name__, e)
+        if stats is not None:
+            stats["ocr_failed"] += 1
         return ""
 
 
@@ -334,12 +359,14 @@ def chunk_docx(
     file_path: str,
     max_chars: int = 1500,
     overlap: int = 200,
+    stats: dict | None = None,
 ) -> list[dict]:
     """DOCX 파일: paragraphs 합쳐서 sliding window 청킹.
 
     - paragraphs와 tables(행 단위)에서 텍스트 추출
     - 단락 사이는 \\n\\n으로 결합 → ``chunk_text``의 단락 경계 백트래킹과 결합
     - metadata: ``{file_name, doc_type: "docx"}``
+    - stats: make_ocr_stats() dict를 전달하면 OCR 카운터 누적 (None이면 생략, BC 유지)
     """
     from docx import Document
 
@@ -366,7 +393,7 @@ def chunk_docx(
         blob = getattr(rel, "blob", None)
         if not blob:
             continue
-        ocr_text = _ocr_image_blob(blob)
+        ocr_text = _ocr_image_blob(blob, stats=stats)
         if ocr_text:
             parts.append(f"[이미지: {ocr_text}]")
 
@@ -388,6 +415,7 @@ def chunk_pdf(
     file_path: str,
     max_chars: int = 1500,
     overlap: int = 200,
+    stats: dict | None = None,
 ) -> list[dict]:
     """PDF 파일: 페이지별 텍스트 + inline image OCR 후 sliding window 청킹.
 
@@ -399,6 +427,8 @@ def chunk_pdf(
     - 페이지당 이미지 OCR 상한: ``_PDF_MAX_IMAGES_PER_PAGE`` (기본 10장)
     - metadata: ``{file_name, doc_type: "pdf", page_no}``
     - 청크 인덱스는 문서 전역으로 누적
+    - stats: make_ocr_stats() dict를 전달하면 OCR 카운터 누적 (None이면 생략, BC 유지)
+      상한 초과로 건너뛴 이미지(skipped_cap)는 ocr_attempted에 포함하지 않음
     """
     import pdfplumber
     import pypdf
@@ -433,28 +463,28 @@ def chunk_pdf(
                         )
                         page_images = []
 
-                    ocr_attempted = 0
-                    ocr_success = 0
+                    page_ocr_attempted = 0
+                    page_ocr_success = 0
                     for img_file in page_images[:_PDF_MAX_IMAGES_PER_PAGE]:
-                        ocr_attempted += 1
                         try:
                             blob = img_file.data
                         except Exception:
                             continue
                         if not blob:
                             continue
-                        ocr_text = _ocr_image_blob(blob)
+                        page_ocr_attempted += 1
+                        ocr_text = _ocr_image_blob(blob, stats=stats)
                         if ocr_text:
                             image_markers.append(f"[이미지: {ocr_text}]")
-                            ocr_success += 1
+                            page_ocr_success += 1
 
                     skipped = max(0, len(page_images) - _PDF_MAX_IMAGES_PER_PAGE)
                     logger.debug(
                         "chunk_pdf: page=%d images=%d ocr_attempted=%d ocr_success=%d skipped_cap=%d",
                         page_no,
                         len(page_images),
-                        ocr_attempted,
-                        ocr_success,
+                        page_ocr_attempted,
+                        page_ocr_success,
                         skipped,
                     )
             # ─────────────────────────────────────────────────────────────
@@ -571,13 +601,14 @@ def _shape_text(shape) -> str:
     return "\n".join(chunks)
 
 
-def chunk_pptx(file_path: str) -> list[dict]:
+def chunk_pptx(file_path: str, stats: dict | None = None) -> list[dict]:
     """PowerPoint 파일: 슬라이드별 1 chunk.
 
     - python-pptx 사용. title + body shapes의 text + speaker notes 합산
     - 표는 셀별 텍스트 추출
     - metadata: ``{file_name, slide_no, slide_title, doc_type: "pptx"}``
     - 슬라이드 의미 보존을 위해 길어도 분할하지 않음
+    - stats: make_ocr_stats() dict를 전달하면 OCR 카운터 누적 (None이면 생략, BC 유지)
     """
     from pptx import Presentation
     from pptx.enum.shapes import MSO_SHAPE_TYPE
@@ -610,7 +641,7 @@ def chunk_pptx(file_path: str) -> list[dict]:
                     alt_text = ""
                 ocr_text = ""
                 try:
-                    ocr_text = _ocr_image_blob(shape.image.blob)
+                    ocr_text = _ocr_image_blob(shape.image.blob, stats=stats)
                 except Exception:
                     pass
                 parts = [p for p in (alt_text, ocr_text) if p]

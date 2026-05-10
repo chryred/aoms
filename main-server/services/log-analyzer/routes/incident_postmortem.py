@@ -74,6 +74,10 @@ class OcrProcessRequest(BaseModel):
     mime_type: str          # e.g. "image/png", "application/pdf"
 
 
+class DeletePostmortemRequest(BaseModel):
+    point_id: str
+
+
 # ── 엔드포인트 ────────────────────────────────────────────────────────────────
 
 @router.post("/embed", response_model=EmbedPostmortemResponse)
@@ -177,6 +181,23 @@ async def get_postmortem_by_incident(incident_id: int):
     return result
 
 
+@router.post("/delete")
+async def delete_postmortem(req: DeletePostmortemRequest):
+    """
+    incident_postmortems 컬렉션에서 단일 포인트를 삭제.
+
+    idempotent — 포인트가 없어도 {"deleted": true} 반환.
+    Returns:
+        {"deleted": bool}
+    """
+    try:
+        deleted = await vector_client.delete_postmortem_point(req.point_id)
+    except Exception as exc:
+        logger.error("postmortem 포인트 삭제 실패: point_id=%s — %s", req.point_id, exc)
+        raise HTTPException(status_code=500, detail=f"포인트 삭제 실패: {exc}")
+    return {"deleted": deleted}
+
+
 @router.post("/ocr/process")
 async def ocr_process(req: OcrProcessRequest):
     """
@@ -205,14 +226,14 @@ async def ocr_process(req: OcrProcessRequest):
 
     loop = asyncio.get_event_loop()
     try:
-        text = await loop.run_in_executor(
-            None, ocr_worker.extract_text, resolved, req.mime_type
+        text, ocr_stats = await loop.run_in_executor(
+            None, ocr_worker.extract_text_with_stats, resolved, req.mime_type
         )
     except Exception as exc:
         logger.error("OCR 처리 실패: %s — %s", resolved, exc)
         raise HTTPException(status_code=500, detail=f"OCR 실패: {exc}")
 
-    return {"text": text, "char_count": len(text)}
+    return {"text": text, "char_count": len(text), "ocr_stats": ocr_stats}
 
 
 @router.post("/ocr/process-stream")
@@ -255,14 +276,14 @@ async def ocr_process_stream(req: OcrProcessRequest):
 
         async def run_ocr():
             try:
-                text = await loop.run_in_executor(
+                text, ocr_stats = await loop.run_in_executor(
                     None,
-                    ocr_worker.extract_text_with_progress,
+                    ocr_worker.extract_text_with_stats,
                     resolved_path,
                     mime_type,
                     progress_cb,
                 )
-                await queue.put({"progress": 100, "status": "done", "text": text})
+                await queue.put({"progress": 100, "status": "done", "text": text, "ocr_stats": ocr_stats})
             except Exception as exc:
                 logger.error("SSE OCR 처리 실패: %s — %s", resolved_path, exc)
                 await queue.put({"progress": 0, "status": "failed", "text": ""})

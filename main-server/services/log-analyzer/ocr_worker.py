@@ -19,8 +19,8 @@ from docx import Document as DocxDocument
 from openpyxl import load_workbook
 from pptx import Presentation
 
-# chunking.py:_ocr_image_blob 가져오기
-from chunking import _ocr_image_blob
+# chunking.py:_ocr_image_blob, make_ocr_stats 가져오기
+from chunking import _ocr_image_blob, make_ocr_stats
 
 logger = logging.getLogger(__name__)
 
@@ -35,51 +35,76 @@ _NOOP_CB: Callable[[int], None] = lambda _: None
 
 
 def extract_text(file_path: Path, mime_type: str) -> str:
-    """동기 함수. 첨부 파일에서 텍스트 추출. 실패 시 빈 문자열 반환 + warn 로그."""
-    return extract_text_with_progress(file_path, mime_type, _NOOP_CB)
+    """동기 함수. 첨부 파일에서 텍스트 추출. 실패 시 빈 문자열 반환 + warn 로그.
+
+    반환: 추출된 텍스트 (ocr_stats는 이 함수에서 수집하지 않음)
+    """
+    text, _ = extract_text_with_stats(file_path, mime_type, _NOOP_CB)
+    return text
 
 
 def extract_text_with_progress(
     file_path: Path, mime_type: str, progress_cb: Callable[[int], None]
 ) -> str:
-    """진행률 콜백 포함 텍스트 추출. progress_cb(0~100)은 동기 컨텍스트(스레드)에서 호출됨."""
+    """진행률 콜백 포함 텍스트 추출. progress_cb(0~100)은 동기 컨텍스트(스레드)에서 호출됨.
+
+    OCR 통계가 필요하면 extract_text_with_stats()를 직접 사용할 것.
+    """
+    text, _ = extract_text_with_stats(file_path, mime_type, progress_cb)
+    return text
+
+
+def extract_text_with_stats(
+    file_path: Path,
+    mime_type: str,
+    progress_cb: Callable[[int], None] = _NOOP_CB,
+) -> tuple[str, dict]:
+    """텍스트 추출 + OCR 통계 반환.
+
+    Returns:
+        (text, ocr_stats) — ocr_stats는 make_ocr_stats() 형태 dict.
+        XLSX/DOCX/TXT 처럼 OCR을 하지 않는 포맷은 카운터가 모두 0.
+    """
+    stats = make_ocr_stats()
     try:
         if mime_type in _IMAGE_MIMES:
             progress_cb(10)
-            result = _ocr_image_blob(file_path.read_bytes())
+            result = _ocr_image_blob(file_path.read_bytes(), stats=stats)
             progress_cb(100)
-            return result
+            return result, stats
         if mime_type == _PDF_MIME:
-            return _extract_pdf_with_progress(file_path, progress_cb)
+            result = _extract_pdf_with_progress(file_path, progress_cb, stats=stats)
+            return result, stats
         if mime_type == _DOCX_MIME:
             progress_cb(50)
             result = _extract_docx(file_path)
             progress_cb(100)
-            return result
+            return result, stats
         if mime_type == _XLSX_MIME:
             progress_cb(50)
             result = _extract_xlsx(file_path)
             progress_cb(100)
-            return result
+            return result, stats
         if mime_type == _PPTX_MIME:
-            return _extract_pptx_with_progress(file_path, progress_cb)
+            result = _extract_pptx_with_progress(file_path, progress_cb, stats=stats)
+            return result, stats
         if mime_type == _TEXT_MIME:
             progress_cb(50)
             result = file_path.read_text(encoding="utf-8", errors="replace")
             progress_cb(100)
-            return result
+            return result, stats
         logger.warning("Unsupported MIME for OCR: %s (%s)", mime_type, file_path)
-        return ""
+        return "", stats
     except Exception as exc:
         logger.warning("OCR 실패 (%s, %s): %s", file_path, mime_type, exc)
-        return ""
+        return "", stats
 
 
-def _extract_pdf(path: Path) -> str:
-    return _extract_pdf_with_progress(path, _NOOP_CB)
-
-
-def _extract_pdf_with_progress(path: Path, progress_cb: Callable[[int], None]) -> str:
+def _extract_pdf_with_progress(
+    path: Path,
+    progress_cb: Callable[[int], None],
+    stats: dict | None = None,
+) -> str:
     """pdfplumber 우선. 텍스트 미추출 시 페이지 이미지 blob → OCR. 페이지마다 진행률 갱신."""
     parts: list[str] = []
     with pdfplumber.open(path) as pdf:
@@ -95,14 +120,18 @@ def _extract_pdf_with_progress(path: Path, progress_cb: Callable[[int], None]) -
                         img_obj = page.crop((img["x0"], img["top"], img["x1"], img["bottom"])).to_image(resolution=150)
                         buf = io.BytesIO()
                         img_obj.save(buf, format="PNG")
-                        parts.append(_ocr_image_blob(buf.getvalue()))
+                        parts.append(_ocr_image_blob(buf.getvalue(), stats=stats))
                     except Exception as exc:
                         logger.warning("PDF page OCR fallback fail: %s", exc)
             progress_cb(int((i + 1) / total * 100))
     return "\n\n".join(p for p in parts if p.strip())
 
 
-def _extract_pptx_with_progress(path: Path, progress_cb: Callable[[int], None]) -> str:
+def _extract_pptx_with_progress(
+    path: Path,
+    progress_cb: Callable[[int], None],
+    stats: dict | None = None,
+) -> str:
     """PPTX 슬라이드별 진행률 갱신 포함 추출."""
     prs = Presentation(path)
     total = max(len(prs.slides), 1)
@@ -117,7 +146,7 @@ def _extract_pptx_with_progress(path: Path, progress_cb: Callable[[int], None]) 
                         slide_parts.append(txt)
             if hasattr(shape, "image") and shape.image:
                 try:
-                    slide_parts.append(_ocr_image_blob(shape.image.blob))
+                    slide_parts.append(_ocr_image_blob(shape.image.blob, stats=stats))
                 except Exception:
                     pass
         parts.append("\n".join(slide_parts))
