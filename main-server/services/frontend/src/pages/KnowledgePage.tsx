@@ -115,11 +115,6 @@ export function KnowledgePage() {
             </button>
           ))}
         </div>
-        <div
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-y-0 right-0 w-8"
-          style={{ background: 'linear-gradient(to left, var(--color-bg-base), transparent)' }}
-        />
       </div>
 
       {/* 탭 컨텐츠 */}
