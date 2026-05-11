@@ -7,6 +7,7 @@ import {
   ChevronDown,
   ChevronRight,
   AlertCircle,
+  Settings2,
 } from 'lucide-react'
 import { NeuCard } from '@/components/neumorphic/NeuCard'
 import { NeuButton } from '@/components/neumorphic/NeuButton'
@@ -128,6 +129,14 @@ export function SearchVerifyTab() {
   ])
   const [useReranker, setUseReranker] = useState(false)
   const [query, setQuery] = useState('')
+
+  // 고급 검색 옵션 (Track B + Track C)
+  const [advancedOpen, setAdvancedOpen] = useState(false)
+  const [topK, setTopK] = useState(10)
+  const [scoreThreshold, setScoreThreshold] = useState(0.5)
+  const [rerankPoolSize, setRerankPoolSize] = useState(50)
+  const [withScores, setWithScores] = useState(false)
+
   const [editNote, setEditNote] = useState<OperatorNote | null>(null)
   const [addNoteOpen, setAddNoteOpen] = useState(false)
   const [detailResult, setDetailResult] = useState<{
@@ -168,6 +177,10 @@ export function SearchVerifyTab() {
     selectedSystems,
     selectedCollections,
     useReranker,
+    topK,
+    scoreThreshold,
+    rerankPoolSize,
+    withScores,
   })
 
   const totalCount = groups.reduce((sum, g) => sum + g.results.length, 0)
@@ -240,6 +253,113 @@ export function SearchVerifyTab() {
               'resize-none',
             )}
           />
+
+          {/* 고급 검색 옵션 패널 */}
+          <div>
+            <button
+              type="button"
+              onClick={() => setAdvancedOpen((v) => !v)}
+              className={cn(
+                'flex items-center gap-1.5 rounded-sm px-1 py-0.5 text-xs',
+                'text-text-secondary hover:text-text-primary transition-colors',
+                'focus:ring-accent focus:ring-1 focus:outline-none',
+              )}
+            >
+              <Settings2 className="h-3.5 w-3.5" />
+              고급 옵션
+              {advancedOpen ? (
+                <ChevronDown className="h-3 w-3" />
+              ) : (
+                <ChevronRight className="h-3 w-3" />
+              )}
+            </button>
+
+            {advancedOpen && (
+              <div className="border-border bg-bg-base shadow-neu-inset mt-2 space-y-4 rounded-sm border px-4 py-3">
+                {/* top_k */}
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between">
+                    <label className="text-text-primary text-xs font-medium">결과 수 (top_k)</label>
+                    <span className="text-accent font-mono text-xs">{topK}</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={1}
+                    max={50}
+                    step={1}
+                    value={topK}
+                    onChange={(e) => setTopK(Number(e.target.value))}
+                    className="accent-accent w-full cursor-pointer"
+                  />
+                  <div className="text-text-disabled flex justify-between text-[10px]">
+                    <span>1</span>
+                    <span>50</span>
+                  </div>
+                </div>
+
+                {/* score_threshold */}
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between">
+                    <label className="text-text-primary text-xs font-medium">
+                      유사도 임계값 (score_threshold)
+                    </label>
+                    <span className="text-accent font-mono text-xs">
+                      {scoreThreshold.toFixed(2)}
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min={0}
+                    max={1}
+                    step={0.05}
+                    value={scoreThreshold}
+                    onChange={(e) => setScoreThreshold(Number(e.target.value))}
+                    className="accent-accent w-full cursor-pointer"
+                  />
+                  <div className="text-text-disabled flex justify-between text-[10px]">
+                    <span>0.00</span>
+                    <span>1.00</span>
+                  </div>
+                </div>
+
+                {/* rerank_pool_size */}
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between">
+                    <label className="text-text-primary text-xs font-medium">
+                      리랭킹 후보 수 (rerank_pool_size)
+                    </label>
+                    <span className="text-accent font-mono text-xs">{rerankPoolSize}</span>
+                  </div>
+                  <input
+                    type="range"
+                    min={10}
+                    max={200}
+                    step={10}
+                    value={rerankPoolSize}
+                    onChange={(e) => setRerankPoolSize(Number(e.target.value))}
+                    className="accent-accent w-full cursor-pointer"
+                  />
+                  <div className="text-text-disabled flex justify-between text-[10px]">
+                    <span>10</span>
+                    <span>200</span>
+                  </div>
+                </div>
+
+                {/* with_scores (Track C) */}
+                <label className="flex cursor-pointer items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={withScores}
+                    onChange={(e) => setWithScores(e.target.checked)}
+                    className="accent-accent h-3.5 w-3.5 cursor-pointer"
+                  />
+                  <span className="text-text-primary text-xs font-medium">점수 분해 표시</span>
+                  <span className="text-text-disabled text-xs">(dense / sparse 개별 점수)</span>
+                </label>
+              </div>
+            )}
+          </div>
+
           <div className="flex items-center justify-end">
             <NeuButton
               onClick={handleSearch}

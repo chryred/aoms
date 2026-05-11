@@ -153,8 +153,7 @@ export function FeedbackDetailView({ feedback, onResubmit }: FeedbackDetailViewP
                   : 'text-text-disabled text-xs'
             }
           >
-            재등록 {feedback.revision_count}회
-            {feedback.revision_count >= 5 && ' (한도 초과)'}
+            재등록 {feedback.revision_count}회{feedback.revision_count >= 5 && ' (한도 초과)'}
           </span>
         )}
       </div>

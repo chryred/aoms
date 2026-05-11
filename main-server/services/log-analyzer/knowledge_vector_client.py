@@ -406,7 +406,9 @@ async def upsert_confluence_chunks(
     for chunk in chunks:
         chunk_index = chunk["metadata"].get("chunk_index", 0)
         point_id = make_confluence_point_id(page_id, chunk_index)
-        embed_text = chunk["text"]
+        raw_text = chunk["text"]
+        section_heading = chunk["metadata"].get("section_heading") or chunk["metadata"].get("heading") or None
+        embed_text = f"{section_heading}\n{raw_text}" if section_heading else raw_text
 
         dense, sparse = await asyncio.gather(
             get_embedding(embed_text),
@@ -414,13 +416,14 @@ async def upsert_confluence_chunks(
         )
 
         payload: dict = {
-            "page_id":    page_id,
-            "page_title": page_title,
-            "space":      space,
-            "text":       embed_text[:2000],
-            "chunk_index": chunk_index,
-            "heading":    chunk["metadata"].get("heading", ""),
-            "stored_at":  datetime.now(timezone.utc).isoformat(),
+            "page_id":         page_id,
+            "page_title":      page_title,
+            "space":           space,
+            "text":            raw_text[:2000],
+            "chunk_index":     chunk_index,
+            "heading":         chunk["metadata"].get("heading", ""),
+            "section_heading": section_heading,
+            "stored_at":       datetime.now(timezone.utc).isoformat(),
         }
         if system_name:
             payload["system_name"] = system_name
@@ -486,7 +489,9 @@ async def upsert_document_chunks(
     for chunk in chunks:
         chunk_index = chunk["metadata"].get("chunk_index", 0)
         point_id = make_document_point_id(file_hash, chunk_index)
-        embed_text = chunk["text"]
+        raw_text = chunk["text"]
+        section_heading = chunk["metadata"].get("section_heading") or None
+        embed_text = f"{section_heading}\n{raw_text}" if section_heading else raw_text
 
         dense, sparse = await asyncio.gather(
             get_embedding(embed_text),
@@ -494,13 +499,14 @@ async def upsert_document_chunks(
         )
 
         payload: dict = {
-            "file_name":   file_name,
-            "file_hash":   file_hash,
-            "doc_type":    doc_type,
-            "system_id":   system_id,
-            "text":        embed_text[:2000],
-            "chunk_index": chunk_index,
-            "stored_at":   datetime.now(timezone.utc).isoformat(),
+            "file_name":       file_name,
+            "file_hash":       file_hash,
+            "doc_type":        doc_type,
+            "system_id":       system_id,
+            "text":            raw_text[:2000],
+            "chunk_index":     chunk_index,
+            "section_heading": section_heading,
+            "stored_at":       datetime.now(timezone.utc).isoformat(),
         }
         if tags:
             payload["tags"] = tags
@@ -1076,6 +1082,8 @@ async def federated_search(
     limit: int = 10,
     rerank: bool = False,
     rerank_top_k: int = 10,
+    score_threshold: float = 0.5,
+    with_scores: bool = False,
 ) -> dict:
     """병렬로 3종 컬렉션 검색 → 2차 RRF 병합 → corrected 보너스 → (옵션) reranker → 결과.
 
@@ -1088,6 +1096,7 @@ async def federated_search(
         limit:       최종 반환 개수
         rerank:      cross-encoder(bge-reranker-v2-m3) 재정렬 여부
         rerank_top_k: reranker 반환 개수
+        with_scores: True이면 dense/sparse 개별 점수를 추가 Qdrant 쿼리로 수집해 각 결과에 병합 (Track C)
 
     Returns:
         {
@@ -1133,6 +1142,8 @@ async def federated_search(
                 sparse=sparse,
                 filter_must=filter_must if filter_must else None,
                 limit=retrieval_limit,
+                dense_prefetch_threshold=score_threshold,
+                with_scores=with_scores,
             )
         except Exception as exc:
             logger.warning("Knowledge 검색 실패 [%s]: %s", collection, exc)

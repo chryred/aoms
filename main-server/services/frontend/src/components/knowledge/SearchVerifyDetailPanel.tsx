@@ -250,11 +250,21 @@ export function SearchResultDetailPanel({
 
   const metaFields = getMetaFields(result.collection)
 
+  const _SCORE_DECOMP_KEYS = [
+    'dense_score', 'dense_rank', 'sparse_score', 'sparse_rank',
+    'rerank_score', 'original_rank', 'rerank_rank',
+  ] as const
+
+  const hasScoreDecomp = _SCORE_DECOMP_KEYS.some(
+    (k) => result[k] !== undefined && result[k] !== null,
+  )
+
   const displayedKeys = new Set<string>([
     'collection',
     'score',
     'point_id',
     'tool',
+    ..._SCORE_DECOMP_KEYS,
     ...TEXT_FIELDS.map(([k]) => k),
     ...metaFields.map(([k]) => k),
   ])
@@ -345,6 +355,56 @@ export function SearchResultDetailPanel({
 
         {/* 본문 */}
         <div className="space-y-4 overflow-y-auto px-5 py-4">
+          {/* Track C: 점수 분해 */}
+          {hasScoreDecomp && (
+            <div className="bg-surface shadow-neu-inset space-y-2 rounded-sm p-3">
+              <p className="text-text-disabled text-xs font-medium">점수 분해</p>
+              <div className="grid grid-cols-2 gap-x-6 gap-y-1">
+                {result.dense_score !== undefined && result.dense_score !== null && (
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-text-disabled">Dense 점수</span>
+                    <span className="text-text-primary font-mono">
+                      {result.dense_score.toFixed(4)}
+                      {result.dense_rank !== undefined && result.dense_rank !== null && (
+                        <span className="text-text-disabled ml-1">#{result.dense_rank + 1}</span>
+                      )}
+                    </span>
+                  </div>
+                )}
+                {result.sparse_score !== undefined && result.sparse_score !== null && (
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-text-disabled">Sparse 점수</span>
+                    <span className="text-text-primary font-mono">
+                      {result.sparse_score.toFixed(4)}
+                      {result.sparse_rank !== undefined && result.sparse_rank !== null && (
+                        <span className="text-text-disabled ml-1">#{result.sparse_rank + 1}</span>
+                      )}
+                    </span>
+                  </div>
+                )}
+                {result.rerank_score !== undefined && result.rerank_score !== null && (
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-text-disabled">Rerank 점수</span>
+                    <span className="text-text-primary font-mono">
+                      {result.rerank_score.toFixed(4)}
+                    </span>
+                  </div>
+                )}
+                {result.original_rank !== undefined && result.original_rank !== null &&
+                  result.rerank_rank !== undefined && result.rerank_rank !== null && (
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-text-disabled">순위 변화</span>
+                    <span className="text-text-primary font-mono">
+                      #{result.original_rank + 1}
+                      <span className="text-text-disabled mx-1">→</span>
+                      #{result.rerank_rank + 1}
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           {typeof result.title === 'string' && result.title && (
             <p className="text-text-primary font-semibold">{result.title}</p>
           )}

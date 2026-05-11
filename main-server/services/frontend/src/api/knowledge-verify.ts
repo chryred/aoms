@@ -4,6 +4,10 @@ import type { SearchVerifyResponse } from '@/types/knowledge-verify'
 export interface SearchVerifyChatbotBody {
   query: string
   system_ids: number[]
+  top_k?: number
+  score_threshold?: number
+  rerank_pool_size?: number
+  with_scores?: boolean
 }
 
 export interface SearchVerifyCollectionsBody {
@@ -11,6 +15,10 @@ export interface SearchVerifyCollectionsBody {
   system_ids: number[]
   collections: string[]
   use_reranker: boolean
+  top_k?: number
+  score_threshold?: number
+  rerank_pool_size?: number
+  with_scores?: boolean
 }
 
 export const knowledgeVerifyApi = {

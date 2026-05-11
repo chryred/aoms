@@ -355,6 +355,8 @@
 - `main-server/services/admin-api/services/chat_agent.py` (decision_prompt 가이드)
 - `main-server/services/admin-api/init.sql`, `migrations/20260423_qdrant_rag_chat_tools.sql` (qdrant 도구 시드)
 
+**ADR-011 후속 (Track A — 2026-05-11)**: `knowledge_guides` 컬렉션도 bge-reranker-v2-m3 cross-encoder reranker 적용 대상에 추가됨. `guides_vector_client.search_guides(rerank=True, rerank_top_k=N)` 호출 시 RRF 결과를 reranker로 재순위화 후 guide_id 단위 그룹화. 챗봇 `qdrant_search_guide` 도구 및 `/search-verify/chatbot` 엔드포인트는 항상 rerank=True. `/search-verify/collections`에서 knowledge_guides 선택 시 use_reranker 파라미터 연동. `admin-api/routes/knowledge_verify.py`의 `_call_guide_search()` 헬퍼 + `_GUIDE_COLLECTIONS = {"knowledge_guides"}` 참고.
+
 
 ---
 

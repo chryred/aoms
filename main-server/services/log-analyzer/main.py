@@ -268,12 +268,14 @@ async def solution_update(req: SolutionUpdateRequest):
 # ── Phase 5: 집계 벡터 검색 엔드포인트 (UI 프록시) ────────────────────────────
 
 class AggregationSearchRequest(BaseModel):
-    query_text:  str
-    collection:  str           # "metric_hourly_patterns" | "aggregation_summaries"
-    system_id:   int | None = None
-    limit:       int = 10
-    rerank:        bool = False    # cross-encoder 재정렬 (bge-reranker-v2-m3)
-    rerank_top_k:  int  = 10
+    query_text:       str
+    collection:       str           # "metric_hourly_patterns" | "aggregation_summaries"
+    system_id:        int | None = None
+    limit:            int = 10
+    rerank:           bool = False    # cross-encoder 재정렬 (bge-reranker-v2-m3)
+    rerank_top_k:     int  = 10
+    score_threshold:  float = 0.5    # dense prefetch 최소 유사도
+    with_scores:      bool = False   # Track C: dense/sparse 개별 점수 병합
 
 
 class SimilarPeriodRequest(BaseModel):
@@ -303,6 +305,8 @@ async def aggregation_search(req: AggregationSearchRequest):
             limit=req.limit,
             rerank=req.rerank,
             rerank_top_k=req.rerank_top_k,
+            score_threshold=req.score_threshold,
+            with_scores=req.with_scores,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -312,11 +316,13 @@ async def aggregation_search(req: AggregationSearchRequest):
 # ── RAG 챗봇용 인시던트 통합 검색 ────────────────────────────────────────────
 
 class IncidentSearchRequest(BaseModel):
-    query: str
-    system_name: str | None = None
-    limit: int = 5
-    rerank: bool = False         # cross-encoder 재정렬 (bge-reranker-v2-m3)
-    rerank_top_k: int | None = None  # None이면 limit과 동일
+    query:           str
+    system_name:     str | None = None
+    limit:           int = 5
+    rerank:          bool = False         # cross-encoder 재정렬 (bge-reranker-v2-m3)
+    rerank_top_k:    int | None = None    # None이면 limit과 동일
+    score_threshold: float = 0.5         # dense prefetch 최소 유사도
+    with_scores:     bool = False         # Track C: dense/sparse 개별 점수 병합
 
 
 @app.post("/incident/search")
@@ -350,6 +356,8 @@ async def incident_search(req: IncidentSearchRequest):
             sparse=sparse,
             filter_must=filter_must,
             limit=retrieval_limit,
+            dense_prefetch_threshold=req.score_threshold,
+            with_scores=req.with_scores,
         )
     except Exception as exc:
         logger.warning("log_incidents 검색 실패: %s", exc)
@@ -361,6 +369,8 @@ async def incident_search(req: IncidentSearchRequest):
             sparse=sparse,
             filter_must=filter_must,
             limit=retrieval_limit,
+            dense_prefetch_threshold=req.score_threshold,
+            with_scores=req.with_scores,
         )
     except Exception as exc:
         logger.warning("metric_baselines 검색 실패: %s", exc)
@@ -404,6 +414,15 @@ async def incident_search(req: IncidentSearchRequest):
                 log_hits = log_hits[:rerank_top_k]
                 metric_hits = metric_hits[:rerank_top_k]
 
+    def _score_fields(h: dict) -> dict:
+        """Track C: dense/sparse 점수 분해 필드 추출 (with_scores=True 시에만 존재)."""
+        out: dict = {}
+        for key in ("dense_score", "dense_rank", "sparse_score", "sparse_rank",
+                    "rerank_score", "original_rank", "rerank_rank"):
+            if key in h:
+                out[key] = h[key]
+        return out
+
     return {
         "log_incidents": [
             {
@@ -417,6 +436,7 @@ async def incident_search(req: IncidentSearchRequest):
                 "resolution":     h["payload"].get("resolution"),
                 "resolver":       h["payload"].get("resolver"),
                 "timestamp":      h["payload"].get("timestamp"),
+                **_score_fields(h),
             }
             for h in log_hits
         ],
@@ -432,6 +452,7 @@ async def incident_search(req: IncidentSearchRequest):
                 "resolution":   h["payload"].get("resolution"),
                 "resolver":     h["payload"].get("resolver"),
                 "timestamp":    h["payload"].get("timestamp"),
+                **_score_fields(h),
             }
             for h in metric_hits
         ],
@@ -614,14 +635,16 @@ async def store_agg_summary(req: StoreAggSummaryRequest):
 
 
 class KnowledgeSearchRequest(BaseModel):
-    query:        str
-    system_ids:   list[int] | None = None
-    system_id:    int | None = None  # deprecated, kept for BC; system_ids takes priority
-    system_name:  str | None = None
-    sources:      list[str] | None = None   # ["jira","confluence","documents"]
-    limit:        int = 10
-    rerank:       bool = False
-    rerank_top_k: int = 10
+    query:           str
+    system_ids:      list[int] | None = None
+    system_id:       int | None = None  # deprecated, kept for BC; system_ids takes priority
+    system_name:     str | None = None
+    sources:         list[str] | None = None   # ["jira","confluence","documents"]
+    limit:           int = 10
+    rerank:          bool = False
+    rerank_top_k:    int = 10
+    score_threshold: float = 0.5             # dense prefetch 최소 유사도
+    with_scores:     bool = False            # Track C: dense/sparse 개별 점수 병합
 
 
 @app.post("/knowledge/search")
@@ -643,6 +666,8 @@ async def knowledge_search(req: KnowledgeSearchRequest):
             limit=req.limit,
             rerank=req.rerank,
             rerank_top_k=req.rerank_top_k,
+            score_threshold=req.score_threshold,
+            with_scores=req.with_scores,
         )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Knowledge 검색 실패: {exc}")

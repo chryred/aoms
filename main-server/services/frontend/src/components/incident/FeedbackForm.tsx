@@ -11,7 +11,12 @@ import { useApprovers } from '@/hooks/queries/useApprovers'
 import { useFeedbackUpload } from '@/hooks/mutations/useFeedbackUpload'
 import { incidentsApi } from '@/api/incidents'
 import { useAuthStore } from '@/store/authStore'
-import type { Feedback, FeedbackUploadResponse, ResubmitLimitError, ResubmitWarning } from '@/types/feedback'
+import type {
+  Feedback,
+  FeedbackUploadResponse,
+  ResubmitLimitError,
+  ResubmitWarning,
+} from '@/types/feedback'
 
 const ERROR_TYPES = [
   'DB 연결 오류',

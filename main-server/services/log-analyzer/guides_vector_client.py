@@ -221,20 +221,30 @@ async def embed_guide(
     for chunk in chunks:
         chunk_text_value = chunk["text"]
         chunk_index = chunk["metadata"]["chunk_index"]
+        section_heading = chunk["metadata"].get("section_heading") or None
 
-        embed_input = f"{title}\n{chunk_text_value}" if title else chunk_text_value
+        # 임베딩 입력: title → section_heading(있을 때) → chunk_text 순으로 구성
+        # section_heading은 청크 내 소제목으로, 짧은 청크의 의미 맥락을 보강한다
+        if title and section_heading:
+            embed_input = f"{title}\n{section_heading}\n{chunk_text_value}"
+        elif title:
+            embed_input = f"{title}\n{chunk_text_value}"
+        else:
+            embed_input = chunk_text_value
+
         dense, sparse = await asyncio.gather(
             get_embedding(embed_input),
             get_sparse_vector(embed_input),
         )
 
         payload: dict = {
-            "guide_id":     guide_id,
-            "title":        title,
-            "content":      chunk_text_value,
-            "chunk_index":  chunk_index,
-            "total_chunks": total_chunks,
-            "indexed_at":   indexed_at,
+            "guide_id":        guide_id,
+            "title":           title,
+            "content":         chunk_text_value,
+            "chunk_index":     chunk_index,
+            "total_chunks":    total_chunks,
+            "section_heading": section_heading,
+            "indexed_at":      indexed_at,
         }
         if system_id is not None:
             payload["system_id"] = system_id
@@ -359,6 +369,10 @@ async def search_guides(
     system_ids: Optional[list[int]] = None,
     limit: int = 5,
     group_by_guide: bool = True,
+    rerank: bool = False,
+    rerank_top_k: int = 10,
+    score_threshold: float = 0.5,
+    with_scores: bool = False,
 ) -> list[dict]:
     """knowledge_guides Hybrid 검색.
 
@@ -376,9 +390,23 @@ async def search_guides(
     group_by_guide=False:
         기존 청크 단위 동작 유지 (limit = 청크 수).
 
+    rerank=True:
+        Qdrant RRF 결과 청크들에 cross-encoder reranker를 적용한 뒤 그룹화한다.
+        그룹 내 best_chunk는 reranker 최고점 청크 기준으로 결정된다.
+        각 hit dict에 rerank_score 필드가 추가되며, 결과 payload에 reranked=True 포함.
+        rerank=False면 기존 동작 100% 유지 (BC 보장).
+
+    with_scores=True (Track C):
+        dense/sparse 개별 점수를 추가 Qdrant 쿼리로 수집해 각 결과에 병합.
+        best_point에 dense_score, sparse_score, dense_rank, sparse_rank 필드가 추가됨.
+        자동 분석 파이프라인에서는 항상 False (BC 안전).
+
     Returns:
         list of {"id": str, "score": float, "payload": dict}
+        rerank=True일 때 payload에 reranked=True 추가.
     """
+    from reranker import rerank as rerank_fn  # 지연 import — 모델 미설치 환경 호환
+
     dense, sparse = await asyncio.gather(
         get_embedding(query),
         get_sparse_vector(query),
@@ -395,7 +423,7 @@ async def search_guides(
                 "query":           dense,
                 "using":           "dense",
                 "limit":           qdrant_limit * 3,
-                "score_threshold": 0.5,
+                "score_threshold": score_threshold,
             },
             {
                 "query": {"indices": sparse["indices"], "values": sparse["values"]},
@@ -413,13 +441,15 @@ async def search_guides(
         ],
     }
 
+    filter_body: dict | None = None
     if system_ids:
         # system_id IN system_ids OR system_id IS NULL
         should_clauses: list[dict] = [
             {"key": "system_id", "match": {"any": system_ids}},
             {"is_null": {"key": "system_id"}},
         ]
-        body["filter"] = {"should": should_clauses}
+        filter_body = {"should": should_clauses}
+        body["filter"] = filter_body
 
     resp = await _qdrant_http.post(
         f"{QDRANT_URL}/collections/{GUIDES_COLLECTION}/points/query",
@@ -428,11 +458,104 @@ async def search_guides(
     resp.raise_for_status()
     points = resp.json().get("result", {}).get("points", [])
 
+    # ── 점수 분해: dense/sparse 개별 쿼리 (Track C) ──────────────────────────
+    if with_scores and points:
+        score_fetch_limit = qdrant_limit * 3
+
+        dense_body: dict = {
+            "query":        dense,
+            "using":        "dense",
+            "limit":        score_fetch_limit,
+            "score_threshold": 0,
+            "with_payload": False,
+        }
+        sparse_body: dict = {
+            "query":        {"indices": sparse["indices"], "values": sparse["values"]},
+            "using":        "sparse",
+            "limit":        score_fetch_limit,
+            "with_payload": False,
+        }
+        if filter_body:
+            dense_body["filter"] = filter_body
+            sparse_body["filter"] = filter_body
+
+        dense_resp, sparse_resp = await asyncio.gather(
+            _qdrant_http.post(
+                f"{QDRANT_URL}/collections/{GUIDES_COLLECTION}/points/query",
+                json=dense_body,
+            ),
+            _qdrant_http.post(
+                f"{QDRANT_URL}/collections/{GUIDES_COLLECTION}/points/query",
+                json=sparse_body,
+            ),
+            return_exceptions=True,
+        )
+
+        dense_score_map: dict = {}
+        dense_rank_map: dict = {}
+        sparse_score_map: dict = {}
+        sparse_rank_map: dict = {}
+
+        if not isinstance(dense_resp, Exception):
+            try:
+                dense_resp.raise_for_status()
+                for rank, p in enumerate(dense_resp.json().get("result", {}).get("points", [])):
+                    pid = p["id"]
+                    dense_score_map[pid] = p["score"]
+                    dense_rank_map[pid] = rank
+            except Exception as exc:
+                logger.debug("guides 점수 분해 dense 쿼리 실패 (무시): %s", exc)
+
+        if not isinstance(sparse_resp, Exception):
+            try:
+                sparse_resp.raise_for_status()
+                for rank, p in enumerate(sparse_resp.json().get("result", {}).get("points", [])):
+                    pid = p["id"]
+                    sparse_score_map[pid] = p["score"]
+                    sparse_rank_map[pid] = rank
+            except Exception as exc:
+                logger.debug("guides 점수 분해 sparse 쿼리 실패 (무시): %s", exc)
+
+        for p in points:
+            pid = p["id"]
+            p["dense_score"] = dense_score_map.get(pid)
+            p["dense_rank"] = dense_rank_map.get(pid)
+            p["sparse_score"] = sparse_score_map.get(pid)
+            p["sparse_rank"] = sparse_rank_map.get(pid)
+
     if not group_by_guide:
         return [
             {"id": str(p["id"]), "score": p["score"], "payload": p.get("payload", {})}
             for p in points
         ]
+
+    # ── reranker 적용 (rerank=True일 때) ─────────────────────────────────────
+    # 청크 hit 목록을 평탄화해 reranker에 전달 후 rerank_score를 각 hit에 주입한다.
+    if rerank and points:
+        candidates = [
+            {
+                "_point": p,
+                "content": (p.get("payload") or {}).get("content") or "",
+            }
+            for p in points
+        ]
+        reranked = await rerank_fn(
+            query,
+            candidates,
+            top_k=min(rerank_top_k, len(candidates)),
+            text_field="content",
+        )
+        # rerank_score를 원래 point dict에 병합한 새 목록으로 재구성
+        points = []
+        for c in reranked:
+            p = dict(c["_point"])
+            p["rerank_score"] = c.get("rerank_score")
+            # reranker.rerank()가 original_rank / rerank_rank 추가 (Step 1)
+            if "original_rank" in c:
+                p["original_rank"] = c["original_rank"]
+            if "rerank_rank" in c:
+                p["rerank_rank"] = c["rerank_rank"]
+            points.append(p)
 
     # ── 가이드 단위 그룹화 ────────────────────────────────────────────────────
     # guide_id별 {best_score, best_chunk_point, all_chunk_indexes} 집계
@@ -440,18 +563,23 @@ async def search_guides(
     for p in points:
         payload = p.get("payload") or {}
         guide_id = payload.get("guide_id") or str(p["id"])  # 레거시 단일 포인트 호환
-        score    = p["score"]
         chunk_index = payload.get("chunk_index")
+
+        if rerank:
+            # reranker 적용 시: rerank_score를 비교 기준으로 사용
+            sort_score = p.get("rerank_score") if p.get("rerank_score") is not None else p["score"]
+        else:
+            sort_score = p["score"]
 
         if guide_id not in groups:
             groups[guide_id] = {
-                "best_score":  score,
+                "best_score":  sort_score,
                 "best_point":  p,
                 "chunk_indexes": [chunk_index] if chunk_index is not None else [],
             }
         else:
-            if score > groups[guide_id]["best_score"]:
-                groups[guide_id]["best_score"] = score
+            if sort_score > groups[guide_id]["best_score"]:
+                groups[guide_id]["best_score"] = sort_score
                 groups[guide_id]["best_point"] = p
             if chunk_index is not None:
                 groups[guide_id]["chunk_indexes"].append(chunk_index)
@@ -469,10 +597,29 @@ async def search_guides(
         matched_indexes = sorted(set(g["chunk_indexes"]))
         payload["matched_chunk_indexes"] = matched_indexes
         payload["matched_chunks_count"]  = len(matched_indexes)
-        results.append({
+        if rerank:
+            payload["reranked"] = True
+
+        # 그룹의 대표 score: rerank 시 reranker 점수, 아닐 때 RRF 점수
+        display_score = g["best_score"]
+
+        result: dict = {
             "id":      str(best["id"]),
-            "score":   g["best_score"],
+            "score":   display_score,
             "payload": payload,
-        })
+        }
+        # with_scores: best_point의 점수 분해 필드를 결과에 병합
+        if with_scores:
+            result["dense_score"] = best.get("dense_score")
+            result["dense_rank"] = best.get("dense_rank")
+            result["sparse_score"] = best.get("sparse_score")
+            result["sparse_rank"] = best.get("sparse_rank")
+        # rerank 시 best_point의 rerank 순위 필드 노출
+        if rerank:
+            result["rerank_score"] = best.get("rerank_score")
+            result["original_rank"] = best.get("original_rank")
+            result["rerank_rank"] = best.get("rerank_rank")
+
+        results.append(result)
 
     return results

@@ -358,8 +358,28 @@ class InstanceStatusOut(BaseModel):
 - `DELETE /documents/{file_hash}` — file_hash 단위 문서 청크 일괄 삭제 (log-analyzer DELETE /knowledge/documents/{file_hash} 프록시). 권한: admin 또는 해당 system_id 의 SystemContact 담당자
 
 ### 챗봇 검색 검증 `/api/v1/knowledge/search-verify` (V1 RAG 검증, v2 응답 스키마)
-- `POST /search-verify/chatbot` — 챗봇 RAG 3개 도구(incident/aggregation/knowledge)와 동일 로직으로 검색. LLM 호출 없음. body: `{ query, system_ids }`. 3개 도구 병렬 호출. knowledge 컬렉션만 rerank=True (챗봇 qdrant_search_knowledge 도구와 동일).
-- `POST /search-verify/collections` — 사용자가 선택한 컬렉션을 직접 검색. body: `{ query, system_ids, collections, use_reranker }`. `use_reranker=True` 이면 **모든** 컬렉션에 reranker 적용. 컬렉션별 log-analyzer 엔드포인트 분기.
+- `POST /search-verify/chatbot` — 챗봇 RAG 5개 도구(incident/postmortem/aggregation/knowledge/guides)와 동일 로직으로 검색. LLM 호출 없음. body: `{ query, system_ids, top_k?, score_threshold?, rerank_pool_size? }`. 5개 도구 병렬 호출. knowledge + guides 컬렉션 모두 rerank=True (챗봇 qdrant_search_knowledge / qdrant_search_guide 도구와 동일).
+- `POST /search-verify/collections` — 사용자가 선택한 컬렉션을 직접 검색. body: `{ query, system_ids, collections, use_reranker, top_k?, score_threshold?, rerank_pool_size? }`. `use_reranker=True` 이면 **모든** 컬렉션에 reranker 적용. 컬렉션별 log-analyzer 엔드포인트 분기.
+
+**Track B 검색 정확도 파라미터** (두 엔드포인트 공통, 모두 선택 사항):
+| 파라미터 | 기본값 | 범위 | 설명 |
+|---|---|---|---|
+| `top_k` | 10 | 1~50 | 반환 결과 수 (per collection) |
+| `score_threshold` | 0.5 | 0.0~1.0 | Qdrant dense prefetch 최소 유사도 임계값 |
+| `rerank_pool_size` | 50 | 10~200 | reranker 후보 수 (rerank=True일 때만 적용) |
+
+**Track C 점수 분해 파라미터** (두 엔드포인트 공통, 선택 사항):
+| 파라미터 | 기본값 | 설명 |
+|---|---|---|
+| `with_scores` | `false` | True이면 log-analyzer에 with_scores=True 전달 → 각 결과에 dense/sparse 개별 점수·순위 포함 |
+
+`with_scores=True` 시 `SearchResultItem.extra`에 추가되는 필드:
+- `dense_score` / `dense_rank` — dense-only 쿼리 점수·순위 (0-based)
+- `sparse_score` / `sparse_rank` — sparse-only 쿼리 점수·순위 (0-based)
+- `rerank_score` — reranker 로짓(rerank=True일 때)
+- `original_rank` / `rerank_rank` — reranker 적용 전/후 순위 (rerank=True일 때)
+
+`_flatten_item()` 헬퍼가 `extra` dict를 result 최상위로 평탄화하므로 프론트엔드는 `result.dense_score` 형태로 직접 접근. `incident_postmortems` 컬렉션은 with_scores 미지원 (postmortem 전용 검색 경로는 with_scores 파라미터 없음).
 - **v2 응답 공통 스키마**:
   ```json
   {
@@ -373,7 +393,7 @@ class InstanceStatusOut(BaseModel):
     ]
   }
   ```
-  - `groups` — 컬렉션 단위로 묶인 결과 (canonical 순서: log_incidents → metric_baselines → incident_postmortems → aggregation_summaries → metric_hourly_patterns → knowledge_jira_issues → knowledge_confluence_pages → knowledge_documents)
+  - `groups` — 컬렉션 단위로 묶인 결과 (canonical 순서: log_incidents → metric_baselines → incident_postmortems → aggregation_summaries → metric_hourly_patterns → knowledge_jira_issues → knowledge_confluence_pages → knowledge_documents → knowledge_guides)
   - `groups[*].reranked` — True이면 점수는 reranker logit(sim), False이면 RRF score. **두 스케일은 비교 불가**하므로 UI는 컬렉션 내 정렬만 사용
   - `errors` — 부분 실패 목록. 전체 실패 아님. 성공 컬렉션 결과는 그대로 반환
   - 각 result item 내 `extra` 객체는 직렬화 시 같은 레벨로 평탄화 (frontend가 `result.file_name` 같은 평탄 접근 사용). 운영자 노트는 `doc_type=operator_note` 로 식별

@@ -354,6 +354,7 @@ async def _hybrid_search(
     filter_must: list[dict] | None = None,
     limit: int = 5,
     dense_prefetch_threshold: float = 0.5,
+    with_scores: bool = False,
 ) -> list[dict]:
     """
     Qdrant Query API + RRF fusion 공통 헬퍼.
@@ -363,6 +364,10 @@ async def _hybrid_search(
       - sparse: BM25 (threshold 없음)
     fusion:
       - RRF (Reciprocal Rank Fusion)
+
+    with_scores=True 시 dense/sparse 개별 점수를 추가 Qdrant 쿼리로 수집해
+    각 결과 dict에 dense_score, sparse_score, dense_rank, sparse_rank 필드를 병합.
+    (Track C 점수 분해 디버그용 — 자동 분석 파이프라인에서는 항상 False)
     """
     body: dict = {
         "prefetch": [
@@ -391,10 +396,79 @@ async def _hybrid_search(
     )
     resp.raise_for_status()
     points = resp.json().get("result", {}).get("points", [])
-    return [
+    results = [
         {"id": p["id"], "score": p["score"], "payload": p.get("payload", {})}
         for p in points
     ]
+
+    if not with_scores or not results:
+        return results
+
+    # ── 점수 분해: dense/sparse 개별 쿼리 (Track C) ──────────────────────────
+    score_fetch_limit = limit * 3
+
+    dense_body: dict = {
+        "query":        dense,
+        "using":        "dense",
+        "limit":        score_fetch_limit,
+        "score_threshold": 0,   # 필터 없이 raw ranking 획득
+        "with_payload": False,
+    }
+    sparse_body: dict = {
+        "query":        {"indices": sparse["indices"], "values": sparse["values"]},
+        "using":        "sparse",
+        "limit":        score_fetch_limit,
+        "with_payload": False,
+    }
+    if filter_must:
+        dense_body["filter"] = {"must": filter_must}
+        sparse_body["filter"] = {"must": filter_must}
+
+    dense_resp, sparse_resp = await asyncio.gather(
+        _qdrant_http.post(
+            f"{QDRANT_URL}/collections/{collection}/points/query",
+            json=dense_body,
+        ),
+        _qdrant_http.post(
+            f"{QDRANT_URL}/collections/{collection}/points/query",
+            json=sparse_body,
+        ),
+        return_exceptions=True,
+    )
+
+    dense_score_map: dict = {}   # point_id → float
+    dense_rank_map: dict = {}    # point_id → int (0-based)
+    sparse_score_map: dict = {}
+    sparse_rank_map: dict = {}
+
+    if not isinstance(dense_resp, Exception):
+        try:
+            dense_resp.raise_for_status()
+            for rank, p in enumerate(dense_resp.json().get("result", {}).get("points", [])):
+                pid = p["id"]
+                dense_score_map[pid] = p["score"]
+                dense_rank_map[pid] = rank
+        except Exception as exc:
+            logger.debug("점수 분해 dense 쿼리 실패 (무시): %s", exc)
+
+    if not isinstance(sparse_resp, Exception):
+        try:
+            sparse_resp.raise_for_status()
+            for rank, p in enumerate(sparse_resp.json().get("result", {}).get("points", [])):
+                pid = p["id"]
+                sparse_score_map[pid] = p["score"]
+                sparse_rank_map[pid] = rank
+        except Exception as exc:
+            logger.debug("점수 분해 sparse 쿼리 실패 (무시): %s", exc)
+
+    for hit in results:
+        pid = hit["id"]
+        hit["dense_score"] = dense_score_map.get(pid)    # None if not in top-N
+        hit["dense_rank"] = dense_rank_map.get(pid)
+        hit["sparse_score"] = sparse_score_map.get(pid)
+        hit["sparse_rank"] = sparse_rank_map.get(pid)
+
+    return results
 
 
 # ── log_incidents 검색 & 저장 ──────────────────────────────────────────────

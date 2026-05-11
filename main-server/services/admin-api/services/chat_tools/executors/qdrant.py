@@ -336,6 +336,7 @@ async def _search_guides(
     log-analyzer POST /guides/search 호출.
     `system_ids` 지정 시 "system_id IN list OR system_id IS NULL" 필터가
     log-analyzer 측에서 적용된다 (공용 가이드는 항상 함께 노출).
+    rerank=True(기본)으로 federated_search와 동일한 reranker 정책 적용.
     """
     query = (args.get("query") or "").strip()
     if not query:
@@ -345,7 +346,13 @@ async def _search_guides(
     limit      = min(int(args.get("limit", 5)), 10)
     base       = await _base_url(db)
 
-    payload: dict[str, Any] = {"query": query, "limit": limit, "group_by_guide": True}
+    payload: dict[str, Any] = {
+        "query": query,
+        "limit": limit,
+        "group_by_guide": True,
+        "rerank": True,
+        "rerank_top_k": limit,
+    }
     if system_ids:
         payload["system_ids"] = [int(sid) for sid in system_ids]
 
@@ -378,6 +385,7 @@ async def _search_guides(
                 "matched_chunk_indexes": (r.get("payload") or {}).get("matched_chunk_indexes"),
                 "matched_chunks_count": (r.get("payload") or {}).get("matched_chunks_count"),
                 "score":                r.get("score"),
+                "reranked":             (r.get("payload") or {}).get("reranked", False),
             }
             for r in data
         ],

@@ -41,16 +41,28 @@ class DeleteGuideResponse(BaseModel):
 
 
 class SearchGuidesRequest(BaseModel):
-    query:          str = ""
-    system_ids:     Optional[list[int]] = None
-    limit:          int = 5
-    group_by_guide: bool = True
+    query:           str = ""
+    system_ids:      Optional[list[int]] = None
+    limit:           int = 5
+    group_by_guide:  bool = True
+    rerank:          bool = False
+    rerank_top_k:    int = 10
+    score_threshold: float = 0.5  # dense prefetch 최소 유사도
+    with_scores:     bool = False  # Track C: dense/sparse 개별 점수 병합
 
 
 class SearchResultItem(BaseModel):
-    id:      str
-    score:   float
-    payload: dict
+    id:           str
+    score:        float
+    payload:      dict
+    # Track C: 점수 분해 필드 (with_scores=True 시에만 존재)
+    dense_score:  Optional[float] = None
+    dense_rank:   Optional[int] = None
+    sparse_score: Optional[float] = None
+    sparse_rank:  Optional[int] = None
+    rerank_score: Optional[float] = None
+    original_rank: Optional[int] = None
+    rerank_rank:  Optional[int] = None
 
 
 # ── 엔드포인트 ────────────────────────────────────────────────────────────────
@@ -127,6 +139,7 @@ async def search_guides(req: SearchGuidesRequest):
 
     query가 비어 있으면 빈 목록 반환.
     system_ids 지정 시 해당 시스템 또는 전체 공용(system_id IS NULL) 가이드만 반환.
+    rerank=True 이면 Qdrant RRF 결과에 cross-encoder reranker 적용 후 반환.
     """
     if not req.query.strip():
         return []
@@ -137,12 +150,27 @@ async def search_guides(req: SearchGuidesRequest):
             system_ids=req.system_ids,
             limit=req.limit,
             group_by_guide=req.group_by_guide,
+            rerank=req.rerank,
+            rerank_top_k=req.rerank_top_k,
+            score_threshold=req.score_threshold,
+            with_scores=req.with_scores,
         )
     except Exception as exc:
         logger.error("가이드 검색 실패: %s", exc)
         raise HTTPException(status_code=500, detail=f"검색 실패: {exc}")
 
     return [
-        SearchResultItem(id=r["id"], score=r["score"], payload=r["payload"])
+        SearchResultItem(
+            id=r["id"],
+            score=r["score"],
+            payload=r["payload"],
+            dense_score=r.get("dense_score"),
+            dense_rank=r.get("dense_rank"),
+            sparse_score=r.get("sparse_score"),
+            sparse_rank=r.get("sparse_rank"),
+            rerank_score=r.get("rerank_score"),
+            original_rank=r.get("original_rank"),
+            rerank_rank=r.get("rerank_rank"),
+        )
         for r in results
     ]

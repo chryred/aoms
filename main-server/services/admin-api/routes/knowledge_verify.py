@@ -19,7 +19,7 @@ from typing import Any
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from auth import get_current_user
 from models import User
@@ -40,6 +40,7 @@ _KNOWLEDGE_COLLECTIONS = {
     "knowledge_confluence_pages",
     "knowledge_documents",
 }
+_GUIDE_COLLECTIONS = {"knowledge_guides"}
 
 # knowledge 컬렉션 → federated_search sources 파라미터 값
 _KNOWLEDGE_SOURCES_MAP = {
@@ -58,6 +59,7 @@ _CANONICAL_ORDER = [
     "knowledge_jira_issues",
     "knowledge_confluence_pages",
     "knowledge_documents",
+    "knowledge_guides",
 ]
 
 
@@ -66,6 +68,10 @@ _CANONICAL_ORDER = [
 class ChatbotSearchRequest(BaseModel):
     query: str
     system_ids: list[int] = []
+    top_k: int = Field(default=10, ge=1, le=50)
+    score_threshold: float = Field(default=0.5, ge=0.0, le=1.0)
+    rerank_pool_size: int = Field(default=50, ge=10, le=200)
+    with_scores: bool = False   # Track C: dense/sparse 개별 점수 병합
 
 
 class CollectionsSearchRequest(BaseModel):
@@ -75,6 +81,10 @@ class CollectionsSearchRequest(BaseModel):
         _INCIDENT_COLLECTIONS | _AGGREGATION_COLLECTIONS | _POSTMORTEM_COLLECTIONS | _KNOWLEDGE_COLLECTIONS
     )
     use_reranker: bool = True
+    top_k: int = Field(default=10, ge=1, le=50)
+    score_threshold: float = Field(default=0.5, ge=0.0, le=1.0)
+    rerank_pool_size: int = Field(default=50, ge=10, le=200)
+    with_scores: bool = False   # Track C: dense/sparse 개별 점수 병합
 
 
 class SearchResultItem(BaseModel):
@@ -180,6 +190,8 @@ def _collection_to_tool(collection: str) -> str:
         return "qdrant_search_aggregation_summary"
     if collection in _KNOWLEDGE_COLLECTIONS:
         return "qdrant_search_knowledge"
+    if collection in _GUIDE_COLLECTIONS:
+        return "qdrant_search_guide"
     return "unknown"
 
 
@@ -194,13 +206,19 @@ async def _call_incident_search(
     system_ids: list[int],
     limit: int = 10,
     use_reranker: bool = False,
+    score_threshold: float = 0.5,
+    rerank_pool_size: int = 50,
+    with_scores: bool = False,
 ) -> tuple[list[SearchResultItem], str | None]:
     """log-analyzer POST /incident/search → log_incidents + metric_baselines 결과."""
-    payload: dict[str, Any] = {"query": query, "limit": limit}
+    payload: dict[str, Any] = {"query": query, "limit": limit, "score_threshold": score_threshold}
     if use_reranker:
         payload["rerank"] = True
+        payload["rerank_top_k"] = rerank_pool_size
     if system_ids:
         payload["system_ids"] = system_ids
+    if with_scores:
+        payload["with_scores"] = True
 
     try:
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
@@ -215,6 +233,9 @@ async def _call_incident_search(
         return [], str(exc)
 
     items: list[SearchResultItem] = []
+
+    _SCORE_KEYS = ("dense_score", "dense_rank", "sparse_score", "sparse_rank",
+                   "rerank_score", "original_rank", "rerank_rank")
 
     for r in data.get("log_incidents") or []:
         content = "\n".join(filter(None, [
@@ -234,6 +255,7 @@ async def _call_incident_search(
                 "resolver": r.get("resolver"),
                 "timestamp": r.get("timestamp"),
                 "point_id": r.get("point_id"),
+                **{k: r[k] for k in _SCORE_KEYS if k in r},
             },
         ))
 
@@ -254,6 +276,7 @@ async def _call_incident_search(
                 "resolver": r.get("resolver"),
                 "timestamp": r.get("timestamp"),
                 "point_id": r.get("point_id"),
+                **{k: r[k] for k in _SCORE_KEYS if k in r},
             },
         ))
 
@@ -265,6 +288,7 @@ async def _call_postmortem_search(
     system_ids: list[int],
     limit: int = 10,
     use_reranker: bool = False,
+    rerank_pool_size: int = 50,
 ) -> tuple[list[SearchResultItem], str | None]:
     """log-analyzer POST /incident-postmortem/search → incident_postmortems 결과.
 
@@ -273,7 +297,7 @@ async def _call_postmortem_search(
     payload: dict[str, Any] = {"query": query, "limit": limit}
     if use_reranker:
         payload["rerank"] = True
-        payload["rerank_top_k"] = limit
+        payload["rerank_top_k"] = rerank_pool_size
     if system_ids:
         payload["system_ids"] = system_ids
 
@@ -332,18 +356,24 @@ async def _call_aggregation_search(
     collection: str = "aggregation_summaries",
     limit: int = 10,
     use_reranker: bool = False,
+    score_threshold: float = 0.5,
+    rerank_pool_size: int = 50,
+    with_scores: bool = False,
 ) -> tuple[list[SearchResultItem], str | None]:
     """log-analyzer POST /aggregation/search → aggregation_summaries 또는 metric_hourly_patterns."""
     payload: dict[str, Any] = {
         "query_text": query,
         "collection": collection,
         "limit": limit,
+        "score_threshold": score_threshold,
     }
     if use_reranker:
         payload["rerank"] = True
-        payload["rerank_top_k"] = limit
+        payload["rerank_top_k"] = rerank_pool_size
     if system_ids:
         payload["system_ids"] = system_ids
+    if with_scores:
+        payload["with_scores"] = True
 
     try:
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
@@ -356,6 +386,9 @@ async def _call_aggregation_search(
     except Exception as exc:
         logger.warning("aggregation/search 호출 실패: %s", exc)
         return [], str(exc)
+
+    _SCORE_KEYS = ("dense_score", "dense_rank", "sparse_score", "sparse_rank",
+                   "rerank_score", "original_rank", "rerank_rank")
 
     items: list[SearchResultItem] = []
     for r in data.get("results") or []:
@@ -375,6 +408,7 @@ async def _call_aggregation_search(
                 "llm_trend": payload_data.get("llm_trend"),
                 "llm_prediction": payload_data.get("llm_prediction"),
                 "point_id": str(r["id"]) if r.get("id") is not None else None,
+                **{k: r[k] for k in _SCORE_KEYS if k in r},
             },
         ))
 
@@ -387,6 +421,9 @@ async def _call_knowledge_search(
     sources: list[str] | None,
     use_reranker: bool = True,
     limit: int = 10,
+    score_threshold: float = 0.5,
+    rerank_pool_size: int = 50,
+    with_scores: bool = False,
 ) -> tuple[list[SearchResultItem], str | None]:
     """log-analyzer POST /knowledge/search → jira/confluence/documents federated 검색.
 
@@ -397,11 +434,16 @@ async def _call_knowledge_search(
         "query": query,
         "limit": limit,
         "rerank": use_reranker,
+        "score_threshold": score_threshold,
     }
+    if use_reranker:
+        payload["rerank_top_k"] = rerank_pool_size
     if sources:
         payload["sources"] = sources
     if system_ids:
         payload["system_ids"] = system_ids
+    if with_scores:
+        payload["with_scores"] = True
 
     try:
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
@@ -414,6 +456,9 @@ async def _call_knowledge_search(
     except Exception as exc:
         logger.warning("knowledge/search 호출 실패: %s", exc)
         return [], str(exc)
+
+    _SCORE_KEYS = ("dense_score", "dense_rank", "sparse_score", "sparse_rank",
+                   "rerank_score", "original_rank", "rerank_rank")
 
     items: list[SearchResultItem] = []
     for r in data.get("results") or []:
@@ -465,6 +510,77 @@ async def _call_knowledge_search(
                 "question": payload_data.get("question"),
                 "answer": payload_data.get("answer"),
                 "created_at": payload_data.get("created_at"),
+                **{k: r[k] for k in _SCORE_KEYS if k in r},
+            },
+        ))
+
+    return items, None
+
+
+async def _call_guide_search(
+    query: str,
+    system_ids: list[int],
+    use_reranker: bool = True,
+    limit: int = 10,
+    score_threshold: float = 0.5,
+    rerank_pool_size: int = 50,
+    with_scores: bool = False,
+) -> tuple[list[SearchResultItem], str | None]:
+    """log-analyzer POST /guides/search → knowledge_guides Hybrid 검색.
+
+    rerank=True(기본)면 cross-encoder reranker 적용.
+    결과를 SearchResultItem 스키마로 매핑하여 반환.
+    """
+    payload: dict[str, Any] = {
+        "query": query,
+        "limit": limit,
+        "group_by_guide": True,
+        "rerank": use_reranker,
+        "rerank_top_k": rerank_pool_size if use_reranker else limit,
+        "score_threshold": score_threshold,
+    }
+    if system_ids:
+        payload["system_ids"] = system_ids
+    if with_scores:
+        payload["with_scores"] = True
+
+    try:
+        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+            resp = await client.post(f"{_base()}/guides/search", json=payload)
+            if resp.status_code >= 400:
+                msg = f"HTTP {resp.status_code}: {resp.text[:200]}"
+                logger.warning("guides/search %s", msg)
+                return [], msg
+            data = resp.json()
+    except Exception as exc:
+        logger.warning("guides/search 호출 실패: %s", exc)
+        return [], str(exc)
+
+    _SCORE_KEYS = ("dense_score", "dense_rank", "sparse_score", "sparse_rank",
+                   "rerank_score", "original_rank", "rerank_rank")
+
+    items: list[SearchResultItem] = []
+    for r in data or []:
+        payload_data = r.get("payload") or {}
+        content = (payload_data.get("content") or "")[:1500]
+
+        items.append(SearchResultItem(
+            tool="qdrant_search_guide",
+            collection="knowledge_guides",
+            score=r.get("score"),
+            content=content,
+            system_id=payload_data.get("system_id"),
+            system_name=None,
+            extra={
+                "title": payload_data.get("title"),
+                "guide_id": payload_data.get("guide_id"),
+                "chunk_index": payload_data.get("chunk_index"),
+                "total_chunks": payload_data.get("total_chunks"),
+                "matched_chunk_indexes": payload_data.get("matched_chunk_indexes"),
+                "matched_chunks_count": payload_data.get("matched_chunks_count"),
+                "reranked": payload_data.get("reranked", False),
+                "point_id": str(r["id"]) if r.get("id") is not None else None,
+                **{k: r[k] for k in _SCORE_KEYS if k in r},
             },
         ))
 
@@ -478,14 +594,15 @@ async def search_verify_chatbot(
     body: ChatbotSearchRequest,
     _user: User = Depends(get_current_user),
 ) -> SearchVerifyResponse:
-    """챗봇 RAG 4개 도구와 동일 로직으로 검색 — LLM 호출 없음.
+    """챗봇 RAG 5개 도구와 동일 로직으로 검색 — LLM 호출 없음.
 
     - qdrant_search_incident_knowledge → /incident/search (system_ids 필터)
     - qdrant_search_incident_postmortem → /incident-postmortem/search (system_id 단일 필터)
     - qdrant_search_aggregation_summary → /aggregation/search (system_ids 필터)
     - qdrant_search_knowledge → /knowledge/search (rerank=True, 챗봇 동일)
+    - qdrant_search_guide → /guides/search (rerank=True, federated_search와 동일 정책)
 
-    chatbot 모드: knowledge만 rerank (실제 챗봇 동작 일치).
+    chatbot 모드: knowledge + guides 모두 rerank 적용 (실제 챗봇 동작 일치).
     응답: groups (컬렉션별 독립 정렬) + errors (부분 실패).
     """
     query = (body.query or "").strip()
@@ -493,21 +610,27 @@ async def search_verify_chatbot(
         raise HTTPException(status_code=400, detail="query는 필수입니다")
 
     system_ids = body.system_ids or []
+    top_k = body.top_k
+    score_threshold = body.score_threshold
+    rerank_pool_size = body.rerank_pool_size
+    with_scores = body.with_scores
 
-    # 4개 도구 병렬 호출
+    # 5개 도구 병렬 호출
     (
         (incident_items, incident_err),
         (postmortem_items, postmortem_err),
         (aggregation_items, aggregation_err),
         (knowledge_items, knowledge_err),
+        (guide_items, guide_err),
     ) = await asyncio.gather(
-        _call_incident_search(query, system_ids, use_reranker=False),
-        _call_postmortem_search(query, system_ids, use_reranker=False),
-        _call_aggregation_search(query, system_ids, collection="aggregation_summaries", use_reranker=False),
-        _call_knowledge_search(query, system_ids, sources=["jira", "confluence", "documents"], use_reranker=True),
+        _call_incident_search(query, system_ids, limit=top_k, use_reranker=False, score_threshold=score_threshold, with_scores=with_scores),
+        _call_postmortem_search(query, system_ids, limit=top_k, use_reranker=False),
+        _call_aggregation_search(query, system_ids, collection="aggregation_summaries", limit=top_k, use_reranker=False, score_threshold=score_threshold, with_scores=with_scores),
+        _call_knowledge_search(query, system_ids, sources=["jira", "confluence", "documents"], use_reranker=True, limit=top_k, score_threshold=score_threshold, rerank_pool_size=rerank_pool_size, with_scores=with_scores),
+        _call_guide_search(query, system_ids, use_reranker=True, limit=top_k, score_threshold=score_threshold, rerank_pool_size=rerank_pool_size, with_scores=with_scores),
     )
 
-    all_items = incident_items + postmortem_items + aggregation_items + knowledge_items
+    all_items = incident_items + postmortem_items + aggregation_items + knowledge_items + guide_items
 
     # 에러 수집 — 각 도구의 실패를 관련 컬렉션에 매핑
     errors: list[ToolError] = []
@@ -537,6 +660,12 @@ async def search_verify_chatbot(
                 collection=col,
                 reason=knowledge_err,
             ))
+    if guide_err:
+        errors.append(ToolError(
+            tool="qdrant_search_guide",
+            collection="knowledge_guides",
+            reason=guide_err,
+        ))
 
     # chatbot 모드 활성 컬렉션 (모두 표시)
     active_cols = (
@@ -544,9 +673,10 @@ async def search_verify_chatbot(
         | _POSTMORTEM_COLLECTIONS
         | {"aggregation_summaries"}
         | _KNOWLEDGE_COLLECTIONS
+        | _GUIDE_COLLECTIONS
     )
-    # knowledge만 rerank
-    reranked_cols = _KNOWLEDGE_COLLECTIONS
+    # knowledge + guides 모두 rerank
+    reranked_cols = _KNOWLEDGE_COLLECTIONS | _GUIDE_COLLECTIONS
 
     groups = _build_groups(all_items, selected_collections=active_cols, reranked_collections=reranked_cols)
 
@@ -557,6 +687,7 @@ async def search_verify_chatbot(
             "qdrant_search_incident_postmortem",
             "qdrant_search_aggregation_summary",
             "qdrant_search_knowledge",
+            "qdrant_search_guide",
         ],
         errors=errors,
     )
@@ -576,6 +707,7 @@ async def search_verify_collections(
       aggregation_summaries / metric_hourly_patterns → /aggregation/search
       incident_postmortems → /incident-postmortem/search
       knowledge_jira / knowledge_confluence / knowledge_documents → /knowledge/search
+      knowledge_guides → /guides/search
 
     collections 모드: use_reranker=True 이면 모든 컬렉션에 rerank 적용.
     응답: groups (컬렉션별 독립 정렬) + errors (부분 실패).
@@ -587,6 +719,10 @@ async def search_verify_collections(
     system_ids = body.system_ids or []
     collections = set(body.collections)
     rerank = body.use_reranker
+    top_k = body.top_k
+    score_threshold = body.score_threshold
+    rerank_pool_size = body.rerank_pool_size
+    with_scores = body.with_scores
 
     # 비동기 작업 목록: (awaitable, label)
     coros: list[Any] = []
@@ -594,23 +730,27 @@ async def search_verify_collections(
 
     incident_cols = collections & _INCIDENT_COLLECTIONS
     if incident_cols:
-        coros.append(_call_incident_search(query, system_ids, use_reranker=rerank))
+        coros.append(_call_incident_search(query, system_ids, limit=top_k, use_reranker=rerank, score_threshold=score_threshold, rerank_pool_size=rerank_pool_size, with_scores=with_scores))
         labels.append("incident")
 
     if "incident_postmortems" in collections:
-        coros.append(_call_postmortem_search(query, system_ids, use_reranker=rerank))
+        coros.append(_call_postmortem_search(query, system_ids, limit=top_k, use_reranker=rerank, rerank_pool_size=rerank_pool_size))
         labels.append("incident_postmortems")
 
     for col in ("aggregation_summaries", "metric_hourly_patterns"):
         if col in collections:
-            coros.append(_call_aggregation_search(query, system_ids, collection=col, use_reranker=rerank))
+            coros.append(_call_aggregation_search(query, system_ids, collection=col, limit=top_k, use_reranker=rerank, score_threshold=score_threshold, rerank_pool_size=rerank_pool_size, with_scores=with_scores))
             labels.append(col)
 
     knowledge_cols = collections & _KNOWLEDGE_COLLECTIONS
     if knowledge_cols:
         sources = [_KNOWLEDGE_SOURCES_MAP[c] for c in knowledge_cols if c in _KNOWLEDGE_SOURCES_MAP]
-        coros.append(_call_knowledge_search(query, system_ids, sources=sources, use_reranker=rerank))
+        coros.append(_call_knowledge_search(query, system_ids, sources=sources, use_reranker=rerank, limit=top_k, score_threshold=score_threshold, rerank_pool_size=rerank_pool_size, with_scores=with_scores))
         labels.append("knowledge")
+
+    if "knowledge_guides" in collections:
+        coros.append(_call_guide_search(query, system_ids, use_reranker=rerank, limit=top_k, score_threshold=score_threshold, rerank_pool_size=rerank_pool_size, with_scores=with_scores))
+        labels.append("knowledge_guides")
 
     if not coros:
         raise HTTPException(status_code=400, detail="검색할 컬렉션을 하나 이상 선택하세요")
@@ -643,6 +783,12 @@ async def search_verify_collections(
                         collection=col,
                         reason=err,
                     ))
+            elif label == "knowledge_guides":
+                errors.append(ToolError(
+                    tool="qdrant_search_guide",
+                    collection="knowledge_guides",
+                    reason=err,
+                ))
             else:
                 # aggregation_summaries / metric_hourly_patterns (label == col)
                 errors.append(ToolError(

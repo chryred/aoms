@@ -290,10 +290,7 @@ export function AlertHistoryPage() {
   const selectedLogAnalysisCount = selectedLogAlerts.length
   const selectedMetricCount = selectedMetricAlerts.length
   const hasUnsupportedSelected = currentAlerts.some(
-    (a) =>
-      selectedIds.has(a.id) &&
-      a.alert_type !== 'log_analysis' &&
-      !isMetricAnalyzerAlert(a),
+    (a) => selectedIds.has(a.id) && a.alert_type !== 'log_analysis' && !isMetricAnalyzerAlert(a),
   )
 
   // 만료 옵션 → ISO UTC 변환
@@ -314,7 +311,12 @@ export function AlertHistoryPage() {
   const openExcludeModal = async () => {
     setShowExcludeModal(true)
     // 메트릭 컨텍스트 prefill — 선택된 메트릭 알림에서 host + metric_types 추출
-    const metricCtx: { alertId: number; systemId: number; host: string | null; types: MetricType[] }[] = []
+    const metricCtx: {
+      alertId: number
+      systemId: number
+      host: string | null
+      types: MetricType[]
+    }[] = []
     const metricKeys = new Set<string>()
     for (const a of selectedMetricAlerts) {
       if (a.system_id == null) continue
@@ -332,8 +334,7 @@ export function AlertHistoryPage() {
     setApplyToAllHosts(false)
 
     // 초기 탭: 로그가 있으면 로그, 메트릭만 있으면 메트릭
-    const initialMode: 'log' | 'metric' =
-      selectedLogAnalysisCount > 0 ? 'log' : 'metric'
+    const initialMode: 'log' | 'metric' = selectedLogAnalysisCount > 0 ? 'log' : 'metric'
     setModalMode(initialMode)
 
     // 로그 분기 — 템플릿 조회 (로그 알림이 있을 때만)
@@ -599,10 +600,7 @@ export function AlertHistoryPage() {
     const eligibleIds = metricExclusions
       .filter((e) => e.active && !isExclusionExpired(e))
       .map((e) => e.id)
-    if (
-      eligibleIds.length > 0 &&
-      eligibleIds.every((id) => selectedMetricExclusionIds.has(id))
-    ) {
+    if (eligibleIds.length > 0 && eligibleIds.every((id) => selectedMetricExclusionIds.has(id))) {
       setSelectedMetricExclusionIds(new Set())
     } else {
       setSelectedMetricExclusionIds(new Set(eligibleIds))
@@ -1316,7 +1314,7 @@ export function AlertHistoryPage() {
                           전체 선택
                         </button>
                         <button
-                          className="text-text-secondary text-xs underline-offset-2 hover:text-text-primary hover:underline"
+                          className="text-text-secondary hover:text-text-primary text-xs underline-offset-2 hover:underline"
                           onClick={() => setSelectedTemplateKeys(new Set())}
                         >
                           전체 해제
@@ -1326,9 +1324,7 @@ export function AlertHistoryPage() {
                   </div>
                   <div className="bg-bg-base shadow-neu-inset max-h-40 overflow-y-auto rounded-sm p-2">
                     {isLoadingTemplates ? (
-                      <p className="text-text-disabled py-2 text-center text-xs">
-                        불러오는 중...
-                      </p>
+                      <p className="text-text-disabled py-2 text-center text-xs">불러오는 중...</p>
                     ) : templateItems.length === 0 ? (
                       <p className="text-text-disabled py-2 text-center text-xs">
                         조회된 템플릿이 없습니다
@@ -1402,8 +1398,8 @@ export function AlertHistoryPage() {
             ) : (
               <div role="tabpanel" id="exclude-panel-metric">
                 <p className="text-text-secondary mb-4 text-sm">
-                  예외로 등록할 메트릭을 선택하세요. 완전 차단 또는 임계치 오버라이드
-                  (개발기 둔감화)를 적용할 수 있습니다.
+                  예외로 등록할 메트릭을 선택하세요. 완전 차단 또는 임계치 오버라이드 (개발기
+                  둔감화)를 적용할 수 있습니다.
                 </p>
 
                 {/* 메트릭 선택 — 알림별 호스트 + metric_type 체크박스 */}
@@ -1425,7 +1421,7 @@ export function AlertHistoryPage() {
                       metricAlertContext.map((ctx) => (
                         <div
                           key={ctx.alertId}
-                          className="border-border mb-2 rounded-sm px-2 py-1.5 last:mb-0 hover:bg-surface"
+                          className="border-border hover:bg-surface mb-2 rounded-sm px-2 py-1.5 last:mb-0"
                         >
                           <div className="text-text-primary mb-1.5 text-xs font-medium">
                             #{ctx.alertId}
@@ -1438,10 +1434,7 @@ export function AlertHistoryPage() {
                               const k = `${ctx.alertId}:${t}`
                               const checked = selectedMetricKeys.has(k)
                               return (
-                                <label
-                                  key={k}
-                                  className="flex cursor-pointer items-center gap-1.5"
-                                >
+                                <label key={k} className="flex cursor-pointer items-center gap-1.5">
                                   <input
                                     type="checkbox"
                                     className="accent-accent"
@@ -1481,9 +1474,9 @@ export function AlertHistoryPage() {
                     onChange={(e) => setOverrideThresholdInput(e.target.value)}
                   />
                   <p className="text-text-disabled mt-1 text-xs">
-                    예: 디스크 I/O 500ms 입력 → 500ms 이하는 무시, 초과 시 정상 알림 발생.
-                    선택된 메트릭이 여러 종류면 모두 같은 숫자가 적용됩니다 (단위는
-                    메트릭별: %, ms, MB/s, 건/분).
+                    예: 디스크 I/O 500ms 입력 → 500ms 이하는 무시, 초과 시 정상 알림 발생. 선택된
+                    메트릭이 여러 종류면 모두 같은 숫자가 적용됩니다 (단위는 메트릭별: %, ms, MB/s,
+                    건/분).
                   </p>
                 </div>
 
@@ -1556,7 +1549,6 @@ export function AlertHistoryPage() {
           </div>
         </div>
       )}
-
 
       {/* 상세 패널 */}
       <AlertDetailPanel alert={selectedAlert} onClose={() => setSelectedAlert(null)} />

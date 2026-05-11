@@ -11,6 +11,7 @@ export type RagCollection =
   | 'knowledge_jira_issues'
   | 'knowledge_confluence_pages'
   | 'knowledge_documents'
+  | 'knowledge_guides'
 
 export const ALL_COLLECTIONS: RagCollection[] = [
   'log_incidents',
@@ -21,6 +22,7 @@ export const ALL_COLLECTIONS: RagCollection[] = [
   'knowledge_jira_issues',
   'knowledge_confluence_pages',
   'knowledge_documents',
+  'knowledge_guides',
 ]
 
 export const COLLECTION_LABELS: Record<RagCollection, string> = {
@@ -32,6 +34,7 @@ export const COLLECTION_LABELS: Record<RagCollection, string> = {
   knowledge_jira_issues: 'knowledge_jira_issues',
   knowledge_confluence_pages: 'knowledge_confluence_pages',
   knowledge_documents: 'knowledge_documents',
+  knowledge_guides: '운영 가이드',
 }
 
 export const KNOWLEDGE_COLLECTIONS: RagCollection[] = [
@@ -76,6 +79,14 @@ export interface SearchVerifyResult {
   root_cause?: string
   alert_excerpts?: string
   tags?: string[]
+  // Track C: 점수 분해 필드 (with_scores=true 시에만 존재)
+  dense_score?: number | null
+  dense_rank?: number | null
+  sparse_score?: number | null
+  sparse_rank?: number | null
+  rerank_score?: number | null
+  original_rank?: number | null
+  rerank_rank?: number | null
   // 기타 메타데이터 (백엔드 응답 형식이 확정되면 축소 가능)
   [key: string]: unknown
 }

@@ -9,6 +9,8 @@ import {
   FileText,
   TrendingUp,
   Sparkles,
+  ChevronDown,
+  ChevronRight,
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { NeuCard } from '@/components/neumorphic/NeuCard'
@@ -23,6 +25,91 @@ import { SeverityBadge } from '@/components/charts/SeverityBadge'
 import type { SearchVerifyResult } from '@/types/knowledge-verify'
 import type { OperatorNote } from '@/types/knowledge'
 import type { ReportType } from '@/types/report'
+
+// ── 점수 분해 표시 컴포넌트 (Track C) ────────────────────────────────────────
+
+interface ScoreDecompositionProps {
+  result: SearchVerifyResult
+}
+
+function ScoreDecomposition({ result }: ScoreDecompositionProps) {
+  const [open, setOpen] = useState(false)
+
+  const hasDense = result.dense_score !== undefined && result.dense_score !== null
+  const hasSparse = result.sparse_score !== undefined && result.sparse_score !== null
+  const hasRerank = result.rerank_score !== undefined && result.rerank_score !== null
+
+  if (!hasDense && !hasSparse && !hasRerank) return null
+
+  const denseRank = result.dense_rank as number | null | undefined
+  const sparseRank = result.sparse_rank as number | null | undefined
+  const originalRank = result.original_rank as number | null | undefined
+  const rerankRank = result.rerank_rank as number | null | undefined
+
+  return (
+    <div className="border-border border-t pt-1.5">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className={cn(
+          'text-text-disabled hover:text-text-secondary flex items-center gap-1 text-[10px] transition-colors',
+          'focus:ring-accent focus:ring-1 focus:outline-none',
+        )}
+      >
+        {open ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+        점수 분해
+      </button>
+      {open && (
+        <dl className="text-text-secondary mt-1 grid grid-cols-2 gap-x-4 gap-y-0.5 font-mono text-[10px] sm:grid-cols-4">
+          {hasDense && (
+            <>
+              <div>
+                <dt className="text-text-disabled">dense</dt>
+                <dd>{(result.dense_score as number).toFixed(4)}</dd>
+              </div>
+              {denseRank !== undefined && denseRank !== null && (
+                <div>
+                  <dt className="text-text-disabled">dense rank</dt>
+                  <dd>#{denseRank + 1}</dd>
+                </div>
+              )}
+            </>
+          )}
+          {hasSparse && (
+            <>
+              <div>
+                <dt className="text-text-disabled">sparse</dt>
+                <dd>{(result.sparse_score as number).toFixed(4)}</dd>
+              </div>
+              {sparseRank !== undefined && sparseRank !== null && (
+                <div>
+                  <dt className="text-text-disabled">sparse rank</dt>
+                  <dd>#{sparseRank + 1}</dd>
+                </div>
+              )}
+            </>
+          )}
+          {hasRerank && (
+            <>
+              <div>
+                <dt className="text-text-disabled">rerank logit</dt>
+                <dd>{(result.rerank_score as number).toFixed(4)}</dd>
+              </div>
+              {originalRank !== undefined && originalRank !== null && rerankRank !== undefined && rerankRank !== null && (
+                <div>
+                  <dt className="text-text-disabled">rank 변화</dt>
+                  <dd>
+                    #{originalRank + 1} → #{rerankRank + 1}
+                  </dd>
+                </div>
+              )}
+            </>
+          )}
+        </dl>
+      )}
+    </div>
+  )
+}
 
 // ── 운영자 노트 카드 ──────────────────────────────────────────────────────────
 
@@ -85,6 +172,7 @@ function OperatorNoteCard({
           <p className="text-text-secondary mt-1 line-clamp-3 text-sm">{result.answer}</p>
         </div>
       </div>
+      <ScoreDecomposition result={result} />
       <div className="border-border flex items-center border-t pt-2">
         {result.point_id && onDetailClick && (
           <PointIdBadge pointId={result.point_id} onClick={onDetailClick} />
@@ -175,6 +263,7 @@ function DocumentChunkCard({
           <p className="text-text-secondary mt-1 line-clamp-3 text-sm">{result.content}</p>
         )}
       </div>
+      <ScoreDecomposition result={result} />
       <div className="border-border flex items-center border-t pt-2">
         {result.point_id && onDetailClick && (
           <PointIdBadge pointId={result.point_id} onClick={onDetailClick} />
@@ -241,6 +330,7 @@ function JiraConfluenceCard({
           <p className="text-text-secondary mt-1 line-clamp-3 text-sm">{result.content}</p>
         )}
       </div>
+      <ScoreDecomposition result={result} />
       <div className="border-border flex items-center border-t pt-2">
         {result.point_id && onDetailClick && (
           <PointIdBadge pointId={result.point_id} onClick={onDetailClick} />
@@ -374,6 +464,7 @@ function AggregationVerifyCard({
           </div>
         )}
       </div>
+      <ScoreDecomposition result={result} />
       {result.point_id && onDetailClick && (
         <div className="border-border flex items-center border-t pt-2">
           <PointIdBadge pointId={result.point_id} onClick={onDetailClick} />
@@ -439,6 +530,7 @@ function IncidentCard({
           <p className="text-text-primary mt-1 line-clamp-3 text-sm">{result.solution}</p>
         )}
       </div>
+      <ScoreDecomposition result={result} />
       <div className="border-border flex items-center border-t pt-2">
         {result.point_id && onDetailClick && (
           <PointIdBadge pointId={result.point_id} onClick={onDetailClick} />
@@ -505,6 +597,7 @@ function IncidentPostmortemCard({
           <p className="text-text-primary mt-1 line-clamp-2 text-sm">{solution}</p>
         )}
       </div>
+      <ScoreDecomposition result={result} />
       <div className="border-border flex items-center border-t pt-2">
         {result.point_id && onDetailClick && (
           <PointIdBadge pointId={result.point_id} onClick={onDetailClick} />

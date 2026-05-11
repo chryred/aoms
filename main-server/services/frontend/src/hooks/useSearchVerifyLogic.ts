@@ -19,6 +19,10 @@ interface SearchVerifyLogicParams {
   selectedSystems: number[]
   selectedCollections: RagCollection[]
   useReranker: boolean
+  topK: number
+  scoreThreshold: number
+  rerankPoolSize: number
+  withScores: boolean
 }
 
 /** 진행 중인 단건 강제 재동기화 Job 상태 */
@@ -45,6 +49,10 @@ export function useSearchVerifyLogic({
   selectedSystems,
   selectedCollections,
   useReranker,
+  topK,
+  scoreThreshold,
+  rerankPoolSize,
+  withScores,
 }: SearchVerifyLogicParams): SearchVerifyLogicReturn {
   const qc = useQueryClient()
   const [groups, setGroups] = useState<CollectionGroup[]>([])
@@ -71,7 +79,14 @@ export function useSearchVerifyLogic({
 
     if (mode === 'chatbot') {
       searchChatbot.mutate(
-        { query: query.trim(), system_ids: selectedSystems },
+        {
+          query: query.trim(),
+          system_ids: selectedSystems,
+          top_k: topK,
+          score_threshold: scoreThreshold,
+          rerank_pool_size: rerankPoolSize,
+          with_scores: withScores,
+        },
         {
           onSuccess: (data) => {
             setGroups(data.groups ?? [])
@@ -87,6 +102,10 @@ export function useSearchVerifyLogic({
           system_ids: selectedSystems,
           collections: selectedCollections,
           use_reranker: useReranker,
+          top_k: topK,
+          score_threshold: scoreThreshold,
+          rerank_pool_size: rerankPoolSize,
+          with_scores: withScores,
         },
         {
           onSuccess: (data) => {
@@ -99,7 +118,17 @@ export function useSearchVerifyLogic({
     }
     // searchChatbot.mutate / searchCollections.mutate are stable mutation functions
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, query, selectedSystems, selectedCollections, useReranker])
+  }, [
+    mode,
+    query,
+    selectedSystems,
+    selectedCollections,
+    useReranker,
+    topK,
+    scoreThreshold,
+    rerankPoolSize,
+    withScores,
+  ])
 
   const handleResultsRefresh = useCallback(() => {
     if (!hasSearched || !query.trim()) return

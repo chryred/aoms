@@ -773,3 +773,219 @@ def test_chunk_pdf_large_page_sliding_window(monkeypatch):
         assert c["metadata"]["doc_type"] == "pdf"
     # chunk_index 전역 누적
     assert [c["metadata"]["chunk_index"] for c in chunks] == list(range(len(chunks)))
+
+
+# ── Track D: min_chars + section_heading ─────────────────────────────────────
+
+class TestChunkTextMinChars:
+    """chunk_text min_chars 파라미터 단위 테스트."""
+
+    def test_short_input_always_passes(self):
+        """원문 자체가 min_chars 미만이어도 첫 청크는 반드시 반환된다 (chunk_index==0 예외)."""
+        chunks = chunk_text("짧음", min_chars=50)
+        assert len(chunks) == 1
+        assert chunks[0]["text"] == "짧음"
+        assert chunks[0]["metadata"]["chunk_index"] == 0
+
+    def test_tail_chunk_filtered_when_too_short(self):
+        """sliding window 말미 잔여 청크가 min_chars 미만이면 폐기된다."""
+        # max_chars=20, overlap=5 로 작은 윈도우 설정
+        # "가"*20 + "나"*3 → 첫 청크 20자, 이후 잔여 3자 → min_chars=10이면 폐기
+        text = "가" * 20 + "나" * 3
+        chunks = chunk_text(text, max_chars=20, overlap=5, min_chars=10)
+        # 첫 청크는 항상 포함; 잔여 "나나나"(3자)는 폐기
+        assert len(chunks) >= 1
+        tail = chunks[-1]["text"]
+        assert len(tail) >= 10 or chunks[-1]["metadata"]["chunk_index"] == 0
+
+    def test_tail_chunk_kept_when_meets_min_chars(self):
+        """잔여 청크가 min_chars 이상이면 정상 포함된다."""
+        text = "가" * 1500 + "나" * 100
+        chunks = chunk_text(text, max_chars=1500, overlap=200, min_chars=50)
+        # 마지막 청크는 "나"를 포함해야 함
+        all_text = "".join(c["text"] for c in chunks)
+        assert "나" in all_text
+
+    def test_min_chars_default_does_not_break_existing_short_inputs(self):
+        """기본 min_chars=50 에서 7자 입력은 chunk_index==0 예외로 정상 반환."""
+        chunks = chunk_text("짧은 텍스트")
+        assert len(chunks) == 1
+        assert chunks[0]["text"] == "짧은 텍스트"
+
+    def test_min_chars_custom_explicit(self):
+        """min_chars 명시 지정 시 해당 값이 적용된다."""
+        chunks = chunk_text("hello world", min_chars=5)
+        assert len(chunks) == 1
+        assert chunks[0]["text"] == "hello world"
+
+
+class TestSectionHeadingMetadata:
+    """section_heading 메타데이터 전파 단위 테스트."""
+
+    def test_confluence_section_heading_present_when_heading_exists(self):
+        """Confluence HTML에서 H2 섹션이 있으면 section_heading이 설정된다."""
+        html = """<html><body>
+          <h2>운영 절차</h2>
+          <p>""" + "절차 내용 " * 100 + """</p>
+        </body></html>"""
+        chunks = chunk_confluence_page(html, page_id="p1", page_title="운영 가이드", space="OPS")
+        # heading이 있는 청크는 section_heading이 heading 값과 같아야 함
+        heading_chunks = [c for c in chunks if c["metadata"].get("heading")]
+        assert len(heading_chunks) >= 1
+        for c in heading_chunks:
+            assert c["metadata"]["section_heading"] == c["metadata"]["heading"]
+
+    def test_confluence_section_heading_none_when_no_heading(self):
+        """Confluence plain text(헤딩 없음)는 section_heading이 None."""
+        chunks = chunk_confluence_page(
+            "일반 텍스트 내용입니다.",
+            page_id="p2",
+            page_title="메모",
+            space="WIKI",
+        )
+        assert len(chunks) >= 1
+        for c in chunks:
+            assert c["metadata"].get("section_heading") is None
+
+    def test_xlsx_section_heading_equals_sheet_name(self, monkeypatch):
+        """XLSX 청크의 section_heading은 sheet_name과 같다."""
+        import types
+        import sys as _sys
+
+        class _MockWS:
+            title = "재고현황"
+            def iter_rows(self, values_only=True):
+                yield ("항목", "수량", "단위")
+                yield ("사과", "100", "박스")
+                yield ("배", "50", "박스")
+
+        class _MockWB:
+            sheetnames = ["재고현황"]
+            def __getitem__(self, name):
+                return _MockWS()
+            def close(self):
+                pass
+
+        monkeypatch.setitem(
+            _sys.modules,
+            "openpyxl",
+            types.SimpleNamespace(load_workbook=lambda *a, **kw: _MockWB()),
+        )
+        chunks = chunk_xlsx("/fake/test.xlsx")
+        assert len(chunks) >= 1
+        for c in chunks:
+            assert c["metadata"]["section_heading"] == "재고현황"
+            assert c["metadata"]["sheet_name"] == "재고현황"
+
+    def test_pptx_section_heading_equals_slide_title(self, monkeypatch):
+        """PPTX 청크의 section_heading은 slide_title과 같다."""
+        import types
+        import sys as _sys
+        from pptx.enum.shapes import MSO_SHAPE_TYPE  # noqa: F401 — 실제 enum 참조
+
+        class _MockTextFrame:
+            paragraphs = []
+
+        class _MockTitle:
+            text = "분기 실적"
+            def __init__(self):
+                self.has_text_frame = False
+                self.has_table = False
+
+        class _MockShape:
+            def __init__(self, title=False):
+                self._is_title = title
+                self.has_text_frame = True
+                self.has_table = False
+                self.shape_type = MSO_SHAPE_TYPE.TEXT_BOX
+                if title:
+                    self.text = "분기 실적"
+                    self.text_frame = _MockTextFrame()
+                    self.text_frame.paragraphs = []
+                else:
+                    self.text_frame = _MockTextFrame()
+                    self.text_frame.paragraphs = []
+
+        class _MockSlideShapes:
+            @property
+            def title(self):
+                return _MockTitlePlaceholder()
+
+            def __iter__(self):
+                return iter([])
+
+        class _MockTitlePlaceholder:
+            text = "분기 실적"
+            has_text_frame = False
+            has_table = False
+            shape_type = MSO_SHAPE_TYPE.TEXT_BOX
+
+            def __eq__(self, other):
+                return self is other
+
+        class _MockNotesSlide:
+            notes_text_frame = None
+
+        class _MockSlide:
+            @property
+            def shapes(self):
+                return _MockSlideShapes()
+            @property
+            def has_notes_slide(self):
+                return False
+            @property
+            def notes_slide(self):
+                return None
+
+        class _MockPrs:
+            slides = [_MockSlide()]
+
+        monkeypatch.setitem(
+            _sys.modules,
+            "pptx",
+            types.SimpleNamespace(Presentation=lambda _: _MockPrs()),
+        )
+        chunks = chunk_pptx("/fake/test.pptx")
+        # 슬라이드에 title은 있지만 body가 없어 chunk가 0이거나 1
+        # 어떤 경우든 생성된 청크에는 section_heading이 slide_title과 동일해야 함
+        for c in chunks:
+            assert c["metadata"]["section_heading"] == c["metadata"]["slide_title"]
+
+    def test_pdf_section_heading_is_none(self, monkeypatch):
+        """PDF 청크의 section_heading은 항상 None (페이지 기반, 헤딩 추출 없음)."""
+        import types
+        import sys as _sys
+
+        class _MockPage:
+            def extract_text(self):
+                return "PDF 페이지 내용입니다. " * 10
+
+        class _MockPdf:
+            pages = [_MockPage()]
+            def __enter__(self):
+                return self
+            def __exit__(self, *a):
+                pass
+
+        class _MockPypdfPage:
+            @property
+            def images(self):
+                return []
+
+        class _MockPypdfReader:
+            pages = [_MockPypdfPage()]
+
+        monkeypatch.setitem(
+            _sys.modules,
+            "pdfplumber",
+            types.SimpleNamespace(open=lambda _: _MockPdf()),
+        )
+        monkeypatch.setitem(
+            _sys.modules,
+            "pypdf",
+            types.SimpleNamespace(PdfReader=lambda _: _MockPypdfReader()),
+        )
+        chunks = chunk_pdf("/fake/test.pdf")
+        assert len(chunks) >= 1
+        for c in chunks:
+            assert c["metadata"]["section_heading"] is None

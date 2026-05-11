@@ -352,6 +352,91 @@ class TestDeleteOperatorNote:
         assert ok is False
 
 
+# ── Track C: with_scores 전파 검증 ──────────────────────────────────────────
+
+class TestWithScoresPropagation:
+    """federated_search의 with_scores=True가 _hybrid_search 호출에 전파되는지 검증."""
+
+    @pytest.mark.asyncio
+    async def test_with_scores_false_by_default(self):
+        """기본 호출 시 with_scores가 _hybrid_search에 False로 전달된다."""
+        dummy_dense  = [0.1] * 1024
+        dummy_sparse = {"indices": [1], "values": [0.5]}
+        calls = []
+
+        async def mock_hybrid(collection, dense, sparse, filter_must=None, limit=5, **kw):
+            calls.append({"collection": collection, "with_scores": kw.get("with_scores", False)})
+            return []
+
+        with (
+            patch("knowledge_vector_client.get_embedding",    new=AsyncMock(return_value=dummy_dense)),
+            patch("knowledge_vector_client.get_sparse_vector", new=AsyncMock(return_value=dummy_sparse)),
+            patch("knowledge_vector_client._hybrid_search",   new=AsyncMock(side_effect=mock_hybrid)),
+        ):
+            await kvc.federated_search("쿼리", sources=["jira"])
+
+        assert len(calls) >= 1
+        assert all(c["with_scores"] is False for c in calls)
+
+    @pytest.mark.asyncio
+    async def test_with_scores_true_propagates(self):
+        """with_scores=True 시 _hybrid_search에 with_scores=True가 전달된다."""
+        dummy_dense  = [0.1] * 1024
+        dummy_sparse = {"indices": [1], "values": [0.5]}
+        calls = []
+
+        async def mock_hybrid(collection, dense, sparse, filter_must=None, limit=5, **kw):
+            calls.append({"collection": collection, "with_scores": kw.get("with_scores", False)})
+            return []
+
+        with (
+            patch("knowledge_vector_client.get_embedding",    new=AsyncMock(return_value=dummy_dense)),
+            patch("knowledge_vector_client.get_sparse_vector", new=AsyncMock(return_value=dummy_sparse)),
+            patch("knowledge_vector_client._hybrid_search",   new=AsyncMock(side_effect=mock_hybrid)),
+        ):
+            await kvc.federated_search("쿼리", sources=["jira"], with_scores=True)
+
+        assert len(calls) >= 1
+        assert all(c["with_scores"] is True for c in calls)
+
+    @pytest.mark.asyncio
+    async def test_with_scores_score_fields_preserved(self):
+        """with_scores=True 시 _hybrid_search가 반환한 점수 필드가 결과에 포함된다."""
+        dummy_dense  = [0.1] * 1024
+        dummy_sparse = {"indices": [1], "values": [0.5]}
+
+        jira_hits = [{
+            "id": 100,
+            "score": 0.016,
+            "payload": {"title": "Jira 이슈"},
+            "dense_score": 0.85,
+            "dense_rank": 0,
+            "sparse_score": 0.012,
+            "sparse_rank": 1,
+        }]
+
+        async def mock_hybrid(collection, dense, sparse, filter_must=None, limit=5, **kw):
+            if collection == kvc.JIRA_COLLECTION:
+                return jira_hits
+            return []
+
+        with (
+            patch("knowledge_vector_client.get_embedding",    new=AsyncMock(return_value=dummy_dense)),
+            patch("knowledge_vector_client.get_sparse_vector", new=AsyncMock(return_value=dummy_sparse)),
+            patch("knowledge_vector_client._hybrid_search",   new=AsyncMock(side_effect=mock_hybrid)),
+        ):
+            result = await kvc.federated_search("쿼리", sources=["jira"], with_scores=True)
+
+        items = result["results"]
+        assert len(items) >= 1
+        # 점수 필드가 최상위 결과 dict에 존재해야 한다
+        first = items[0]
+        assert first.get("dense_score") == pytest.approx(0.85)
+        assert first.get("dense_rank") == 0
+        assert first.get("sparse_score") == pytest.approx(0.012)
+        assert first.get("sparse_rank") == 1
+
+
 # ── 모듈 상수 검증 ────────────────────────────────────────────────────────────
 
 class TestModuleConstants:

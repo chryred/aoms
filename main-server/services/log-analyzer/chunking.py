@@ -57,12 +57,16 @@ def chunk_text(
     max_chars: int = 1500,
     overlap: int = 200,
     base_metadata: dict | None = None,
+    min_chars: int = 50,
 ) -> list[dict]:
     """순수 텍스트 sliding window 청킹 (베이스 함수).
 
     - ``max_chars``: 청크 최대 길이 (한국어 1500자 ≈ 800~1000 토큰 권장)
     - ``overlap``: 인접 청크 간 중첩 길이 (의미 연결 보존)
     - ``base_metadata``: 모든 청크에 공통으로 박을 메타데이터 (선택)
+    - ``min_chars``: 잔여 청크 최소 길이. sliding window 말미에 생기는 짧은 잔여
+      청크(꼬리 조각)를 걸러 임베딩 품질 저하를 방지한다. 첫 번째 청크(chunk_index==0)는
+      원문 자체가 짧은 경우이므로 이 필터를 적용하지 않는다.
 
     경계가 단어 중간이면 ``_find_break_point``로 단락/줄바꿈/공백 위치까지 백트래킹한다.
     """
@@ -90,7 +94,9 @@ def chunk_text(
             end = n
 
         piece = text[start:end].strip()
-        if piece:
+        # chunk_index == 0: 원문 자체가 짧은 유효 입력 → min_chars 필터 미적용
+        # chunk_index > 0: sliding window 말미 잔여 청크 → min_chars 미만이면 폐기
+        if piece and (len(piece) >= min_chars or chunk_index == 0):
             meta = dict(base_meta)
             meta["chunk_index"] = chunk_index
             chunks.append({"text": piece, "metadata": meta})
@@ -341,6 +347,7 @@ def chunk_confluence_page(
         section_meta = dict(base_meta)
         if heading:
             section_meta["heading"] = heading
+        section_meta["section_heading"] = heading if heading else None
         # 섹션이 작으면 1 청크, 크면 sliding window
         if len(body) <= 1500:
             section_meta["chunk_index"] = chunk_index
@@ -377,7 +384,12 @@ def chunk_docx(
     doc = Document(file_path)
     parts: list[str] = []
 
+    # 첫 번째 Heading 스타일 단락을 section_heading으로 사용
+    section_heading: str | None = None
     for para in doc.paragraphs:
+        style_name = (para.style.name or "") if para.style else ""
+        if section_heading is None and style_name.startswith("Heading"):
+            section_heading = para.text.strip() or None
         text = para.text.strip()
         if text:
             parts.append(text)
@@ -402,10 +414,11 @@ def chunk_docx(
             parts.append(f"[이미지: {ocr_text}]")
 
     full_text = "\n\n".join(parts)
-    base_meta = {
+    base_meta: dict[str, Any] = {
         "source_type": "docx",
         "doc_type": "docx",
         "file_name": os.path.basename(file_path),
+        "section_heading": section_heading,
     }
     return chunk_text(full_text, max_chars=max_chars, overlap=overlap, base_metadata=base_meta)
 
@@ -513,6 +526,7 @@ def chunk_pdf(
                 "doc_type": "pdf",
                 "file_name": file_name,
                 "page_no": page_no,
+                "section_heading": None,
             }
             sub = chunk_text(combined, max_chars=max_chars, overlap=overlap, base_metadata=page_meta)
             for c in sub:
@@ -585,6 +599,7 @@ def chunk_xlsx(file_path: str, stats: dict | None = None) -> list[dict]:
                 "doc_type": "xlsx",
                 "file_name": file_name,
                 "sheet_name": sheet_name,
+                "section_heading": sheet_name,
                 "chunk_index": chunk_index,
                 "sub_chunk_index": 0,
                 "total_sub_chunks": 1,
@@ -635,6 +650,7 @@ def chunk_xlsx(file_path: str, stats: dict | None = None) -> list[dict]:
                     "doc_type": "xlsx",
                     "file_name": file_name,
                     "sheet_name": sheet_name,
+                    "section_heading": sheet_name,
                     "chunk_index": chunk_index,
                     "sub_chunk_index": 0,
                     "total_sub_chunks": 1,
@@ -651,6 +667,7 @@ def chunk_xlsx(file_path: str, stats: dict | None = None) -> list[dict]:
                     "doc_type": "xlsx",
                     "file_name": file_name,
                     "sheet_name": sheet_name,
+                    "section_heading": sheet_name,
                     "chunk_index": chunk_index,
                     "sub_chunk_index": sub_idx,
                     "total_sub_chunks": total_sub,
@@ -773,6 +790,7 @@ def chunk_pptx(file_path: str, stats: dict | None = None) -> list[dict]:
                 "file_name": file_name,
                 "slide_no": slide_no,
                 "slide_title": slide_title,
+                "section_heading": slide_title if slide_title else None,
                 "chunk_index": chunk_index,
                 "sub_chunk_index": sub_idx,
                 "total_sub_chunks": total_sub,

@@ -139,6 +139,8 @@ async def search_similar_aggregations(
     *,
     rerank: bool = False,
     rerank_top_k: int = 10,
+    score_threshold: float = 0.5,
+    with_scores: bool = False,
 ) -> list[dict]:
     """
     query_text를 임베딩하여 Qdrant 컬렉션에서 유사 집계 검색.
@@ -147,6 +149,8 @@ async def search_similar_aggregations(
 
     rerank=True 일 때 cross-encoder(bge-reranker-v2-m3)로 재정렬한다.
     이 경우 retrieval 후보를 limit*4 까지 늘려 확보한 뒤 reranker로 rerank_top_k 개만 반환.
+
+    with_scores=True (Track C): dense/sparse 개별 점수를 추가 Qdrant 쿼리로 수집해 각 결과에 병합.
     """
     if collection not in (HOURLY_PATTERNS_COLLECTION, AGG_SUMMARIES_COLLECTION):
         raise ValueError(f"지원하지 않는 컬렉션: {collection}")
@@ -165,6 +169,8 @@ async def search_similar_aggregations(
         sparse=sparse,
         filter_must=filter_must,
         limit=retrieval_limit,
+        dense_prefetch_threshold=score_threshold,
+        with_scores=with_scores,
     )
 
     if not rerank or not hits:

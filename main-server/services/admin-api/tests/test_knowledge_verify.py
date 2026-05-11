@@ -200,6 +200,7 @@ async def test_chatbot_operator_allowed(authed_client: AsyncClient):
                 _make_mock_httpx_response(_mock_postmortem_response()),
                 _make_mock_httpx_response(_mock_aggregation_response()),
                 _make_mock_httpx_response(_mock_knowledge_response()),
+                _make_mock_httpx_response(_mock_guide_response()),
             ])
 
             async with HxClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
@@ -217,7 +218,7 @@ async def test_chatbot_operator_allowed(authed_client: AsyncClient):
 
 @pytest.mark.asyncio
 async def test_chatbot_mode_integrates_four_tools(authed_client: AsyncClient):
-    """4개 도구 결과가 컬렉션별 그룹으로 분리되어 반환된다."""
+    """5개 도구 결과가 컬렉션별 그룹으로 분리되어 반환된다."""
     with patch("httpx.AsyncClient") as mock_cls:
         mock_instance = AsyncMock()
         mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_instance)
@@ -227,6 +228,7 @@ async def test_chatbot_mode_integrates_four_tools(authed_client: AsyncClient):
             _make_mock_httpx_response(_mock_postmortem_response()),
             _make_mock_httpx_response(_mock_aggregation_response()),
             _make_mock_httpx_response(_mock_knowledge_response()),
+            _make_mock_httpx_response(_mock_guide_response()),
         ])
 
         resp = await authed_client.post(
@@ -240,12 +242,13 @@ async def test_chatbot_mode_integrates_four_tools(authed_client: AsyncClient):
     assert "used_tools" in data
     assert "errors" in data
 
-    # 4개 도구 모두 사용됨
+    # 5개 도구 모두 사용됨
     used = set(data["used_tools"])
     assert "qdrant_search_incident_knowledge" in used
     assert "qdrant_search_incident_postmortem" in used
     assert "qdrant_search_aggregation_summary" in used
     assert "qdrant_search_knowledge" in used
+    assert "qdrant_search_guide" in used
 
     # 그룹별 컬렉션 확인 — mock 데이터에서 실제 결과가 있는 컬렉션
     groups = _groups_by_collection(data)
@@ -255,6 +258,7 @@ async def test_chatbot_mode_integrates_four_tools(authed_client: AsyncClient):
     assert "aggregation_summaries" in groups
     assert "knowledge_documents" in groups
     assert "knowledge_jira_issues" in groups
+    assert "knowledge_guides" in groups
 
     # 그룹 내 결과 수 확인
     assert len(groups["log_incidents"]["results"]) == 1
@@ -265,6 +269,9 @@ async def test_chatbot_mode_integrates_four_tools(authed_client: AsyncClient):
     # knowledge 그룹: documents 1개, jira 1개
     assert len(groups["knowledge_documents"]["results"]) == 1
     assert len(groups["knowledge_jira_issues"]["results"]) == 1
+
+    # guides 그룹: 1개
+    assert len(groups["knowledge_guides"]["results"]) == 1
 
     # 오류 없음
     assert data["errors"] == []
@@ -292,6 +299,7 @@ async def test_chatbot_mode_collection_field_present(authed_client: AsyncClient)
             _make_mock_httpx_response(_mock_postmortem_response()),
             _make_mock_httpx_response(_mock_aggregation_response()),
             _make_mock_httpx_response(_mock_knowledge_response()),
+            _make_mock_httpx_response(_mock_guide_response()),
         ])
 
         resp = await authed_client.post(
@@ -306,6 +314,7 @@ async def test_chatbot_mode_collection_field_present(authed_client: AsyncClient)
         "incident_postmortems",
         "aggregation_summaries", "metric_hourly_patterns",
         "knowledge_jira_issues", "knowledge_confluence_pages", "knowledge_documents",
+        "knowledge_guides",
     }
     for group in data["groups"]:
         assert group["collection"] in valid_collections
@@ -344,6 +353,7 @@ async def test_chatbot_mode_group_internal_sort(authed_client: AsyncClient):
             _make_mock_httpx_response([]),
             _make_mock_httpx_response({"results": []}),
             _make_mock_httpx_response(knowledge_resp),
+            _make_mock_httpx_response([]),  # guides — 빈 응답
         ])
 
         resp = await authed_client.post(
@@ -854,3 +864,518 @@ async def test_collections_mode_canonical_group_order(authed_client: AsyncClient
     metric_idx = group_collections.index("metric_baselines") if "metric_baselines" in group_collections else -1
     if log_idx >= 0 and metric_idx >= 0:
         assert log_idx < metric_idx, "log_incidents 그룹이 metric_baselines보다 먼저 와야 함"
+
+
+# ── knowledge_guides (_call_guide_search) 신규 테스트 ──────────────────────────
+
+def _mock_guide_response() -> list:
+    """log-analyzer /guides/search 의 실제 응답 형식 — list of {id, score, payload}."""
+    return [
+        {
+            "id": "guide-point-1",
+            "score": 0.88,
+            "payload": {
+                "guide_id": "guide-001",
+                "system_id": 1,
+                "title": "OOM 장애 대응 가이드",
+                "content": "JVM 힙 증가 방법 설명",
+                "chunk_index": 0,
+                "total_chunks": 2,
+                "matched_chunk_indexes": [0, 1],
+                "matched_chunks_count": 2,
+                "reranked": True,
+            },
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_chatbot_mode_includes_guide_search(authed_client: AsyncClient):
+    """chatbot 모드: asyncio.gather에 _call_guide_search가 포함되어 knowledge_guides 그룹이 반환된다."""
+    with patch("httpx.AsyncClient") as mock_cls:
+        mock_instance = AsyncMock()
+        mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_instance)
+        mock_cls.return_value.__aexit__ = AsyncMock(return_value=None)
+        # 5개 도구 순서: incident, postmortem, aggregation, knowledge, guides
+        mock_instance.post = AsyncMock(side_effect=[
+            _make_mock_httpx_response(_mock_incident_response()),
+            _make_mock_httpx_response(_mock_postmortem_response()),
+            _make_mock_httpx_response(_mock_aggregation_response()),
+            _make_mock_httpx_response(_mock_knowledge_response()),
+            _make_mock_httpx_response(_mock_guide_response()),
+        ])
+
+        resp = await authed_client.post(
+            "/api/v1/knowledge/search-verify/chatbot",
+            json={"query": "OOM 장애", "system_ids": [1]},
+        )
+
+    assert resp.status_code == 200
+    data = resp.json()
+
+    # 5개 도구 모두 used_tools에 포함
+    used = set(data["used_tools"])
+    assert "qdrant_search_guide" in used
+
+    # knowledge_guides 그룹이 존재
+    groups = _groups_by_collection(data)
+    assert "knowledge_guides" in groups
+
+    # knowledge_guides 그룹에 결과 1개
+    assert len(groups["knowledge_guides"]["results"]) == 1
+
+    # 오류 없음
+    assert data["errors"] == []
+
+
+@pytest.mark.asyncio
+async def test_chatbot_mode_guide_reranked_flag(authed_client: AsyncClient):
+    """chatbot 모드: knowledge_guides 그룹의 reranked 플래그가 True여야 한다."""
+    with patch("httpx.AsyncClient") as mock_cls:
+        mock_instance = AsyncMock()
+        mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_instance)
+        mock_cls.return_value.__aexit__ = AsyncMock(return_value=None)
+        mock_instance.post = AsyncMock(side_effect=[
+            _make_mock_httpx_response(_mock_incident_response()),
+            _make_mock_httpx_response(_mock_postmortem_response()),
+            _make_mock_httpx_response(_mock_aggregation_response()),
+            _make_mock_httpx_response(_mock_knowledge_response()),
+            _make_mock_httpx_response(_mock_guide_response()),
+        ])
+
+        resp = await authed_client.post(
+            "/api/v1/knowledge/search-verify/chatbot",
+            json={"query": "OOM 장애", "system_ids": [1]},
+        )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    groups = _groups_by_collection(data)
+    assert groups["knowledge_guides"]["reranked"] is True
+
+
+@pytest.mark.asyncio
+async def test_chatbot_mode_guide_failure_generates_error(authed_client: AsyncClient):
+    """chatbot 모드: guides/search 실패 시 knowledge_guides 관련 에러가 errors 목록에 포함된다."""
+    with patch("httpx.AsyncClient") as mock_cls:
+        mock_instance = AsyncMock()
+        mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_instance)
+        mock_cls.return_value.__aexit__ = AsyncMock(return_value=None)
+        mock_instance.post = AsyncMock(side_effect=[
+            _make_mock_httpx_response(_mock_incident_response()),
+            _make_mock_httpx_response(_mock_postmortem_response()),
+            _make_mock_httpx_response(_mock_aggregation_response()),
+            _make_mock_httpx_response(_mock_knowledge_response()),
+            _make_mock_httpx_response({"detail": "internal error"}, status_code=500),
+        ])
+
+        resp = await authed_client.post(
+            "/api/v1/knowledge/search-verify/chatbot",
+            json={"query": "OOM 장애", "system_ids": [1]},
+        )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    error_collections = [e["collection"] for e in data["errors"]]
+    assert "knowledge_guides" in error_collections
+
+
+@pytest.mark.asyncio
+async def test_collections_mode_knowledge_guides_only(authed_client: AsyncClient):
+    """collections 모드: knowledge_guides만 선택하면 guides/search를 호출하고 결과를 반환한다."""
+    with patch("httpx.AsyncClient") as mock_cls:
+        mock_instance = AsyncMock()
+        mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_instance)
+        mock_cls.return_value.__aexit__ = AsyncMock(return_value=None)
+        mock_instance.post = AsyncMock(
+            return_value=_make_mock_httpx_response(_mock_guide_response())
+        )
+
+        resp = await authed_client.post(
+            "/api/v1/knowledge/search-verify/collections",
+            json={
+                "query": "OOM 가이드",
+                "collections": ["knowledge_guides"],
+                "use_reranker": True,
+            },
+        )
+
+    assert resp.status_code == 200
+    data = resp.json()
+
+    groups = _groups_by_collection(data)
+    assert "knowledge_guides" in groups
+    assert len(groups["knowledge_guides"]["results"]) == 1
+
+    # use_reranker=True이면 reranked=True
+    assert groups["knowledge_guides"]["reranked"] is True
+
+    # used_tools에 qdrant_search_guide 포함
+    assert "qdrant_search_guide" in data["used_tools"]
+
+
+@pytest.mark.asyncio
+async def test_collections_mode_knowledge_guides_reranker_false(authed_client: AsyncClient):
+    """collections 모드: use_reranker=False일 때 knowledge_guides 그룹의 reranked는 False."""
+    with patch("httpx.AsyncClient") as mock_cls:
+        mock_instance = AsyncMock()
+        mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_instance)
+        mock_cls.return_value.__aexit__ = AsyncMock(return_value=None)
+        # rerank=False 이면 payload에 reranked 키가 없어 False로 처리됨
+        guide_no_rerank = [
+            {
+                "id": "guide-point-2",
+                "score": 0.70,
+                "payload": {
+                    "guide_id": "guide-002",
+                    "system_id": 1,
+                    "title": "가이드 2",
+                    "content": "내용",
+                    "chunk_index": 0,
+                    "total_chunks": 1,
+                    "matched_chunk_indexes": [0],
+                    "matched_chunks_count": 1,
+                },
+            }
+        ]
+        mock_instance.post = AsyncMock(
+            return_value=_make_mock_httpx_response(guide_no_rerank)
+        )
+
+        resp = await authed_client.post(
+            "/api/v1/knowledge/search-verify/collections",
+            json={
+                "query": "OOM 가이드",
+                "collections": ["knowledge_guides"],
+                "use_reranker": False,
+            },
+        )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    groups = _groups_by_collection(data)
+    assert "knowledge_guides" in groups
+    assert groups["knowledge_guides"]["reranked"] is False
+
+
+@pytest.mark.asyncio
+async def test_collections_mode_guides_request_body_contains_rerank(authed_client: AsyncClient):
+    """collections 모드: use_reranker=True일 때 guides/search 호출 body에 rerank=True가 포함된다."""
+    captured_bodies: list[dict] = []
+
+    async def capturing_post(url: str, **kwargs):
+        captured_bodies.append(kwargs.get("json") or {})
+        return _make_mock_httpx_response(_mock_guide_response())
+
+    with patch("httpx.AsyncClient") as mock_cls:
+        mock_instance = AsyncMock()
+        mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_instance)
+        mock_cls.return_value.__aexit__ = AsyncMock(return_value=None)
+        mock_instance.post = AsyncMock(side_effect=capturing_post)
+
+        await authed_client.post(
+            "/api/v1/knowledge/search-verify/collections",
+            json={
+                "query": "가이드 검색",
+                "collections": ["knowledge_guides"],
+                "use_reranker": True,
+            },
+        )
+
+    assert len(captured_bodies) == 1
+    body = captured_bodies[0]
+    assert body.get("rerank") is True
+    assert body.get("group_by_guide") is True
+
+
+@pytest.mark.asyncio
+async def test_collections_mode_guides_canonical_order(authed_client: AsyncClient):
+    """knowledge_guides 그룹은 _CANONICAL_ORDER 마지막 — knowledge_documents 뒤에 위치한다."""
+    with patch("httpx.AsyncClient") as mock_cls:
+        mock_instance = AsyncMock()
+        mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_instance)
+        mock_cls.return_value.__aexit__ = AsyncMock(return_value=None)
+        # knowledge와 guides 동시 선택
+        mock_instance.post = AsyncMock(side_effect=[
+            _make_mock_httpx_response(_mock_knowledge_response()),
+            _make_mock_httpx_response(_mock_guide_response()),
+        ])
+
+        resp = await authed_client.post(
+            "/api/v1/knowledge/search-verify/collections",
+            json={
+                "query": "검색",
+                "collections": ["knowledge_documents", "knowledge_guides"],
+                "use_reranker": False,
+            },
+        )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    group_cols = [g["collection"] for g in data["groups"]]
+    doc_idx = group_cols.index("knowledge_documents") if "knowledge_documents" in group_cols else -1
+    guide_idx = group_cols.index("knowledge_guides") if "knowledge_guides" in group_cols else -1
+    if doc_idx >= 0 and guide_idx >= 0:
+        assert doc_idx < guide_idx, "knowledge_documents가 knowledge_guides보다 먼저 와야 함"
+
+
+# ── Track B: top_k / score_threshold / rerank_pool_size 파라미터 전달 테스트 ───
+
+@pytest.mark.asyncio
+async def test_chatbot_mode_search_params_forwarded(authed_client: AsyncClient):
+    """chatbot 모드: top_k=20, score_threshold=0.3이 incident/aggregation/knowledge/guides payload로 전달된다."""
+    captured_payloads: list[dict] = []
+
+    async def capturing_post(url: str, json: dict | None = None, **kwargs):
+        if json is not None:
+            captured_payloads.append({"url": url, "payload": json})
+        if "incident/search" in url:
+            return _make_mock_httpx_response(_mock_incident_response())
+        if "incident-postmortem/search" in url:
+            return _make_mock_httpx_response(_mock_postmortem_response())
+        if "aggregation/search" in url:
+            return _make_mock_httpx_response(_mock_aggregation_response())
+        if "knowledge/search" in url:
+            return _make_mock_httpx_response(_mock_knowledge_response())
+        if "guides/search" in url:
+            return _make_mock_httpx_response(_mock_guide_response())
+        return _make_mock_httpx_response({})
+
+    with patch("httpx.AsyncClient") as mock_cls:
+        mock_instance = AsyncMock()
+        mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_instance)
+        mock_cls.return_value.__aexit__ = AsyncMock(return_value=None)
+        mock_instance.post = AsyncMock(side_effect=capturing_post)
+
+        resp = await authed_client.post(
+            "/api/v1/knowledge/search-verify/chatbot",
+            json={
+                "query": "OOM 장애",
+                "system_ids": [1],
+                "top_k": 20,
+                "score_threshold": 0.3,
+                "rerank_pool_size": 80,
+            },
+        )
+
+    assert resp.status_code == 200
+
+    # incident/search — limit=20, score_threshold=0.3
+    incident_calls = [c for c in captured_payloads if "incident/search" in c["url"]]
+    assert len(incident_calls) == 1
+    assert incident_calls[0]["payload"].get("limit") == 20
+    assert incident_calls[0]["payload"].get("score_threshold") == pytest.approx(0.3)
+
+    # aggregation/search — limit=20, score_threshold=0.3
+    agg_calls = [c for c in captured_payloads if "aggregation/search" in c["url"]]
+    assert len(agg_calls) == 1
+    assert agg_calls[0]["payload"].get("limit") == 20
+    assert agg_calls[0]["payload"].get("score_threshold") == pytest.approx(0.3)
+
+    # guides/search — limit=20, score_threshold=0.3, rerank_top_k=80 (rerank=True)
+    guide_calls = [c for c in captured_payloads if "guides/search" in c["url"]]
+    assert len(guide_calls) == 1
+    assert guide_calls[0]["payload"].get("limit") == 20
+    assert guide_calls[0]["payload"].get("score_threshold") == pytest.approx(0.3)
+    assert guide_calls[0]["payload"].get("rerank_top_k") == 80
+
+
+@pytest.mark.asyncio
+async def test_collections_mode_search_params_forwarded(authed_client: AsyncClient):
+    """collections 모드: top_k=20, score_threshold=0.3이 incident payload로 전달된다."""
+    captured_payloads: list[dict] = []
+
+    async def capturing_post(url: str, json: dict | None = None, **kwargs):
+        if json is not None:
+            captured_payloads.append({"url": url, "payload": json})
+        return _make_mock_httpx_response(_mock_incident_response())
+
+    with patch("httpx.AsyncClient") as mock_cls:
+        mock_instance = AsyncMock()
+        mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_instance)
+        mock_cls.return_value.__aexit__ = AsyncMock(return_value=None)
+        mock_instance.post = AsyncMock(side_effect=capturing_post)
+
+        resp = await authed_client.post(
+            "/api/v1/knowledge/search-verify/collections",
+            json={
+                "query": "OOM 장애",
+                "system_ids": [1],
+                "collections": ["log_incidents"],
+                "use_reranker": False,
+                "top_k": 20,
+                "score_threshold": 0.3,
+                "rerank_pool_size": 80,
+            },
+        )
+
+    assert resp.status_code == 200
+    assert len(captured_payloads) == 1
+    payload = captured_payloads[0]["payload"]
+    assert payload.get("limit") == 20
+    assert payload.get("score_threshold") == pytest.approx(0.3)
+
+
+# ── Track C: with_scores 파라미터 전달 테스트 ──────────────────────────────
+
+@pytest.mark.asyncio
+async def test_chatbot_mode_with_scores_default_false(authed_client: AsyncClient):
+    """chatbot 모드: with_scores 미지정 시 log-analyzer 호출에 with_scores=False가 전달된다."""
+    captured_payloads: list[dict] = []
+
+    async def capturing_post(url: str, json: dict | None = None, **kwargs):
+        if json is not None:
+            captured_payloads.append({"url": url, "payload": json})
+        if "incident/search" in url:
+            return _make_mock_httpx_response(_mock_incident_response())
+        if "incident-postmortem/search" in url:
+            return _make_mock_httpx_response(_mock_postmortem_response())
+        if "aggregation/search" in url:
+            return _make_mock_httpx_response(_mock_aggregation_response())
+        if "knowledge/search" in url:
+            return _make_mock_httpx_response(_mock_knowledge_response())
+        if "guides/search" in url:
+            return _make_mock_httpx_response(_mock_guide_response())
+        return _make_mock_httpx_response({})
+
+    with patch("httpx.AsyncClient") as mock_cls:
+        mock_instance = AsyncMock()
+        mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_instance)
+        mock_cls.return_value.__aexit__ = AsyncMock(return_value=None)
+        mock_instance.post = AsyncMock(side_effect=capturing_post)
+
+        resp = await authed_client.post(
+            "/api/v1/knowledge/search-verify/chatbot",
+            json={"query": "OOM 장애", "system_ids": [1]},
+        )
+
+    assert resp.status_code == 200
+    # with_scores 미지정 → with_scores 키가 payload에 없거나 False
+    for item in captured_payloads:
+        payload = item["payload"]
+        assert payload.get("with_scores", False) is False
+
+
+@pytest.mark.asyncio
+async def test_chatbot_mode_with_scores_true_forwarded(authed_client: AsyncClient):
+    """chatbot 모드: with_scores=True가 incident/aggregation/knowledge/guides payload에 전달된다."""
+    captured_payloads: list[dict] = []
+
+    async def capturing_post(url: str, json: dict | None = None, **kwargs):
+        if json is not None:
+            captured_payloads.append({"url": url, "payload": json})
+        if "incident/search" in url:
+            return _make_mock_httpx_response(_mock_incident_response())
+        if "incident-postmortem/search" in url:
+            return _make_mock_httpx_response(_mock_postmortem_response())
+        if "aggregation/search" in url:
+            return _make_mock_httpx_response(_mock_aggregation_response())
+        if "knowledge/search" in url:
+            return _make_mock_httpx_response(_mock_knowledge_response())
+        if "guides/search" in url:
+            return _make_mock_httpx_response(_mock_guide_response())
+        return _make_mock_httpx_response({})
+
+    with patch("httpx.AsyncClient") as mock_cls:
+        mock_instance = AsyncMock()
+        mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_instance)
+        mock_cls.return_value.__aexit__ = AsyncMock(return_value=None)
+        mock_instance.post = AsyncMock(side_effect=capturing_post)
+
+        resp = await authed_client.post(
+            "/api/v1/knowledge/search-verify/chatbot",
+            json={"query": "OOM 장애", "system_ids": [1], "with_scores": True},
+        )
+
+    assert resp.status_code == 200
+    # incident/search, aggregation/search, knowledge/search, guides/search 에 with_scores=True
+    incident_calls = [c for c in captured_payloads if "incident/search" in c["url"]]
+    assert len(incident_calls) == 1
+    assert incident_calls[0]["payload"].get("with_scores") is True
+
+    agg_calls = [c for c in captured_payloads if "aggregation/search" in c["url"]]
+    assert len(agg_calls) == 1
+    assert agg_calls[0]["payload"].get("with_scores") is True
+
+    knowledge_calls = [c for c in captured_payloads if "knowledge/search" in c["url"]]
+    assert len(knowledge_calls) == 1
+    assert knowledge_calls[0]["payload"].get("with_scores") is True
+
+    guide_calls = [c for c in captured_payloads if "guides/search" in c["url"]]
+    assert len(guide_calls) == 1
+    assert guide_calls[0]["payload"].get("with_scores") is True
+
+
+@pytest.mark.asyncio
+async def test_collections_mode_with_scores_true_forwarded(authed_client: AsyncClient):
+    """collections 모드: with_scores=True가 incident payload로 전달된다."""
+    captured_payloads: list[dict] = []
+
+    async def capturing_post(url: str, json: dict | None = None, **kwargs):
+        if json is not None:
+            captured_payloads.append({"url": url, "payload": json})
+        return _make_mock_httpx_response(_mock_incident_response())
+
+    with patch("httpx.AsyncClient") as mock_cls:
+        mock_instance = AsyncMock()
+        mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_instance)
+        mock_cls.return_value.__aexit__ = AsyncMock(return_value=None)
+        mock_instance.post = AsyncMock(side_effect=capturing_post)
+
+        resp = await authed_client.post(
+            "/api/v1/knowledge/search-verify/collections",
+            json={
+                "query": "OOM 장애",
+                "system_ids": [1],
+                "collections": ["log_incidents"],
+                "use_reranker": False,
+                "with_scores": True,
+            },
+        )
+
+    assert resp.status_code == 200
+    assert len(captured_payloads) == 1
+    assert captured_payloads[0]["payload"].get("with_scores") is True
+
+
+@pytest.mark.asyncio
+async def test_collections_mode_with_scores_incident_not_postmortem(authed_client: AsyncClient):
+    """collections 모드: with_scores=True 시 incident/search에 전달되고, postmortem에는 with_scores 없음."""
+    captured_payloads: list[dict] = []
+
+    async def capturing_post(url: str, json: dict | None = None, **kwargs):
+        if json is not None:
+            captured_payloads.append({"url": url, "payload": json})
+        if "incident-postmortem/search" in url:
+            return _make_mock_httpx_response(_mock_postmortem_response())
+        if "incident/search" in url:
+            return _make_mock_httpx_response(_mock_incident_response())
+        return _make_mock_httpx_response({})
+
+    with patch("httpx.AsyncClient") as mock_cls:
+        mock_instance = AsyncMock()
+        mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_instance)
+        mock_cls.return_value.__aexit__ = AsyncMock(return_value=None)
+        mock_instance.post = AsyncMock(side_effect=capturing_post)
+
+        resp = await authed_client.post(
+            "/api/v1/knowledge/search-verify/collections",
+            json={
+                "query": "장애",
+                "system_ids": [1],
+                "collections": ["log_incidents", "incident_postmortems"],
+                "use_reranker": False,
+                "with_scores": True,
+            },
+        )
+
+    assert resp.status_code == 200
+    incident_calls = [c for c in captured_payloads if "incident/search" in c["url"]]
+    assert len(incident_calls) == 1
+    assert incident_calls[0]["payload"].get("with_scores") is True
+
+    # incident_postmortems는 _call_postmortem_search 경유 — with_scores 전달 안 함
+    pm_calls = [c for c in captured_payloads if "incident-postmortem/search" in c["url"]]
+    assert len(pm_calls) == 1
+    # postmortem payload에는 with_scores 키 없음
+    assert "with_scores" not in pm_calls[0]["payload"]

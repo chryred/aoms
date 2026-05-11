@@ -185,10 +185,13 @@ async def rerank(
         return candidates[:top_k]
 
     enriched = []
-    for cand, score in zip(candidates, scores):
+    for original_rank, (cand, score) in enumerate(zip(candidates, scores)):
         merged = dict(cand)
         merged["rerank_score"] = float(score)
+        merged["original_rank"] = original_rank  # 0-based, input order to rerank()
         enriched.append(merged)
 
     enriched.sort(key=lambda x: x["rerank_score"], reverse=True)
+    for rerank_rank, item in enumerate(enriched[:top_k]):
+        item["rerank_rank"] = rerank_rank  # 0-based, post-rerank position
     return enriched[:top_k]

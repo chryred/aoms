@@ -53,8 +53,11 @@ make test-api        # 단위 테스트 (SQLite in-memory, admin-api와 공유)
   - 모듈: `reranker.py` (`async def rerank(query, candidates, top_k, text_field)`)
   - 입력 (query, doc) 쌍 → relevance logit. Hybrid retrieval(top-N*4) → reranker → top-K 정렬
   - 호출 경로:
-    - `/incident/search` 엔드포인트에 `rerank: bool, rerank_top_k: int` 옵션
-    - `search_similar_aggregations(rerank=True, rerank_top_k=...)` 키워드 인자
+    - `/incident/search` 엔드포인트에 `rerank: bool, rerank_top_k: int, score_threshold: float` 옵션
+    - `/aggregation/search` 엔드포인트에 `rerank: bool, rerank_top_k: int, score_threshold: float` 옵션
+    - `/knowledge/search` 엔드포인트에 `rerank: bool, rerank_top_k: int, score_threshold: float` 옵션
+    - `/guides/search` 엔드포인트에 `rerank: bool, rerank_top_k: int, score_threshold: float` 옵션
+    - `search_similar_aggregations(rerank=True, rerank_top_k=..., score_threshold=...)` 키워드 인자
   - 자동 분석 파이프라인(로그/메트릭 유사도 분류)에는 적용하지 않음 (top-1 RRF 임계값 기반이라 reranker 불필요)
   - 모델 ~2.3GB (FP32, 양자화 없음). Dockerfile에서 `onnx-community/bge-reranker-v2-m3-ONNX`로부터 `/app/reranker-models`에 번들
 - **벡터 DB**: Qdrant (Server B)
@@ -95,9 +98,12 @@ log-analyzer/
 - `POST /metric/similarity` — admin-api가 Alertmanager 알림 수신 시 호출. `metric_baselines` 컬렉션 Hybrid 검색 후 분류 반환
 
 ### RAG 챗봇 검색 (ADR-011)
-- `POST /incident/search` — admin-api chat_tools의 `qdrant_search_incident_knowledge` 도구가 호출. `log_incidents` + `metric_baselines`를 Hybrid(RRF) 통합 검색하여 과거 장애 이력·해결책 반환
-- `POST /aggregation/search` — chat_tools의 `qdrant_search_aggregation_summary` 도구가 재활용. `aggregation_summaries` Hybrid 검색
+- `POST /incident/search` — admin-api chat_tools의 `qdrant_search_incident_knowledge` 도구가 호출. `log_incidents` + `metric_baselines`를 Hybrid(RRF) 통합 검색하여 과거 장애 이력·해결책 반환. 파라미터: `rerank`, `rerank_top_k`, **`score_threshold: float = 0.5`** (dense prefetch 임계값 — Track B), **`with_scores: bool = False`** (Track C)
+- `POST /aggregation/search` — chat_tools의 `qdrant_search_aggregation_summary` 도구가 재활용. `aggregation_summaries` Hybrid 검색. 파라미터: `rerank`, `rerank_top_k`, **`score_threshold: float = 0.5`** (Track B), **`with_scores: bool = False`** (Track C)
 - `POST /metric/resolve`    — admin-api가 resolved 이벤트 수신 시 호출. Qdrant 포인트에 `resolved=True` 업데이트
+
+> **Track B — 검색 정확도 파라미터**: `score_threshold`(기본 0.5)는 Qdrant dense prefetch 최소 유사도 임계값. `/incident/search`, `/aggregation/search`, `/knowledge/search`, `/guides/search` 4개 엔드포인트에 공통 추가됨. **자동 분석 파이프라인(`/metric/similarity`, `analyzer.py`)에는 적용하지 않음** — 기존 기본값 유지.
+> **Track C — 점수 분해 파라미터**: `with_scores: bool = False`. True이면 RRF 쿼리 외에 dense-only/sparse-only 쿼리 2회를 추가 실행하여 각 결과에 `dense_score`, `dense_rank`, `sparse_score`, `sparse_rank` 필드를 병합. `rerank=True` 일 때는 reranker의 `original_rank`/`rerank_rank`/`rerank_score`도 함께 포함됨. admin-api `knowledge_verify.py`가 이 필드들을 result `extra`로 수집 후 프론트엔드로 전달. 자동 분석 파이프라인에는 항상 False.
 
 ### knowledge_guides (운영 가이드 벡터, 청킹 기반)
 - `POST /guides/embed` — 가이드 Hybrid(Dense+Sparse) upsert. **content를 1500자 청크(overlap 200)로 분할**해 청크별로 별도 포인트 저장. 재호출 시 `payload.guide_id` 필터로 기존 청크 일괄 삭제 후 재생성. 청크 point_id = `sha256("guide:{guide_id}:{chunk_index}")[:8]` → uint64. 응답: `{guide_id, chunk_count, status}`
@@ -105,7 +111,10 @@ log-analyzer/
 - `POST /guides/search` — 자연어 쿼리 Hybrid 검색. system_ids 지정 시 "system_id IN list OR system_id IS NULL" 필터.
   - `group_by_guide: bool = True` (기본): 가이드 단위로 그룹화하여 반환. `limit`는 "최대 N개 가이드" 의미. 내부적으로 `min(limit*10, 100)` 청크 over-fetch 후 Python 그룹화. payload에 `matched_chunk_indexes` (매칭 청크 인덱스 오름차순), `matched_chunks_count` 추가.
   - `group_by_guide: bool = False`: 기존 청크 단위 동작. limit은 청크 수.
-  - 응답: `[{id: best_chunk_point_id, score: best_score, payload: {..., matched_chunk_indexes: list[int], matched_chunks_count: int}}]`
+  - `rerank: bool = False` / `rerank_top_k: int = 10`: True이면 RRF 결과를 bge-reranker-v2-m3 cross-encoder로 재순위화 후 그룹화. 점수는 RRF → rerank_score로 교체됨. 챗봇 `qdrant_search_guide` 도구는 항상 rerank=True로 호출. 자동 분석 파이프라인에는 미적용.
+  - **`score_threshold: float = 0.5`** (Track B): dense prefetch 최소 유사도 임계값. `group_by_guide=True` 시 over-fetch 사이즈(`min(limit*10, 100)`)는 변경되지 않음.
+  - **`with_scores: bool = False`** (Track C): True이면 RRF 외에 dense-only / sparse-only 쿼리 2회를 추가 실행 (총 3회)하여 `dense_score`, `dense_rank`, `sparse_score`, `sparse_rank` 필드를 각 결과에 병합. 자동 분석 파이프라인에는 항상 False. 결과 dict 최상위에 직접 포함됨 (`group_by_guide=True` 시 best_point 기준).
+  - 응답: `[{id: best_chunk_point_id, score: best_score, payload: {..., matched_chunk_indexes: list[int], matched_chunks_count: int, reranked: bool}}]`
 - `GET /guides/{guide_id}/chunks?chunk_indexes=2&chunk_indexes=4&max_chunks=50` — guide_id의 청크를 chunk_index 순서로 반환. `chunk_indexes`가 주어지면 해당 인덱스 청크만 (surgical fetch — 챗봇이 빠진 청크만 명시), 생략 시 전체 청크. 응답: `{guide_id, total_chunks, chunks: [{chunk_index, content, title, system_id, ...}]}`
 
 ### Wave 1B: incident_postmortems (사후분석 벡터)
@@ -303,18 +312,37 @@ _trend_agg_scheduler() (4시간마다)
 |---|---|---|
 | `max_chars` | 1500자 | 한국어 ≈ 800~1000 토큰 (bge-m3 8192 한도 내 안전 마진) |
 | `overlap` | 200자 | 의미 연결 보존 (조사·문맥 단절 방지) |
+| `min_chars` | 50자 | sliding window 말미 잔여(꼬리) 청크 최소 길이. **chunk_index==0 예외** — 원문 자체가 짧은 경우는 필터 미적용 (Track D, P1) |
 | 경계 백트래킹 | 단락(`\n\n`) → 줄바꿈(`\n`) → 공백 | 한국어 청크가 단어/조사 중간에서 끊기는 것 방지. ``lookback`` 범위 내에서 발견 못하면 그대로 자름 |
 | `_EMBED_TOKEN_LIMIT_CHARS` | 6500자 | bge-m3 8192 토큰 ≈ 한국어 6500자 (1.2x 안전 마진). XLSX/PPTX 임베딩 한도 가드에 사용 |
 
-### 포맷별 전략
-| 포맷 | 함수 | 청킹 단위 | 비고 |
+### 포맷별 전략 (Track D — section_heading 메타 포함)
+| 포맷 | 함수 | 청킹 단위 | section_heading 출처 |
 |---|---|---|---|
-| 순수 텍스트 | `chunk_text` | sliding window (1500/200) | 베이스 함수 — 모든 포맷이 재사용 |
-| Confluence | `chunk_confluence_page` | H2/H3 섹션 → 큰 섹션은 sliding window | HTML이면 BeautifulSoup 파싱(다른 HTML 파서 사용 금지). plain text면 chunk_text fallback. heading을 메타에 보존. **`<ac:image>` / `<img>` 태그는 `[이미지: {alt or filename}]` 마커로 변환** |
-| DOCX | `chunk_docx` | paragraphs+tables 합쳐 sliding window | python-docx, 표는 행 단위 `\|` 결합. **inline image는 `doc.part.related_parts`에서 추출 → Tesseract OCR (kor+eng) → `[이미지: ...]` 마커** |
-| PDF | `chunk_pdf` | 페이지 단위로 sliding window | pdfplumber(텍스트) + pypdf(이미지). 페이지마다 빈 텍스트 건너뜀, `page_no` 메타 보존, `chunk_index`는 문서 전역 누적. **페이지별 embedded image → pypdf `ImageFile.data` 추출 → Tesseract OCR → `[이미지: ...]` 마커**. 페이지당 OCR 상한 10장 (`_PDF_MAX_IMAGES_PER_PAGE`) |
-| XLSX | `chunk_xlsx` | **시트 = 1 청크 (6500자 이내), 초과 시 데이터 행 단위 분할** | openpyxl, 시트를 markdown 표로 변환. `_EMBED_TOKEN_LIMIT_CHARS`(6500자) 이내: 단일 청크(BC 유지). 초과: **헤더 행(`\| header \|` + `\| --- \|`)을 모든 sub-chunk에 복사**하며 데이터 행 단위 분할. metadata에 `sub_chunk_index`, `total_sub_chunks` 추가 (단일 청크도 0/1 포함). `stats` 인자에 `oversize_count` 누적 |
-| PPTX | `chunk_pptx` | **슬라이드 = 1 청크 (6500자 이내), 초과 시 body/notes 분리** | python-pptx, title + body shapes + speaker notes 합산. 표는 셀별 `\|` 결합. **PICTURE shape는 alt text(`nvPicPr.cNvPr.descr`) + Tesseract OCR (kor+eng, timeout=3s) → `[이미지: ...]` 마커**. `_EMBED_TOKEN_LIMIT_CHARS`(6500자) 이내: 단일 청크(BC 유지). 초과: title을 모든 sub-chunk에 prepend하고 body/notes를 별도 청크로 분리. body 단독 초과 시 `chunk_text`로 추가 분할(warning 로그). metadata에 `sub_chunk_index`, `total_sub_chunks` 추가. `stats` 인자에 `oversize_count` 누적 |
+| 순수 텍스트 | `chunk_text` | sliding window (1500/200) | 호출자가 base_metadata에 포함 시 전파 (chunk_text 자체는 무관) |
+| Confluence | `chunk_confluence_page` | H2/H3 섹션 → 큰 섹션은 sliding window | 섹션 `heading` 값과 동일. heading 없는 섹션/plain text는 `None` |
+| DOCX | `chunk_docx` | paragraphs+tables 합쳐 sliding window | 문서 첫 번째 Heading 스타일 단락 텍스트. 없으면 `None` |
+| PDF | `chunk_pdf` | 페이지 단위로 sliding window | 항상 `None` (페이지 기반, 헤딩 감지 없음) |
+| XLSX | `chunk_xlsx` | **시트 = 1 청크 (6500자 이내), 초과 시 데이터 행 단위 분할** | `sheet_name` — 시트명이 곧 소제목 역할 |
+| PPTX | `chunk_pptx` | **슬라이드 = 1 청크 (6500자 이내), 초과 시 body/notes 분리** | `slide_title` — 슬라이드 제목. 제목 없으면 `None` |
+
+#### section_heading 임베딩 활용 (Track D)
+- `knowledge_vector_client.py` (`upsert_confluence_chunks`, `upsert_document_chunks`):
+  - chunk metadata의 `section_heading`이 있으면 embed_text = `"{section_heading}\n{raw_text}"`
+  - Qdrant payload에 `section_heading` 필드 저장
+- `guides_vector_client.py` (`embed_guide`):
+  - embed_input 구성: title → section_heading(있을 때) → chunk_text 순
+  - `"title\nsection_heading\nchunk_text"` 또는 `"title\nchunk_text"` 또는 `chunk_text`
+  - Qdrant payload에 `section_heading` 필드 저장 (guides는 현재 plain text라 대부분 `None`)
+
+#### 포맷별 구체 동작 (비고)
+| 포맷 | 비고 |
+|---|---|
+| Confluence | HTML이면 BeautifulSoup 파싱(다른 HTML 파서 사용 금지). plain text면 chunk_text fallback. heading을 메타에 보존. **`<ac:image>` / `<img>` 태그는 `[이미지: {alt or filename}]` 마커로 변환** |
+| DOCX | python-docx, 표는 행 단위 `\|` 결합. **inline image는 `doc.part.related_parts`에서 추출 → Tesseract OCR (kor+eng) → `[이미지: ...]` 마커** |
+| PDF | pdfplumber(텍스트) + pypdf(이미지). 페이지마다 빈 텍스트 건너뜀, `page_no` 메타 보존, `chunk_index`는 문서 전역 누적. **페이지별 embedded image → pypdf `ImageFile.data` 추출 → Tesseract OCR → `[이미지: ...]` 마커**. 페이지당 OCR 상한 10장 (`_PDF_MAX_IMAGES_PER_PAGE`) |
+| XLSX | openpyxl, 시트를 markdown 표로 변환. `_EMBED_TOKEN_LIMIT_CHARS`(6500자) 이내: 단일 청크(BC 유지). 초과: **헤더 행(`\| header \|` + `\| --- \|`)을 모든 sub-chunk에 복사**하며 데이터 행 단위 분할. metadata에 `sub_chunk_index`, `total_sub_chunks` 추가 (단일 청크도 0/1 포함). `stats` 인자에 `oversize_count` 누적 |
+| PPTX | python-pptx, title + body shapes + speaker notes 합산. 표는 셀별 `\|` 결합. **PICTURE shape는 alt text(`nvPicPr.cNvPr.descr`) + Tesseract OCR (kor+eng, timeout=3s) → `[이미지: ...]` 마커**. `_EMBED_TOKEN_LIMIT_CHARS`(6500자) 이내: 단일 청크(BC 유지). 초과: title을 모든 sub-chunk에 prepend하고 body/notes를 별도 청크로 분리. body 단독 초과 시 `chunk_text`로 추가 분할(warning 로그). metadata에 `sub_chunk_index`, `total_sub_chunks` 추가. `stats` 인자에 `oversize_count` 누적 |
 
 ### 이미지 OCR 동작 (Tesseract)
 
