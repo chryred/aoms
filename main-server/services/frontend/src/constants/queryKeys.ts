@@ -62,6 +62,8 @@ export const qk = {
       ['knowledge', 'frequent-questions', days, threshold] as const,
     syncStatus: (source?: string) => ['knowledge', 'sync-status', source] as const,
     uploadStatus: (jobId: string) => ['knowledge', 'upload', jobId] as const,
+    syncJob: (jobId: string) => ['knowledge', 'sync-job', jobId] as const,
+    syncJobs: (params?: Record<string, unknown>) => ['knowledge', 'sync-jobs', params] as const,
   },
 
   guides: {

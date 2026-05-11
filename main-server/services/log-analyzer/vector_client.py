@@ -838,14 +838,15 @@ async def embed_postmortem(
 
 async def search_postmortem(
     query: str,
-    system_id: int | None = None,
+    system_ids: list[int] | None = None,
+    system_id: int | None = None,  # deprecated, kept for BC
     severity: str | None = None,
     limit: int = 5,
 ) -> list[dict]:
     """
     incident_postmortems Hybrid 검색 (Dense + Sparse RRF).
 
-    system_id / severity 필터는 선택적.
+    system_ids (IN list) / system_id (단일, BC fallback) / severity 필터는 선택적.
     Returns:
         [{"id", "score": float, "payload": {...}}, ...]
     """
@@ -853,7 +854,9 @@ async def search_postmortem(
     sparse = await get_sparse_vector(query)
 
     filter_must: list[dict] = []
-    if system_id is not None:
+    if system_ids:
+        filter_must.append({"key": "system_id", "match": {"any": system_ids}})
+    elif system_id is not None:
         filter_must.append({"key": "system_id", "match": {"value": system_id}})
     if severity:
         filter_must.append({"key": "severity", "match": {"value": severity}})
@@ -868,7 +871,8 @@ async def search_postmortem(
 
 
 async def list_postmortems(
-    system_id: int | None = None,
+    system_ids: list[int] | None = None,
+    system_id: int | None = None,  # deprecated, kept for BC
     severity: str | None = None,
     limit: int = 20,
 ) -> list[dict]:
@@ -877,7 +881,9 @@ async def list_postmortems(
     빈 검색어로 전체 보기 시 사용. score는 1.0 고정.
     """
     filter_must: list[dict] = []
-    if system_id is not None:
+    if system_ids:
+        filter_must.append({"key": "system_id", "match": {"any": system_ids}})
+    elif system_id is not None:
         filter_must.append({"key": "system_id", "match": {"value": system_id}})
     if severity:
         filter_must.append({"key": "severity", "match": {"value": severity}})
@@ -927,3 +933,22 @@ async def get_postmortem_by_incident(incident_id: int) -> dict | None:
         return None
     p = points[0]
     return {"id": p["id"], **p.get("payload", {})}
+
+
+async def delete_postmortem_point(point_id: str) -> bool:
+    """
+    incident_postmortems 컬렉션에서 단일 포인트를 삭제.
+
+    idempotent: 포인트가 없어도 True 반환 (이미 삭제됨).
+    Returns:
+        True if deleted (or not found), False on unexpected error.
+    """
+    resp = await _qdrant_http.post(
+        f"{QDRANT_URL}/collections/{POSTMORTEM_COLLECTION}/points/delete",
+        json={"points": [point_id]},
+    )
+    if resp.status_code in (200, 404):
+        logger.info("postmortem 포인트 삭제: point_id=%s", point_id)
+        return True
+    resp.raise_for_status()
+    return True

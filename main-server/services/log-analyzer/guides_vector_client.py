@@ -358,6 +358,7 @@ async def search_guides(
     query: str,
     system_ids: Optional[list[int]] = None,
     limit: int = 5,
+    group_by_guide: bool = True,
 ) -> list[dict]:
     """knowledge_guides Hybrid 검색.
 
@@ -365,8 +366,15 @@ async def search_guides(
     Qdrant should 절 직접 사용 (_hybrid_search는 must만 지원하므로
     /points/query를 직접 호출).
 
-    검색 결과는 청크 단위 — 같은 guide_id의 여러 청크가 결과에 함께 들어올 수 있다.
-    LLM이 여러 청크를 컨텍스트로 사용해 답변을 작성한다.
+    group_by_guide=True(기본):
+        같은 guide_id의 청크를 그룹화하여 가이드 단위 결과를 반환한다.
+        - limit은 "최대 N개 가이드" 의미로 적용됨 (기존 "N개 청크"에서 변경)
+        - 각 결과 payload에 matched_chunk_indexes (매칭 청크 인덱스 오름차순),
+          matched_chunks_count 필드가 추가됨
+        - 내부적으로 min(limit*10, 100) 청크를 over-fetch 후 Python 그룹화
+
+    group_by_guide=False:
+        기존 청크 단위 동작 유지 (limit = 청크 수).
 
     Returns:
         list of {"id": str, "score": float, "payload": dict}
@@ -376,22 +384,27 @@ async def search_guides(
         get_sparse_vector(query),
     )
 
+    if group_by_guide:
+        qdrant_limit = min(limit * 10, 100)
+    else:
+        qdrant_limit = limit
+
     body: dict = {
         "prefetch": [
             {
                 "query":           dense,
                 "using":           "dense",
-                "limit":           limit * 3,
+                "limit":           qdrant_limit * 3,
                 "score_threshold": 0.5,
             },
             {
                 "query": {"indices": sparse["indices"], "values": sparse["values"]},
                 "using": "sparse",
-                "limit": limit * 3,
+                "limit": qdrant_limit * 3,
             },
         ],
         "query":        {"fusion": "rrf"},
-        "limit":        limit,
+        "limit":        qdrant_limit,
         "with_payload": True,
     }
 
@@ -409,7 +422,52 @@ async def search_guides(
     )
     resp.raise_for_status()
     points = resp.json().get("result", {}).get("points", [])
-    return [
-        {"id": str(p["id"]), "score": p["score"], "payload": p.get("payload", {})}
-        for p in points
-    ]
+
+    if not group_by_guide:
+        return [
+            {"id": str(p["id"]), "score": p["score"], "payload": p.get("payload", {})}
+            for p in points
+        ]
+
+    # ── 가이드 단위 그룹화 ────────────────────────────────────────────────────
+    # guide_id별 {best_score, best_chunk_point, all_chunk_indexes} 집계
+    groups: dict[str, dict] = {}
+    for p in points:
+        payload = p.get("payload") or {}
+        guide_id = payload.get("guide_id") or str(p["id"])  # 레거시 단일 포인트 호환
+        score    = p["score"]
+        chunk_index = payload.get("chunk_index")
+
+        if guide_id not in groups:
+            groups[guide_id] = {
+                "best_score":  score,
+                "best_point":  p,
+                "chunk_indexes": [chunk_index] if chunk_index is not None else [],
+            }
+        else:
+            if score > groups[guide_id]["best_score"]:
+                groups[guide_id]["best_score"] = score
+                groups[guide_id]["best_point"] = p
+            if chunk_index is not None:
+                groups[guide_id]["chunk_indexes"].append(chunk_index)
+
+    # 그룹별 정렬: best_score 내림차순, guide_id 오름차순 (동점 결정론적)
+    sorted_groups = sorted(
+        groups.values(),
+        key=lambda g: (-g["best_score"], g["best_point"].get("payload", {}).get("guide_id", "")),
+    )
+
+    results = []
+    for g in sorted_groups[:limit]:
+        best = g["best_point"]
+        payload = dict(best.get("payload") or {})
+        matched_indexes = sorted(set(g["chunk_indexes"]))
+        payload["matched_chunk_indexes"] = matched_indexes
+        payload["matched_chunks_count"]  = len(matched_indexes)
+        results.append({
+            "id":      str(best["id"]),
+            "score":   g["best_score"],
+            "payload": payload,
+        })
+
+    return results

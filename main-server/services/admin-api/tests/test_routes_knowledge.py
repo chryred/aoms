@@ -286,46 +286,71 @@ async def test_sync_status_upsert(authed_client: AsyncClient):
 # ── 강제 재동기화 ──────────────────────────────────────────────────────────────
 
 @pytest.mark.asyncio
-async def test_force_sync_jira_success(authed_client: AsyncClient):
-    with patch(
-        "routes.knowledge.knowledge_service.call_force_sync_jira",
-        new=AsyncMock(return_value={"synced": True, "issue_key": "PROJ-123"}),
-    ):
+async def test_force_sync_jira_returns_202(authed_client: AsyncClient):
+    """Jira force sync — 즉시 202 + job_id 반환."""
+    with patch("routes.knowledge.asyncio.create_task"):
         resp = await authed_client.post("/api/v1/knowledge/sync/jira/PROJ-123/force")
-    assert resp.status_code == 200
-    assert resp.json()["synced"] is True
-    assert resp.json()["issue_key"] == "PROJ-123"
+    assert resp.status_code == 202
+    body = resp.json()
+    assert "job_id" in body
+    assert body["status"] == "pending"
 
 
 @pytest.mark.asyncio
-async def test_force_sync_jira_failure(authed_client: AsyncClient):
-    with patch(
-        "routes.knowledge.knowledge_service.call_force_sync_jira",
-        new=AsyncMock(return_value={"synced": False, "error": "404: not found"}),
-    ):
-        resp = await authed_client.post("/api/v1/knowledge/sync/jira/PROJ-999/force")
-    assert resp.status_code == 502
+async def test_force_sync_jira_idempotent(authed_client: AsyncClient):
+    """같은 (source, ref_id) 재요청 시 기존 job_id 반환 (duplicate=True)."""
+    with patch("routes.knowledge.asyncio.create_task"):
+        r1 = await authed_client.post("/api/v1/knowledge/sync/jira/PROJ-DUP/force")
+        r2 = await authed_client.post("/api/v1/knowledge/sync/jira/PROJ-DUP/force")
+    assert r1.status_code == 202
+    assert r2.status_code == 202
+    assert r1.json()["job_id"] == r2.json()["job_id"]
+    assert r2.json().get("duplicate") is True
 
 
 @pytest.mark.asyncio
-async def test_force_sync_confluence_success(authed_client: AsyncClient):
-    with patch(
-        "routes.knowledge.knowledge_service.call_force_sync_confluence",
-        new=AsyncMock(return_value={"synced": True, "page_id": "12345", "synced_chunks": 3}),
-    ):
+async def test_force_sync_confluence_returns_202(authed_client: AsyncClient):
+    """Confluence force sync — 즉시 202 + job_id 반환."""
+    with patch("routes.knowledge.asyncio.create_task"):
         resp = await authed_client.post("/api/v1/knowledge/sync/confluence/12345/force")
-    assert resp.status_code == 200
-    assert resp.json()["synced_chunks"] == 3
+    assert resp.status_code == 202
+    body = resp.json()
+    assert "job_id" in body
+    assert body["status"] == "pending"
 
 
 @pytest.mark.asyncio
-async def test_force_sync_confluence_failure(authed_client: AsyncClient):
-    with patch(
-        "routes.knowledge.knowledge_service.call_force_sync_confluence",
-        new=AsyncMock(return_value={"synced": False, "error": "page not found"}),
-    ):
-        resp = await authed_client.post("/api/v1/knowledge/sync/confluence/99999/force")
-    assert resp.status_code == 502
+async def test_get_sync_job_not_found(authed_client: AsyncClient):
+    """존재하지 않는 job_id 조회 → 404."""
+    resp = await authed_client.get("/api/v1/knowledge/sync/jobs/non-existent-job-id")
+    assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_get_sync_job_found(authed_client: AsyncClient):
+    """생성된 Job을 GET으로 조회할 수 있다."""
+    with patch("routes.knowledge.asyncio.create_task"):
+        create_resp = await authed_client.post("/api/v1/knowledge/sync/jira/PROJ-GET/force")
+    assert create_resp.status_code == 202
+    job_id = create_resp.json()["job_id"]
+
+    get_resp = await authed_client.get(f"/api/v1/knowledge/sync/jobs/{job_id}")
+    assert get_resp.status_code == 200
+    data = get_resp.json()
+    assert data["job_id"] == job_id
+    assert data["source"] == "jira"
+    assert data["ref_id"] == "PROJ-GET"
+    assert data["status"] in ("pending", "processing", "done", "failed")
+
+
+@pytest.mark.asyncio
+async def test_list_sync_jobs_admin_only(authed_client: AsyncClient):
+    """Job 목록은 admin 전용 — authed_client(admin)는 200 반환."""
+    resp = await authed_client.get("/api/v1/knowledge/sync/jobs")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert "items" in body
+    assert isinstance(body["items"], list)
 
 
 # ── cluster_questions_by_cosine 클러스터링 유닛 테스트 ────────────────────────

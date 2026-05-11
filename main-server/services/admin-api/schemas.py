@@ -286,6 +286,15 @@ class FeedbackUpdateRequest(BaseModel):
     resolver: str
 
 
+class ResubmitWarning(BaseModel):
+    """resubmit 응답에 동봉되는 소프트 제한 경고. 다른 엔드포인트에서는 None."""
+    code: str                    # approaching_resubmit_limit
+    message: str
+    revision_count: int
+    soft_limit: int
+    hard_limit: int
+
+
 class FeedbackOut(BaseModel):
     id: int
     incident_id: int
@@ -303,6 +312,8 @@ class FeedbackOut(BaseModel):
     revision_reason: Optional[str] = None
     qdrant_point_id: Optional[str] = None
     attachments: list[FeedbackAttachmentOut] = []
+    # resubmit 성공 응답에서만 채움 (revision_count >= soft_limit 시). 기타 엔드포인트는 None.
+    warning: Optional[ResubmitWarning] = None
 
     model_config = {"from_attributes": True}
 
@@ -423,6 +434,56 @@ class AlertExclusionDeactivateRequest(BaseModel):
 class BulkExcludeResult(BaseModel):
     succeeded: list[int]
     failed: list[dict]
+
+
+# ── MetricExclusion (prometheus_analyzer 전용) ────────────────────────────
+class MetricExclusionItem(BaseModel):
+    system_id: int
+    host: Optional[str] = None                              # None = 시스템 전체 와일드카드
+    metric_type: str                                        # MetricType enum value
+    override_threshold: Optional[float] = None              # None = 완전 차단
+    reason: Optional[str] = None
+    expires_at: Optional[datetime] = None                   # UTC naive 또는 ISO 8601 'Z'
+
+    @field_validator("metric_type")
+    @classmethod
+    def _validate_metric_type(cls, v: str) -> str:
+        from services.metric_types import ALLOWED_METRIC_TYPES
+
+        if v not in ALLOWED_METRIC_TYPES:
+            raise ValueError(
+                f"metric_type 은 {sorted(ALLOWED_METRIC_TYPES)} 중 하나여야 합니다 (입력: {v})"
+            )
+        return v
+
+
+class MetricExclusionCreate(BaseModel):
+    items: list[MetricExclusionItem]
+    created_by: Optional[str] = None
+
+
+class MetricExclusionOut(BaseModel):
+    id: int
+    system_id: int
+    host: Optional[str]
+    metric_type: str
+    override_threshold: Optional[float]
+    reason: Optional[str]
+    created_by: Optional[str]
+    created_at: UtcDatetime
+    active: bool
+    deactivated_by: Optional[str]
+    deactivated_at: Optional[UtcDatetime]
+    skip_count: int
+    last_skipped_at: Optional[UtcDatetime]
+    expires_at: Optional[UtcDatetime] = None
+
+    model_config = {"from_attributes": True}
+
+
+class MetricExclusionDeactivateRequest(BaseModel):
+    ids: list[int]
+    deactivated_by: Optional[str] = None
 
 
 class AlertsBulkExcludeRequest(BaseModel):

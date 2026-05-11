@@ -56,7 +56,8 @@ class EmbedPostmortemResponse(BaseModel):
 
 class SearchPostmortemRequest(BaseModel):
     query:        str = ""
-    system_id:    Optional[int] = None
+    system_ids:   list[int] | None = None
+    system_id:    Optional[int] = None  # deprecated, kept for BC; system_ids takes priority
     severity:     Optional[str] = None
     limit:        int = 5
     rerank:       bool = False
@@ -116,6 +117,7 @@ async def search_postmortem(req: SearchPostmortemRequest):
     if not req.query.strip():
         try:
             results = await vector_client.list_postmortems(
+                system_ids=req.system_ids,
                 system_id=req.system_id,
                 severity=req.severity,
                 limit=req.limit,
@@ -128,6 +130,7 @@ async def search_postmortem(req: SearchPostmortemRequest):
         try:
             results = await vector_client.search_postmortem(
                 query=req.query,
+                system_ids=req.system_ids,
                 system_id=req.system_id,
                 severity=req.severity,
                 limit=retrieval_limit,

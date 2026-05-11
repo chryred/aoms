@@ -55,3 +55,19 @@ export function useTriggerSync() {
     },
   })
 }
+
+/** Jira 단건 이슈 강제 재동기화 — 즉시 job_id 반환, 폴링은 useSyncJob으로 */
+export function useForceSync() {
+  return useMutation({
+    mutationFn: ({
+      source,
+      refId,
+    }: {
+      source: 'jira' | 'confluence'
+      refId: string
+    }) => {
+      if (source === 'jira') return knowledgeApi.forceSyncJiraIssue(refId)
+      return knowledgeApi.forceSyncConfluencePage(refId)
+    },
+  })
+}

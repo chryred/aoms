@@ -3,6 +3,22 @@ import { knowledgeApi } from '@/api/knowledge'
 import { qk } from '@/constants/queryKeys'
 import type { OperatorNoteListParams, FeedbackListParams } from '@/api/knowledge'
 
+/** 단건 강제 재동기화 Job 폴링 훅.
+ *  done / failed 상태에서 자동 폴링 중지. */
+export function useSyncJob(jobId: string | null) {
+  return useQuery({
+    queryKey: qk.knowledge.syncJob(jobId ?? ''),
+    queryFn: () => knowledgeApi.getSyncJob(jobId as string),
+    enabled: !!jobId,
+    staleTime: 0,
+    refetchInterval: (query) => {
+      const status = query.state.data?.status
+      if (status === 'done' || status === 'failed') return false
+      return 2_000
+    },
+  })
+}
+
 export function useFrequentQuestions(days = 7, threshold = 3) {
   return useQuery({
     queryKey: qk.knowledge.frequentQuestions(days, threshold),

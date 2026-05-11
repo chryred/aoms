@@ -41,9 +41,10 @@ class DeleteGuideResponse(BaseModel):
 
 
 class SearchGuidesRequest(BaseModel):
-    query:      str = ""
-    system_ids: Optional[list[int]] = None
-    limit:      int = 5
+    query:          str = ""
+    system_ids:     Optional[list[int]] = None
+    limit:          int = 5
+    group_by_guide: bool = True
 
 
 class SearchResultItem(BaseModel):
@@ -135,6 +136,7 @@ async def search_guides(req: SearchGuidesRequest):
             query=req.query,
             system_ids=req.system_ids,
             limit=req.limit,
+            group_by_guide=req.group_by_guide,
         )
     except Exception as exc:
         logger.error("가이드 검색 실패: %s", exc)

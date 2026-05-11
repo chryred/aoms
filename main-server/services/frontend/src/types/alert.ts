@@ -27,5 +27,7 @@ export interface AlertHistory {
   related_trace_ids: string[] | null
   /** 인시던트 연결 (NULL = 인시던트 미생성, 주로 구버전 알림) */
   incident_id: number | null
+  /** prometheus_analyzer 알림에 묶인 메트릭 종류 (예: ["cpu","disk_io"]). NULL = 레거시/Alertmanager 알림 */
+  metric_types: string[] | null
   created_at: string
 }

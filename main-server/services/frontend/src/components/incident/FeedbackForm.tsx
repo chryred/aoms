@@ -1,15 +1,17 @@
 import { useEffect, useRef, useState } from 'react'
-import { Paperclip, X, FileText, Info } from 'lucide-react'
+import { Paperclip, X, FileText, Info, AlertTriangle, Ban } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { HTTPError } from 'ky'
 import { NeuButton } from '@/components/neumorphic/NeuButton'
+import { NeuCard } from '@/components/neumorphic/NeuCard'
 import { NeuSelect } from '@/components/neumorphic/NeuSelect'
 import { NeuTextarea } from '@/components/neumorphic/NeuTextarea'
 import { useApprovers } from '@/hooks/queries/useApprovers'
 import { useFeedbackUpload } from '@/hooks/mutations/useFeedbackUpload'
 import { incidentsApi } from '@/api/incidents'
 import { useAuthStore } from '@/store/authStore'
-import type { Feedback, FeedbackUploadResponse } from '@/types/feedback'
+import type { Feedback, FeedbackUploadResponse, ResubmitLimitError, ResubmitWarning } from '@/types/feedback'
 
 const ERROR_TYPES = [
   'DB 연결 오류',
@@ -53,6 +55,8 @@ export function FeedbackForm({
   const [approverContactId, setApproverContactId] = useState<number | null>(null)
   const [revisionReason, setRevisionReason] = useState('')
   const [attachments, setAttachments] = useState<LocalAttachment[]>([])
+  const [resubmitWarning, setResubmitWarning] = useState<ResubmitWarning | null>(null)
+  const [hardBlocked, setHardBlocked] = useState<ResubmitLimitError | null>(null)
   // revise 모드: 보존할 기존 첨부 ID 목록 (초기값 = 전체 ID, 사용자가 X로 제거 시 빠짐)
   const [keptAttachmentIds, setKeptAttachmentIds] = useState<number[]>(
     existingFeedback?.attachments.map((a) => a.id) ?? [],
@@ -109,14 +113,32 @@ export function FeedbackForm({
         kept_attachment_ids: keptAttachmentIds,
         revision_reason: showRevisionReason ? revisionReason.trim() || undefined : undefined,
       }),
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['incident-feedback', incidentId] })
       queryClient.invalidateQueries({ queryKey: ['incident-feedback-pending'] })
-      toast.success('해결책이 수정되었습니다')
-      onSuccess?.()
-      onClose()
+      if (data.warning) {
+        // 소프트 리밋 경고 — 성공은 했으나 새 피드백 등록 권장 메시지를 표시
+        setResubmitWarning(data.warning)
+        onSuccess?.()
+        // 폼을 닫지 않고 경고 카드만 표시 (사용자가 인지 후 직접 닫기)
+      } else {
+        toast.success('해결책이 수정되었습니다')
+        onSuccess?.()
+        onClose()
+      }
     },
-    onError: () => toast.error('수정 중 오류가 발생했습니다'),
+    onError: async (err) => {
+      if (err instanceof HTTPError && err.response.status === 409) {
+        try {
+          const body = await err.response.json<{ detail: ResubmitLimitError }>()
+          setHardBlocked(body.detail)
+        } catch {
+          toast.error('재등록 한도를 초과했습니다. 새 피드백을 등록해 주세요.')
+        }
+      } else {
+        toast.error('수정 중 오류가 발생했습니다')
+      }
+    },
   })
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -374,6 +396,32 @@ export function FeedbackForm({
           </p>
         </div>
 
+        {/* 소프트 리밋 경고 카드 — 재등록 성공 후 표시 */}
+        {resubmitWarning && (
+          <div
+            role="alert"
+            className="border-warning/30 bg-warning/5 flex items-start gap-2 rounded-sm border p-3"
+          >
+            <AlertTriangle aria-hidden="true" className="text-warning mt-0.5 h-4 w-4 shrink-0" />
+            <div className="min-w-0 flex-1">
+              <p className="text-warning mb-1 text-xs font-semibold">
+                재등록 횟수 경고 ({resubmitWarning.revision_count}/{resubmitWarning.hard_limit}회)
+              </p>
+              <p className="text-text-secondary text-xs leading-relaxed">
+                {resubmitWarning.message}
+              </p>
+            </div>
+            <button
+              type="button"
+              aria-label="경고 닫기"
+              onClick={onClose}
+              className="text-text-secondary hover:text-text-primary focus:ring-accent shrink-0 rounded-sm p-1 focus:ring-1 focus:outline-none"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        )}
+
         {/* 버튼 */}
         <div className="flex gap-2 pt-1">
           <NeuButton onClick={handleSubmit} disabled={isSubmitDisabled} size="sm">
@@ -390,6 +438,43 @@ export function FeedbackForm({
           </NeuButton>
         </div>
       </div>
+
+      {/* 하드 리밋 블록 모달 — 409 Conflict */}
+      {hardBlocked && (
+        <>
+          <div className="bg-overlay fixed inset-0 z-40" aria-hidden="true" />
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <NeuCard className="w-full max-w-sm">
+              <div className="mb-4 flex items-start gap-3">
+                <Ban aria-hidden="true" className="text-text-disabled mt-0.5 h-5 w-5 shrink-0" />
+                <div>
+                  <p className="text-text-primary text-sm font-semibold">재등록 한도 초과</p>
+                  <p className="text-text-secondary mt-1 text-xs leading-relaxed">
+                    {hardBlocked.message}
+                  </p>
+                  <p className="text-text-disabled mt-2 text-xs">
+                    현재 {hardBlocked.revision_count}회 / 최대 {hardBlocked.hard_limit}회
+                  </p>
+                </div>
+              </div>
+              <div className="flex justify-end gap-2">
+                <NeuButton variant="ghost" size="sm" onClick={() => setHardBlocked(null)}>
+                  닫기
+                </NeuButton>
+                <NeuButton
+                  size="sm"
+                  onClick={() => {
+                    setHardBlocked(null)
+                    onClose()
+                  }}
+                >
+                  확인
+                </NeuButton>
+              </div>
+            </NeuCard>
+          </div>
+        </>
+      )}
     </>
   )
 }

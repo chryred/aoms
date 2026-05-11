@@ -160,6 +160,8 @@ class AlertHistory(Base):
     incident_id = Column(Integer, ForeignKey("incidents.id", ondelete="SET NULL"), nullable=True)
     # log_analysis 타입일 때 연결된 log_analysis_history (예외 처리 UI용 templates_json 조회)
     log_analysis_id = Column(Integer, ForeignKey("log_analysis_history.id", ondelete="SET NULL"), nullable=True)
+    # prometheus_analyzer 알림에 묶인 메트릭 종류 (예: ["cpu","disk_io"]). NULL = 레거시/Alertmanager 알림
+    metric_types = Column(JSONB)
     created_at = Column(DateTime, default=func.now())
 
     __table_args__ = (
@@ -299,6 +301,36 @@ class AlertExclusion(Base):
     __table_args__ = (
         Index("idx_alert_exclusions_active_system", "system_id", "active"),
         Index("idx_alert_exclusions_expires_at", "expires_at"),
+    )
+
+
+class MetricExclusion(Base):
+    """prometheus_analyzer 메트릭 알림 예외 처리 규칙.
+
+    매칭 키: (system_id, host, metric_type) — host=NULL 은 시스템 전체 와일드카드.
+    override_threshold IS NULL → 완전 차단 / 값 있으면 해당 메트릭만 임계치를 이 값으로 대체 (개발기 둔감화 등).
+    """
+
+    __tablename__ = "metric_exclusions"
+
+    id                 = Column(Integer, primary_key=True)
+    system_id          = Column(Integer, ForeignKey("systems.id", ondelete="CASCADE"), nullable=False)
+    host               = Column(String(255), nullable=True)   # NULL = 시스템 전체 host 와일드카드
+    metric_type        = Column(String(30), nullable=False)   # MetricType enum value
+    override_threshold = Column(Float, nullable=True)          # NULL = 완전 차단
+    reason             = Column(Text)
+    created_by         = Column(String(100))
+    created_at         = Column(DateTime, default=func.now())
+    active             = Column(Boolean, default=True, server_default="true")
+    deactivated_by     = Column(String(100))
+    deactivated_at     = Column(DateTime)
+    skip_count         = Column(Integer, default=0, server_default="0")
+    last_skipped_at    = Column(DateTime)
+    expires_at         = Column(DateTime)                      # UTC naive, Lazy 검증
+
+    __table_args__ = (
+        Index("idx_metric_exclusions_lookup", "system_id", "active", "metric_type"),
+        Index("idx_metric_exclusions_expires_at", "expires_at"),
     )
 
 
@@ -602,6 +634,29 @@ class KnowledgeSyncStatus(Base):
     last_error    = Column(Text)                            # NULL = 마지막 동기화 성공
     is_syncing    = Column(Boolean, nullable=False, default=False)  # 동기화 진행 중 여부
     updated_at    = Column(DateTime, nullable=False, default=func.now())
+
+
+class KnowledgeSyncJob(Base):
+    """Jira/Confluence 단건 강제 재동기화 비동기 Job — P2-C"""
+    __tablename__ = "knowledge_sync_jobs"
+
+    id             = Column(PG_UUID(as_uuid=False).with_variant(String(36), "sqlite"), primary_key=True, default=_uuid_str)
+    source         = Column(String(20), nullable=False)    # 'jira' | 'confluence'
+    ref_id         = Column(String(200), nullable=False)   # issue_key 또는 page_id
+    status         = Column(String(20), nullable=False, default="pending")  # pending | processing | done | failed
+    progress       = Column(Integer, nullable=False, default=0)             # 0~100
+    result_json    = Column(JSONB, nullable=True)           # 완료 시 결과 (synced, chunks 등)
+    error_message  = Column(Text, nullable=True)
+    triggered_by   = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    started_at     = Column(DateTime, nullable=True)
+    completed_at   = Column(DateTime, nullable=True)
+    created_at     = Column(DateTime, nullable=False, default=func.now())
+
+    __table_args__ = (
+        Index("idx_sync_jobs_source_ref", "source", "ref_id"),
+        Index("idx_sync_jobs_status", "status"),
+        Index("idx_sync_jobs_created_at", "created_at"),
+    )
 
 
 # ── OIDC IdP (ADR-014) ────────────────────────────────────────────────────────

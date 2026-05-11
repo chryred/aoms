@@ -115,8 +115,7 @@ export function GuideListView({
             onClick={onOpenCreate}
             className="text-accent border-accent hover:bg-accent/10 focus:ring-accent flex items-center gap-1.5 rounded-sm border px-3 py-1.5 text-sm transition-colors focus:ring-1 focus:outline-none"
           >
-            <Plus className="h-3.5 w-3.5" />
-            새 가이드 추가
+            <Plus className="h-3.5 w-3.5" />새 가이드 추가
           </button>
         )}
       </div>

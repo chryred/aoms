@@ -82,9 +82,7 @@ function GroupSection({
         )}
         <span className="font-mono text-xs">{group.collection}</span>
         <span className="text-text-disabled text-xs">({group.results.length}건)</span>
-        {group.tool && (
-          <span className="text-text-disabled font-mono text-xs">{group.tool}</span>
-        )}
+        {group.tool && <span className="text-text-disabled font-mono text-xs">{group.tool}</span>}
         {group.reranked && (
           <span className="bg-accent-muted text-accent rounded-full px-2 py-0.5 text-[10px] font-medium">
             reranked

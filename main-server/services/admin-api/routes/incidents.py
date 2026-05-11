@@ -28,6 +28,7 @@ from schemas import (
     IncidentStatsOut,
     IncidentTimelineItemOut,
     IncidentUpdate,
+    ResubmitWarning,
 )
 from services.llm_client import call_llm_text
 from services import incident_postmortem_client as postmortem_client
@@ -51,6 +52,8 @@ _notifier = TeamsNotifier(default_webhook_url=_DEFAULT_WEBHOOK_URL)
 _KNOWLEDGE_DOCS_DIR = Path(os.getenv("KNOWLEDGE_DOCS_DIR", "/attaches/knowledge-docs"))
 _FEEDBACK_ATTACH_DIR = _KNOWLEDGE_DOCS_DIR / "feedback"
 _MAX_ATTACHMENTS_PER_FEEDBACK = 10
+_RESUBMIT_SOFT_LIMIT = 3   # 이상 시 warning 동봉
+_RESUBMIT_HARD_LIMIT = 5   # 이상 시 409 거부 → 신규 피드백 등록 강제
 
 
 def _staging_dir() -> Path:
@@ -779,6 +782,19 @@ async def resubmit_incident_feedback(
     if not (is_admin or is_resolver):
         raise HTTPException(status_code=403, detail="등록자 또는 관리자만 재등록할 수 있습니다")
 
+    # 하드 리밋 — 재등록 횟수가 상한에 도달하면 신규 피드백 등록을 강제
+    if (feedback.revision_count or 0) >= _RESUBMIT_HARD_LIMIT:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "error": "resubmit_limit_exceeded",
+                "message": f"이 피드백은 {feedback.revision_count}회 재등록되었습니다. 새 피드백을 등록해 주세요.",
+                "revision_count": feedback.revision_count,
+                "soft_limit": _RESUBMIT_SOFT_LIMIT,
+                "hard_limit": _RESUBMIT_HARD_LIMIT,
+            },
+        )
+
     attachment_paths = payload.attachment_paths or []
     kept_ids = payload.kept_attachment_ids  # None / [] / [ids]
 
@@ -810,6 +826,10 @@ async def resubmit_incident_feedback(
             detail=f"첨부파일은 최대 {_MAX_ATTACHMENTS_PER_FEEDBACK}개까지 가능합니다 (보존 {kept_count}건 + 신규 {len(attachment_paths)}건 = {total_count}건)",
         )
 
+    # approved→pending 전환 시 Qdrant 포인트를 정리해야 하므로 변경 전 상태를 보관
+    original_status = feedback.status
+    captured_point_id = feedback.qdrant_point_id
+
     # 피드백 내용 갱신 (rejected → pending 또는 approved → pending 복귀)
     feedback.error_type = payload.error_type
     feedback.solution = payload.solution
@@ -820,9 +840,12 @@ async def resubmit_incident_feedback(
     # 재등록 사유 — None / 공백 입력 시 NULL 저장. 매 재등록마다 덮어씀(이력 미보관).
     revision_reason_text = (payload.revision_reason or "").strip() or None
     feedback.revision_reason = revision_reason_text
-    # approved에서 수정한 경우 — approved_at 등도 초기화하여 재승인 절차 강제
+    # approved에서 수정한 경우 — approved_at 등도 초기화하여 재승인 절차 강제.
+    # qdrant_point_id도 NULL로 초기화 — 재승인 시 새 포인트를 생성하게 됨.
     feedback.approved_at = None
     feedback.approved_by = None
+    if original_status == "approved":
+        feedback.qdrant_point_id = None
     await db.flush()
 
     # 신규 첨부 누적 (sort_order는 보존된 기존 뒤에 이어짐)
@@ -848,6 +871,16 @@ async def resubmit_incident_feedback(
         .options(selectinload(AlertFeedback.attachments))
     )
     feedback = result2.scalar_one()
+
+    # approved → pending 전환 시 Qdrant point 삭제 (best-effort, DB commit 이후)
+    if original_status == "approved" and captured_point_id:
+        try:
+            await postmortem_client.delete_postmortem(captured_point_id)
+        except Exception as exc:
+            logger.warning(
+                "postmortem Qdrant point 삭제 실패 (point_id=%s, feedback_id=%s): %s",
+                captured_point_id, feedback_id, exc,
+            )
 
     # OCR 백그라운드 처리 — detached task 로 즉시 응답 반환
     if attachment_paths:
@@ -885,7 +918,20 @@ async def resubmit_incident_feedback(
         approver_contact=approver_contact_dict,
     )
 
-    return feedback
+    # 소프트 리밋 — 재등록 횟수가 soft_limit 이상이면 경고를 동봉하여 반환
+    out = FeedbackOut.model_validate(feedback)
+    if feedback.revision_count >= _RESUBMIT_SOFT_LIMIT:
+        out.warning = ResubmitWarning(
+            code="approaching_resubmit_limit",
+            message=(
+                f"이 피드백은 이미 {feedback.revision_count}회 재등록되었습니다. "
+                "본질이 다른 솔루션이라면 새 피드백 등록을 권장합니다."
+            ),
+            revision_count=feedback.revision_count,
+            soft_limit=_RESUBMIT_SOFT_LIMIT,
+            hard_limit=_RESUBMIT_HARD_LIMIT,
+        )
+    return out
 
 
 # ── 첨부 OCR 재시도 ───────────────────────────────────────────────────────────

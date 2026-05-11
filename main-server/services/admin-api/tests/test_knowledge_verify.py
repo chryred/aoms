@@ -685,7 +685,7 @@ async def test_collections_mode_error_attribution_incident(authed_client: AsyncC
 
 @pytest.mark.asyncio
 async def test_collections_mode_postmortem_system_filter(authed_client: AsyncClient):
-    """incident_postmortems 검색 시 system_ids 1개면 system_id 필터가 payload에 포함된다."""
+    """incident_postmortems 검색 시 system_ids 1개면 system_ids 리스트로 payload에 포함된다 (P2-A)."""
     captured_payloads: list[dict] = []
 
     async def capturing_post(url: str, json: dict | None = None, **kwargs):
@@ -710,12 +710,12 @@ async def test_collections_mode_postmortem_system_filter(authed_client: AsyncCli
 
     assert resp.status_code == 200
     assert len(captured_payloads) == 1
-    assert captured_payloads[0].get("system_id") == 7
+    assert captured_payloads[0].get("system_ids") == [7]
 
 
 @pytest.mark.asyncio
-async def test_collections_mode_postmortem_no_system_filter_for_multiple(authed_client: AsyncClient):
-    """incident_postmortems 검색 시 system_ids 2개 이상이면 system_id 필터 미포함."""
+async def test_collections_mode_postmortem_system_filter_multiple(authed_client: AsyncClient):
+    """incident_postmortems 검색 시 system_ids 2개 이상이면 system_ids IN list 필터로 포함된다 (P2-A)."""
     captured_payloads: list[dict] = []
 
     async def capturing_post(url: str, json: dict | None = None, **kwargs):
@@ -740,7 +740,42 @@ async def test_collections_mode_postmortem_no_system_filter_for_multiple(authed_
 
     assert resp.status_code == 200
     assert len(captured_payloads) == 1
-    assert "system_id" not in captured_payloads[0]
+    assert captured_payloads[0].get("system_ids") == [1, 2]
+
+
+@pytest.mark.asyncio
+async def test_chatbot_mode_postmortem_multi_system_ids(authed_client: AsyncClient):
+    """chatbot 모드에서 system_ids 복수 지정 시 postmortem payload에 system_ids 리스트가 전달된다 (P2-A)."""
+    captured_payloads: list[dict] = []
+
+    async def capturing_post(url: str, json: dict | None = None, **kwargs):
+        if json is not None:
+            captured_payloads.append({"url": url, "payload": json})
+        if "incident/search" in url:
+            return _make_mock_httpx_response(_mock_incident_response())
+        if "incident-postmortem/search" in url:
+            return _make_mock_httpx_response(_mock_postmortem_response())
+        if "aggregation/search" in url:
+            return _make_mock_httpx_response(_mock_aggregation_response())
+        if "knowledge/search" in url:
+            return _make_mock_httpx_response(_mock_knowledge_response())
+        return _make_mock_httpx_response({})
+
+    with patch("httpx.AsyncClient") as mock_cls:
+        mock_instance = AsyncMock()
+        mock_cls.return_value.__aenter__ = AsyncMock(return_value=mock_instance)
+        mock_cls.return_value.__aexit__ = AsyncMock(return_value=None)
+        mock_instance.post = AsyncMock(side_effect=capturing_post)
+
+        resp = await authed_client.post(
+            "/api/v1/knowledge/search-verify/chatbot",
+            json={"query": "OOM 장애", "system_ids": [3, 5]},
+        )
+
+    assert resp.status_code == 200
+    pm_calls = [c for c in captured_payloads if "incident-postmortem/search" in c["url"]]
+    assert len(pm_calls) == 1
+    assert pm_calls[0]["payload"].get("system_ids") == [3, 5]
 
 
 @pytest.mark.asyncio

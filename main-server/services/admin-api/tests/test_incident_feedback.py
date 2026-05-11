@@ -884,3 +884,291 @@ async def test_approve_already_approved_returns_400(
         f"/api/v1/incidents/{resolved_incident.id}/feedback/{fb.id}/approve"
     )
     assert resp.status_code == 400, resp.text
+
+
+# ── 12. P1-1: approved→resubmit 시 Qdrant point 삭제 ─────────────────────────
+
+async def test_resubmit_approved_deletes_qdrant_point(
+    authed_client: AsyncClient,
+    db_session: AsyncSession,
+    resolved_incident,
+    admin_user_and_contact,
+):
+    """approved 피드백 재등록 시 Qdrant point 삭제 및 qdrant_point_id NULL 처리 검증."""
+    _, approver_contact = admin_user_and_contact
+
+    fb = AlertFeedback(
+        incident_id=resolved_incident.id,
+        error_type="CPU 과부하",
+        solution="프로세스 종료",
+        resolver="테스트관리자",
+        status="approved",
+        approver_id=approver_contact.id,
+        qdrant_point_id="test-point-001",
+        revision_count=0,
+    )
+    db_session.add(fb)
+    await db_session.commit()
+    await db_session.refresh(fb)
+
+    with (
+        patch("routes.incidents._run_ocr_for_attachment", new_callable=AsyncMock),
+        patch("routes.incidents._notifier.send_approval_request_card", new_callable=AsyncMock),
+        patch(
+            "routes.incidents.postmortem_client.delete_postmortem",
+            new_callable=AsyncMock,
+            return_value=True,
+        ) as mock_delete,
+    ):
+        resp = await authed_client.post(
+            f"/api/v1/incidents/{resolved_incident.id}/feedback/{fb.id}/resubmit",
+            json={"error_type": "CPU 과부하", "solution": "수정된 해결책", "attachment_paths": []},
+        )
+
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["status"] == "pending"
+    assert body["qdrant_point_id"] is None
+
+    # delete_postmortem이 정확히 1회, 올바른 point_id로 호출됨
+    mock_delete.assert_called_once_with("test-point-001")
+
+    # DB에 qdrant_point_id가 NULL로 저장됨
+    await db_session.refresh(fb)
+    assert fb.qdrant_point_id is None
+
+
+async def test_resubmit_approved_delete_fails_still_returns_200(
+    authed_client: AsyncClient,
+    db_session: AsyncSession,
+    resolved_incident,
+    admin_user_and_contact,
+):
+    """Qdrant 삭제 실패 시에도 HTTP 200 반환 — DB는 일관되게 NULL 처리됨 (best-effort)."""
+    _, approver_contact = admin_user_and_contact
+
+    fb = AlertFeedback(
+        incident_id=resolved_incident.id,
+        error_type="메모리 누수",
+        solution="재시작",
+        resolver="테스트관리자",
+        status="approved",
+        approver_id=approver_contact.id,
+        qdrant_point_id="test-point-002",
+        revision_count=0,
+    )
+    db_session.add(fb)
+    await db_session.commit()
+    await db_session.refresh(fb)
+
+    with (
+        patch("routes.incidents._run_ocr_for_attachment", new_callable=AsyncMock),
+        patch("routes.incidents._notifier.send_approval_request_card", new_callable=AsyncMock),
+        patch(
+            "routes.incidents.postmortem_client.delete_postmortem",
+            new_callable=AsyncMock,
+            side_effect=Exception("Qdrant 연결 실패"),
+        ),
+    ):
+        resp = await authed_client.post(
+            f"/api/v1/incidents/{resolved_incident.id}/feedback/{fb.id}/resubmit",
+            json={"error_type": "메모리 누수", "solution": "수정본", "attachment_paths": []},
+        )
+
+    # Qdrant 삭제 실패해도 HTTP 200
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["status"] == "pending"
+
+    # DB의 qdrant_point_id는 NULL로 클리어됨 (삭제 실패와 무관하게)
+    await db_session.refresh(fb)
+    assert fb.qdrant_point_id is None
+
+
+async def test_resubmit_rejected_does_not_delete_qdrant(
+    authed_client: AsyncClient,
+    db_session: AsyncSession,
+    resolved_incident,
+    admin_user_and_contact,
+):
+    """rejected 상태 피드백 재등록 시 delete_postmortem 미호출 확인."""
+    _, approver_contact = admin_user_and_contact
+
+    fb = AlertFeedback(
+        incident_id=resolved_incident.id,
+        error_type="디스크 풀",
+        solution="로그 삭제",
+        resolver="테스트관리자",
+        status="rejected",
+        approver_id=approver_contact.id,
+        qdrant_point_id=None,  # rejected 상태에서는 point_id가 없음
+        revision_count=0,
+    )
+    db_session.add(fb)
+    await db_session.commit()
+    await db_session.refresh(fb)
+
+    with (
+        patch("routes.incidents._run_ocr_for_attachment", new_callable=AsyncMock),
+        patch("routes.incidents._notifier.send_approval_request_card", new_callable=AsyncMock),
+        patch(
+            "routes.incidents.postmortem_client.delete_postmortem",
+            new_callable=AsyncMock,
+        ) as mock_delete,
+    ):
+        resp = await authed_client.post(
+            f"/api/v1/incidents/{resolved_incident.id}/feedback/{fb.id}/resubmit",
+            json={"error_type": "디스크 풀", "solution": "수정본", "attachment_paths": []},
+        )
+
+    assert resp.status_code == 200, resp.text
+    # rejected → pending 재등록 시 delete_postmortem 호출 없음
+    mock_delete.assert_not_called()
+
+
+# ── 13. P2-E: revision_count 제한 정책 ──────────────────────────────────────
+
+async def test_resubmit_soft_limit_returns_warning(
+    authed_client: AsyncClient,
+    db_session: AsyncSession,
+    resolved_incident,
+    admin_user_and_contact,
+):
+    """revision_count가 soft_limit(3) 이상이면 경고(warning)가 응답에 동봉된다."""
+    _, approver_contact = admin_user_and_contact
+
+    # revision_count=2 → 재등록 후 3이 되어 soft_limit(3) 도달
+    fb = AlertFeedback(
+        incident_id=resolved_incident.id,
+        error_type="CPU 과부하",
+        solution="초안",
+        resolver="테스트관리자",
+        status="rejected",
+        approver_id=approver_contact.id,
+        revision_count=2,
+    )
+    db_session.add(fb)
+    await db_session.commit()
+    await db_session.refresh(fb)
+
+    with (
+        patch("routes.incidents._run_ocr_for_attachment", new_callable=AsyncMock),
+        patch("routes.incidents._notifier.send_approval_request_card", new_callable=AsyncMock),
+    ):
+        resp = await authed_client.post(
+            f"/api/v1/incidents/{resolved_incident.id}/feedback/{fb.id}/resubmit",
+            json={"error_type": "CPU 과부하", "solution": "수정본", "attachment_paths": []},
+        )
+
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["revision_count"] == 3
+    assert body["warning"] is not None
+    assert body["warning"]["code"] == "approaching_resubmit_limit"
+    assert body["warning"]["revision_count"] == 3
+    assert body["warning"]["soft_limit"] == 3
+    assert body["warning"]["hard_limit"] == 5
+
+
+async def test_resubmit_below_soft_limit_has_no_warning(
+    authed_client: AsyncClient,
+    db_session: AsyncSession,
+    resolved_incident,
+    admin_user_and_contact,
+):
+    """revision_count가 soft_limit 미만(0→1)이면 warning=None이다."""
+    _, approver_contact = admin_user_and_contact
+
+    fb = AlertFeedback(
+        incident_id=resolved_incident.id,
+        error_type="CPU 과부하",
+        solution="초안",
+        resolver="테스트관리자",
+        status="rejected",
+        approver_id=approver_contact.id,
+        revision_count=0,
+    )
+    db_session.add(fb)
+    await db_session.commit()
+    await db_session.refresh(fb)
+
+    with (
+        patch("routes.incidents._run_ocr_for_attachment", new_callable=AsyncMock),
+        patch("routes.incidents._notifier.send_approval_request_card", new_callable=AsyncMock),
+    ):
+        resp = await authed_client.post(
+            f"/api/v1/incidents/{resolved_incident.id}/feedback/{fb.id}/resubmit",
+            json={"error_type": "CPU 과부하", "solution": "수정본", "attachment_paths": []},
+        )
+
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["revision_count"] == 1
+    assert body["warning"] is None
+
+
+async def test_resubmit_hard_limit_returns_409(
+    authed_client: AsyncClient,
+    db_session: AsyncSession,
+    resolved_incident,
+    admin_user_and_contact,
+):
+    """revision_count가 hard_limit(5) 이상이면 409 Conflict로 거부된다."""
+    _, approver_contact = admin_user_and_contact
+
+    fb = AlertFeedback(
+        incident_id=resolved_incident.id,
+        error_type="CPU 과부하",
+        solution="누적 수정",
+        resolver="테스트관리자",
+        status="rejected",
+        approver_id=approver_contact.id,
+        revision_count=5,  # 이미 hard_limit에 도달
+    )
+    db_session.add(fb)
+    await db_session.commit()
+    await db_session.refresh(fb)
+
+    resp = await authed_client.post(
+        f"/api/v1/incidents/{resolved_incident.id}/feedback/{fb.id}/resubmit",
+        json={"error_type": "CPU 과부하", "solution": "또다시 수정", "attachment_paths": []},
+    )
+
+    assert resp.status_code == 409, resp.text
+    body = resp.json()
+    detail = body["detail"]
+    assert detail["error"] == "resubmit_limit_exceeded"
+    assert detail["revision_count"] == 5
+    assert detail["hard_limit"] == 5
+
+
+async def test_resubmit_hard_limit_new_feedback_is_allowed(
+    authed_client: AsyncClient,
+    db_session: AsyncSession,
+    resolved_incident,
+    admin_user_and_contact,
+):
+    """hard_limit에 막힌 후 새 피드백 등록은 정상적으로 허용된다."""
+    _, approver_contact = admin_user_and_contact
+
+    with (
+        patch("routes.incidents._run_ocr_for_attachment", new_callable=AsyncMock),
+        patch("routes.incidents._notifier.send_approval_request_card", new_callable=AsyncMock),
+    ):
+        resp = await authed_client.post(
+            f"/api/v1/incidents/{resolved_incident.id}/feedback",
+            json={
+                "incident_id": resolved_incident.id,
+                "error_type": "CPU 과부하",
+                "solution": "신규 피드백",
+                "resolver": "테스트관리자",
+                "approver_contact_id": approver_contact.id,
+                "attachment_paths": [],
+            },
+        )
+
+    assert resp.status_code in (200, 201), resp.text
+    body = resp.json()
+    assert body["status"] == "pending"
+    assert body["revision_count"] == 0  # 새 피드백이므로 0부터 시작
+    assert body["warning"] is None

@@ -144,7 +144,18 @@ export function FeedbackDetailView({ feedback, onResubmit }: FeedbackDetailViewP
           {feedback.resolver} · {formatKST(feedback.created_at)}
         </span>
         {feedback.revision_count > 0 && (
-          <span className="text-text-disabled text-xs">재등록 {feedback.revision_count}회</span>
+          <span
+            className={
+              feedback.revision_count >= 5
+                ? 'text-text-disabled text-xs'
+                : feedback.revision_count >= 3
+                  ? 'text-warning text-xs font-medium'
+                  : 'text-text-disabled text-xs'
+            }
+          >
+            재등록 {feedback.revision_count}회
+            {feedback.revision_count >= 5 && ' (한도 초과)'}
+          </span>
         )}
       </div>
 

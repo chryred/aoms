@@ -77,6 +77,18 @@ async def get_by_incident(incident_id: int) -> dict | None:
             return None
 
 
+async def delete_postmortem(point_id: str) -> bool:
+    """log-analyzer /incident-postmortem/delete 호출. 반환: deleted (bool).
+    실패해도 예외 미발생 — 호출자가 best-effort 처리."""
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        resp = await client.post(
+            f"{LOG_ANALYZER_URL}/incident-postmortem/delete",
+            json={"point_id": point_id},
+        )
+        resp.raise_for_status()
+        return resp.json().get("deleted", False)
+
+
 async def trigger_ocr(file_path: str, mime_type: str) -> dict:
     """log-analyzer /incident-postmortem/ocr/process 호출. 반환: {text, char_count}"""
     async with httpx.AsyncClient(timeout=60.0) as client:

@@ -208,6 +208,26 @@ const normalized = !utcDate.endsWith('Z') && !/[+-]\d{2}:?\d{2}$/.test(utcDate)
 
 ---
 
+## 피드백 재등록 횟수(revision_count) 배지 색상 규칙 (P2-E)
+
+`FeedbackDetailView.tsx`의 "재등록 N회" 텍스트는 횟수에 따라 색상을 달리한다:
+
+| revision_count | 클래스 | 의미 |
+|---|---|---|
+| 1 ~ 2 | `text-text-disabled` | 이력 참고용 — 중요도 낮음 |
+| 3 ~ 4 | `text-warning font-medium` | 소프트 리밋 도달 경고 |
+| 5+ | `text-text-disabled` + "(한도 초과)" 접미 | 하드 리밋 초과 — 이미 차단됨 |
+
+**임계값 상수**: `routes/incidents.py`의 `_RESUBMIT_SOFT_LIMIT = 3`, `_RESUBMIT_HARD_LIMIT = 5`
+
+**FeedbackForm.tsx (resubmit 모드) 에러 처리**:
+- `onSuccess` — `data.warning` 존재 시 노란색 경고 카드 표시 (`AlertTriangle` 아이콘, `border-warning/30 bg-warning/5`)
+- `onError` — 409 Conflict 시 `HTTPError` + `err.response.json()` 으로 `ResubmitLimitError` 파싱 → 그레이 블록 모달 (`Ban` 아이콘)
+
+**FeedbackRevisePage.tsx**: 동일한 409 처리 — 블록 모달 표시. (Teams 반려 카드 링크로 진입하는 독립 페이지)
+
+---
+
 ## Design Decisions (확정된 디자인 결정 — 되돌리지 말 것)
 
 ### Dark/Light 모드 시스템

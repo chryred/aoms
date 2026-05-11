@@ -154,6 +154,8 @@ CREATE TABLE IF NOT EXISTS alert_history (
     incident_id         INTEGER REFERENCES incidents(id) ON DELETE SET NULL,
     -- log_analysis 타입일 때 연결된 log_analysis_history (예외 처리 UI용 templates 조회)
     log_analysis_id     INTEGER,   -- FK는 log_analysis_history 생성 후 ALTER TABLE로 추가
+    -- prometheus_analyzer 알림에 묶인 메트릭 종류 식별 (예: ["cpu","disk_io"]). NULL = 레거시/Alertmanager 알림
+    metric_types        JSONB,
     created_at          TIMESTAMP DEFAULT NOW()
 );
 
@@ -224,6 +226,27 @@ CREATE TABLE IF NOT EXISTS alert_exclusions (
 
 CREATE INDEX IF NOT EXISTS idx_alert_exclusions_active_system ON alert_exclusions(system_id, active);
 CREATE INDEX IF NOT EXISTS idx_alert_exclusions_expires_at    ON alert_exclusions(expires_at);
+
+-- ── 메트릭 알림 예외 처리 규칙 (prometheus_analyzer 전용) ────────────────
+CREATE TABLE IF NOT EXISTS metric_exclusions (
+    id                   SERIAL PRIMARY KEY,
+    system_id            INTEGER NOT NULL REFERENCES systems(id) ON DELETE CASCADE,
+    host                 VARCHAR(255),                         -- NULL = 시스템 전체 host 적용 (와일드카드)
+    metric_type          VARCHAR(30) NOT NULL,                 -- cpu | memory | disk_io | network_rx | network_tx | http_latency | log_error_rate
+    override_threshold   DOUBLE PRECISION,                     -- NULL = 완전 차단. 값 있으면 해당 메트릭 임계치를 이 값으로 대체 (개발기 둔감화)
+    reason               TEXT,
+    created_by           VARCHAR(100),
+    created_at           TIMESTAMP NOT NULL DEFAULT NOW(),
+    active               BOOLEAN NOT NULL DEFAULT TRUE,
+    deactivated_by       VARCHAR(100),
+    deactivated_at       TIMESTAMP,
+    skip_count           INTEGER NOT NULL DEFAULT 0,
+    last_skipped_at      TIMESTAMP,
+    expires_at           TIMESTAMP                             -- NULL = 만료 없음 (UTC naive). Lazy 검증
+);
+
+CREATE INDEX IF NOT EXISTS idx_metric_exclusions_lookup     ON metric_exclusions(system_id, active, metric_type);
+CREATE INDEX IF NOT EXISTS idx_metric_exclusions_expires_at ON metric_exclusions(expires_at);
 
 -- log_analysis_history.exclusion_rule_id FK (alert_exclusions 생성 후)
 DO $$ BEGIN
@@ -560,7 +583,7 @@ INSERT INTO chat_tools (name, display_name, description, input_schema, executor)
      '{"type":"object","properties":{"query":{"type":"string","description":"검색할 내용 (한국어 자연어, 예: DB 점검 절차)"},"system_id":{"type":"integer","description":"시스템 ID 필터 (선택)"},"system_name":{"type":"string","description":"시스템명 필터 (선택)"},"sources":{"type":"array","items":{"type":"string"},"description":"검색 소스 제한 (선택, 예: [\"jira\",\"confluence\",\"documents\"])"},"limit":{"type":"integer","default":5,"description":"최대 반환 건수 (1-10)"},"rerank":{"type":"boolean","default":true,"description":"Reranker 적용 여부 (기본 true — 정확도 우선)"}},"required":["query"]}'::jsonb, 'qdrant'),
     ('qdrant_search_incident_postmortem', '인시던트 사후분석 검색',
      '인시던트 사후분석(원인·해결책·첨부 OCR 통합) 시맨틱 검색. 비슷한 사건 사례·해결책 자료 조회용',
-     '{"type":"object","properties":{"query":{"type":"string"},"system_id":{"type":"integer"},"severity":{"type":"string"},"limit":{"type":"integer","default":5}},"required":["query"]}'::jsonb, 'qdrant'),
+     '{"type":"object","properties":{"query":{"type":"string"},"system_ids":{"type":"array","items":{"type":"integer"},"description":"시스템 ID 다중 필터 (선택)"},"severity":{"type":"string"},"limit":{"type":"integer","default":5}},"required":["query"]}'::jsonb, 'qdrant'),
     ('qdrant_search_guide', '운영 가이드 검색',
      'knowledge_guides 컬렉션 Hybrid 검색. 기능 사용법·UI 조작·시스템 운영 매뉴얼·절차 안내 등 가이드 문서를 의미+키워드 조합으로 조회. 세션의 system_ids가 자동 주입되며, 시스템별 가이드와 전체 공용 가이드(system_id=NULL)가 함께 검색된다.',
      '{"type":"object","properties":{"query":{"type":"string","description":"검색할 가이드 내용 (한국어 자연어, 예: 알림 임계값 설정 방법)"},"system_ids":{"type":"array","items":{"type":"integer"},"description":"시스템 ID 다중 필터 (선택, 자동 주입됨)"},"limit":{"type":"integer","default":5,"description":"최대 반환 건수 (1-10)"}},"required":["query"]}'::jsonb, 'qdrant'),
@@ -621,6 +644,25 @@ CREATE TABLE IF NOT EXISTS knowledge_sync_status (
     is_syncing    BOOLEAN      NOT NULL DEFAULT FALSE,     -- 동기화 진행 중 여부
     updated_at    TIMESTAMP    NOT NULL DEFAULT NOW()
 );
+
+-- Jira/Confluence 단건 강제 재동기화 비동기 Job (P2-C)
+CREATE TABLE IF NOT EXISTS knowledge_sync_jobs (
+    id             UUID         PRIMARY KEY DEFAULT gen_random_uuid(),
+    source         VARCHAR(20)  NOT NULL,                  -- 'jira' | 'confluence'
+    ref_id         VARCHAR(200) NOT NULL,                  -- issue_key 또는 page_id
+    status         VARCHAR(20)  NOT NULL DEFAULT 'pending',-- pending | processing | done | failed
+    progress       INTEGER      NOT NULL DEFAULT 0,        -- 0~100
+    result_json    JSONB,                                  -- 완료 시 결과 (synced, chunks 등)
+    error_message  TEXT,
+    triggered_by   INTEGER      REFERENCES users(id) ON DELETE SET NULL,
+    started_at     TIMESTAMP,
+    completed_at   TIMESTAMP,
+    created_at     TIMESTAMP    NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_sync_jobs_source_ref  ON knowledge_sync_jobs(source, ref_id);
+CREATE INDEX IF NOT EXISTS idx_sync_jobs_status      ON knowledge_sync_jobs(status);
+CREATE INDEX IF NOT EXISTS idx_sync_jobs_created_at  ON knowledge_sync_jobs(created_at);
 
 -- ── OIDC IdP (ADR-014) ───────────────────────────────────────────────────────
 

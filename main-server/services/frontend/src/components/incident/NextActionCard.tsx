@@ -1,10 +1,12 @@
-import { CheckCircle2, Circle, AlertCircle, Search, Wrench, FileText } from 'lucide-react'
+import { CheckCircle2, Circle, AlertCircle, Search, Wrench, FileText, Sparkles } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { NextActionMeta, IncidentStatus } from '@/api/incidents'
 
 interface NextActionCardProps {
   meta: NextActionMeta
   className?: string
+  /** 클릭 시 챗봇 패널을 열고 인시던트 자동 분석을 트리거 (Feature G) */
+  onChatTrigger?: () => void
 }
 
 // status별 아이콘 (시각적 단서)
@@ -26,7 +28,7 @@ const STATUS_TONE: Record<IncidentStatus, { iconClass: string }> = {
   closed: { iconClass: 'text-text-secondary' },
 }
 
-export function NextActionCard({ meta, className }: NextActionCardProps) {
+export function NextActionCard({ meta, className, onChatTrigger }: NextActionCardProps) {
   const Icon = STATUS_ICON[meta.status] ?? Circle
   const tone = STATUS_TONE[meta.status] ?? STATUS_TONE.open
   const pct = Math.max(0, Math.min(100, meta.progress_pct))
@@ -69,6 +71,24 @@ export function NextActionCard({ meta, className }: NextActionCardProps) {
           <span>다음 권장 액션</span>
         </div>
         <p className="text-text-primary text-sm leading-relaxed font-medium">{meta.next_action}</p>
+
+        {/* Feature G — 챗봇 자동 분석 트리거 */}
+        {onChatTrigger && (
+          <button
+            type="button"
+            onClick={onChatTrigger}
+            className={cn(
+              'bg-accent text-accent-contrast shadow-neu-flat',
+              'mt-3 flex w-full items-center justify-center gap-2 rounded-sm px-3 py-2 text-sm font-medium',
+              'hover:shadow-neu-pressed focus:ring-accent focus:ring-1 focus:outline-none',
+              'transition-shadow',
+            )}
+            aria-label="이 인시던트를 챗봇으로 자동 분석"
+          >
+            <Sparkles className="h-4 w-4" aria-hidden="true" />
+            <span>챗봇으로 자동 분석</span>
+          </button>
+        )}
       </div>
     </div>
   )

@@ -110,7 +110,7 @@ log-analyzer/
 
 ### Wave 1B: incident_postmortems (사후분석 벡터)
 - `POST /incident-postmortem/embed` — 인시던트 postmortem 서사 Hybrid 임베딩 upsert (admin-api Wave 1A 피드백 흐름 호출)
-- `POST /incident-postmortem/search` — 자연어 쿼리로 Hybrid 검색 (system_id/severity 필터 선택적)
+- `POST /incident-postmortem/search` — 자연어 쿼리로 Hybrid 검색 (`system_ids: list[int]` IN list 필터 선택적, `system_id` 단일 필터는 BC용). P2-A: 복수 시스템 동시 필터 지원
 - `GET  /incident-postmortem/by-incident/{incident_id}` — incident_id 직접 조회 (미존재 시 null)
 - `POST /incident-postmortem/delete` — 단일 포인트 삭제. body: `{"point_id": str}`. idempotent — 포인트 미존재 시에도 `{"deleted": true}` 반환. admin-api `resubmit_incident_feedback`(approved→pending 전환 시)에서 best-effort 호출
 - `POST /incident-postmortem/ocr/process` — KNOWLEDGE_DOCS_DIR 하위 파일 OCR 처리 (경로 탈출 방지)
@@ -141,7 +141,7 @@ log-analyzer/
 - `POST /aggregation/store-summary`  — (하위 호환) 일/주/월 집계 요약을 `aggregation_summaries`에 저장
 
 ### V1 Knowledge RAG (knowledge_vector_client.py)
-- `POST /knowledge/search`           — 3종 컬렉션 Federated 검색 (2차 RRF + corrected 보너스 + 옵션 reranker). jira/confluence는 system_name 필터 미적용 — 전체 지식베이스 조회 (V1 정책)
+- `POST /knowledge/search`           — 3종 컬렉션 Federated 검색 (2차 RRF + corrected 보너스 + 옵션 reranker). jira/confluence는 system_name 필터 미적용 — 전체 지식베이스 조회 (V1 정책). documents 분기는 `system_ids: list[int]` IN list 필터 적용 (P2-A)
 - `POST /embed/text`                 — 단일 텍스트 임베딩 반환 `{"embedding": [...]}`. admin-api 질문 클러스터링(`/knowledge/questions/frequent`)용
 - `POST /embed/document`             — 문서 파일 청킹 → 임베딩 → `knowledge_documents` 저장 (docx/pdf/xlsx/pptx). 재업로드 시 동일 file_hash 기존 청크 자동 cleanup
 - `POST /knowledge/operator-note`    — 운영자 Q&A 노트 등록 (`knowledge_documents`, doc_type=operator_note). 응답 `point_id`는 **문자열** (uint64 → JS 정밀도 손실 방지)
@@ -182,7 +182,7 @@ log-analyzer/
 | `metric_baselines` | ✅ system_name 필터 적용 | 시스템별 메트릭 알림 이력 분리 필수 |
 | `aggregation_summaries` | ✅ system_name 필터 적용 | 시스템별 집계 리포트 분리 필수 |
 | `metric_hourly_patterns` | ✅ system_name 필터 적용 | 시스템별 1시간 집계 패턴 분리 필수 |
-| `knowledge_documents` | ✅ system_id 필터 적용 | 업로드 시 system_id 입력값으로 소속 구분 |
+| `knowledge_documents` | ✅ system_ids IN list 필터 적용 (P2-A) | 업로드 시 system_id 입력값으로 소속 구분. federated_search에 system_ids 전달 시 `match.any` 필터 적용 |
 | `knowledge_jira_issues` | ❌ 필터 미적용 — 전체 지식베이스 조회 | Jira 프로젝트는 한 시스템 1:1 매핑 아님. bge-m3 임베딩이 시스템 키워드 변별 |
 | `knowledge_confluence_pages` | ❌ 필터 미적용 — 전체 지식베이스 조회 | Confluence 스페이스는 공통 인프라 가이드·정책 문서 포함. 운영 부담 최소화 |
 
@@ -304,6 +304,7 @@ _trend_agg_scheduler() (4시간마다)
 | `max_chars` | 1500자 | 한국어 ≈ 800~1000 토큰 (bge-m3 8192 한도 내 안전 마진) |
 | `overlap` | 200자 | 의미 연결 보존 (조사·문맥 단절 방지) |
 | 경계 백트래킹 | 단락(`\n\n`) → 줄바꿈(`\n`) → 공백 | 한국어 청크가 단어/조사 중간에서 끊기는 것 방지. ``lookback`` 범위 내에서 발견 못하면 그대로 자름 |
+| `_EMBED_TOKEN_LIMIT_CHARS` | 6500자 | bge-m3 8192 토큰 ≈ 한국어 6500자 (1.2x 안전 마진). XLSX/PPTX 임베딩 한도 가드에 사용 |
 
 ### 포맷별 전략
 | 포맷 | 함수 | 청킹 단위 | 비고 |
@@ -312,8 +313,8 @@ _trend_agg_scheduler() (4시간마다)
 | Confluence | `chunk_confluence_page` | H2/H3 섹션 → 큰 섹션은 sliding window | HTML이면 BeautifulSoup 파싱(다른 HTML 파서 사용 금지). plain text면 chunk_text fallback. heading을 메타에 보존. **`<ac:image>` / `<img>` 태그는 `[이미지: {alt or filename}]` 마커로 변환** |
 | DOCX | `chunk_docx` | paragraphs+tables 합쳐 sliding window | python-docx, 표는 행 단위 `\|` 결합. **inline image는 `doc.part.related_parts`에서 추출 → Tesseract OCR (kor+eng) → `[이미지: ...]` 마커** |
 | PDF | `chunk_pdf` | 페이지 단위로 sliding window | pdfplumber(텍스트) + pypdf(이미지). 페이지마다 빈 텍스트 건너뜀, `page_no` 메타 보존, `chunk_index`는 문서 전역 누적. **페이지별 embedded image → pypdf `ImageFile.data` 추출 → Tesseract OCR → `[이미지: ...]` 마커**. 페이지당 OCR 상한 10장 (`_PDF_MAX_IMAGES_PER_PAGE`) |
-| XLSX | `chunk_xlsx` | **시트 = 1 청크 (분할 안 함)** | openpyxl, 시트를 markdown 표로 변환. 1500자 초과해도 의미 보존 위해 분할 금지 |
-| PPTX | `chunk_pptx` | **슬라이드 = 1 청크 (분할 안 함)** | python-pptx, title + body shapes + speaker notes 합산. 표는 셀별 `\|` 결합. **PICTURE shape는 alt text(`nvPicPr.cNvPr.descr`) + Tesseract OCR (kor+eng, timeout=3s) → `[이미지: ...]` 마커** |
+| XLSX | `chunk_xlsx` | **시트 = 1 청크 (6500자 이내), 초과 시 데이터 행 단위 분할** | openpyxl, 시트를 markdown 표로 변환. `_EMBED_TOKEN_LIMIT_CHARS`(6500자) 이내: 단일 청크(BC 유지). 초과: **헤더 행(`\| header \|` + `\| --- \|`)을 모든 sub-chunk에 복사**하며 데이터 행 단위 분할. metadata에 `sub_chunk_index`, `total_sub_chunks` 추가 (단일 청크도 0/1 포함). `stats` 인자에 `oversize_count` 누적 |
+| PPTX | `chunk_pptx` | **슬라이드 = 1 청크 (6500자 이내), 초과 시 body/notes 분리** | python-pptx, title + body shapes + speaker notes 합산. 표는 셀별 `\|` 결합. **PICTURE shape는 alt text(`nvPicPr.cNvPr.descr`) + Tesseract OCR (kor+eng, timeout=3s) → `[이미지: ...]` 마커**. `_EMBED_TOKEN_LIMIT_CHARS`(6500자) 이내: 단일 청크(BC 유지). 초과: title을 모든 sub-chunk에 prepend하고 body/notes를 별도 청크로 분리. body 단독 초과 시 `chunk_text`로 추가 분할(warning 로그). metadata에 `sub_chunk_index`, `total_sub_chunks` 추가. `stats` 인자에 `oversize_count` 누적 |
 
 ### 이미지 OCR 동작 (Tesseract)
 
@@ -350,6 +351,7 @@ chunks = chunk_pdf(file_path, stats=stats)
 | `ocr_succeeded` | `_is_meaningful_ocr()` 통과 — 실제 텍스트 추출 성공 |
 | `ocr_noise_filtered` | OCR 결과 있지만 노이즈 판정으로 폐기 (10자 미만 또는 정상 문자 비율 70% 미만) |
 | `ocr_failed` | 예외 발생 (PIL/Tesseract 오류, 손상된 이미지 등). `logger.warning` 로그 남김 |
+| `oversize_count` | `_EMBED_TOKEN_LIMIT_CHARS`(6500자) 초과로 분할이 발생한 시트/슬라이드 수 누적. `chunk_xlsx` + `chunk_pptx` 갱신. `chunk_pdf`/`chunk_docx`는 sliding window라 해당 없음 |
 
 **합계 불변식:** `ocr_attempted == ocr_succeeded + ocr_noise_filtered + ocr_failed`
 

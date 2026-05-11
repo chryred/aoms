@@ -1,7 +1,8 @@
-import { useState, useMemo } from 'react'
+import { useCallback, useState, useMemo } from 'react'
 import toast from 'react-hot-toast'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useRegisterScreenContext } from '@/store/chatContextStore'
+import { useChatStore } from '@/store/chatStore'
 import {
   ArrowLeft,
   AlertTriangle,
@@ -107,6 +108,23 @@ export function IncidentDetailPage() {
   const navigate = useNavigate()
 
   useRegisterScreenContext({ incident_id: id })
+
+  // Feature G — NextActionCard 챗봇 자동 분석 트리거
+  const setChatOpen = useChatStore((s) => s.setOpen)
+  const setPendingScreenContext = useChatStore((s) => s.setPendingScreenContext)
+  const setAutoInsightIncidentId = useChatStore((s) => s.setAutoInsightIncidentId)
+  const isChatOpen = useChatStore((s) => s.isOpen)
+
+  const handleChatTrigger = useCallback(() => {
+    if (!Number.isFinite(incidentId) || incidentId <= 0) return
+    setPendingScreenContext({
+      screen: 'incidents',
+      screen_label: '인시던트 상세',
+      incident_id: id,
+    })
+    setAutoInsightIncidentId(incidentId)
+    if (!isChatOpen) setChatOpen(true)
+  }, [incidentId, id, isChatOpen, setChatOpen, setPendingScreenContext, setAutoInsightIncidentId])
 
   const { data: incident, isLoading, isError } = useIncident(incidentId)
   const updateMut = useUpdateIncident(incidentId)
@@ -256,7 +274,9 @@ export function IncidentDetailPage() {
         {/* 좌측: 상세 정보 */}
         <div className="space-y-4 lg:col-span-2">
           {/* 다음 액션 가이드 카드 (Feature 5B) */}
-          {incident.next_action_meta && <NextActionCard meta={incident.next_action_meta} />}
+          {incident.next_action_meta && (
+            <NextActionCard meta={incident.next_action_meta} onChatTrigger={handleChatTrigger} />
+          )}
 
           {/* 시각 정보 */}
           <NeuCard>

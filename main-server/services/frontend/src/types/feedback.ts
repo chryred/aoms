@@ -1,5 +1,21 @@
 export type FeedbackStatus = 'pending' | 'approved' | 'rejected'
 
+export interface ResubmitWarning {
+  code: string // approaching_resubmit_limit
+  message: string
+  revision_count: number
+  soft_limit: number
+  hard_limit: number
+}
+
+export interface ResubmitLimitError {
+  error: 'resubmit_limit_exceeded'
+  message: string
+  revision_count: number
+  soft_limit: number
+  hard_limit: number
+}
+
 export interface FeedbackAttachment {
   id: number
   file_path: string
@@ -28,6 +44,7 @@ export interface Feedback {
   revision_count: number
   revision_reason: string | null
   attachments: FeedbackAttachment[]
+  warning?: ResubmitWarning | null
 }
 
 export interface FeedbackCreateRequest {

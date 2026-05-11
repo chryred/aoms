@@ -20,6 +20,8 @@ interface ChatStoreState {
   alertActive: boolean
   /** ChatLauncher가 열릴 때 현재 화면 컨텍스트를 1회용으로 저장. localStorage에서 제외. */
   pendingScreenContext: ScreenContext | null
+  /** NextActionCard 등 외부 트리거가 패널 오픈 시 자동 분석을 1회 발화하도록 지정. consume 후 null. */
+  autoInsightIncidentId: number | null
 
   // actions
   toggleOpen: () => void
@@ -35,6 +37,7 @@ interface ChatStoreState {
   setPendingScreenContext: (ctx: ScreenContext) => void
   /** 읽고 null로 초기화 (1회 소비) */
   consumePendingScreenContext: () => ScreenContext | null
+  setAutoInsightIncidentId: (id: number | null) => void
 }
 
 export const useChatStore = create<ChatStoreState>()(
@@ -50,6 +53,7 @@ export const useChatStore = create<ChatStoreState>()(
       inputFocused: false,
       alertActive: false,
       pendingScreenContext: null,
+      autoInsightIncidentId: null,
 
       toggleOpen: () => set((state) => ({ isOpen: !state.isOpen })),
       setOpen: (open) => set({ isOpen: open }),
@@ -76,6 +80,7 @@ export const useChatStore = create<ChatStoreState>()(
         })
         return ctx
       },
+      setAutoInsightIncidentId: (id) => set({ autoInsightIncidentId: id }),
     }),
     {
       name: 'chat-ui-state',

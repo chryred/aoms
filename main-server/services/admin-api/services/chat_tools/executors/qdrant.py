@@ -236,14 +236,23 @@ async def _search_incident_postmortem(
     if not query:
         return {"error": "query 파라미터 필요"}
 
-    system_id = args.get("system_id")
-    severity  = args.get("severity")
-    limit     = min(int(args.get("limit", 5)), 10)
-    base      = await _base_url(db)
+    # system_ids (list) takes priority; fall back to single system_id for BC
+    raw_system_ids = args.get("system_ids")
+    system_id      = args.get("system_id")
+    severity       = args.get("severity")
+    limit          = min(int(args.get("limit", 5)), 10)
+    base           = await _base_url(db)
+
+    if raw_system_ids:
+        effective_system_ids = [int(x) for x in raw_system_ids]
+    elif system_id is not None:
+        effective_system_ids = [int(system_id)]
+    else:
+        effective_system_ids = []
 
     payload: dict[str, Any] = {"query": query, "limit": limit}
-    if system_id is not None:
-        payload["system_id"] = int(system_id)
+    if effective_system_ids:
+        payload["system_ids"] = effective_system_ids
     if severity:
         payload["severity"] = severity
 
@@ -336,7 +345,7 @@ async def _search_guides(
     limit      = min(int(args.get("limit", 5)), 10)
     base       = await _base_url(db)
 
-    payload: dict[str, Any] = {"query": query, "limit": limit}
+    payload: dict[str, Any] = {"query": query, "limit": limit, "group_by_guide": True}
     if system_ids:
         payload["system_ids"] = [int(sid) for sid in system_ids]
 
@@ -360,13 +369,15 @@ async def _search_guides(
         "count":   len(data),
         "results": [
             {
-                "guide_id":     (r.get("payload") or {}).get("guide_id") or r.get("id"),
-                "system_id":    (r.get("payload") or {}).get("system_id"),
-                "title":        ((r.get("payload") or {}).get("title") or "")[:200],
-                "content":      ((r.get("payload") or {}).get("content") or "")[:1500],
-                "chunk_index":  (r.get("payload") or {}).get("chunk_index"),
-                "total_chunks": (r.get("payload") or {}).get("total_chunks"),
-                "score":        r.get("score"),
+                "guide_id":             (r.get("payload") or {}).get("guide_id") or r.get("id"),
+                "system_id":            (r.get("payload") or {}).get("system_id"),
+                "title":                ((r.get("payload") or {}).get("title") or "")[:200],
+                "content":              ((r.get("payload") or {}).get("content") or "")[:1500],
+                "chunk_index":          (r.get("payload") or {}).get("chunk_index"),
+                "total_chunks":         (r.get("payload") or {}).get("total_chunks"),
+                "matched_chunk_indexes": (r.get("payload") or {}).get("matched_chunk_indexes"),
+                "matched_chunks_count": (r.get("payload") or {}).get("matched_chunks_count"),
+                "score":                r.get("score"),
             }
             for r in data
         ],

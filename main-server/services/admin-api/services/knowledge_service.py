@@ -189,11 +189,14 @@ async def call_trigger_sync(source: str) -> dict[str, Any]:
         return {"queued": False}
 
 
-async def call_force_sync_jira(issue_key: str) -> dict[str, Any]:
-    """log-analyzer POST /knowledge/sync/jira/{issue_key}/force 호출."""
+async def call_force_sync_jira_raw(issue_key: str) -> dict[str, Any]:
+    """log-analyzer POST /knowledge/sync/jira/{issue_key}/force 동기 호출 (백그라운드 Job 내부용).
+
+    완료까지 대기. 성공 시 {"synced": True, ...}, 실패 시 {"synced": False, "error": ...}.
+    """
     base = LOG_ANALYZER_URL.rstrip("/")
     try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        async with httpx.AsyncClient(timeout=90.0) as client:
             resp = await client.post(f"{base}/knowledge/sync/jira/{issue_key}/force")
             if resp.status_code >= 400:
                 logger.warning("force sync jira %s %s: %s", issue_key, resp.status_code, resp.text[:200])
@@ -204,11 +207,11 @@ async def call_force_sync_jira(issue_key: str) -> dict[str, Any]:
         return {"synced": False, "error": str(exc)[:200]}
 
 
-async def call_force_sync_confluence(page_id: str) -> dict[str, Any]:
-    """log-analyzer POST /knowledge/sync/confluence/{page_id}/force 호출."""
+async def call_force_sync_confluence_raw(page_id: str) -> dict[str, Any]:
+    """log-analyzer POST /knowledge/sync/confluence/{page_id}/force 동기 호출 (백그라운드 Job 내부용)."""
     base = LOG_ANALYZER_URL.rstrip("/")
     try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        async with httpx.AsyncClient(timeout=90.0) as client:
             resp = await client.post(f"{base}/knowledge/sync/confluence/{page_id}/force")
             if resp.status_code >= 400:
                 logger.warning("force sync confluence %s %s: %s", page_id, resp.status_code, resp.text[:200])
@@ -217,6 +220,27 @@ async def call_force_sync_confluence(page_id: str) -> dict[str, Any]:
     except Exception as exc:
         logger.warning("force sync confluence 호출 실패 [%s]: %s", page_id, exc)
         return {"synced": False, "error": str(exc)[:200]}
+
+
+async def call_trigger_cleanup(source: str, dry_run: bool = False) -> dict[str, Any]:
+    """log-analyzer POST /knowledge/cleanup/{source}/trigger 호출."""
+    base = LOG_ANALYZER_URL.rstrip("/")
+    params: dict[str, Any] = {}
+    if dry_run:
+        params["dry_run"] = "true"
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(
+                f"{base}/knowledge/cleanup/{source}/trigger",
+                params=params,
+            )
+            if resp.status_code >= 400:
+                logger.warning("cleanup trigger %s %s: %s", source, resp.status_code, resp.text[:200])
+                return {"queued": False}
+            return {"queued": True}
+    except Exception as exc:
+        logger.warning("cleanup trigger 호출 실패: %s", exc)
+        return {"queued": False}
 
 
 async def call_correction(

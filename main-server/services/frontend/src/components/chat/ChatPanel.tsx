@@ -41,6 +41,8 @@ export function ChatPanel() {
   const setThinking = useChatStore((s) => s.setThinking)
   const resetUnread = useChatStore((s) => s.resetUnread)
   const consumePendingScreenContext = useChatStore((s) => s.consumePendingScreenContext)
+  const autoInsightIncidentId = useChatStore((s) => s.autoInsightIncidentId)
+  const setAutoInsightIncidentId = useChatStore((s) => s.setAutoInsightIncidentId)
 
   // 패널이 열릴 때 1회 소비하여 로컬 state에 보관
   const [latestScreenContext, setLatestScreenContext] = useState<ScreenContext | null>(null)
@@ -223,6 +225,24 @@ export function ChatPanel() {
     },
     [currentSessionId, isStreaming, finishStream, latestScreenContext],
   )
+
+  // Feature G — 외부 트리거(NextActionCard 등)에서 set된 incident_id로 1회 자동 분석 발화
+  useEffect(() => {
+    if (!isOpen) return
+    if (!currentSessionId) return
+    if (!autoInsightIncidentId) return
+    if (isStreaming) return
+    const id = autoInsightIncidentId
+    setAutoInsightIncidentId(null)
+    void handleAutoInsight(id)
+  }, [
+    isOpen,
+    currentSessionId,
+    autoInsightIncidentId,
+    isStreaming,
+    setAutoInsightIncidentId,
+    handleAutoInsight,
+  ])
 
   const handleEvent = (event: ChatStreamEvent) => {
     switch (event.type) {

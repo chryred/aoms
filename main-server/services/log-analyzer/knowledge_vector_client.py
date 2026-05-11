@@ -1069,7 +1069,8 @@ def _source_to_collection(source: str) -> str:
 async def federated_search(
     query: str,
     *,
-    system_id: int | None = None,
+    system_ids: list[int] | None = None,
+    system_id: int | None = None,  # deprecated, kept for BC; system_ids takes priority
     system_name: str | None = None,
     sources: list[str] | None = None,
     limit: int = 10,
@@ -1080,7 +1081,8 @@ async def federated_search(
 
     Args:
         query:       자연어 질의
-        system_id:   knowledge_documents 필터 (정수 ID). None이면 전체
+        system_ids:  knowledge_documents IN list 필터 (P2-A). 우선순위 > system_id
+        system_id:   knowledge_documents 필터 (정수 ID). None이면 전체 (deprecated, BC용)
         system_name: knowledge_jira_issues / knowledge_confluence_pages 필터
         sources:     검색 대상 컬렉션 선택 ("jira", "confluence", "documents"). None이면 전체
         limit:       최종 반환 개수
@@ -1117,9 +1119,12 @@ async def federated_search(
         filter_must: list[dict] = []
 
         # jira/confluence 는 전체 지식베이스 조회 — system_name 필터 미적용 (V1 정책)
-        # knowledge_documents 만 system_id 필터 적용
-        if source == "documents" and system_id is not None:
-            filter_must.append({"key": "system_id", "match": {"value": system_id}})
+        # knowledge_documents 만 system_id 필터 적용 (P2-A: system_ids IN list 우선)
+        if source == "documents":
+            if system_ids:
+                filter_must.append({"key": "system_id", "match": {"any": system_ids}})
+            elif system_id is not None:
+                filter_must.append({"key": "system_id", "match": {"value": system_id}})
 
         try:
             hits = await _hybrid_search(

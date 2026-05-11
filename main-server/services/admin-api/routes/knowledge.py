@@ -32,9 +32,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 _LOG_ANALYZER_URL = os.getenv("LOG_ANALYZER_URL", "http://log-analyzer:8000")
 _PROXY_TIMEOUT = 20.0
 
+import asyncio
+
 from auth import get_current_user
-from database import get_db
-from models import Contact, KnowledgeCorrection, KnowledgeSyncStatus, SystemContact, User
+from database import get_db, AsyncSessionLocal
+from models import Contact, KnowledgeCorrection, KnowledgeSyncJob, KnowledgeSyncStatus, SystemContact, User
 from services import knowledge_service
 
 logger = logging.getLogger(__name__)
@@ -707,27 +709,195 @@ async def trigger_sync(
     return result
 
 
-@router.post("/sync/jira/{issue_key}/force")
+async def _run_sync_job(job_id: str, source: str, ref_id: str) -> None:
+    """백그라운드 태스크: log-analyzer force sync 호출 후 Job 상태 DB 반영."""
+    now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
+    async with AsyncSessionLocal() as db:
+        job = await db.get(KnowledgeSyncJob, job_id)
+        if job is None:
+            logger.warning("sync job not found: %s", job_id)
+            return
+        job.status = "processing"
+        job.progress = 10
+        job.started_at = now_utc
+        await db.commit()
+
+    try:
+        if source == "jira":
+            result = await knowledge_service.call_force_sync_jira_raw(ref_id)
+        else:
+            result = await knowledge_service.call_force_sync_confluence_raw(ref_id)
+    except Exception as exc:
+        result = {"synced": False, "error": str(exc)[:200]}
+
+    completed_utc = datetime.now(timezone.utc).replace(tzinfo=None)
+    async with AsyncSessionLocal() as db:
+        job = await db.get(KnowledgeSyncJob, job_id)
+        if job is None:
+            return
+        if result.get("synced"):
+            job.status = "done"
+            job.progress = 100
+            job.result_json = result
+        else:
+            job.status = "failed"
+            job.progress = 0
+            job.error_message = result.get("error", "알 수 없는 오류")[:500]
+        job.completed_at = completed_utc
+        await db.commit()
+    logger.info("sync job %s 완료: source=%s ref_id=%s status=%s", job_id, source, ref_id, job.status)
+
+
+@router.post("/sync/jira/{issue_key}/force", status_code=202)
 async def force_sync_jira_issue(
     issue_key: str,
-    _user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
 ) -> dict[str, Any]:
-    """Jira 단건 이슈 강제 재동기화 (log-analyzer 프록시). 완료까지 대기."""
-    result = await knowledge_service.call_force_sync_jira(issue_key)
-    if not result.get("synced"):
-        raise HTTPException(status_code=502, detail=result.get("error", "force sync 실패"))
-    return result
+    """Jira 단건 이슈 강제 재동기화 — 즉시 202 반환, 백그라운드에서 처리.
+
+    같은 (source, ref_id)가 이미 pending/processing이면 기존 job_id를 반환 (idempotent).
+    """
+    # 중복 가드
+    existing = await db.execute(
+        select(KnowledgeSyncJob).where(
+            KnowledgeSyncJob.source == "jira",
+            KnowledgeSyncJob.ref_id == issue_key,
+            KnowledgeSyncJob.status.in_(["pending", "processing"]),
+        )
+    )
+    dup = existing.scalar_one_or_none()
+    if dup is not None:
+        return {"job_id": dup.id, "status": dup.status, "duplicate": True}
+
+    job = KnowledgeSyncJob(
+        source="jira",
+        ref_id=issue_key,
+        status="pending",
+        progress=0,
+        triggered_by=user.id,
+    )
+    db.add(job)
+    await db.commit()
+    await db.refresh(job)
+    asyncio.create_task(_run_sync_job(job.id, "jira", issue_key))
+    return {"job_id": job.id, "status": "pending"}
 
 
-@router.post("/sync/confluence/{page_id}/force")
+@router.post("/sync/confluence/{page_id}/force", status_code=202)
 async def force_sync_confluence_page(
     page_id: str,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Confluence 단건 페이지 강제 재동기화 — 즉시 202 반환, 백그라운드에서 처리.
+
+    같은 (source, ref_id)가 이미 pending/processing이면 기존 job_id를 반환 (idempotent).
+    """
+    existing = await db.execute(
+        select(KnowledgeSyncJob).where(
+            KnowledgeSyncJob.source == "confluence",
+            KnowledgeSyncJob.ref_id == page_id,
+            KnowledgeSyncJob.status.in_(["pending", "processing"]),
+        )
+    )
+    dup = existing.scalar_one_or_none()
+    if dup is not None:
+        return {"job_id": dup.id, "status": dup.status, "duplicate": True}
+
+    job = KnowledgeSyncJob(
+        source="confluence",
+        ref_id=page_id,
+        status="pending",
+        progress=0,
+        triggered_by=user.id,
+    )
+    db.add(job)
+    await db.commit()
+    await db.refresh(job)
+    asyncio.create_task(_run_sync_job(job.id, "confluence", page_id))
+    return {"job_id": job.id, "status": "pending"}
+
+
+@router.get("/sync/jobs/{job_id}")
+async def get_sync_job(
+    job_id: str,
+    _user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """단건 강제 재동기화 Job 상태 조회."""
+    job = await db.get(KnowledgeSyncJob, job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job을 찾을 수 없습니다")
+    return {
+        "job_id": job.id,
+        "source": job.source,
+        "ref_id": job.ref_id,
+        "status": job.status,
+        "progress": job.progress,
+        "result": job.result_json,
+        "error_message": job.error_message,
+        "started_at": job.started_at.isoformat() if job.started_at else None,
+        "completed_at": job.completed_at.isoformat() if job.completed_at else None,
+        "created_at": job.created_at.isoformat() if job.created_at else None,
+    }
+
+
+@router.get("/sync/jobs")
+async def list_sync_jobs(
+    source: str | None = Query(None, description="'jira' 또는 'confluence' 필터"),
+    status: str | None = Query(None, description="'pending'|'processing'|'done'|'failed' 필터"),
+    limit: int = Query(20, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """단건 강제 재동기화 Job 목록 조회 (admin 전용)."""
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="admin 권한이 필요합니다")
+    stmt = select(KnowledgeSyncJob)
+    if source:
+        stmt = stmt.where(KnowledgeSyncJob.source == source)
+    if status:
+        stmt = stmt.where(KnowledgeSyncJob.status == status)
+    stmt = stmt.order_by(KnowledgeSyncJob.created_at.desc()).offset(offset).limit(limit)
+    rows = (await db.execute(stmt)).scalars().all()
+    return {
+        "items": [
+            {
+                "job_id": j.id,
+                "source": j.source,
+                "ref_id": j.ref_id,
+                "status": j.status,
+                "progress": j.progress,
+                "error_message": j.error_message,
+                "started_at": j.started_at.isoformat() if j.started_at else None,
+                "completed_at": j.completed_at.isoformat() if j.completed_at else None,
+                "created_at": j.created_at.isoformat() if j.created_at else None,
+            }
+            for j in rows
+        ],
+        "offset": offset,
+        "limit": limit,
+    }
+
+
+@router.post("/cleanup/{source}")
+async def trigger_cleanup(
+    source: str,
+    dry_run: bool = False,
     _user: User = Depends(get_current_user),
 ) -> dict[str, Any]:
-    """Confluence 단건 페이지 강제 재동기화 (log-analyzer 프록시). 완료까지 대기."""
-    result = await knowledge_service.call_force_sync_confluence(page_id)
-    if not result.get("synced"):
-        raise HTTPException(status_code=502, detail=result.get("error", "force sync 실패"))
+    """Jira/Confluence Qdrant cleanup 트리거 (log-analyzer 프록시, admin 전용).
+
+    삭제된 이슈/페이지를 Qdrant에서 purge.
+    dry_run=True 이면 삭제 없이 후보 카운트만 반환.
+    """
+    if _user.role != "admin":
+        raise HTTPException(status_code=403, detail="admin 권한이 필요합니다")
+    if source not in ("jira", "confluence"):
+        raise HTTPException(status_code=400, detail="source는 jira 또는 confluence여야 합니다")
+    result = await knowledge_service.call_trigger_cleanup(source, dry_run=dry_run)
     return result
 
 

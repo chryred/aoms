@@ -145,9 +145,12 @@ class TestOCRImageBlobStats:
         assert result == ""
 
     def test_make_ocr_stats_keys(self):
-        """make_ocr_stats() 반환값이 4개 키 0 초기화인지 검증."""
+        """make_ocr_stats() 반환값이 5개 키 0 초기화인지 검증."""
         s = chunking.make_ocr_stats()
-        assert set(s.keys()) == {"ocr_attempted", "ocr_succeeded", "ocr_noise_filtered", "ocr_failed"}
+        assert set(s.keys()) == {
+            "ocr_attempted", "ocr_succeeded", "ocr_noise_filtered", "ocr_failed",
+            "oversize_count",
+        }
         assert all(v == 0 for v in s.values())
 
     def test_counter_invariant(self):

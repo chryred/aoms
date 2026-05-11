@@ -87,7 +87,8 @@ admin-api/
 | `contacts` | 담당자. `teams_upn`은 Teams @mention용 이메일 (LLM 관련 필드 제거됨 — ADR-007) |
 | `llm_agent_configs` | 업무 영역별 DevX agent_code 관리 (9개 영역). `area_code` 유니크 (ADR-007) |
 | `system_contacts` | 시스템↔담당자 N:M 매핑. `notify_channels`에 콤마로 채널 지정 |
-| `alert_history` | 모든 알림 발송 이력. `alert_type`: `metric` / `log_analysis`. 메트릭 복구 시 원본 row 의 `resolved_at` 만 업데이트 (별도 row 생성 안 함). `error_message` 컬럼(ADR-002) 포함 |
+| `alert_history` | 모든 알림 발송 이력. `alert_type`: `metric` / `log_analysis`. 메트릭 복구 시 원본 row 의 `resolved_at` 만 업데이트 (별도 row 생성 안 함). `error_message` 컬럼(ADR-002) 포함. `metric_types JSONB`: prometheus_analyzer 알림에 묶인 메트릭 종류 (예: `["cpu","disk_io"]`, NULL=레거시/Alertmanager 알림) |
+| `metric_exclusions` | prometheus_analyzer 메트릭 알림 예외 처리 규칙. 매칭 키 `(system_id, host, metric_type)` — `host=NULL` 와일드카드. `override_threshold`: NULL=완전 차단 / 값=임계치 대체(개발기 둔감화). cycle 시작 시 활성 규칙 캐시 → push 사이트에서 anomaly append 차단. 로그 예외처리(`alert_exclusions`)와 대칭 |
 | `log_analysis_history` | LLM 분석 결과 저장. log-analyzer 서비스가 POST로 전달. `error_message`(실패 사유)·`model_used`(LLM_TYPE) 컬럼 포함(ADR-001/002) |
 | `alert_cooldown` | 중복 알림 방지용 쿨다운 추적. key: `{system}:{role}:{alertname}:{severity}` |
 | ~~`system_collector_config`~~ | **삭제됨 (D4 결정, 2026-05-01)**. `GET /api/v1/collector-config`는 `agent_instances.label_info`에서 on-the-fly derive. POST/PATCH/DELETE → 410 Gone. |
@@ -107,6 +108,7 @@ admin-api/
 | `chat_messages` | 세션 내 메시지. role: user/assistant/tool, `attachments` JSONB (Phase Chat). V1: `rag_top1_score` (Float), `rag_sources_count` (Integer). `system_id INTEGER` FK→systems (도구 호출별 실제 조회 시스템 — 통계용) |
 | `knowledge_corrections` | 사용자 오답 교정 이력 — `source_point_id`, `source_collection`, `correct_answer` (V1 RAG) |
 | `knowledge_sync_status` | 외부 지식 소스(Jira/Confluence/Documents) 동기화 현황. source가 PK (V1 RAG) |
+| `knowledge_sync_jobs` | Jira/Confluence 단건 강제 재동기화 비동기 Job (P2-C). UUID PK, source/ref_id/status/progress/result_json/error_message/triggered_by |
 | `scheduler_run_history` | log-analyzer 스케줄러 실행 이력. `scheduler_type`(analysis/hourly/daily/weekly/monthly/longperiod/trend), `status`(ok/error), `error_count`, `analyzed_count`, `summary_json`, `error_message` |
 
 ## API 엔드포인트
@@ -155,6 +157,19 @@ docker exec -it aoms-admin-api \
   - `warning`/`critical`이면 Teams 발송 후 `alert_sent=True`
 - `GET /` — 이력 조회 (필터: `system_id`, `severity`, `limit`)
 - `GET /{id}` — 단건 조회
+
+### 메트릭 알림 예외 처리 `/api/v1/metric-exclusions`
+prometheus_analyzer 메트릭 알림 전용. 로그 알림용 `/api/v1/alert-exclusions` 와 대칭이지만 매칭 모델 다름.
+매칭 키: `(system_id, host, metric_type)` — host 정확매치가 host=NULL 와일드카드보다 우선.
+metric_type enum: `cpu | memory | disk_io | network_rx | network_tx | http_latency | log_error_rate` (단일 진실: `services/metric_types.py` / `frontend/src/constants/metricTypes.ts`).
+
+- `POST /` — 메트릭 예외 규칙 일괄 등록 (BulkExcludeResult 반환, 중복 시 skip)
+- `GET /?active=true&system_id=&include_expired=false` — 활성·미만료 규칙 조회
+- `PATCH /deactivate` — 일괄 비활성화 (active=false + deactivated_at/by 기록)
+
+동작: prometheus_analyzer cycle 시작 시 활성 규칙을 한 번 캐시 → push 사이트(CPU/메모리/디스크 I/O/네트워크 RX·TX/HTTP 지연/로그 에러율)에서 `_check_metric_exclusion()` 검사. `override_threshold IS NULL` 매칭 시 raw 메트릭 필드 비할당 + anomaly skip (severity 계산 부작용 방지). 값 있으면 임계치를 그 값으로 대체. `skip_count` 는 cycle 끝에 일괄 갱신.
+
+HTTP 지연은 Prometheus 쿼리 자체에 임계치가 박혀 있어 V1 은 완전 차단만 지원 (override_threshold 무시).
 
 ### 수집기 설정 `/api/v1/collector-config` (D4 이후 — derive 전용)
 - `GET /` — **agent_instances.label_info에서 on-the-fly derive** (system_collector_config 테이블 삭제됨). 하위 호환 응답 형식 유지.
@@ -334,8 +349,11 @@ class InstanceStatusOut(BaseModel):
 - `GET /sync-status` — knowledge_sync_status 조회 (source 필터 지원)
 - `POST /sync-status` — log-analyzer 스케줄러가 호출 (last_sync_at, total_synced UPSERT)
 - `POST /sync/{jira|confluence}` — 전체 소스 동기화 트리거 (background, log-analyzer 프록시)
-- `POST /sync/jira/{issue_key}/force` — Jira 단건 이슈 강제 재동기화 (동기, log-analyzer 프록시)
-- `POST /sync/confluence/{page_id}/force` — Confluence 단건 페이지 강제 재동기화 (동기, log-analyzer 프록시)
+- `POST /sync/jira/{issue_key}/force` — Jira 단건 이슈 강제 재동기화 **202 즉시 반환 (비동기, P2-C)**. `{job_id, status: "pending"}` 반환. 같은 (source, ref_id)가 pending/processing이면 기존 job_id 재반환 (idempotent)
+- `POST /sync/confluence/{page_id}/force` — Confluence 단건 페이지 강제 재동기화 **202 즉시 반환 (비동기, P2-C)**. 동일 idempotent 정책
+- `GET /sync/jobs/{job_id}` — 단건 재동기화 Job 상태 조회 (P2-C). `{job_id, source, ref_id, status, progress, result, error_message, started_at, completed_at, created_at}`
+- `GET /sync/jobs?source=&status=&limit=&offset=` — Job 목록 조회 (admin 전용, P2-C)
+- `POST /cleanup/{jira|confluence}?dry_run=true|false` — Jira/Confluence Qdrant purge 트리거 (admin 전용, log-analyzer 프록시). dry_run=true 이면 삭제 없이 후보 카운트만 반환 (P1-3)
 - `GET /documents` — Qdrant 적재 문서 목록 조회 (log-analyzer GET /knowledge/documents 프록시). `?system_id=` 필터 지원. 응답: `{ items: [{ file_hash, file_name, system_id, chunk_count, uploaded_at }] }`
 - `DELETE /documents/{file_hash}` — file_hash 단위 문서 청크 일괄 삭제 (log-analyzer DELETE /knowledge/documents/{file_hash} 프록시). 권한: admin 또는 해당 system_id 의 SystemContact 담당자
 
@@ -367,7 +385,8 @@ class InstanceStatusOut(BaseModel):
 |---|---|
 | `log_incidents` / `metric_baselines` | system_ids 필터 적용 (/incident/search) |
 | `aggregation_summaries` / `metric_hourly_patterns` | system_ids 필터 적용 (/aggregation/search) |
-| `knowledge_documents` | system_id 필터 (system_ids 1개만 — 복수 시 전체 조회) |
+| `incident_postmortems` | system_ids IN list 지원 (P2-A — 1개든 복수든 항상 `match.any` 필터 전달) |
+| `knowledge_documents` | system_ids IN list 지원 (P2-A — 1개든 복수든 항상 `match.any` 필터 전달) |
 | `knowledge_jira` / `knowledge_confluence` | **필터 미적용** — 전체 지식베이스 조회 (Subagent A federated_search 정책) |
 
 모든 엔드포인트 `Depends(get_current_user)` 인증 필요.
@@ -414,6 +433,7 @@ DB 변경: `chat_sessions.user_id` nullable, `visitor_employee_id/email/system_i
 - LLM(`llm_client.py`의 `chat_assistant` area)이 JSON 응답으로 action/final_answer 결정 → `run_tool()`로 도구 실행
 - 대화·도구 이력은 `chat_messages`(user/assistant/tool) 테이블에 저장하고, 매 턴마다 최근 20턴을 프롬프트에 재주입
 - **선제적 통찰 (Feature 5C-2)**: `POST /api/v1/chat/sessions/{id}/auto-insight` — 사용자 메시지 없이 인시던트 자동 분석. `prompts.build_auto_insight_seed(incident_id)`가 user_message를 자동 생성하고 기존 `run_react_stream` 재사용. SSE 첫 이벤트로 `auto_insight_start` emit. 프론트엔드는 빈 챗봇 화면의 ✨ 버튼으로 트리거 (incident_id 있을 때만 노출).
+- **외부 트리거 진입점 (Feature G)**: 인시던트 상세 페이지 `NextActionCard` 하단 "✨ 챗봇으로 자동 분석" 버튼이 `chatStore.autoInsightIncidentId`에 incident_id를 set + `setOpen(true)` → `ChatPanel`의 useEffect가 `isOpen+currentSessionId+autoInsightIncidentId+!isStreaming` 조건에서 1회 자동 발화 후 null clear. 5C-2 endpoint 재사용. 운영자가 인시던트 처리 흐름에서 챗봇으로 자연스럽게 진입.
 - 도구 그룹:
   - `ems`: ems-mcp 9개 (Polestar 서버 모니터링). 자격증명은 `chat_executor_configs.ems` 에서 로드 (60s TTL 캐시)
   - `admin`: DB 직접 조회 + 시스템 액션 도구 8종.
@@ -423,7 +443,7 @@ DB 변경: `chat_sessions.user_id` nullable, `visitor_employee_id/email/system_i
     - 공통 헬퍼: `services/incident_status_meta.py` — `INCIDENT_STATUS_KO`/`INCIDENT_PROGRESS`/`INCIDENT_NEXT_ACTION` + `status_meta()`. `_get_incident_context` 와 `routes/incidents.py GET /{id}` 응답이 동시 사용 (DRY)
   - `log_analyzer`: 최근 LLM 로그 분석 조회 + log-analyzer HTTP 프록시
   - `qdrant` (ADR-011 RAG): 검색(Search) 6종 + 청크 조회(Get-Chunks) 1종.
-    - 검색: `qdrant_search_incident_knowledge` (log_incidents + metric_baselines Hybrid) / `qdrant_search_aggregation_summary` (aggregation_summaries Hybrid) / `qdrant_search_hourly_patterns` (metric_hourly_patterns Hybrid) / `qdrant_search_incident_postmortem` (incident_postmortems Hybrid) / `qdrant_search_knowledge` (V1 knowledge federated — log-analyzer `/knowledge/search`) / `qdrant_search_guide` (knowledge_guides Hybrid — log-analyzer `/guides/search`, system_id 필터 + NULL 공용 가이드 OR)
+    - 검색: `qdrant_search_incident_knowledge` (log_incidents + metric_baselines Hybrid) / `qdrant_search_aggregation_summary` (aggregation_summaries Hybrid) / `qdrant_search_hourly_patterns` (metric_hourly_patterns Hybrid) / `qdrant_search_incident_postmortem` (incident_postmortems Hybrid) / `qdrant_search_knowledge` (V1 knowledge federated — log-analyzer `/knowledge/search`) / `qdrant_search_guide` (knowledge_guides Hybrid — log-analyzer `/guides/search`, group_by_guide=True 고정, 가이드 단위 결과 반환. payload에 matched_chunk_indexes / matched_chunks_count 포함. system_id 필터 + NULL 공용 가이드 OR)
     - 청크 조회 (검색에서 부족한 청크만 보강, 통합 도구): `qdrant_get_chunks(source, id, chunk_indexes?, max_chunks?)`. source='guide'(id=guide_id) | 'document'(id=file_hash) | 'confluence'(id=page_id). **chunk_indexes 명시 시 surgical fetch (1-3개 청크만 — 컨텍스트 절약)**, 생략 시 전체 (max_chunks 상한). 각각 청킹된 컬렉션(`knowledge_guides`, `knowledge_documents`, `knowledge_confluence_pages`)에서 chunk_index 순서로 반환. log-analyzer `GET /guides/{id}/chunks?chunk_indexes=2&chunk_indexes=4`, `GET /knowledge/documents/{hash}/chunks`, `GET /knowledge/confluence/{id}/chunks` 프록시
     - 구현은 `services/chat_tools/executors/qdrant.py`. `services/prompts.py._decision_prompt()` 에 사용 트리거 + 전문 조회 가이드 포함. `_HELP_ALLOWED_TOOLS`에는 게스트도 사용 가능한 search 3종 + `qdrant_get_chunks` 1종 포함
   - `prometheus`: `prometheus_query` / `prometheus_range_query` — 보관 기간(운영 15d / 개발 3d) 이내 raw 메트릭 조회. 구현: `services/chat_tools/executors/prometheus.py`. 환경변수: `PROMETHEUS_URL`, `PROMETHEUS_RETENTION_DAYS`(기본 15)
@@ -498,7 +518,7 @@ log-analyzer → POST /api/v1/analysis
 | `COOKIE_SECURE` | `false` | HTTPS 환경에서 `true`로 설정 |
 | `PROMETHEUS_URL` | `""` | Prometheus HTTP API URL (설정 시 Phase F 자동 분석 활성화) |
 | `PROMETHEUS_ANALYZE_INTERVAL_SECONDS` | `300` | Prometheus 이상 감지 주기(초) |
-| `PROM_ALERT_CPU_THRESHOLD` | `70.0` | CPU warning 임계치(%) |
+| `PROM_ALERT_CPU_THRESHOLD` | `70.0` | CPU warning 임계치(%). 시스템 기본값 — `metric_exclusions.override_threshold` 로 시스템·호스트별 오버라이드 가능 |
 | `PROM_ALERT_CPU_CRITICAL` | `90.0` | CPU critical 판정 임계치(%) |
 | `PROM_ALERT_MEM_THRESHOLD` | `70.0` | 메모리 warning 임계치(%) |
 | `PROM_ALERT_MEM_CRITICAL` | `90.0` | 메모리 critical 판정 임계치(%) |
@@ -631,6 +651,18 @@ Wave 2A 이후 피드백은 인시던트 단위로 관리됨. 승인 워크플�
   → POST /api/v1/incidents/{incident_id}/feedback/{id}/resubmit
     → status=pending + revision_count 증가 + revision_reason 갱신(선택, 매 회차마다 덮어씀)
     → approved → 수정 시 approved_at/approved_by 초기화 → 승인자 재알림 (Teams 카드에 재등록 사유 노출)
+    → approved 상태였을 때만: DB commit 후 log-analyzer DELETE /incident-postmortem/delete 호출
+      (best-effort — Qdrant 삭제 실패해도 HTTP 200 반환, 경고 로그만 기록)
+      DB의 qdrant_point_id는 항상 NULL로 클리어 (DB commit은 성공 보장)
+      재승인 시 새 Qdrant point 생성 (기존 point_id 재사용 없음)
+
+**재등록 횟수 제한 정책 (P2-E)**:
+- 상수: `_RESUBMIT_SOFT_LIMIT = 3`, `_RESUBMIT_HARD_LIMIT = 5` (`routes/incidents.py` 모듈 상단)
+- **소프트 리밋** (revision_count >= 3): 재등록 성공 + `FeedbackOut.warning` 필드에 `ResubmitWarning` 동봉.
+  프론트엔드는 노란색 경고 카드 표시 후 폼을 직접 닫도록 안내.
+- **하드 리밋** (revision_count >= 5): 409 Conflict 반환. `detail.error = "resubmit_limit_exceeded"`.
+  프론트엔드는 그레이 블록 모달 표시 + 새 피드백 등록 안내.
+- approve/reject 엔드포인트는 `warning=None` 반환 (BC 유지, 코드 변경 없음).
 ```
 
 **첨부파일**: `POST /api/v1/feedback/upload` (staging 임시 업로드, 피드백 생성/재등록 시 정식 경로로 이동)

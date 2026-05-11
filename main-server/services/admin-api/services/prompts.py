@@ -85,6 +85,7 @@ _CHUNK_FETCH_GUIDE = """\
 청크 기반 컬렉션은 검색에서 일부 청크만 노출된다. payload의 `chunk_index` / `total_chunks`를 비교해 빠진 청크 번호를 추론하고, 보강이 필요한 경우 통합 도구 `qdrant_get_chunks(source, id, chunk_indexes?)`를 호출한다.
 
 - qdrant_search_guide 결과 → qdrant_get_chunks(source="guide", id=<guide_id>, chunk_indexes=[...])
+  qdrant_search_guide 결과는 가이드 단위로 그룹핑됨. payload.matched_chunk_indexes로 같은 가이드의 추가 매칭 청크 인덱스를 확인하고, 필요 시 qdrant_get_chunks(source="guide", id=<guide_id>, chunk_indexes=matched_chunk_indexes)로 fetch 가능.
 - qdrant_search_knowledge (source=documents) → qdrant_get_chunks(source="document", id=<file_hash>, chunk_indexes=[...])
 - qdrant_search_knowledge (source=confluence) → qdrant_get_chunks(source="confluence", id=<page_id>, chunk_indexes=[...])
 

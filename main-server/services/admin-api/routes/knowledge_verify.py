@@ -268,14 +268,14 @@ async def _call_postmortem_search(
 ) -> tuple[list[SearchResultItem], str | None]:
     """log-analyzer POST /incident-postmortem/search → incident_postmortems 결과.
 
-    system_ids: 단일 system_id 필터 (1개만 적용 — 인시던트는 1 시스템 단위).
+    system_ids: IN list 필터 — 1개든 복수든 항상 system_ids로 전달 (P2-A).
     """
     payload: dict[str, Any] = {"query": query, "limit": limit}
     if use_reranker:
         payload["rerank"] = True
         payload["rerank_top_k"] = limit
-    if len(system_ids) == 1:
-        payload["system_id"] = system_ids[0]
+    if system_ids:
+        payload["system_ids"] = system_ids
 
     try:
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
@@ -390,9 +390,8 @@ async def _call_knowledge_search(
 ) -> tuple[list[SearchResultItem], str | None]:
     """log-analyzer POST /knowledge/search → jira/confluence/documents federated 검색.
 
-    documents 는 system_id 필터 적용 (system_ids 첫 번째 값 또는 미적용).
+    documents 는 system_ids IN list 필터 적용 (P2-A).
     jira/confluence 는 필터 미적용 (federated_search V1 정책).
-    system_ids가 1개이면 system_id로 전달, 2개 이상이면 전달하지 않음 (전체 검색).
     """
     payload: dict[str, Any] = {
         "query": query,
@@ -401,8 +400,8 @@ async def _call_knowledge_search(
     }
     if sources:
         payload["sources"] = sources
-    if sources and "documents" in sources and len(system_ids) == 1:
-        payload["system_id"] = system_ids[0]
+    if system_ids:
+        payload["system_ids"] = system_ids
 
     try:
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:

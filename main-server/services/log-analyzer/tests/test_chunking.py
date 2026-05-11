@@ -17,6 +17,7 @@ from chunking import (  # noqa: E402
     chunk_pptx,
     chunk_text,
     chunk_xlsx,
+    make_ocr_stats,
 )
 
 
@@ -381,24 +382,28 @@ def test_chunk_xlsx_basic(tmp_path):
     assert "80%" in metric_chunk["text"]
 
 
-def test_chunk_xlsx_large_sheet_not_split(tmp_path):
-    """1500자 초과해도 시트당 1청크 유지."""
+def test_chunk_xlsx_under_embed_limit_not_split(tmp_path):
+    """1500자 초과이지만 _EMBED_TOKEN_LIMIT_CHARS(6500자) 이내 시트: 단일 청크 유지."""
     pytest.importorskip("openpyxl")
     from openpyxl import Workbook
 
     wb = Workbook()
     ws = wb.active
-    ws.title = "huge"
+    ws.title = "medium"
     ws.append(["col1", "col2"])
-    for i in range(200):
-        ws.append([f"value-{i}-가나다라마", f"value-{i}-바사아자차"])
+    # 행당 ~30자 × 80행 ≈ 2400자 → 6500 이내
+    for i in range(80):
+        ws.append([f"value-{i}-가나다라마", f"val-{i}"])
 
-    file_path = tmp_path / "huge.xlsx"
+    file_path = tmp_path / "medium.xlsx"
     wb.save(str(file_path))
 
     chunks = chunk_xlsx(str(file_path))
-    assert len(chunks) == 1
-    assert len(chunks[0]["text"]) > 1500  # 분할 안 됨
+    assert len(chunks) == 1  # 1500 초과지만 6500 이내 → 분할 안 됨
+    assert len(chunks[0]["text"]) > 1500
+    # 단일 청크 시에도 sub_chunk_index=0, total_sub_chunks=1 포함
+    assert chunks[0]["metadata"]["sub_chunk_index"] == 0
+    assert chunks[0]["metadata"]["total_sub_chunks"] == 1
 
 
 # ── chunk_pptx ────────────────────────────────────────────────────────────────
@@ -437,3 +442,334 @@ def test_chunk_pptx_basic(tmp_path):
     # 슬라이드 2
     assert chunks[1]["metadata"]["slide_no"] == 2
     assert chunks[1]["metadata"]["slide_title"] == "두 번째 슬라이드"
+
+
+# ── _EMBED_TOKEN_LIMIT_CHARS 상수 ────────────────────────────────────────────
+
+def test_embed_token_limit_constant_exists():
+    """_EMBED_TOKEN_LIMIT_CHARS 상수가 6500으로 정의되어 있는지 검증."""
+    assert chunking._EMBED_TOKEN_LIMIT_CHARS == 6500
+
+
+# ── chunk_xlsx 분할 (임계값 초과) ─────────────────────────────────────────────
+
+def _make_xlsx_with_rows(tmp_path, sheet_name: str, num_rows: int, row_len: int = 30):
+    """지정한 행 수의 xlsx 파일 생성 헬퍼. 행당 row_len자 내외 데이터."""
+    pytest.importorskip("openpyxl")
+    from openpyxl import Workbook
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = sheet_name
+    ws.append(["헤더1", "헤더2"])
+    for i in range(num_rows):
+        # 행당 약 row_len 자 채우기
+        pad = "가" * max(1, row_len // 2 - len(str(i)))
+        ws.append([f"{pad}{i}", f"{pad}{i}"])
+    file_path = tmp_path / f"{sheet_name}.xlsx"
+    wb.save(str(file_path))
+    return str(file_path)
+
+
+def test_chunk_xlsx_at_limit_not_split(tmp_path):
+    """6500자 이내 시트 — 분할 안 됨, oversize_count=0."""
+    pytest.importorskip("openpyxl")
+    from openpyxl import Workbook
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "small"
+    ws.append(["col"])
+    # 20행 × ~30자 = ~600자 → 6500 이내
+    for i in range(20):
+        ws.append([f"val-{i}-" + "나" * 10])
+
+    file_path = tmp_path / "small.xlsx"
+    wb.save(str(file_path))
+
+    stats = make_ocr_stats()
+    chunks = chunk_xlsx(str(file_path), stats=stats)
+
+    assert len(chunks) == 1
+    assert chunks[0]["metadata"]["sub_chunk_index"] == 0
+    assert chunks[0]["metadata"]["total_sub_chunks"] == 1
+    assert stats["oversize_count"] == 0
+
+
+def test_chunk_xlsx_oversize_splits_with_header(tmp_path):
+    """7000자 시트 — 2개 sub-chunk, 헤더가 양쪽에 보존됨."""
+    pytest.importorskip("openpyxl")
+    from openpyxl import Workbook
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "big"
+    ws.append(["응답시간", "에러코드"])
+    # 행당 ~40자 × 180행 ≈ 7200자 → 6500 초과
+    for i in range(180):
+        ws.append([f"응답시간-{i:04d}-{'가'*10}", f"에러코드-{i:04d}"])
+
+    file_path = tmp_path / "big.xlsx"
+    wb.save(str(file_path))
+
+    stats = make_ocr_stats()
+    chunks = chunk_xlsx(str(file_path), stats=stats)
+
+    # 분할 발생
+    assert len(chunks) >= 2
+    # oversize_count 누적
+    assert stats["oversize_count"] == 1
+    # 모든 sub-chunk에 헤더 보존 (키워드 "응답시간" 검색 유지)
+    for c in chunks:
+        assert "응답시간" in c["text"]
+        assert "에러코드" in c["text"]
+    # sub_chunk_index/total_sub_chunks 메타 일관성
+    total = chunks[0]["metadata"]["total_sub_chunks"]
+    assert total == len(chunks)
+    for idx, c in enumerate(chunks):
+        assert c["metadata"]["sub_chunk_index"] == idx
+        assert c["metadata"]["total_sub_chunks"] == total
+    # 각 sub-chunk는 임계값 이내
+    for c in chunks:
+        assert len(c["text"]) <= chunking._EMBED_TOKEN_LIMIT_CHARS
+
+
+def test_chunk_xlsx_very_large_sheet_multiple_subchunks(tmp_path):
+    """30000자 시트 — 5개 이상 sub-chunk, 헤더 모두 보존."""
+    pytest.importorskip("openpyxl")
+    from openpyxl import Workbook
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "huge"
+    ws.append(["항목명", "상세내용"])
+    # 행당 ~60자 × 500행 ≈ 30000자
+    for i in range(500):
+        ws.append([f"항목-{i:04d}-{'나'*15}", f"상세-{i:04d}-{'다'*15}"])
+
+    file_path = tmp_path / "huge.xlsx"
+    wb.save(str(file_path))
+
+    stats = make_ocr_stats()
+    chunks = chunk_xlsx(str(file_path), stats=stats)
+
+    assert len(chunks) >= 5
+    assert stats["oversize_count"] == 1
+    for c in chunks:
+        assert "항목명" in c["text"]
+        assert "상세내용" in c["text"]
+        assert len(c["text"]) <= chunking._EMBED_TOKEN_LIMIT_CHARS
+
+
+def test_chunk_xlsx_stats_none_no_error(tmp_path):
+    """stats=None (기본) 시 oversize 분할해도 예외 없음 (BC 유지)."""
+    pytest.importorskip("openpyxl")
+    from openpyxl import Workbook
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "test"
+    ws.append(["col"])
+    for i in range(180):
+        ws.append([f"value-{i}-{'가'*20}"])
+
+    file_path = tmp_path / "nostat.xlsx"
+    wb.save(str(file_path))
+
+    # stats 미전달 — 예외 없이 정상 동작
+    chunks = chunk_xlsx(str(file_path))
+    assert len(chunks) >= 1
+
+
+# ── chunk_pptx 분할 (임계값 초과) ────────────────────────────────────────────
+
+def test_chunk_pptx_small_slide_single_chunk(tmp_path):
+    """작은 슬라이드 — 단일 청크, sub_chunk_index=0."""
+    pytest.importorskip("pptx")
+    from pptx import Presentation
+
+    prs = Presentation()
+    slide = prs.slides.add_slide(prs.slide_layouts[1])
+    slide.shapes.title.text = "제목"
+    slide.placeholders[1].text = "짧은 본문"
+
+    file_path = tmp_path / "small.pptx"
+    prs.save(str(file_path))
+
+    chunks = chunk_pptx(str(file_path))
+    assert len(chunks) == 1
+    assert chunks[0]["metadata"]["sub_chunk_index"] == 0
+    assert chunks[0]["metadata"]["total_sub_chunks"] == 1
+
+
+def test_chunk_pptx_body_notes_separated(tmp_path):
+    """body=5000자 + notes=3000자 → body, notes 분리, title 양쪽 prepend."""
+    pytest.importorskip("pptx")
+    from pptx import Presentation
+
+    prs = Presentation()
+    slide_layout = prs.slide_layouts[1]
+    slide = prs.slides.add_slide(slide_layout)
+    slide.shapes.title.text = "장애 분석 보고서"
+    slide.placeholders[1].text = "가" * 5000
+    slide.notes_slide.notes_text_frame.text = "나" * 3000
+
+    file_path = tmp_path / "split.pptx"
+    prs.save(str(file_path))
+
+    stats = make_ocr_stats()
+    chunks = chunk_pptx(str(file_path), stats=stats)
+
+    # body + notes 분리 → 2개
+    assert len(chunks) == 2
+    assert stats["oversize_count"] == 1
+    # title이 양쪽에 prepend
+    for c in chunks:
+        assert "장애 분석 보고서" in c["text"]
+    # 각 sub-chunk 임계값 이내
+    for c in chunks:
+        assert len(c["text"]) <= chunking._EMBED_TOKEN_LIMIT_CHARS
+    # sub_chunk_index/total_sub_chunks 일관성
+    assert chunks[0]["metadata"]["sub_chunk_index"] == 0
+    assert chunks[0]["metadata"]["total_sub_chunks"] == 2
+    assert chunks[1]["metadata"]["sub_chunk_index"] == 1
+    assert chunks[1]["metadata"]["total_sub_chunks"] == 2
+    # body 청크에 가 포함, notes 청크에 나 포함
+    assert "가" * 100 in chunks[0]["text"]
+    assert "나" * 100 in chunks[1]["text"]
+
+
+def test_chunk_pptx_body_oversize_further_split(tmp_path):
+    """body=10000자 (단독 초과) → chunk_text로 추가 분할."""
+    pytest.importorskip("pptx")
+    from pptx import Presentation
+
+    prs = Presentation()
+    slide_layout = prs.slide_layouts[1]
+    slide = prs.slides.add_slide(slide_layout)
+    slide.shapes.title.text = "초대형 슬라이드"
+    slide.placeholders[1].text = "가" * 10000
+
+    file_path = tmp_path / "huge_slide.pptx"
+    prs.save(str(file_path))
+
+    stats = make_ocr_stats()
+    chunks = chunk_pptx(str(file_path), stats=stats)
+
+    # body 단독 10000자 → 여러 sub-chunk
+    assert len(chunks) >= 2
+    assert stats["oversize_count"] == 1
+    for c in chunks:
+        assert len(c["text"]) <= chunking._EMBED_TOKEN_LIMIT_CHARS
+        # title_prefix가 모든 sub-chunk에 보존되어야 한다
+        assert "초대형 슬라이드" in c["text"]
+
+
+def test_chunk_pptx_oversize_count_per_slide(tmp_path):
+    """여러 슬라이드 중 초과 슬라이드 수만큼 oversize_count 누적."""
+    pytest.importorskip("pptx")
+    from pptx import Presentation
+
+    prs = Presentation()
+
+    # 슬라이드 1: 정상 크기
+    s1 = prs.slides.add_slide(prs.slide_layouts[1])
+    s1.shapes.title.text = "정상 슬라이드"
+    s1.placeholders[1].text = "짧은 내용"
+
+    # 슬라이드 2: 초과 크기
+    s2 = prs.slides.add_slide(prs.slide_layouts[1])
+    s2.shapes.title.text = "큰 슬라이드"
+    s2.placeholders[1].text = "가" * 5000
+    s2.notes_slide.notes_text_frame.text = "나" * 3000
+
+    # 슬라이드 3: 초과 크기
+    s3 = prs.slides.add_slide(prs.slide_layouts[1])
+    s3.shapes.title.text = "또다른 큰 슬라이드"
+    s3.placeholders[1].text = "다" * 5000
+    s3.notes_slide.notes_text_frame.text = "라" * 3000
+
+    file_path = tmp_path / "multi.pptx"
+    prs.save(str(file_path))
+
+    stats = make_ocr_stats()
+    chunks = chunk_pptx(str(file_path), stats=stats)
+
+    # 슬라이드 2, 3 초과 → oversize_count=2
+    assert stats["oversize_count"] == 2
+    # 전체 청크 수: 슬라이드1(1) + 슬라이드2(2) + 슬라이드3(2) = 5
+    assert len(chunks) == 5
+
+
+# ── chunk_pdf sliding window 회귀 확인 ───────────────────────────────────────
+
+def _make_pdf_mocks_local(monkeypatch, pages_text, pages_images=None):
+    """pdfplumber + pypdf mock 헬퍼 (로컬 재정의, test_chunking.py 전용)."""
+    import sys as _sys
+    import types
+
+    class _MockPdfPage:
+        def __init__(self, text):
+            self._text = text
+
+        def extract_text(self):
+            return self._text
+
+    class _MockPdf:
+        def __init__(self, pages):
+            self.pages = pages
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    monkeypatch.setitem(
+        _sys.modules,
+        "pdfplumber",
+        types.SimpleNamespace(open=lambda _: _MockPdf([_MockPdfPage(t) for t in pages_text])),
+    )
+
+    class _MockImageFile:
+        def __init__(self, blob):
+            self.data = blob
+
+    class _MockPypdfPage:
+        def __init__(self, blobs):
+            self._blobs = blobs
+
+        @property
+        def images(self):
+            return [_MockImageFile(b) for b in self._blobs]
+
+    class _MockPypdfReader:
+        def __init__(self, pages):
+            self.pages = pages
+
+    resolved = pages_images if pages_images is not None else [[] for _ in pages_text]
+    monkeypatch.setitem(
+        _sys.modules,
+        "pypdf",
+        types.SimpleNamespace(
+            PdfReader=lambda _path: _MockPypdfReader(
+                [_MockPypdfPage(imgs) for imgs in resolved]
+            )
+        ),
+    )
+
+
+def test_chunk_pdf_large_page_sliding_window(monkeypatch):
+    """PDF 페이지가 6500자 초과해도 sliding window(chunk_text)로 정상 분할됨 (회귀 확인)."""
+    _make_pdf_mocks_local(
+        monkeypatch,
+        pages_text=["가" * 8000],  # 8000자 단일 페이지 → chunk_text로 분할
+    )
+
+    chunks = chunk_pdf("/fake/large_page.pdf")
+    assert len(chunks) >= 2
+    for c in chunks:
+        assert c["metadata"]["page_no"] == 1
+        assert c["metadata"]["doc_type"] == "pdf"
+    # chunk_index 전역 누적
+    assert [c["metadata"]["chunk_index"] for c in chunks] == list(range(len(chunks)))

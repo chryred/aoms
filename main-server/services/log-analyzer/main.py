@@ -615,7 +615,8 @@ async def store_agg_summary(req: StoreAggSummaryRequest):
 
 class KnowledgeSearchRequest(BaseModel):
     query:        str
-    system_id:    int | None = None
+    system_ids:   list[int] | None = None
+    system_id:    int | None = None  # deprecated, kept for BC; system_ids takes priority
     system_name:  str | None = None
     sources:      list[str] | None = None   # ["jira","confluence","documents"]
     limit:        int = 10
@@ -635,6 +636,7 @@ async def knowledge_search(req: KnowledgeSearchRequest):
     try:
         result = await knowledge_vector_client.federated_search(
             req.query,
+            system_ids=req.system_ids,
             system_id=req.system_id,
             system_name=req.system_name,
             sources=req.sources,
@@ -701,7 +703,7 @@ async def _do_embed_task(job_id: str, req: EmbedDocumentRequest) -> None:
     chunkers = {
         "docx": lambda: chunking.chunk_docx(req.file_path, stats=ocr_stats),
         "pdf":  lambda: chunking.chunk_pdf(req.file_path, stats=ocr_stats),
-        "xlsx": lambda: chunking.chunk_xlsx(req.file_path),
+        "xlsx": lambda: chunking.chunk_xlsx(req.file_path, stats=ocr_stats),
         "pptx": lambda: chunking.chunk_pptx(req.file_path, stats=ocr_stats),
         "txt":  _chunk_text_file,
         "md":   _chunk_text_file,

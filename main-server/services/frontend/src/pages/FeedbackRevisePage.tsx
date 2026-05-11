@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { CheckCircle2, AlertTriangle, Paperclip, X, FileText, Info } from 'lucide-react'
+import { CheckCircle2, AlertTriangle, Paperclip, X, FileText, Info, Ban } from 'lucide-react'
 import toast from 'react-hot-toast'
+import { HTTPError } from 'ky'
 import { NeuCard } from '@/components/neumorphic/NeuCard'
 import { NeuSelect } from '@/components/neumorphic/NeuSelect'
 import { NeuTextarea } from '@/components/neumorphic/NeuTextarea'
@@ -10,7 +11,7 @@ import { NeuButton } from '@/components/neumorphic/NeuButton'
 import { NeuBadge } from '@/components/neumorphic/NeuBadge'
 import { incidentsApi } from '@/api/incidents'
 import { useFeedbackUpload } from '@/hooks/mutations/useFeedbackUpload'
-import type { FeedbackUploadResponse } from '@/types/feedback'
+import type { FeedbackUploadResponse, ResubmitLimitError } from '@/types/feedback'
 
 const ERROR_TYPES = [
   'DB 연결 오류',
@@ -53,6 +54,7 @@ export function FeedbackRevisePage() {
   const [revisionReason, setRevisionReason] = useState('')
   const [newAttachments, setNewAttachments] = useState<LocalAttachment[]>([])
   const [done, setDone] = useState(false)
+  const [hardBlocked, setHardBlocked] = useState<ResubmitLimitError | null>(null)
 
   const fileInputRef = useRef<HTMLInputElement>(null)
   const uploadMutation = useFeedbackUpload()
@@ -88,7 +90,18 @@ export function FeedbackRevisePage() {
       toast.success('재검토 요청이 발송되었습니다.')
       setDone(true)
     },
-    onError: () => toast.error('재등록 중 오류가 발생했습니다.'),
+    onError: async (err) => {
+      if (err instanceof HTTPError && err.response.status === 409) {
+        try {
+          const body = await err.response.json<{ detail: ResubmitLimitError }>()
+          setHardBlocked(body.detail)
+        } catch {
+          toast.error('재등록 한도를 초과했습니다. 새 피드백을 등록해 주세요.')
+        }
+      } else {
+        toast.error('재등록 중 오류가 발생했습니다.')
+      }
+    },
   })
 
   // pre-fill 폼: 데이터 로드 후 1회 초기화
@@ -240,6 +253,33 @@ export function FeedbackRevisePage() {
 
   return (
     <div className="bg-bg-base flex min-h-screen items-start justify-center p-6">
+      {/* 하드 리밋 블록 모달 — 409 Conflict */}
+      {hardBlocked && (
+        <>
+          <div className="bg-overlay fixed inset-0 z-40" aria-hidden="true" />
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <NeuCard className="w-full max-w-sm">
+              <div className="mb-4 flex items-start gap-3">
+                <Ban aria-hidden="true" className="text-text-disabled mt-0.5 h-5 w-5 shrink-0" />
+                <div>
+                  <p className="text-text-primary text-sm font-semibold">재등록 한도 초과</p>
+                  <p className="text-text-secondary mt-1 text-xs leading-relaxed">
+                    {hardBlocked.message}
+                  </p>
+                  <p className="text-text-disabled mt-2 text-xs">
+                    현재 {hardBlocked.revision_count}회 / 최대 {hardBlocked.hard_limit}회
+                  </p>
+                </div>
+              </div>
+              <div className="flex justify-end gap-2">
+                <NeuButton size="sm" onClick={() => setHardBlocked(null)}>
+                  확인
+                </NeuButton>
+              </div>
+            </NeuCard>
+          </div>
+        </>
+      )}
       <div className="w-full max-w-xl space-y-4">
         {/* 반려 사유 */}
         <NeuCard>

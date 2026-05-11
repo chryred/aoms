@@ -9,7 +9,8 @@
 설계 원칙:
 - 순수 텍스트 sliding window는 ``chunk_text``를 베이스로 모든 포맷이 재사용
 - 한국어 청크 경계는 단어/조사 중간을 피하기 위해 단락(\\n\\n) → 줄바꿈(\\n) → 공백 순으로 백트래킹
-- xlsx/pptx는 의미 단위(시트/슬라이드)가 곧 청크 — 1500자를 넘어도 분할하지 않음
+- xlsx/pptx는 의미 단위(시트/슬라이드)가 곧 청크. bge-m3 8192 토큰 한도(≈ 한국어 6500자)
+  초과 시에만 분할 — 헤더/타이틀을 모든 sub-chunk에 복사해 의미 보존
 - vector_client.py 등 기존 모듈은 수정하지 않음 (이 모듈은 독립 유틸리티)
 """
 
@@ -20,6 +21,8 @@ import os
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+_EMBED_TOKEN_LIMIT_CHARS = 6500  # bge-m3 8192 토큰 ≈ 한국어 6500자 (1.2x 안전 마진)
 
 
 # ── 베이스: 텍스트 sliding window ──────────────────────────────────────────────
@@ -125,6 +128,7 @@ def make_ocr_stats() -> dict:
         "ocr_succeeded": 0,
         "ocr_noise_filtered": 0,
         "ocr_failed": 0,
+        "oversize_count": 0,
     }
 
 
@@ -544,12 +548,15 @@ def _sheet_to_markdown(ws) -> str:
     return "\n".join(lines)
 
 
-def chunk_xlsx(file_path: str) -> list[dict]:
+def chunk_xlsx(file_path: str, stats: dict | None = None) -> list[dict]:
     """Excel 파일: 시트별 1 chunk (시트 = 표 단위 의미 묶음).
 
     - openpyxl 사용, 시트 전체를 markdown 표 형태로 변환
-    - **한 시트가 1500자 초과해도 분할 안 함** (시트 의미 보존)
-    - metadata: ``{file_name, sheet_name, doc_type: "xlsx"}``
+    - bge-m3 한도(``_EMBED_TOKEN_LIMIT_CHARS`` = 6500자) 이내 시트: 단일 청크 (BC 유지)
+    - 초과 시: 헤더 행을 모든 sub-chunk에 복사하며 데이터 행 단위 분할
+    - metadata: ``{file_name, sheet_name, doc_type: "xlsx", chunk_index, sub_chunk_index, total_sub_chunks}``
+      (단일 청크 시에도 sub_chunk_index=0, total_sub_chunks=1 포함 — 일관된 메타 형태)
+    - stats: make_ocr_stats() dict를 전달하면 oversize_count 누적 (None이면 생략, BC 유지)
     """
     from openpyxl import load_workbook
 
@@ -565,15 +572,86 @@ def chunk_xlsx(file_path: str) -> list[dict]:
             continue
         # 시트명을 본문 맨 앞에 붙여 검색에 활용 가능하도록
         body = f"# {sheet_name}\n\n{sheet_text}"
-        meta = {
-            "source_type": "xlsx",
-            "doc_type": "xlsx",
-            "file_name": file_name,
-            "sheet_name": sheet_name,
-            "chunk_index": chunk_index,
-        }
-        chunks.append({"text": body, "metadata": meta})
-        chunk_index += 1
+
+        if len(body) <= _EMBED_TOKEN_LIMIT_CHARS:
+            # ── 단일 청크 (임계값 이내) ────────────────────────────────────
+            meta = {
+                "source_type": "xlsx",
+                "doc_type": "xlsx",
+                "file_name": file_name,
+                "sheet_name": sheet_name,
+                "chunk_index": chunk_index,
+                "sub_chunk_index": 0,
+                "total_sub_chunks": 1,
+            }
+            chunks.append({"text": body, "metadata": meta})
+            chunk_index += 1
+        else:
+            # ── 임계값 초과: 헤더 보존하며 데이터 행 분할 ─────────────────
+            if stats is not None:
+                stats["oversize_count"] += 1
+
+            lines = sheet_text.splitlines()
+            # lines[0]: | header | 행, lines[1]: | --- | 행, lines[2:]: 데이터 행
+            if len(lines) >= 2:
+                header_lines = lines[0] + "\n" + lines[1]
+                data_lines = lines[2:]
+            else:
+                # 구분선 없는 드문 경우 — 첫 행만 헤더로 취급
+                header_lines = lines[0]
+                data_lines = lines[1:]
+
+            # 타이틀 + 헤더 접두어
+            title_prefix = f"# {sheet_name}\n\n{header_lines}\n"
+            prefix_len = len(title_prefix)
+
+            # 데이터 행을 묶어 각 sub-chunk가 임계값 이내가 되도록 분할
+            sub_groups: list[list[str]] = []
+            current_group: list[str] = []
+            current_len = prefix_len
+
+            for row_line in data_lines:
+                row_len = len(row_line) + 1  # +1 for '\n'
+                if current_group and (current_len + row_len) > _EMBED_TOKEN_LIMIT_CHARS:
+                    sub_groups.append(current_group)
+                    current_group = [row_line]
+                    current_len = prefix_len + row_len
+                else:
+                    current_group.append(row_line)
+                    current_len += row_len
+
+            if current_group:
+                sub_groups.append(current_group)
+
+            # sub_groups가 빈 경우 (데이터 행 없음) 단일 청크로 폴백
+            if not sub_groups:
+                meta = {
+                    "source_type": "xlsx",
+                    "doc_type": "xlsx",
+                    "file_name": file_name,
+                    "sheet_name": sheet_name,
+                    "chunk_index": chunk_index,
+                    "sub_chunk_index": 0,
+                    "total_sub_chunks": 1,
+                }
+                chunks.append({"text": body, "metadata": meta})
+                chunk_index += 1
+                continue
+
+            total_sub = len(sub_groups)
+            for sub_idx, group in enumerate(sub_groups):
+                sub_text = title_prefix + "\n".join(group)
+                meta = {
+                    "source_type": "xlsx",
+                    "doc_type": "xlsx",
+                    "file_name": file_name,
+                    "sheet_name": sheet_name,
+                    "chunk_index": chunk_index,
+                    "sub_chunk_index": sub_idx,
+                    "total_sub_chunks": total_sub,
+                }
+                chunks.append({"text": sub_text, "metadata": meta})
+                chunk_index += 1
 
     wb.close()
     return chunks
@@ -606,9 +684,12 @@ def chunk_pptx(file_path: str, stats: dict | None = None) -> list[dict]:
 
     - python-pptx 사용. title + body shapes의 text + speaker notes 합산
     - 표는 셀별 텍스트 추출
-    - metadata: ``{file_name, slide_no, slide_title, doc_type: "pptx"}``
-    - 슬라이드 의미 보존을 위해 길어도 분할하지 않음
-    - stats: make_ocr_stats() dict를 전달하면 OCR 카운터 누적 (None이면 생략, BC 유지)
+    - bge-m3 한도(``_EMBED_TOKEN_LIMIT_CHARS`` = 6500자) 이내 슬라이드: 단일 청크 (BC 유지)
+    - 초과 시: body/notes를 별도 청크로 분리. title은 모든 sub-chunk에 prepend (의미 보존)
+      body 단독이 여전히 초과하면 chunk_text로 추가 분할 (warning 로그)
+    - metadata: ``{file_name, slide_no, slide_title, doc_type: "pptx", chunk_index, sub_chunk_index, total_sub_chunks}``
+      (단일 청크 시에도 sub_chunk_index=0, total_sub_chunks=1 포함 — 일관된 메타 형태)
+    - stats: make_ocr_stats() dict를 전달하면 OCR 카운터 + oversize_count 누적 (None이면 생략, BC 유지)
     """
     from pptx import Presentation
     from pptx.enum.shapes import MSO_SHAPE_TYPE
@@ -657,27 +738,102 @@ def chunk_pptx(file_path: str, stats: dict | None = None) -> list[dict]:
         if slide.has_notes_slide and slide.notes_slide and slide.notes_slide.notes_text_frame:
             notes_text = (slide.notes_slide.notes_text_frame.text or "").strip()
 
+        # ── 슬라이드 텍스트 조립 ──────────────────────────────────────────
+        title_prefix = f"# {slide_title}\n\n" if slide_title else ""
+        body_text = "\n".join(body_parts) if body_parts else ""
+        notes_section = f"[발표자 노트]\n{notes_text}" if notes_text else ""
+
+        # 완전히 비어있는 슬라이드 건너뜀
+        if not body_text and not notes_section and not slide_title:
+            continue
+
+        # 전체 합산 텍스트
         sections: list[str] = []
         if slide_title:
             sections.append(f"# {slide_title}")
-        if body_parts:
-            sections.append("\n".join(body_parts))
-        if notes_text:
-            sections.append(f"[발표자 노트]\n{notes_text}")
+        if body_text:
+            sections.append(body_text)
+        if notes_section:
+            sections.append(notes_section)
 
         if not sections:
             continue
 
-        body = "\n\n".join(sections)
-        meta = {
-            "source_type": "pptx",
-            "doc_type": "pptx",
-            "file_name": file_name,
-            "slide_no": slide_no,
-            "slide_title": slide_title,
-            "chunk_index": chunk_index,
-        }
-        chunks.append({"text": body, "metadata": meta})
-        chunk_index += 1
+        full_body = "\n\n".join(sections)
+
+        def _make_slide_meta(sub_idx: int, total_sub: int) -> dict:
+            return {
+                "source_type": "pptx",
+                "doc_type": "pptx",
+                "file_name": file_name,
+                "slide_no": slide_no,
+                "slide_title": slide_title,
+                "chunk_index": chunk_index,
+                "sub_chunk_index": sub_idx,
+                "total_sub_chunks": total_sub,
+            }
+
+        if len(full_body) <= _EMBED_TOKEN_LIMIT_CHARS:
+            # ── 단일 청크 (임계값 이내) ────────────────────────────────────
+            chunks.append({"text": full_body, "metadata": _make_slide_meta(0, 1)})
+            chunk_index += 1
+        else:
+            # ── 임계값 초과: body/notes 분리 ─────────────────────────────
+            if stats is not None:
+                stats["oversize_count"] += 1
+
+            sub_texts: list[str] = []
+
+            # body 처리
+            if body_text:
+                body_chunk_text = (title_prefix + body_text).strip()
+                if len(body_chunk_text) <= _EMBED_TOKEN_LIMIT_CHARS:
+                    sub_texts.append(body_chunk_text)
+                else:
+                    # body 단독으로도 초과 — chunk_text로 추가 분할
+                    # title_prefix는 모든 조각에 유지해야 하므로
+                    # body_text만 분할 대상으로 전달하고 각 조각에 title_prefix를 다시 prepend
+                    logger.warning(
+                        "chunk_pptx: slide=%d body %d자 > %d 한도 → chunk_text 추가 분할",
+                        slide_no, len(body_chunk_text), _EMBED_TOKEN_LIMIT_CHARS,
+                    )
+                    effective_max = max(500, _EMBED_TOKEN_LIMIT_CHARS - len(title_prefix))
+                    sub_pieces = chunk_text(
+                        body_text,
+                        max_chars=effective_max,
+                        overlap=200,
+                    )
+                    sub_texts.extend(
+                        (title_prefix + p["text"]).strip() for p in sub_pieces
+                    )
+
+            # notes 처리
+            if notes_section:
+                notes_chunk_text = (title_prefix + notes_section).strip()
+                if len(notes_chunk_text) <= _EMBED_TOKEN_LIMIT_CHARS:
+                    sub_texts.append(notes_chunk_text)
+                else:
+                    logger.warning(
+                        "chunk_pptx: slide=%d notes %d자 > %d 한도 → chunk_text 추가 분할",
+                        slide_no, len(notes_chunk_text), _EMBED_TOKEN_LIMIT_CHARS,
+                    )
+                    effective_max = max(500, _EMBED_TOKEN_LIMIT_CHARS - len(title_prefix))
+                    sub_pieces = chunk_text(
+                        notes_section,
+                        max_chars=effective_max,
+                        overlap=200,
+                    )
+                    sub_texts.extend(
+                        (title_prefix + p["text"]).strip() for p in sub_pieces
+                    )
+
+            # sub_texts 빈 경우 (body도 notes도 없고 title만인 경우) 폴백
+            if not sub_texts:
+                sub_texts = [full_body]
+
+            total_sub = len(sub_texts)
+            for sub_idx, sub_text in enumerate(sub_texts):
+                chunks.append({"text": sub_text, "metadata": _make_slide_meta(sub_idx, total_sub)})
+                chunk_index += 1
 
     return chunks

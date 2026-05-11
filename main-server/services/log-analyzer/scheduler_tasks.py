@@ -5,15 +5,17 @@ main.py lifespan에서 asyncio.create_task()로 시작되는 스케줄러 함수
 공유 상태 전역 변수, Jira/Confluence 증분 동기화 로직을 포함한다.
 
 스케줄러 목록:
-  _scheduler()               : ANALYSIS_INTERVAL_SECONDS마다 로그 분석
-  _hourly_agg_scheduler()    : 매 시간 :05분 hourly 집계
-  _daily_agg_scheduler()     : 매일 07:30 KST daily 롤업
-  _weekly_agg_scheduler()    : 매주 월요일 08:00 KST weekly 리포트
-  _monthly_agg_scheduler()   : 매월 1일 08:00 KST monthly 리포트
-  _longperiod_agg_scheduler(): 매월 1일 09:00 KST longperiod 리포트
-  _trend_agg_scheduler()     : 4시간마다 trend 이상 알림
-  _jira_sync_scheduler()     : 매일 04:00 KST Jira 증분 동기화
-  _confluence_sync_scheduler(): 매일 04:30 KST Confluence 증분 동기화
+  _scheduler()                  : ANALYSIS_INTERVAL_SECONDS마다 로그 분석
+  _hourly_agg_scheduler()       : 매 시간 :05분 hourly 집계
+  _daily_agg_scheduler()        : 매일 07:30 KST daily 롤업
+  _weekly_agg_scheduler()       : 매주 월요일 08:00 KST weekly 리포트
+  _monthly_agg_scheduler()      : 매월 1일 08:00 KST monthly 리포트
+  _longperiod_agg_scheduler()   : 매월 1일 09:00 KST longperiod 리포트
+  _trend_agg_scheduler()        : 4시간마다 trend 이상 알림
+  _jira_sync_scheduler()        : 매일 04:00 KST Jira 증분 동기화
+  _confluence_sync_scheduler()  : 매일 04:30 KST Confluence 증분 동기화
+  _jira_cleanup_scheduler()     : 매주 일요일 03:00 KST Jira 삭제 감지 purge
+  _confluence_cleanup_scheduler(): 매주 일요일 03:30 KST Confluence 삭제 감지 purge
 """
 
 import asyncio
@@ -42,6 +44,10 @@ CONFLUENCE_SPACES  = os.getenv("CONFLUENCE_SPACES")
 KNOWLEDGE_SYNC_RATE_LIMIT = int(os.getenv("KNOWLEDGE_SYNC_RATE_LIMIT", "5"))
 
 _KST = timezone(timedelta(hours=9))
+
+# ── 삭제 감지 purge 안전 임계값 ─────────────────────────────────────────────
+# 프로젝트/스페이스 단위로 missing > threshold * qdrant_size 이면 purge 중단
+_PURGE_SAFETY_THRESHOLD = 0.5
 
 # ── 분석 실행 상태 ────────────────────────────────────────────────────────────
 
@@ -612,3 +618,444 @@ async def _confluence_sync_scheduler() -> None:
             await _confluence_sync_run()
         except Exception as exc:
             logger.error("Confluence 동기화 스케줄러 예외: %s", exc)
+
+
+# ── P1-3: 삭제 감지 + Qdrant purge ───────────────────────────────────────────
+
+async def _jira_cleanup_run(dry_run: bool = False) -> dict:
+    """Jira active issue list 조회 → Qdrant 차집합 감지 → purge.
+
+    dry_run=True 이면 삭제 없이 후보 카운트만 반환.
+    안전 장치:
+      - 외부 API 페이지 오류 발생 시 해당 프로젝트 purge 전체 중단
+      - active list 불완전(반환 건수 < total) 시 abort
+      - active list 0건 시 skip (오판 방지)
+      - missing > 50% of qdrant_set 시 abort
+    """
+    if not (JIRA_URL and JIRA_TOKEN and JIRA_PROJECTS):
+        logger.info("Jira cleanup 환경변수 미설정 — 건너뜀")
+        return {"skipped": True, "reason": "env not configured"}
+
+    projects = [p.strip() for p in JIRA_PROJECTS.split(",") if p.strip()]
+    total_checked = 0
+    total_missing = 0
+    total_deleted = 0
+    error_details: list[dict] = []
+    skipped_details: list[dict] = []
+
+    rate_sem = asyncio.Semaphore(1)
+    interval = 1.0 / max(KNOWLEDGE_SYNC_RATE_LIMIT, 1)
+
+    async with httpx.AsyncClient(
+        timeout=30.0,
+        headers={"Authorization": f"Bearer {JIRA_TOKEN}", "Accept": "application/json"},
+    ) as jira_client:
+        for project in projects:
+            # ── 1. Jira에서 active issue_key 전체 수집 ────────────────────────
+            active_keys: set[str] = set()
+            fetch_ok = True
+            start_at = 0
+            max_results = 100
+            expected_total: int | None = None
+            jql = f"project = {project} AND issuetype not in (subTaskIssueTypes())"
+
+            while True:
+                async with rate_sem:
+                    await asyncio.sleep(interval)
+                try:
+                    resp = await jira_client.get(
+                        f"{JIRA_URL}/rest/api/2/search",
+                        params={
+                            "jql": jql,
+                            "startAt": start_at,
+                            "maxResults": max_results,
+                            "fields": "summary",
+                        },
+                    )
+                    resp.raise_for_status()
+                    data = resp.json()
+                except Exception as exc:
+                    logger.warning(
+                        "Jira cleanup 페이지 조회 실패 [project=%s, start=%d]: %s — abort",
+                        project, start_at, exc,
+                    )
+                    fetch_ok = False
+                    break
+
+                page_total = data.get("total")
+                if page_total is None:
+                    logger.warning(
+                        "Jira cleanup total 누락 [project=%s, start=%d] — abort",
+                        project, start_at,
+                    )
+                    fetch_ok = False
+                    break
+
+                if expected_total is None:
+                    expected_total = page_total
+                elif expected_total != page_total:
+                    logger.warning(
+                        "Jira cleanup total 불일치 [project=%s]: expected=%d, got=%d — abort",
+                        project, expected_total, page_total,
+                    )
+                    fetch_ok = False
+                    break
+
+                issues = data.get("issues", [])
+                for issue in issues:
+                    key = issue.get("key")
+                    if key:
+                        active_keys.add(key)
+
+                start_at += len(issues)
+                if not issues or start_at >= expected_total:
+                    break
+
+            if not fetch_ok:
+                error_details.append({"project": project, "reason": "API 조회 실패 — purge 건너뜀"})
+                continue
+
+            # 완전성 검증
+            if expected_total is not None and len(active_keys) < expected_total:
+                logger.warning(
+                    "Jira cleanup 불완전 active list [project=%s]: expected=%d, got=%d — abort",
+                    project, expected_total, len(active_keys),
+                )
+                error_details.append({
+                    "project": project,
+                    "reason": f"active list 불완전 ({len(active_keys)}/{expected_total})",
+                })
+                continue
+
+            # ── 2. active list 비어있으면 skip ────────────────────────────────
+            if len(active_keys) == 0:
+                logger.warning(
+                    "Jira cleanup: project=%s active 이슈 없음 — purge 건너뜀", project,
+                )
+                skipped_details.append({"project": project, "reason": "active list 비어있음 — skip"})
+                continue
+
+            # ── 3. Qdrant scroll — 해당 프로젝트의 issue_key 전체 수집 ─────────
+            qdrant_keys: set[str] = set()
+            next_offset = None
+            scroll_ok = True
+            while True:
+                body: dict = {
+                    "filter": {"must": [{"key": "project", "match": {"value": project}}]},
+                    "limit": 250,
+                    "with_payload": True,
+                    "with_vector": False,
+                }
+                if next_offset is not None:
+                    body["offset"] = next_offset
+                try:
+                    qresp = await knowledge_vector_client._qdrant_http.post(
+                        f"{knowledge_vector_client.QDRANT_URL}/collections"
+                        f"/{knowledge_vector_client.JIRA_COLLECTION}/points/scroll",
+                        json=body,
+                    )
+                    qresp.raise_for_status()
+                    result_data = qresp.json().get("result", {})
+                    for pt in result_data.get("points", []):
+                        k = (pt.get("payload") or {}).get("issue_key")
+                        if k:
+                            qdrant_keys.add(k)
+                    next_offset = result_data.get("next_page_offset")
+                    if next_offset is None:
+                        break
+                except Exception as exc:
+                    logger.warning("Jira Qdrant scroll 실패 [project=%s]: %s", project, exc)
+                    scroll_ok = False
+                    break
+
+            if not scroll_ok:
+                error_details.append({"project": project, "reason": "Qdrant scroll 실패 — purge 건너뜀"})
+                continue
+
+            total_checked += len(qdrant_keys)
+            missing_keys = qdrant_keys - active_keys
+
+            if not missing_keys:
+                logger.info("Jira cleanup: project=%s — 삭제 후보 없음", project)
+                continue
+
+            # ── 4. 50% 안전장치 ───────────────────────────────────────────────
+            if len(qdrant_keys) > 0 and len(missing_keys) > _PURGE_SAFETY_THRESHOLD * len(qdrant_keys):
+                logger.warning(
+                    "Jira cleanup 50%% 안전장치 발동 [project=%s]: qdrant=%d, missing=%d — abort",
+                    project, len(qdrant_keys), len(missing_keys),
+                )
+                error_details.append({
+                    "project": project,
+                    "reason": f"50%% 안전장치: missing={len(missing_keys)}/{len(qdrant_keys)}",
+                })
+                continue
+
+            total_missing += len(missing_keys)
+
+            if dry_run:
+                logger.info(
+                    "Jira cleanup dry_run [project=%s]: missing=%d (삭제 없음)",
+                    project, len(missing_keys),
+                )
+                continue
+
+            # ── 5. Qdrant purge ───────────────────────────────────────────────
+            try:
+                del_resp = await knowledge_vector_client._qdrant_http.post(
+                    f"{knowledge_vector_client.QDRANT_URL}/collections"
+                    f"/{knowledge_vector_client.JIRA_COLLECTION}/points/delete",
+                    json={"filter": {"must": [{"key": "issue_key", "match": {"any": list(missing_keys)}}]}},
+                )
+                del_resp.raise_for_status()
+                total_deleted += len(missing_keys)
+                logger.info("Jira cleanup purge [project=%s]: %d 포인트 삭제", project, len(missing_keys))
+            except Exception as exc:
+                logger.warning("Jira cleanup Qdrant delete 실패 [project=%s]: %s", project, exc)
+                error_details.append({"project": project, "reason": f"Qdrant delete 실패: {exc}"})
+
+    result: dict = {
+        "checked": total_checked,
+        "missing": total_missing,
+        "deleted": total_deleted if not dry_run else 0,
+        "dry_run": dry_run,
+        "errors": len(error_details),
+        "error_details": error_details,
+        "skipped": len(skipped_details),
+    }
+    if error_details:
+        result["error"] = f"{len(error_details)}개 프로젝트 오류"
+    logger.info("Jira cleanup 완료: %s", result)
+    return result
+
+
+async def _jira_cleanup_scheduler() -> None:
+    """매주 일요일 03:00 KST에 Jira 삭제 감지 purge 실행."""
+    await asyncio.sleep(30)
+    while True:
+        now = datetime.now(_KST)
+        target = now.replace(hour=3, minute=0, second=0, microsecond=0)
+        days_until_sunday = (6 - now.weekday()) % 7
+        if days_until_sunday == 0 and now >= target:
+            days_until_sunday = 7
+        target += timedelta(days=days_until_sunday)
+        await asyncio.sleep((target - now).total_seconds())
+        started = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
+        try:
+            result = await _jira_cleanup_run()
+            finished = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
+            asyncio.create_task(_record_run("jira_cleanup", started, finished, result))
+        except Exception as exc:
+            logger.error("Jira cleanup 스케줄러 예외: %s", exc)
+            finished = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
+            asyncio.create_task(_record_run(
+                "jira_cleanup", started, finished, {"error": str(exc), "errors": 1},
+            ))
+
+
+async def _confluence_cleanup_run(dry_run: bool = False) -> dict:
+    """Confluence active page list 조회 → Qdrant 차집합 감지 → purge.
+
+    dry_run=True 이면 삭제 없이 후보 카운트만 반환.
+    안전 장치:
+      - 외부 API 오류 / _links.next 기반 페이지네이션 중단 시 해당 스페이스 purge 전체 중단
+      - active list 0건 시 skip
+      - missing > 50% of qdrant_set 시 abort
+    """
+    if not (CONFLUENCE_URL and CONFLUENCE_TOKEN and CONFLUENCE_SPACES):
+        logger.info("Confluence cleanup 환경변수 미설정 — 건너뜀")
+        return {"skipped": True, "reason": "env not configured"}
+
+    spaces = [s.strip() for s in CONFLUENCE_SPACES.split(",") if s.strip()]
+    total_checked = 0
+    total_missing = 0
+    total_deleted = 0
+    error_details: list[dict] = []
+    skipped_details: list[dict] = []
+
+    rate_sem = asyncio.Semaphore(1)
+    interval = 1.0 / max(KNOWLEDGE_SYNC_RATE_LIMIT, 1)
+
+    async with httpx.AsyncClient(
+        timeout=30.0,
+        headers={"Authorization": f"Bearer {CONFLUENCE_TOKEN}", "Accept": "application/json"},
+    ) as conf_client:
+        for space in spaces:
+            # ── 1. Confluence에서 active page_id 전체 수집 ────────────────────
+            active_page_ids: set[str] = set()
+            fetch_ok = True
+            start = 0
+            limit = 100
+
+            while True:
+                async with rate_sem:
+                    await asyncio.sleep(interval)
+                try:
+                    resp = await conf_client.get(
+                        f"{CONFLUENCE_URL}/wiki/rest/api/content",
+                        params={
+                            "spaceKey": space,
+                            "type": "page",
+                            "status": "current",
+                            "limit": limit,
+                            "start": start,
+                            "expand": "version",
+                        },
+                    )
+                    resp.raise_for_status()
+                    data = resp.json()
+                except Exception as exc:
+                    logger.warning(
+                        "Confluence cleanup 페이지 조회 실패 [space=%s, start=%d]: %s — abort",
+                        space, start, exc,
+                    )
+                    fetch_ok = False
+                    break
+
+                results = data.get("results", [])
+                for page in results:
+                    pid = str(page.get("id", ""))
+                    if pid:
+                        active_page_ids.add(pid)
+
+                start += len(results)
+                # _links.next 없으면 마지막 페이지
+                links = data.get("_links", {})
+                if not links.get("next") or not results:
+                    break
+
+            if not fetch_ok:
+                error_details.append({"space": space, "reason": "API 조회 실패 — purge 건너뜀"})
+                continue
+
+            # ── 2. active list 비어있으면 skip ────────────────────────────────
+            if len(active_page_ids) == 0:
+                logger.warning(
+                    "Confluence cleanup: space=%s active 페이지 없음 — purge 건너뜀", space,
+                )
+                skipped_details.append({"space": space, "reason": "active list 비어있음 — skip"})
+                continue
+
+            # ── 3. Qdrant scroll — 해당 스페이스의 page_id 전체 수집 ──────────
+            qdrant_page_ids: set[str] = set()
+            next_offset = None
+            scroll_ok = True
+            while True:
+                body: dict = {
+                    "filter": {"must": [{"key": "space", "match": {"value": space}}]},
+                    "limit": 250,
+                    "with_payload": True,
+                    "with_vector": False,
+                }
+                if next_offset is not None:
+                    body["offset"] = next_offset
+                try:
+                    qresp = await knowledge_vector_client._qdrant_http.post(
+                        f"{knowledge_vector_client.QDRANT_URL}/collections"
+                        f"/{knowledge_vector_client.CONFLUENCE_COLLECTION}/points/scroll",
+                        json=body,
+                    )
+                    qresp.raise_for_status()
+                    result_data = qresp.json().get("result", {})
+                    for pt in result_data.get("points", []):
+                        pid = str((pt.get("payload") or {}).get("page_id", ""))
+                        if pid:
+                            qdrant_page_ids.add(pid)
+                    next_offset = result_data.get("next_page_offset")
+                    if next_offset is None:
+                        break
+                except Exception as exc:
+                    logger.warning("Confluence Qdrant scroll 실패 [space=%s]: %s", space, exc)
+                    scroll_ok = False
+                    break
+
+            if not scroll_ok:
+                error_details.append({"space": space, "reason": "Qdrant scroll 실패 — purge 건너뜀"})
+                continue
+
+            total_checked += len(qdrant_page_ids)
+            missing_page_ids = qdrant_page_ids - active_page_ids
+
+            if not missing_page_ids:
+                logger.info("Confluence cleanup: space=%s — 삭제 후보 없음", space)
+                continue
+
+            # ── 4. 50% 안전장치 ───────────────────────────────────────────────
+            if len(qdrant_page_ids) > 0 and len(missing_page_ids) > _PURGE_SAFETY_THRESHOLD * len(qdrant_page_ids):
+                logger.warning(
+                    "Confluence cleanup 50%% 안전장치 발동 [space=%s]: qdrant=%d, missing=%d — abort",
+                    space, len(qdrant_page_ids), len(missing_page_ids),
+                )
+                error_details.append({
+                    "space": space,
+                    "reason": f"50%% 안전장치: missing={len(missing_page_ids)}/{len(qdrant_page_ids)}",
+                })
+                continue
+
+            total_missing += len(missing_page_ids)
+
+            if dry_run:
+                logger.info(
+                    "Confluence cleanup dry_run [space=%s]: missing=%d (삭제 없음)",
+                    space, len(missing_page_ids),
+                )
+                continue
+
+            # ── 5. Qdrant purge (page_id 기반 — 한 페이지의 청크 전체 삭제) ───
+            for page_id in missing_page_ids:
+                try:
+                    del_resp = await knowledge_vector_client._qdrant_http.post(
+                        f"{knowledge_vector_client.QDRANT_URL}/collections"
+                        f"/{knowledge_vector_client.CONFLUENCE_COLLECTION}/points/delete",
+                        json={"filter": {"must": [{"key": "page_id", "match": {"value": page_id}}]}},
+                    )
+                    del_resp.raise_for_status()
+                    total_deleted += 1
+                    logger.info(
+                        "Confluence cleanup purge [space=%s, page_id=%s]: 청크 삭제 완료",
+                        space, page_id,
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "Confluence cleanup Qdrant delete 실패 [space=%s, page_id=%s]: %s",
+                        space, page_id, exc,
+                    )
+                    error_details.append({"space": space, "reason": f"Qdrant delete 실패 page_id={page_id}: {exc}"})
+
+    result: dict = {
+        "checked": total_checked,
+        "missing": total_missing,
+        "deleted": total_deleted if not dry_run else 0,
+        "dry_run": dry_run,
+        "errors": len(error_details),
+        "error_details": error_details,
+        "skipped": len(skipped_details),
+    }
+    if error_details:
+        result["error"] = f"{len(error_details)}개 스페이스/페이지 오류"
+    logger.info("Confluence cleanup 완료: %s", result)
+    return result
+
+
+async def _confluence_cleanup_scheduler() -> None:
+    """매주 일요일 03:30 KST에 Confluence 삭제 감지 purge 실행."""
+    await asyncio.sleep(30)
+    while True:
+        now = datetime.now(_KST)
+        target = now.replace(hour=3, minute=30, second=0, microsecond=0)
+        days_until_sunday = (6 - now.weekday()) % 7
+        if days_until_sunday == 0 and now >= target:
+            days_until_sunday = 7
+        target += timedelta(days=days_until_sunday)
+        await asyncio.sleep((target - now).total_seconds())
+        started = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
+        try:
+            result = await _confluence_cleanup_run()
+            finished = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
+            asyncio.create_task(_record_run("confluence_cleanup", started, finished, result))
+        except Exception as exc:
+            logger.error("Confluence cleanup 스케줄러 예외: %s", exc)
+            finished = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
+            asyncio.create_task(_record_run(
+                "confluence_cleanup", started, finished, {"error": str(exc), "errors": 1},
+            ))

@@ -21,6 +21,13 @@ import {
   type AlertExclusion,
   type TemplateSelectItem,
 } from '@/api/alertExclusions'
+import { metricExclusionsApi, type MetricExclusion } from '@/api/metricExclusions'
+import {
+  METRIC_TYPE_LABELS_KO,
+  extractMetricTypesFromTitle,
+  isMetricAnalyzerAlert,
+  type MetricType,
+} from '@/constants/metricTypes'
 import { useAuthStore } from '@/store/authStore'
 
 const PAGE_SIZE = 20
@@ -64,24 +71,38 @@ export function AlertHistoryPage() {
   // 체크박스 선택 상태
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
 
-  // 예외 처리 모달
+  // 예외 처리 모달 — 로그 vs 메트릭 분기
   const [showExcludeModal, setShowExcludeModal] = useState(false)
+  const [modalMode, setModalMode] = useState<'log' | 'metric'>('log')
   const [excludeReason, setExcludeReason] = useState('')
   const [includeRole, setIncludeRole] = useState(true)
-  const [maxCountInput, setMaxCountInput] = useState('') // count 임계값 (빈문자열 = 무제한)
+  const [maxCountInput, setMaxCountInput] = useState('') // count 임계값 (로그 모드 전용, 빈문자열 = 무제한)
   const [expiryOption, setExpiryOption] = useState<'30' | '7' | '90' | 'custom' | 'never'>('30')
   const [customExpiryDate, setCustomExpiryDate] = useState('') // YYYY-MM-DD (KST)
   const [isExcluding, setIsExcluding] = useState(false)
   const [excludeResultMsg, setExcludeResultMsg] = useState<string | null>(null)
-  // 템플릿 선택 상태
+  // 로그 — 템플릿 선택 상태
   const [templateItems, setTemplateItems] = useState<TemplateSelectItem[]>([])
   const [selectedTemplateKeys, setSelectedTemplateKeys] = useState<Set<string>>(new Set())
   const [isLoadingTemplates, setIsLoadingTemplates] = useState(false)
+  // 메트릭 — 알림별 (host, metric_types) 표시 + 선택 상태
+  const [metricAlertContext, setMetricAlertContext] = useState<
+    { alertId: number; systemId: number; host: string | null; types: MetricType[] }[]
+  >([])
+  // 선택된 (alertId:metric_type) 키 — 알림 단위로 metric_type 부분 선택 지원
+  const [selectedMetricKeys, setSelectedMetricKeys] = useState<Set<string>>(new Set())
+  const [overrideThresholdInput, setOverrideThresholdInput] = useState('') // 빈 문자열 = 완전 차단
+  const [applyToAllHosts, setApplyToAllHosts] = useState(false) // true = host=NULL 와일드카드
 
-  // 예외 처리됨 탭 데이터
+  // 예외 처리됨 탭 — 로그/메트릭 sub-tab 모드
+  const [exclusionsSubTab, setExclusionsSubTab] = useState<'log' | 'metric'>('log')
   const [exclusions, setExclusions] = useState<AlertExclusion[]>([])
+  const [metricExclusions, setMetricExclusions] = useState<MetricExclusion[]>([])
   const [exclusionsLoading, setExclusionsLoading] = useState(false)
   const [selectedExclusionIds, setSelectedExclusionIds] = useState<Set<number>>(new Set())
+  const [selectedMetricExclusionIds, setSelectedMetricExclusionIds] = useState<Set<number>>(
+    new Set(),
+  )
   const [isDeactivating, setIsDeactivating] = useState(false)
 
   const { user } = useAuthStore()
@@ -150,8 +171,12 @@ export function AlertHistoryPage() {
       const params = systemFilter
         ? { system_id: Number(systemFilter), active: 'all' as const }
         : { active: 'all' as const }
-      const data = await alertExclusionsApi.listExclusions(params)
-      setExclusions(data)
+      const [logData, metricData] = await Promise.all([
+        alertExclusionsApi.listExclusions(params),
+        metricExclusionsApi.listExclusions(params),
+      ])
+      setExclusions(logData)
+      setMetricExclusions(metricData)
     } catch {
       /* silent */
     } finally {
@@ -232,15 +257,18 @@ export function AlertHistoryPage() {
 
   // 체크박스 핸들러
   const currentAlerts = tab === 'exclusions' ? [] : (alerts ?? [])
-  const logAnalysisAlerts = currentAlerts.filter((a) => a.alert_type === 'log_analysis')
-  const allLogAnalysisSelected =
-    logAnalysisAlerts.length > 0 && logAnalysisAlerts.every((a) => selectedIds.has(a.id))
+  // 선택 가능 알림: 로그분석 + prometheus_analyzer 메트릭 이상
+  const selectableAlerts = currentAlerts.filter(
+    (a) => a.alert_type === 'log_analysis' || isMetricAnalyzerAlert(a),
+  )
+  const allSelectableSelected =
+    selectableAlerts.length > 0 && selectableAlerts.every((a) => selectedIds.has(a.id))
 
   const toggleSelectAll = () => {
-    if (allLogAnalysisSelected) {
+    if (allSelectableSelected) {
       setSelectedIds(new Set())
     } else {
-      setSelectedIds(new Set(logAnalysisAlerts.map((a) => a.id)))
+      setSelectedIds(new Set(selectableAlerts.map((a) => a.id)))
     }
   }
 
@@ -253,12 +281,19 @@ export function AlertHistoryPage() {
     })
   }
 
-  const selectedLogAnalysisCount = currentAlerts.filter(
+  const selectedLogAlerts = currentAlerts.filter(
     (a) => selectedIds.has(a.id) && a.alert_type === 'log_analysis',
-  ).length
-
-  const hasNonLogAnalysisSelected = currentAlerts.some(
-    (a) => selectedIds.has(a.id) && a.alert_type !== 'log_analysis',
+  )
+  const selectedMetricAlerts = currentAlerts.filter(
+    (a) => selectedIds.has(a.id) && isMetricAnalyzerAlert(a),
+  )
+  const selectedLogAnalysisCount = selectedLogAlerts.length
+  const selectedMetricCount = selectedMetricAlerts.length
+  const hasUnsupportedSelected = currentAlerts.some(
+    (a) =>
+      selectedIds.has(a.id) &&
+      a.alert_type !== 'log_analysis' &&
+      !isMetricAnalyzerAlert(a),
   )
 
   // 만료 옵션 → ISO UTC 변환
@@ -275,16 +310,43 @@ export function AlertHistoryPage() {
     return target.toISOString()
   }
 
-  // 모달 오픈 + 템플릿 조회
+  // 모달 오픈 — 선택된 알림 구성에 따라 초기 모드 결정 (혼합 시 로그 우선)
   const openExcludeModal = async () => {
     setShowExcludeModal(true)
+    // 메트릭 컨텍스트 prefill — 선택된 메트릭 알림에서 host + metric_types 추출
+    const metricCtx: { alertId: number; systemId: number; host: string | null; types: MetricType[] }[] = []
+    const metricKeys = new Set<string>()
+    for (const a of selectedMetricAlerts) {
+      if (a.system_id == null) continue
+      const types =
+        a.metric_types && a.metric_types.length > 0
+          ? (a.metric_types as MetricType[])
+          : extractMetricTypesFromTitle(a.title)
+      if (types.length === 0) continue
+      metricCtx.push({ alertId: a.id, systemId: a.system_id, host: a.host, types })
+      for (const t of types) metricKeys.add(`${a.id}:${t}`)
+    }
+    setMetricAlertContext(metricCtx)
+    setSelectedMetricKeys(metricKeys)
+    setOverrideThresholdInput('')
+    setApplyToAllHosts(false)
+
+    // 초기 탭: 로그가 있으면 로그, 메트릭만 있으면 메트릭
+    const initialMode: 'log' | 'metric' =
+      selectedLogAnalysisCount > 0 ? 'log' : 'metric'
+    setModalMode(initialMode)
+
+    // 로그 분기 — 템플릿 조회 (로그 알림이 있을 때만)
+    if (selectedLogAnalysisCount === 0) {
+      setTemplateItems([])
+      setSelectedTemplateKeys(new Set())
+      return
+    }
     setTemplateItems([])
     setSelectedTemplateKeys(new Set())
     setIsLoadingTemplates(true)
     try {
-      const alertIds = currentAlerts
-        .filter((a) => selectedIds.has(a.id) && a.alert_type === 'log_analysis')
-        .map((a) => a.id)
+      const alertIds = selectedLogAlerts.map((a) => a.id)
       const infos = await alertExclusionsApi.fetchAlertTemplates(alertIds)
       const seen = new Set<string>()
       const items: TemplateSelectItem[] = []
@@ -311,8 +373,22 @@ export function AlertHistoryPage() {
     }
   }
 
-  // 예외 처리 실행
-  const handleBulkExclude = async () => {
+  const resetModal = () => {
+    setShowExcludeModal(false)
+    setExcludeReason('')
+    setMaxCountInput('')
+    setExpiryOption('30')
+    setCustomExpiryDate('')
+    setTemplateItems([])
+    setSelectedTemplateKeys(new Set())
+    setMetricAlertContext([])
+    setSelectedMetricKeys(new Set())
+    setOverrideThresholdInput('')
+    setApplyToAllHosts(false)
+  }
+
+  // 로그 예외 등록
+  const handleBulkExcludeLog = async () => {
     const selected = templateItems.filter((i) => selectedTemplateKeys.has(i.key))
     if (selected.length === 0) {
       setExcludeResultMsg('등록할 템플릿을 1개 이상 선택하세요.')
@@ -345,19 +421,78 @@ export function AlertHistoryPage() {
       const parts = [`규칙 ${result.succeeded.length}건 등록`]
       if (duplicates.length > 0) parts.push(`${duplicates.length}건 중복(기등록)`)
       if (errors.length > 0) parts.push(`${errors.length}건 실패`)
-      const msg = `예외 처리 완료: ${parts.join(', ')}`
-      setExcludeResultMsg(msg)
+      setExcludeResultMsg(`로그 예외 처리 완료: ${parts.join(', ')}`)
       setSelectedIds(new Set())
-      setShowExcludeModal(false)
-      setExcludeReason('')
-      setMaxCountInput('')
-      setExpiryOption('30')
-      setCustomExpiryDate('')
+      resetModal()
     } catch {
       setExcludeResultMsg('예외 처리 중 오류가 발생했습니다.')
     } finally {
       setIsExcluding(false)
     }
+  }
+
+  // 메트릭 예외 등록 — (system_id, host, metric_type) 단위로 row 생성
+  const handleBulkExcludeMetric = async () => {
+    // 선택된 (alertId:metric_type) 쌍을 (system_id, host, metric_type) 키로 dedupe
+    type Row = { system_id: number; host: string | null; metric_type: MetricType }
+    const rows: Row[] = []
+    const seen = new Set<string>()
+    for (const ctx of metricAlertContext) {
+      for (const t of ctx.types) {
+        if (!selectedMetricKeys.has(`${ctx.alertId}:${t}`)) continue
+        const host = applyToAllHosts ? null : ctx.host
+        const key = `${ctx.systemId}:${host ?? ''}:${t}`
+        if (seen.has(key)) continue
+        seen.add(key)
+        rows.push({ system_id: ctx.systemId, host, metric_type: t })
+      }
+    }
+    if (rows.length === 0) {
+      setExcludeResultMsg('예외 등록할 메트릭을 1개 이상 선택하세요.')
+      return
+    }
+    const overrideRaw = overrideThresholdInput.trim()
+    let overrideValue: number | null = null
+    if (overrideRaw !== '') {
+      const parsed = Number(overrideRaw)
+      if (!Number.isFinite(parsed) || parsed <= 0) {
+        setExcludeResultMsg('임계치 오버라이드 값은 0보다 큰 숫자여야 합니다.')
+        return
+      }
+      overrideValue = parsed
+    }
+    setIsExcluding(true)
+    try {
+      const expiresAt = computeExpiresAt()
+      const result = await metricExclusionsApi.createExclusions({
+        items: rows.map((r) => ({
+          system_id: r.system_id,
+          host: r.host,
+          metric_type: r.metric_type,
+          override_threshold: overrideValue,
+          reason: excludeReason || null,
+          expires_at: expiresAt,
+        })),
+        created_by: user?.name ?? null,
+      })
+      const duplicates = result.failed.filter((f) => f.reason?.includes('이미 활성'))
+      const errors = result.failed.filter((f) => !f.reason?.includes('이미 활성'))
+      const parts = [`규칙 ${result.succeeded.length}건 등록`]
+      if (duplicates.length > 0) parts.push(`${duplicates.length}건 중복(기등록)`)
+      if (errors.length > 0) parts.push(`${errors.length}건 실패`)
+      setExcludeResultMsg(`메트릭 예외 처리 완료: ${parts.join(', ')}`)
+      setSelectedIds(new Set())
+      resetModal()
+    } catch {
+      setExcludeResultMsg('예외 처리 중 오류가 발생했습니다.')
+    } finally {
+      setIsExcluding(false)
+    }
+  }
+
+  const handleBulkExclude = () => {
+    if (modalMode === 'metric') return handleBulkExcludeMetric()
+    return handleBulkExcludeLog()
   }
 
   // 예외 해제 실행
@@ -399,8 +534,8 @@ export function AlertHistoryPage() {
     })
   }
 
-  // 만료 여부 판정 (lazy: 클라이언트 측에서 계산)
-  const isExclusionExpired = (ex: AlertExclusion): boolean => {
+  // 만료 여부 판정 (lazy: 클라이언트 측에서 계산) — 로그/메트릭 공통 사용
+  const isExclusionExpired = (ex: { expires_at: string | null }): boolean => {
     if (!ex.expires_at) return false
     const normalized =
       !ex.expires_at.endsWith('Z') && !/[+-]\d{2}:?\d{2}$/.test(ex.expires_at)
@@ -418,6 +553,59 @@ export function AlertHistoryPage() {
       setSelectedExclusionIds(new Set())
     } else {
       setSelectedExclusionIds(new Set(eligibleIds))
+    }
+  }
+
+  // 메트릭 예외 — 해제 핸들러
+  const handleBulkDeactivateMetric = async () => {
+    if (selectedMetricExclusionIds.size === 0) return
+    setIsDeactivating(true)
+    try {
+      await metricExclusionsApi.deactivateExclusions({
+        ids: Array.from(selectedMetricExclusionIds),
+        deactivated_by: user?.name ?? null,
+      })
+      setSelectedMetricExclusionIds(new Set())
+      await loadExclusions()
+    } catch {
+      /* silent */
+    } finally {
+      setIsDeactivating(false)
+    }
+  }
+
+  const handleSingleDeactivateMetric = async (id: number) => {
+    try {
+      await metricExclusionsApi.deactivateExclusions({
+        ids: [id],
+        deactivated_by: user?.name ?? null,
+      })
+      await loadExclusions()
+    } catch {
+      /* silent */
+    }
+  }
+
+  const toggleMetricExclusionSelect = (id: number) => {
+    setSelectedMetricExclusionIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  const toggleSelectAllMetricExclusions = () => {
+    const eligibleIds = metricExclusions
+      .filter((e) => e.active && !isExclusionExpired(e))
+      .map((e) => e.id)
+    if (
+      eligibleIds.length > 0 &&
+      eligibleIds.every((id) => selectedMetricExclusionIds.has(id))
+    ) {
+      setSelectedMetricExclusionIds(new Set())
+    } else {
+      setSelectedMetricExclusionIds(new Set(eligibleIds))
     }
   }
 
@@ -479,8 +667,52 @@ export function AlertHistoryPage() {
       {/* 예외 처리됨 탭 */}
       {tab === 'exclusions' ? (
         <>
-          {/* 일괄 액션 바 (선택된 경우) */}
-          {selectedExclusionIds.size > 0 && (
+          {/* 로그/메트릭 sub-tab */}
+          <div
+            role="tablist"
+            aria-label="예외 종류"
+            className="bg-bg-base shadow-neu-pressed mb-3 inline-flex gap-1 rounded-sm p-1"
+          >
+            <button
+              role="tab"
+              aria-selected={exclusionsSubTab === 'log'}
+              onClick={() => {
+                setExclusionsSubTab('log')
+                setSelectedExclusionIds(new Set())
+                setSelectedMetricExclusionIds(new Set())
+              }}
+              className={cn(
+                'rounded-sm px-3 py-1.5 text-xs font-medium transition-colors',
+                'focus:ring-accent focus:ring-offset-bg-base focus:ring-1 focus:outline-none',
+                exclusionsSubTab === 'log'
+                  ? 'bg-accent text-accent-contrast shadow-neu-flat font-semibold'
+                  : 'text-text-secondary hover:text-text-primary',
+              )}
+            >
+              로그 템플릿 ({exclusions.length})
+            </button>
+            <button
+              role="tab"
+              aria-selected={exclusionsSubTab === 'metric'}
+              onClick={() => {
+                setExclusionsSubTab('metric')
+                setSelectedExclusionIds(new Set())
+                setSelectedMetricExclusionIds(new Set())
+              }}
+              className={cn(
+                'rounded-sm px-3 py-1.5 text-xs font-medium transition-colors',
+                'focus:ring-accent focus:ring-offset-bg-base focus:ring-1 focus:outline-none',
+                exclusionsSubTab === 'metric'
+                  ? 'bg-accent text-accent-contrast shadow-neu-flat font-semibold'
+                  : 'text-text-secondary hover:text-text-primary',
+              )}
+            >
+              메트릭 ({metricExclusions.length})
+            </button>
+          </div>
+
+          {/* 일괄 액션 바 — 로그 모드 */}
+          {exclusionsSubTab === 'log' && selectedExclusionIds.size > 0 && (
             <div className="bg-surface shadow-neu-flat mb-3 flex items-center gap-3 rounded-sm px-4 py-2.5">
               <span className="text-text-primary text-sm font-medium">
                 {selectedExclusionIds.size}건 선택됨
@@ -503,15 +735,45 @@ export function AlertHistoryPage() {
             </div>
           )}
 
+          {/* 일괄 액션 바 — 메트릭 모드 */}
+          {exclusionsSubTab === 'metric' && selectedMetricExclusionIds.size > 0 && (
+            <div className="bg-surface shadow-neu-flat mb-3 flex items-center gap-3 rounded-sm px-4 py-2.5">
+              <span className="text-text-primary text-sm font-medium">
+                {selectedMetricExclusionIds.size}건 선택됨
+              </span>
+              <NeuButton
+                size="sm"
+                variant="ghost"
+                onClick={handleBulkDeactivateMetric}
+                disabled={isDeactivating}
+              >
+                {isDeactivating ? '해제 중...' : '선택 해제'}
+              </NeuButton>
+              <NeuButton
+                size="sm"
+                variant="ghost"
+                onClick={() => setSelectedMetricExclusionIds(new Set())}
+              >
+                선택 취소
+              </NeuButton>
+            </div>
+          )}
+
           {exclusionsLoading ? (
             <LoadingSkeleton shape="table" count={6} />
-          ) : exclusions.length === 0 ? (
+          ) : exclusionsSubTab === 'log' && exclusions.length === 0 ? (
             <EmptyState
               icon={<Ban className="h-10 w-10" />}
-              title="예외 처리된 알림이 없습니다"
-              description="알림 이력에서 '예외 처리' 버튼으로 등록할 수 있습니다"
+              title="로그 예외 규칙이 없습니다"
+              description="알림 이력에서 '선택 예외 처리' 버튼으로 등록할 수 있습니다"
             />
-          ) : (
+          ) : exclusionsSubTab === 'metric' && metricExclusions.length === 0 ? (
+            <EmptyState
+              icon={<Ban className="h-10 w-10" />}
+              title="메트릭 예외 규칙이 없습니다"
+              description="알림 이력 메트릭 탭에서 prometheus_analyzer 알림을 선택해 등록할 수 있습니다"
+            />
+          ) : exclusionsSubTab === 'log' ? (
             <NeuCard className="overflow-hidden p-0">
               <table className="w-full text-sm">
                 <thead>
@@ -630,6 +892,120 @@ export function AlertHistoryPage() {
                 </tbody>
               </table>
             </NeuCard>
+          ) : (
+            <NeuCard className="overflow-hidden p-0">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-border border-b">
+                    <th className="w-10 px-3 py-3 text-left">
+                      <input
+                        type="checkbox"
+                        className="accent-accent"
+                        checked={
+                          metricExclusions.filter((e) => e.active && !isExclusionExpired(e))
+                            .length > 0 &&
+                          metricExclusions
+                            .filter((e) => e.active && !isExclusionExpired(e))
+                            .every((e) => selectedMetricExclusionIds.has(e.id))
+                        }
+                        onChange={toggleSelectAllMetricExclusions}
+                      />
+                    </th>
+                    <th className="text-text-secondary px-3 py-3 text-left font-medium">시스템</th>
+                    <th className="text-text-secondary px-3 py-3 text-left font-medium">Host</th>
+                    <th className="text-text-secondary px-3 py-3 text-left font-medium">메트릭</th>
+                    <th className="text-text-secondary px-3 py-3 text-center font-medium">
+                      임계치 오버라이드
+                    </th>
+                    <th className="text-text-secondary px-3 py-3 text-left font-medium">사유</th>
+                    <th className="text-text-secondary px-3 py-3 text-left font-medium">만료</th>
+                    <th className="text-text-secondary px-3 py-3 text-left font-medium">
+                      등록일시
+                    </th>
+                    <th className="text-text-secondary px-3 py-3 text-center font-medium">Skip</th>
+                    <th className="text-text-secondary px-3 py-3 text-left font-medium">상태</th>
+                    <th className="w-20 px-3 py-3"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {metricExclusions.map((ex) => {
+                    const sys = systems.find((s) => s.id === ex.system_id)
+                    const expired = isExclusionExpired(ex)
+                    const canDeactivate = ex.active && !expired
+                    return (
+                      <tr
+                        key={ex.id}
+                        className="border-border hover:bg-surface/50 border-b last:border-0"
+                      >
+                        <td className="px-3 py-2.5">
+                          {canDeactivate && (
+                            <input
+                              type="checkbox"
+                              className="accent-accent"
+                              checked={selectedMetricExclusionIds.has(ex.id)}
+                              onChange={() => toggleMetricExclusionSelect(ex.id)}
+                            />
+                          )}
+                        </td>
+                        <td className="text-text-primary px-3 py-2.5 font-medium">
+                          {sys?.display_name ?? `ID:${ex.system_id}`}
+                        </td>
+                        <td className="text-text-secondary px-3 py-2.5 font-mono text-xs">
+                          {ex.host ?? <span className="text-text-disabled">전체</span>}
+                        </td>
+                        <td className="text-text-primary px-3 py-2.5">
+                          {METRIC_TYPE_LABELS_KO[ex.metric_type] ?? ex.metric_type}
+                        </td>
+                        <td className="text-text-primary px-3 py-2.5 text-center">
+                          {ex.override_threshold != null ? (
+                            <span className="font-mono text-xs">{ex.override_threshold}</span>
+                          ) : (
+                            <span className="text-text-disabled text-xs">완전 차단</span>
+                          )}
+                        </td>
+                        <td className="text-text-secondary max-w-[160px] px-3 py-2.5">
+                          <span className="block truncate">{ex.reason ?? '—'}</span>
+                        </td>
+                        <td className="text-text-secondary px-3 py-2.5 whitespace-nowrap">
+                          {ex.expires_at ? (
+                            formatKST(ex.expires_at, 'date')
+                          ) : (
+                            <span className="text-text-disabled">없음</span>
+                          )}
+                        </td>
+                        <td className="text-text-secondary px-3 py-2.5 whitespace-nowrap">
+                          {formatKST(ex.created_at, 'datetime')}
+                        </td>
+                        <td className="text-text-primary px-3 py-2.5 text-center">
+                          {ex.skip_count}
+                        </td>
+                        <td className="px-3 py-2.5">
+                          {!ex.active ? (
+                            <span className="text-text-disabled text-xs">해제됨</span>
+                          ) : expired ? (
+                            <span className="text-warning text-xs font-medium">만료</span>
+                          ) : (
+                            <span className="text-normal text-xs font-medium">활성</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2.5 text-right">
+                          {canDeactivate && (
+                            <NeuButton
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => handleSingleDeactivateMetric(ex.id)}
+                              className="text-xs"
+                            >
+                              해제
+                            </NeuButton>
+                          )}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </NeuCard>
           )}
         </>
       ) : (
@@ -731,24 +1107,24 @@ export function AlertHistoryPage() {
             <div className="bg-surface shadow-neu-flat mb-3 flex items-center gap-3 rounded-sm px-4 py-2.5">
               <span className="text-text-primary text-sm font-medium">
                 {selectedIds.size}건 선택됨
-                {selectedLogAnalysisCount < selectedIds.size && (
+                {(selectedLogAnalysisCount > 0 || selectedMetricCount > 0) && (
                   <span className="text-text-secondary ml-2 text-xs">
-                    (로그분석 {selectedLogAnalysisCount}건만 예외 처리 가능)
+                    (로그 {selectedLogAnalysisCount} · 메트릭 {selectedMetricCount})
                   </span>
                 )}
               </span>
               <NeuButton
                 size="sm"
                 onClick={() => {
-                  if (hasNonLogAnalysisSelected || selectedLogAnalysisCount === 0) return
+                  if (selectedLogAnalysisCount === 0 && selectedMetricCount === 0) return
                   openExcludeModal()
                 }}
-                disabled={selectedLogAnalysisCount === 0 || hasNonLogAnalysisSelected}
+                disabled={selectedLogAnalysisCount === 0 && selectedMetricCount === 0}
                 title={
-                  hasNonLogAnalysisSelected
-                    ? '메트릭 알림은 예외 처리 대상이 아닙니다'
-                    : selectedLogAnalysisCount === 0
-                      ? '로그분석 알림을 선택하세요'
+                  hasUnsupportedSelected
+                    ? '일부 알림은 예외 처리 대상이 아닙니다 (로그분석/메트릭 이상 알림만 가능)'
+                    : selectedLogAnalysisCount === 0 && selectedMetricCount === 0
+                      ? '로그분석 또는 메트릭 이상 알림을 선택하세요'
                       : undefined
                 }
               >
@@ -797,19 +1173,19 @@ export function AlertHistoryPage() {
           ) : (
             <NeuCard key={tab} className="animate-fade-in-up-subtle overflow-hidden p-0">
               {/* 전체 선택 체크박스 헤더 — 선택 가능 항목이 있을 때만 표시 */}
-              {logAnalysisAlerts.length > 0 && (
+              {selectableAlerts.length > 0 && (
                 <div className="border-border flex items-center gap-3 border-b px-4 py-2">
                   <input
                     type="checkbox"
                     className="accent-accent"
-                    checked={allLogAnalysisSelected}
+                    checked={allSelectableSelected}
                     onChange={toggleSelectAll}
-                    aria-label="로그분석 알림 전체 선택"
+                    aria-label="예외 처리 가능한 알림 전체 선택"
                   />
                   <span className="text-text-secondary text-xs">
                     {selectedIds.size > 0
-                      ? `${selectedIds.size}건 선택됨 / 로그분석 ${logAnalysisAlerts.length}건`
-                      : `로그분석 ${logAnalysisAlerts.length}건 선택 가능`}
+                      ? `${selectedIds.size}건 선택됨 / 예외 처리 가능 ${selectableAlerts.length}건`
+                      : `예외 처리 가능 ${selectableAlerts.length}건 (로그분석 + 메트릭 이상)`}
                   </span>
                 </div>
               )}
@@ -862,115 +1238,290 @@ export function AlertHistoryPage() {
       {showExcludeModal && (
         <div className="bg-overlay fixed inset-0 z-50 flex items-center justify-center">
           <div
-            className="bg-surface shadow-neu-flat w-full max-w-md rounded-sm p-6"
+            className="bg-surface shadow-neu-flat w-full max-w-lg rounded-sm p-6"
             role="dialog"
             aria-modal="true"
             aria-labelledby="exclude-modal-title"
           >
-            <h3 id="exclude-modal-title" className="text-text-primary mb-4 text-base font-semibold">
+            <h3 id="exclude-modal-title" className="text-text-primary mb-3 text-base font-semibold">
               예외 처리 등록
             </h3>
-            <p className="text-text-secondary mb-4 text-sm">
-              예외로 등록할 template을 선택하세요. 이후 동일한 에러 패턴은 알림/인시던트가 생성되지
-              않습니다.
-            </p>
 
-            {/* 템플릿 선택 */}
-            <div className="mb-4">
-              <div className="mb-1.5 flex items-center justify-between">
-                <span className="text-text-secondary text-xs font-medium">
-                  Templates{' '}
-                  {!isLoadingTemplates && templateItems.length > 0 && (
-                    <span className="text-text-disabled">
-                      ({selectedTemplateKeys.size}/{templateItems.length} 선택)
-                    </span>
+            {/* 모드 탭 — 로그 알림과 메트릭 알림이 동시에 선택된 경우에만 노출 */}
+            {selectedLogAnalysisCount > 0 && selectedMetricCount > 0 && (
+              <div
+                role="tablist"
+                aria-label="예외 종류"
+                className="bg-bg-base shadow-neu-pressed mb-3 inline-flex gap-1 rounded-sm p-1"
+              >
+                <button
+                  role="tab"
+                  aria-selected={modalMode === 'log'}
+                  aria-controls="exclude-panel-log"
+                  onClick={() => setModalMode('log')}
+                  className={cn(
+                    'rounded-sm px-3 py-1.5 text-xs font-medium transition-colors',
+                    'focus:ring-accent focus:ring-offset-bg-base focus:ring-1 focus:outline-none',
+                    modalMode === 'log'
+                      ? 'bg-accent text-accent-contrast shadow-neu-flat font-semibold'
+                      : 'text-text-secondary hover:text-text-primary',
                   )}
-                </span>
-                {!isLoadingTemplates && templateItems.length > 1 && (
-                  <div className="flex gap-2">
-                    <button
-                      className="text-accent hover:text-accent/80 text-xs"
-                      onClick={() =>
-                        setSelectedTemplateKeys(new Set(templateItems.map((i) => i.key)))
-                      }
-                    >
-                      전체 선택
-                    </button>
-                    <button
-                      className="text-text-secondary hover:text-text-primary text-xs"
-                      onClick={() => setSelectedTemplateKeys(new Set())}
-                    >
-                      전체 해제
-                    </button>
-                  </div>
-                )}
+                >
+                  로그 템플릿 예외 ({selectedLogAnalysisCount})
+                </button>
+                <button
+                  role="tab"
+                  aria-selected={modalMode === 'metric'}
+                  aria-controls="exclude-panel-metric"
+                  onClick={() => setModalMode('metric')}
+                  className={cn(
+                    'rounded-sm px-3 py-1.5 text-xs font-medium transition-colors',
+                    'focus:ring-accent focus:ring-offset-bg-base focus:ring-1 focus:outline-none',
+                    modalMode === 'metric'
+                      ? 'bg-accent text-accent-contrast shadow-neu-flat font-semibold'
+                      : 'text-text-secondary hover:text-text-primary',
+                  )}
+                >
+                  메트릭 예외 ({selectedMetricCount})
+                </button>
               </div>
-              <div className="bg-bg-base shadow-neu-inset max-h-40 overflow-y-auto rounded-sm p-2">
-                {isLoadingTemplates ? (
-                  <p className="text-text-disabled py-2 text-center text-xs">불러오는 중...</p>
-                ) : templateItems.length === 0 ? (
-                  <p className="text-text-disabled py-2 text-center text-xs">
-                    조회된 템플릿이 없습니다
-                  </p>
-                ) : (
-                  templateItems.map((item) => (
-                    <label
-                      key={item.key}
-                      className="hover:bg-surface flex cursor-pointer items-start gap-2 rounded-sm px-2 py-1.5"
-                    >
-                      <input
-                        type="checkbox"
-                        className="accent-accent mt-0.5 shrink-0"
-                        checked={selectedTemplateKeys.has(item.key)}
-                        onChange={(e) => {
-                          setSelectedTemplateKeys((prev) => {
-                            const next = new Set(prev)
-                            if (e.target.checked) next.add(item.key)
-                            else next.delete(item.key)
-                            return next
-                          })
-                        }}
-                      />
-                      <span className="text-text-primary min-w-0 font-mono text-xs break-all">
-                        {item.template}
-                        {item.instance_role && (
-                          <span className="text-text-disabled ml-1">({item.instance_role})</span>
-                        )}
-                      </span>
-                    </label>
-                  ))
-                )}
-              </div>
-            </div>
+            )}
 
+            {modalMode === 'log' ? (
+              <div role="tabpanel" id="exclude-panel-log">
+                <p className="text-text-secondary mb-4 text-sm">
+                  예외로 등록할 template을 선택하세요. 이후 동일한 에러 패턴은 알림/인시던트가
+                  생성되지 않습니다.
+                </p>
+
+                {/* 템플릿 선택 */}
+                <div className="mb-4">
+                  <div className="mb-1.5 flex items-center justify-between">
+                    <span className="text-text-secondary text-xs font-medium">
+                      Templates{' '}
+                      {!isLoadingTemplates && templateItems.length > 0 && (
+                        <span className="text-text-disabled">
+                          ({selectedTemplateKeys.size}/{templateItems.length} 선택)
+                        </span>
+                      )}
+                    </span>
+                    {!isLoadingTemplates && templateItems.length > 1 && (
+                      <div className="flex gap-2">
+                        <button
+                          className="text-accent text-xs underline-offset-2 hover:underline hover:opacity-80"
+                          onClick={() =>
+                            setSelectedTemplateKeys(new Set(templateItems.map((i) => i.key)))
+                          }
+                        >
+                          전체 선택
+                        </button>
+                        <button
+                          className="text-text-secondary text-xs underline-offset-2 hover:text-text-primary hover:underline"
+                          onClick={() => setSelectedTemplateKeys(new Set())}
+                        >
+                          전체 해제
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                  <div className="bg-bg-base shadow-neu-inset max-h-40 overflow-y-auto rounded-sm p-2">
+                    {isLoadingTemplates ? (
+                      <p className="text-text-disabled py-2 text-center text-xs">
+                        불러오는 중...
+                      </p>
+                    ) : templateItems.length === 0 ? (
+                      <p className="text-text-disabled py-2 text-center text-xs">
+                        조회된 템플릿이 없습니다
+                      </p>
+                    ) : (
+                      templateItems.map((item) => (
+                        <label
+                          key={item.key}
+                          className="hover:bg-surface flex cursor-pointer items-start gap-2 rounded-sm px-2 py-1.5"
+                        >
+                          <input
+                            type="checkbox"
+                            className="accent-accent mt-0.5 shrink-0"
+                            checked={selectedTemplateKeys.has(item.key)}
+                            onChange={(e) => {
+                              setSelectedTemplateKeys((prev) => {
+                                const next = new Set(prev)
+                                if (e.target.checked) next.add(item.key)
+                                else next.delete(item.key)
+                                return next
+                              })
+                            }}
+                          />
+                          <span className="text-text-primary min-w-0 font-mono text-xs break-all">
+                            {item.template}
+                            {item.instance_role && (
+                              <span className="text-text-disabled ml-1">
+                                ({item.instance_role})
+                              </span>
+                            )}
+                          </span>
+                        </label>
+                      ))
+                    )}
+                  </div>
+                </div>
+
+                <div className="mb-4">
+                  <label className="text-text-secondary mb-1.5 block text-xs font-medium">
+                    발생 건수 임계값 (선택)
+                  </label>
+                  <NeuInput
+                    type="number"
+                    min={1}
+                    placeholder="비워두면 무제한 (모든 건수에 예외 적용)"
+                    value={maxCountInput}
+                    onChange={(e) => setMaxCountInput(e.target.value)}
+                  />
+                  <p className="text-text-disabled mt-1 text-xs">
+                    5분 윈도우 내 발생 건수가 이 값 이하일 때만 예외 처리됩니다. 초과 시 정상 알림
+                    발생.
+                  </p>
+                </div>
+
+                <div className="mb-6 flex items-center gap-2">
+                  <input
+                    id="includeRole"
+                    type="checkbox"
+                    className="accent-accent"
+                    checked={includeRole}
+                    onChange={(e) => setIncludeRole(e.target.checked)}
+                  />
+                  <label
+                    htmlFor="includeRole"
+                    className="text-text-secondary cursor-pointer text-sm"
+                  >
+                    instance_role 포함 (역할별 제한, 해제 시 시스템 전체 적용)
+                  </label>
+                </div>
+              </div>
+            ) : (
+              <div role="tabpanel" id="exclude-panel-metric">
+                <p className="text-text-secondary mb-4 text-sm">
+                  예외로 등록할 메트릭을 선택하세요. 완전 차단 또는 임계치 오버라이드
+                  (개발기 둔감화)를 적용할 수 있습니다.
+                </p>
+
+                {/* 메트릭 선택 — 알림별 호스트 + metric_type 체크박스 */}
+                <div className="mb-4">
+                  <div className="mb-1.5 flex items-center justify-between">
+                    <span className="text-text-secondary text-xs font-medium">
+                      메트릭 선택{' '}
+                      <span className="text-text-disabled">
+                        ({selectedMetricKeys.size}개 체크됨)
+                      </span>
+                    </span>
+                  </div>
+                  <div className="bg-bg-base shadow-neu-inset max-h-44 overflow-y-auto rounded-sm p-2">
+                    {metricAlertContext.length === 0 ? (
+                      <p className="text-text-disabled py-2 text-center text-xs">
+                        메트릭 종류를 인식할 수 없는 알림입니다
+                      </p>
+                    ) : (
+                      metricAlertContext.map((ctx) => (
+                        <div
+                          key={ctx.alertId}
+                          className="border-border mb-2 rounded-sm px-2 py-1.5 last:mb-0 hover:bg-surface"
+                        >
+                          <div className="text-text-primary mb-1.5 text-xs font-medium">
+                            #{ctx.alertId}
+                            <span className="text-text-disabled ml-2 font-mono">
+                              host: {ctx.host ?? '—'}
+                            </span>
+                          </div>
+                          <div className="flex flex-wrap gap-x-3 gap-y-1.5 pl-1">
+                            {ctx.types.map((t) => {
+                              const k = `${ctx.alertId}:${t}`
+                              const checked = selectedMetricKeys.has(k)
+                              return (
+                                <label
+                                  key={k}
+                                  className="flex cursor-pointer items-center gap-1.5"
+                                >
+                                  <input
+                                    type="checkbox"
+                                    className="accent-accent"
+                                    checked={checked}
+                                    onChange={(e) => {
+                                      setSelectedMetricKeys((prev) => {
+                                        const next = new Set(prev)
+                                        if (e.target.checked) next.add(k)
+                                        else next.delete(k)
+                                        return next
+                                      })
+                                    }}
+                                  />
+                                  <span className="text-text-primary text-xs">
+                                    {METRIC_TYPE_LABELS_KO[t]}
+                                  </span>
+                                </label>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+
+                <div className="mb-4">
+                  <label className="text-text-secondary mb-1.5 block text-xs font-medium">
+                    임계치 오버라이드 (선택)
+                  </label>
+                  <NeuInput
+                    type="number"
+                    min={0}
+                    step="0.1"
+                    placeholder="비워두면 완전 차단 (알림 자체를 생성 안 함)"
+                    value={overrideThresholdInput}
+                    onChange={(e) => setOverrideThresholdInput(e.target.value)}
+                  />
+                  <p className="text-text-disabled mt-1 text-xs">
+                    예: 디스크 I/O 500ms 입력 → 500ms 이하는 무시, 초과 시 정상 알림 발생.
+                    선택된 메트릭이 여러 종류면 모두 같은 숫자가 적용됩니다 (단위는
+                    메트릭별: %, ms, MB/s, 건/분).
+                  </p>
+                </div>
+
+                <div className="mb-4 flex items-center gap-2">
+                  <input
+                    id="applyToAllHosts"
+                    type="checkbox"
+                    className="accent-accent"
+                    checked={applyToAllHosts}
+                    onChange={(e) => setApplyToAllHosts(e.target.checked)}
+                  />
+                  <label
+                    htmlFor="applyToAllHosts"
+                    className="text-text-secondary cursor-pointer text-sm"
+                  >
+                    시스템의 모든 호스트에 적용 (host 와일드카드)
+                  </label>
+                </div>
+              </div>
+            )}
+
+            {/* 공통 — 사유, 자동 만료 */}
             <div className="mb-4">
               <label className="text-text-secondary mb-1.5 block text-xs font-medium">
                 사유 (선택)
               </label>
               <NeuInput
-                placeholder="예: 알려진 배치 작업 로그, 무시 가능"
+                placeholder={
+                  modalMode === 'log'
+                    ? '예: 알려진 배치 작업 로그, 무시 가능'
+                    : '예: 개발기 디스크 I/O 둔감화'
+                }
                 value={excludeReason}
                 onChange={(e) => setExcludeReason(e.target.value)}
               />
             </div>
 
-            <div className="mb-4">
-              <label className="text-text-secondary mb-1.5 block text-xs font-medium">
-                발생 건수 임계값 (선택)
-              </label>
-              <NeuInput
-                type="number"
-                min={1}
-                placeholder="비워두면 무제한 (모든 건수에 예외 적용)"
-                value={maxCountInput}
-                onChange={(e) => setMaxCountInput(e.target.value)}
-              />
-              <p className="text-text-disabled mt-1 text-xs">
-                5분 윈도우 내 발생 건수가 이 값 이하일 때만 예외 처리됩니다. 초과 시 정상 알림 발생.
-              </p>
-            </div>
-
-            <div className="mb-4">
+            <div className="mb-6">
               <label className="text-text-secondary mb-1.5 block text-xs font-medium">
                 자동 만료
               </label>
@@ -994,31 +1545,8 @@ export function AlertHistoryPage() {
               )}
             </div>
 
-            <div className="mb-6 flex items-center gap-2">
-              <input
-                id="includeRole"
-                type="checkbox"
-                className="accent-accent"
-                checked={includeRole}
-                onChange={(e) => setIncludeRole(e.target.checked)}
-              />
-              <label htmlFor="includeRole" className="text-text-secondary cursor-pointer text-sm">
-                instance_role 포함 (역할별 제한, 해제 시 시스템 전체 적용)
-              </label>
-            </div>
             <div className="flex justify-end gap-3">
-              <NeuButton
-                variant="ghost"
-                onClick={() => {
-                  setShowExcludeModal(false)
-                  setExcludeReason('')
-                  setMaxCountInput('')
-                  setExpiryOption('30')
-                  setCustomExpiryDate('')
-                  setTemplateItems([])
-                  setSelectedTemplateKeys(new Set())
-                }}
-              >
+              <NeuButton variant="ghost" onClick={resetModal}>
                 취소
               </NeuButton>
               <NeuButton onClick={handleBulkExclude} disabled={isExcluding}>
@@ -1028,6 +1556,7 @@ export function AlertHistoryPage() {
           </div>
         </div>
       )}
+
 
       {/* 상세 패널 */}
       <AlertDetailPanel alert={selectedAlert} onClose={() => setSelectedAlert(null)} />

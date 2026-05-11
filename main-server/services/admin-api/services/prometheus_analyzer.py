@@ -25,10 +25,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import AsyncSessionLocal
-from models import AlertHistory, Contact, IncidentTimeline, LlmAgentConfig, LogAnalysisHistory, System, SystemContact, User
+from models import AlertHistory, Contact, IncidentTimeline, LlmAgentConfig, LogAnalysisHistory, MetricExclusion, System, SystemContact, User
 from services.adaptive_card_builder import _build_base_card, build_entities, build_mention_text
 from services.incident_service import get_or_create_incident
 from services.llm_client import call_llm_text, LLM_TYPE
+from services.metric_types import MetricType
 from services.prompts import (
     _CPU_THRESHOLD,
     _MEM_THRESHOLD,
@@ -108,6 +109,8 @@ class SystemMetrics:
     http_req_rate: Optional[float] = None                  # req/분
     # 감지된 이상 설명 (LLM 프롬프트용)
     anomalies: list = field(default_factory=list)
+    # 이 이상에 묶인 메트릭 종류 (AlertHistory.metric_types 컬럼 저장용, MetricType enum value)
+    matched_metric_types: list = field(default_factory=list)
 
 
 @dataclass
@@ -178,6 +181,71 @@ async def _query_prometheus(promql: str) -> list[dict]:
 
 # ── DB 조회 ───────────────────────────────────────────────────────────────────
 
+# ── 메트릭 예외 매칭 ─────────────────────────────────────────────────────────
+# 로그 예외처리(log-analyzer/analyzer.py)와 대칭: cycle 시작 시 활성 규칙을 한 번 로드하고,
+# 각 메트릭 push 사이트에서 검사하여 anomaly append 자체를 차단한다.
+
+MetricExclusionRuleMap = dict[tuple[int, Optional[str], str], MetricExclusion]
+
+
+async def _load_active_metric_exclusions(db: AsyncSession) -> MetricExclusionRuleMap:
+    """active=True + (expires_at IS NULL OR expires_at > now()) 인 규칙을 룩업 dict 으로 반환.
+
+    Key: (system_id, host_or_None, metric_type). host=None 은 시스템 전체 와일드카드.
+    동일 키 중복 시 created_at 최신 규칙으로 덮음.
+    """
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    result = await db.execute(
+        select(MetricExclusion)
+        .where(MetricExclusion.active == True)  # noqa: E712
+        .where((MetricExclusion.expires_at.is_(None)) | (MetricExclusion.expires_at > now))
+        .order_by(MetricExclusion.created_at.asc())
+    )
+    rules: MetricExclusionRuleMap = {}
+    for r in result.scalars().all():
+        rules[(r.system_id, r.host, r.metric_type)] = r
+    return rules
+
+
+async def _load_system_name_map(db: AsyncSession) -> dict[str, int]:
+    """system_name → system_id 매핑 (push 사이트가 system_name 공간이므로 cycle 1회 로드)."""
+    result = await db.execute(select(System.id, System.system_name))
+    return {row.system_name: row.id for row in result.all()}
+
+
+def _check_metric_exclusion(
+    rules: MetricExclusionRuleMap,
+    system_id: int,
+    host: str,
+    metric_type: str,
+    value: float,
+    default_threshold: float,
+) -> tuple[bool, float, Optional[MetricExclusion]]:
+    """메트릭 예외 매칭 검사.
+
+    룩업 우선순위: (system_id, host, metric_type) 정확매치 → (system_id, None, metric_type) 와일드카드.
+
+    반환: (excluded, effective_threshold, matched_rule)
+      - 매칭 없음: (False, default_threshold, None) — 정상 분석 진행
+      - 매칭 + override_threshold IS NULL: (True, default_threshold, rule) — 완전 차단
+      - 매칭 + override_threshold = X: value <= X 이면 (True, X, rule), value > X 이면 (False, X, rule)
+        (override 적용 후에도 임계치 초과 시 정상 알림. title 에는 override 값으로 표기됨)
+    """
+    rule = rules.get((system_id, host, metric_type)) or rules.get((system_id, None, metric_type))
+    if rule is None:
+        return False, default_threshold, None
+
+    if rule.override_threshold is None:
+        # 완전 차단
+        return True, default_threshold, rule
+
+    # 임계치 오버라이드
+    override = float(rule.override_threshold)
+    if value <= override:
+        return True, override, rule
+    return False, override, rule
+
+
 async def _get_system_info(db: AsyncSession, system_name: str) -> Optional[dict]:
     """system_name → System + contacts"""
     result = await db.execute(select(System).where(System.system_name == system_name))
@@ -205,8 +273,37 @@ async def _get_system_info(db: AsyncSession, system_name: str) -> Optional[dict]
 
 # ── 메트릭 수집 → HostContext 구성 ──────────────────────────────────────────
 
-async def _build_host_contexts() -> dict[str, HostContext]:
-    """Prometheus에서 전체 메트릭을 host 기준으로 집계하여 HostContext 맵 반환"""
+async def _build_host_contexts(
+    exclusion_rules: Optional[MetricExclusionRuleMap] = None,
+    system_name_to_id: Optional[dict[str, int]] = None,
+    matched_rule_ids: Optional[set[int]] = None,
+) -> dict[str, HostContext]:
+    """Prometheus에서 전체 메트릭을 host 기준으로 집계하여 HostContext 맵 반환.
+
+    exclusion_rules / system_name_to_id 가 제공되면 push 사이트에서 메트릭 예외 검사 수행:
+      - 완전 차단 매칭 시: raw 메트릭 필드(sm.cpu_avg 등) 미할당 + anomaly skip
+        → _calc_severity / AlertHistory INSERT 모두 영향 없음
+      - 임계치 오버라이드 매칭 시: override 값 기준으로 재비교
+    매칭된 규칙 id 는 matched_rule_ids 에 누적 (cycle 끝 일괄 skip_count 갱신용).
+    """
+    rules = exclusion_rules or {}
+    name_map = system_name_to_id or {}
+    matched_ids = matched_rule_ids if matched_rule_ids is not None else set()
+
+    def _excluded(host: str, system_name: str, metric_type: str, value: float, default_thr: float) -> tuple[bool, float]:
+        """매칭 후 (excluded, effective_threshold) 반환. system_id 미해결 시 정상 진행."""
+        if not rules:
+            return False, default_thr
+        sid = name_map.get(system_name)
+        if sid is None:
+            return False, default_thr
+        excluded, eff_thr, rule = _check_metric_exclusion(
+            rules, sid, host, metric_type, value, default_thr
+        )
+        if rule is not None:
+            matched_ids.add(rule.id)
+        return excluded, eff_thr
+
     hosts: dict[str, HostContext] = {}
 
     def _get_host(host: str) -> HostContext:
@@ -227,9 +324,14 @@ async def _build_host_contexts() -> dict[str, HostContext]:
             continue
         sm = _get_host(host).get_or_create(sn)
         sm.display_name = dn
+        excluded, eff_thr = _excluded(host, sn, MetricType.CPU.value, val, _CPU_THRESHOLD)
+        if excluded:
+            # 완전 차단 또는 override 미만 → raw 필드도 비할당 (severity 계산 부작용 방지)
+            continue
         sm.cpu_avg = val
-        if val > _CPU_THRESHOLD:
-            sm.anomalies.append(f"CPU 평균 {val:.1f}% (임계치 {_CPU_THRESHOLD}%)")
+        if val > eff_thr:
+            sm.anomalies.append(f"CPU 평균 {val:.1f}% (임계치 {eff_thr:g}%)")
+            sm.matched_metric_types.append(MetricType.CPU.value)
 
     # 2. 메모리 사용률
     mem_results = await _query_prometheus(
@@ -245,9 +347,13 @@ async def _build_host_contexts() -> dict[str, HostContext]:
             continue
         sm = _get_host(host).get_or_create(sn)
         sm.display_name = sm.display_name or dn
+        excluded, eff_thr = _excluded(host, sn, MetricType.MEMORY.value, val, _MEM_THRESHOLD)
+        if excluded:
+            continue
         sm.mem_used_pct = val
-        if val > _MEM_THRESHOLD:
-            sm.anomalies.append(f"메모리 사용률 {val:.1f}% (임계치 {_MEM_THRESHOLD}%)")
+        if val > eff_thr:
+            sm.anomalies.append(f"메모리 사용률 {val:.1f}% (임계치 {eff_thr:g}%)")
+            sm.matched_metric_types.append(MetricType.MEMORY.value)
 
     # 3. 로그 에러 rate — 레벨별 (5분 평균, 건/분)
     log_results = await _query_prometheus(
@@ -269,15 +375,26 @@ async def _build_host_contexts() -> dict[str, HostContext]:
 
     for hc in hosts.values():
         for sm in hc.systems.values():
-            if sm.log_error_rate > _LOG_ERROR_RATE_THRESHOLD:
+            if sm.log_error_rate <= 0:
+                continue
+            excluded, eff_thr = _excluded(
+                hc.host, sm.system_name, MetricType.LOG_ERROR_RATE.value,
+                sm.log_error_rate, _LOG_ERROR_RATE_THRESHOLD,
+            )
+            if excluded:
+                sm.log_error_rate = 0.0
+                sm.log_by_level = {}
+                continue
+            if sm.log_error_rate > eff_thr:
                 level_detail = ", ".join(
                     f"{lv} {rate:.1f}건/분"
                     for lv, rate in sorted(sm.log_by_level.items(), key=lambda x: -x[1])
                 )
                 sm.anomalies.append(
                     f"로그 에러 {sm.log_error_rate:.1f}건/분 급증"
-                    f" ({level_detail}, 임계치 {_LOG_ERROR_RATE_THRESHOLD}건/분)"
+                    f" ({level_detail}, 임계치 {eff_thr:g}건/분)"
                 )
+                sm.matched_metric_types.append(MetricType.LOG_ERROR_RATE.value)
 
     # 4. HTTP 응답 지연
     http_results = await _query_prometheus(
@@ -294,8 +411,14 @@ async def _build_host_contexts() -> dict[str, HostContext]:
             continue
         sm = _get_host(host).get_or_create(sn)
         sm.display_name = sm.display_name or dn
+        # HTTP 지연 쿼리는 Prometheus 측에서 _HTTP_SLOW_THRESHOLD_MS 가 이미 적용된 결과만 반환됨.
+        # 따라서 V1 메트릭 예외는 "완전 차단"만 지원. override_threshold 는 무시 (효과 없음).
+        excluded, _eff = _excluded(host, sn, MetricType.HTTP_LATENCY.value, val, _HTTP_SLOW_THRESHOLD_MS)
+        if excluded:
+            continue
         sm.http_slow.append({"url": url, "ms": val})
         sm.anomalies.append(f"HTTP 지연 {url} {val:.0f}ms (임계치 {_HTTP_SLOW_THRESHOLD_MS}ms)")
+        sm.matched_metric_types.append(MetricType.HTTP_LATENCY.value)
 
     # 5. 네트워크 RX (MB/s) — Full-duplex TX/RX 각각 독립 판정
     _net_threshold_mbps = _NET_MAX_MBPS / 8 * _NET_THRESHOLD_PCT / 100
@@ -312,13 +435,17 @@ async def _build_host_contexts() -> dict[str, HostContext]:
             continue
         sm = _get_host(host).get_or_create(sn)
         sm.display_name = sm.display_name or dn
+        excluded, eff_thr = _excluded(host, sn, MetricType.NETWORK_RX.value, val, _net_threshold_mbps)
+        if excluded:
+            continue
         sm.net_rx_mbps = val
-        if val > _net_threshold_mbps:
+        if val > eff_thr:
             sm.anomalies.append(
                 f"네트워크 RX {val:.1f} MB/s"
                 f" (대역폭 {val / (_NET_MAX_MBPS / 8) * 100:.0f}%,"
-                f" 임계 {_NET_THRESHOLD_PCT}%)"
+                f" 임계 {eff_thr:.1f} MB/s)"
             )
+            sm.matched_metric_types.append(MetricType.NETWORK_RX.value)
 
     # 6. 네트워크 TX (MB/s)
     net_tx_results = await _query_prometheus(
@@ -334,13 +461,17 @@ async def _build_host_contexts() -> dict[str, HostContext]:
             continue
         sm = _get_host(host).get_or_create(sn)
         sm.display_name = sm.display_name or dn
+        excluded, eff_thr = _excluded(host, sn, MetricType.NETWORK_TX.value, val, _net_threshold_mbps)
+        if excluded:
+            continue
         sm.net_tx_mbps = val
-        if val > _net_threshold_mbps:
+        if val > eff_thr:
             sm.anomalies.append(
                 f"네트워크 TX {val:.1f} MB/s"
                 f" (대역폭 {val / (_NET_MAX_MBPS / 8) * 100:.0f}%,"
-                f" 임계 {_NET_THRESHOLD_PCT}%)"
+                f" 임계 {eff_thr:.1f} MB/s)"
             )
+            sm.matched_metric_types.append(MetricType.NETWORK_TX.value)
 
     # 7. 디스크 I/O 응답시간 (ms)
     disk_io_results = await _query_prometheus(
@@ -355,9 +486,13 @@ async def _build_host_contexts() -> dict[str, HostContext]:
             continue
         sm = _get_host(host).get_or_create(sn)
         sm.display_name = sm.display_name or dn
+        excluded, eff_thr = _excluded(host, sn, MetricType.DISK_IO.value, val, _DISK_IO_MS_THRESHOLD)
+        if excluded:
+            continue
         sm.disk_io_ms = val
-        if val > _DISK_IO_MS_THRESHOLD:
-            sm.anomalies.append(f"디스크 I/O {val:.0f}ms (임계치 {_DISK_IO_MS_THRESHOLD}ms)")
+        if val > eff_thr:
+            sm.anomalies.append(f"디스크 I/O {val:.0f}ms (임계치 {eff_thr:g}ms)")
+            sm.matched_metric_types.append(MetricType.DISK_IO.value)
 
     # 8. HTTP 요청 수 (req/분) — 이상 감지는 run_analysis_cycle()에서 이전 주기 비교
     http_req_results = await _query_prometheus(
@@ -482,8 +617,30 @@ async def run_analysis_cycle() -> None:
     if not _PROMETHEUS_URL:
         return
 
-    hosts = await _build_host_contexts()
+    # 메트릭 예외 규칙은 cycle 시작 시 한 번만 로드 (로그 예외처리와 대칭)
+    async with AsyncSessionLocal() as _rules_db:
+        exclusion_rules = await _load_active_metric_exclusions(_rules_db)
+        system_name_to_id = await _load_system_name_map(_rules_db)
+
+    matched_rule_ids: set[int] = set()
+    hosts = await _build_host_contexts(
+        exclusion_rules=exclusion_rules,
+        system_name_to_id=system_name_to_id,
+        matched_rule_ids=matched_rule_ids,
+    )
     anomalous_hosts = {h: hc for h, hc in hosts.items() if hc.has_anomaly}
+
+    # 매칭된 예외 규칙은 anomaly 발생 여부와 무관하게 skip_count 누적 (감사용)
+    if matched_rule_ids:
+        async with AsyncSessionLocal() as _skip_db:
+            now = datetime.now(timezone.utc).replace(tzinfo=None)
+            for rid in matched_rule_ids:
+                rule = await _skip_db.get(MetricExclusion, rid)
+                if rule is None:
+                    continue
+                rule.skip_count = (rule.skip_count or 0) + 1
+                rule.last_skipped_at = now
+            await _skip_db.commit()
 
     if not anomalous_hosts:
         return
@@ -556,6 +713,12 @@ async def run_analysis_cycle() -> None:
                     else ("LLM 분석 실패 — 이상 목록만 나열" if llm_error else analysis[:500])
                 )
 
+                # 중복 제거 (CPU+CPU 같은 케이스 방지) — 등장 순서 유지
+                metric_types_list: list[str] = []
+                for mt in sm.matched_metric_types:
+                    if mt not in metric_types_list:
+                        metric_types_list.append(mt)
+
                 # ① AlertHistory (인시던트 그루핑 포함)
                 history = AlertHistory(
                     system_id=info["id"],
@@ -567,6 +730,7 @@ async def run_analysis_cycle() -> None:
                     instance_role="prometheus_analyzer",
                     host=host,
                     anomaly_type="new",
+                    metric_types=metric_types_list or None,
                 )
                 db.add(history)
                 await db.flush()

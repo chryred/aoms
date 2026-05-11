@@ -101,15 +101,47 @@ export const knowledgeApi = {
   triggerSync: (source: 'jira' | 'confluence'): Promise<{ queued: boolean }> =>
     adminApi.post(`api/v1/knowledge/sync/${source}`).json<{ queued: boolean }>(),
 
-  forceSyncJiraIssue: (issueKey: string): Promise<{ synced: boolean; issue_key: string }> =>
+  forceSyncJiraIssue: (issueKey: string): Promise<SyncJobCreated> =>
     adminApi
-      .post(`api/v1/knowledge/sync/jira/${issueKey}/force`, { timeout: 65_000 })
-      .json<{ synced: boolean; issue_key: string }>(),
+      .post(`api/v1/knowledge/sync/jira/${issueKey}/force`, { timeout: 10_000 })
+      .json<SyncJobCreated>(),
 
-  forceSyncConfluencePage: (
-    pageId: string,
-  ): Promise<{ synced: boolean; page_id: string; synced_chunks: number }> =>
+  forceSyncConfluencePage: (pageId: string): Promise<SyncJobCreated> =>
     adminApi
-      .post(`api/v1/knowledge/sync/confluence/${pageId}/force`, { timeout: 65_000 })
-      .json<{ synced: boolean; page_id: string; synced_chunks: number }>(),
+      .post(`api/v1/knowledge/sync/confluence/${pageId}/force`, { timeout: 10_000 })
+      .json<SyncJobCreated>(),
+
+  getSyncJob: (jobId: string): Promise<SyncJobStatus> =>
+    adminApi.get(`api/v1/knowledge/sync/jobs/${jobId}`).json<SyncJobStatus>(),
+
+  listSyncJobs: (params?: {
+    source?: string
+    status?: string
+    limit?: number
+    offset?: number
+  }): Promise<{ items: SyncJobStatus[]; offset: number; limit: number }> =>
+    adminApi
+      .get('api/v1/knowledge/sync/jobs', { searchParams: filterParams(params ?? {}) })
+      .json<{ items: SyncJobStatus[]; offset: number; limit: number }>(),
+}
+
+// ── 단건 강제 재동기화 Job 타입 ───────────────────────────────────────────────
+
+export interface SyncJobCreated {
+  job_id: string
+  status: string
+  duplicate?: boolean
+}
+
+export interface SyncJobStatus {
+  job_id: string
+  source: string
+  ref_id: string
+  status: 'pending' | 'processing' | 'done' | 'failed'
+  progress: number
+  result: Record<string, unknown> | null
+  error_message: string | null
+  started_at: string | null
+  completed_at: string | null
+  created_at: string | null
 }
