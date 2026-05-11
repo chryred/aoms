@@ -21,17 +21,23 @@ createRoot(document.getElementById('root')!).render(
         toastOptions={{
           duration: 3000,
           style: {
-            background: '#1E2127',
-            color: '#E2E8F2',
-            borderRadius: '12px',
-            boxShadow: '3px 3px 7px #111317, -3px -3px 7px #2B2F37',
+            background: 'var(--color-surface)',
+            color: 'var(--color-text-primary)',
+            borderRadius: '4px',
+            boxShadow: 'var(--shadow-neu-flat)',
             fontSize: '14px',
           },
           success: {
-            iconTheme: { primary: '#22C55E', secondary: '#1E2127' },
+            iconTheme: {
+              primary: 'var(--color-normal)',
+              secondary: 'var(--color-surface)',
+            },
           },
           error: {
-            iconTheme: { primary: '#EF4444', secondary: '#1E2127' },
+            iconTheme: {
+              primary: 'var(--color-critical)',
+              secondary: 'var(--color-surface)',
+            },
           },
         }}
       />

@@ -226,7 +226,15 @@ async def search_similar_by_vector(
         "query":        dense,   # Qdrant 1.17: dense는 배열 직접 전달
         "using":        "dense",
         "limit":        limit + 1,  # 자기 자신 제외 예비
-        "with_payload": True,
+        # /aggregation/similar-period 응답에 필요한 필드 (두 컬렉션 합집합).
+        # stored_at 같은 내부 메타는 제외.
+        "with_payload": [
+            "system_id", "system_name",
+            "period_type", "period_start",
+            "hour_bucket", "collector_type", "metric_group",
+            "summary_text", "llm_severity", "llm_trend", "llm_prediction",
+            "dominant_severity", "pg_row_id",
+        ],
     }
     if filter_must:
         body["filter"] = {"must": filter_must}

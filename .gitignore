@@ -30,3 +30,8 @@ ems-mcp/
 *.tar.gz
 # 디자인 핸드오프 산출물 (마스코트 / 프로토타입 HTML 등 — 코드 외 자료)
 design_handoff_synap_sig/
+# 디자인/QA 자동 감사 산출물 (스크린샷·리포트, 자동 생성)
+**/.design-audit/
+**/.design-review/
+design-audit-*/
+design-audit-screenshots/

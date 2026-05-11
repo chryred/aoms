@@ -1,3 +1,11 @@
+# 컨테이너 표준 로깅 — json-file 드라이버 + 로테이션 (PR-2)
+# 폐쇄망 서버 디스크가 컨테이너 로그로 무한 증가하지 않도록 max-size/max-file 강제
+x-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "20m"
+    max-file: "5"
+
 services:
   prometheus:
     image: prom/prometheus:v3.10.0
@@ -24,6 +32,7 @@ services:
     mem_limit: 2560m
     cpus: '1.0'
     restart: unless-stopped
+    logging: *default-logging
     networks:
       - synapse-net
 
@@ -37,6 +46,7 @@ services:
     mem_limit: 128m
     cpus: '0.2'
     restart: unless-stopped
+    logging: *default-logging
     networks:
       - synapse-net
 
@@ -80,6 +90,7 @@ services:
     cpus: '0.3'
     depends_on: [prometheus]
     restart: unless-stopped
+    logging: *default-logging
     networks:
       - synapse-net
 
@@ -107,6 +118,7 @@ services:
       timeout: 5s
       retries: 5
     restart: unless-stopped
+    logging: *default-logging
     networks:
       - synapse-net
 
@@ -151,16 +163,19 @@ services:
       - SYNAPSE_CLI_BINARY_PATH=${SYNAPSE_CLI_BINARY_PATH:-/app/bin/synapse}
       # OTel / Tempo
       - TEMPO_URL=${TEMPO_URL:-http://tempo:3200}
-      # chat 
+      # chat
       - CHAT_ATTACHMENT_DIR=${CHAT_ATTACHMENT_DIR:-/attaches/chat-attachments}
       # Knowledge
       - KNOWLEDGE_DOCS_DIR=${KNOWLEDGE_DOCS_DIR:-/attaches/knowledge-docs}
+      # uvicorn worker 수 (PR-3: 운영 시 챗봇 동시 호출 부하에 맞춰 튜닝, 기본 1)
+      - UVICORN_WORKERS=${ADMIN_API_WORKERS:-1}
     mem_limit: 256m
     cpus: '0.3'
     depends_on:
       postgres:
         condition: service_healthy
     restart: unless-stopped
+    logging: *default-logging
     networks:
       - synapse-net
 
@@ -195,18 +210,22 @@ services:
       - HF_HUB_OFFLINE=1                 # 폐쇄망 안전장치: 로컬 번들만 사용
       - QDRANT_URL=${QDRANT_URL}
       # JIRA, Conflence 동기화
-      - JIRA_URL=${JIRA_URL}              # Jira 서버 주소                                                                   
+      - JIRA_URL=${JIRA_URL}              # Jira 서버 주소
       - JIRA_TOKEN=${JIRA_TOKEN}          # Jira API 토큰 (Bearer)
-      - JIRA_PROJECTS=${JIRA_PROJECTS}    # 동기화할 프로젝트 키 (콤마 구분)                                                   
-      - CONFLUENCE_URL=${CONFLUENCE_URL}                                                                                  
-      - CONFLUENCE_TOKEN=${CONFLUENCE_TOKEN}                                                                                      
+      - JIRA_PROJECTS=${JIRA_PROJECTS}    # 동기화할 프로젝트 키 (콤마 구분)
+      - CONFLUENCE_URL=${CONFLUENCE_URL}
+      - CONFLUENCE_TOKEN=${CONFLUENCE_TOKEN}
       - CONFLUENCE_SPACES=${CONFLUENCE_SPACES}
-      # Knowledge 
+      # Knowledge
       - KNOWLEDGE_DOCS_DIR=${KNOWLEDGE_DOCS_DIR:-/attaches/knowledge-docs}
-    mem_limit: 2048m   # ADR-011: bge-m3 ONNX(~1.2GB) 로드를 위해 상향 (기존 256m)
+      # uvicorn worker 수 — 모델이 워커마다 로드되므로 기본 1 권장 (PR-3)
+      - UVICORN_WORKERS=${LOG_ANALYZER_WORKERS:-1}
+    # bge-m3 ONNX(~1.2GB) 상시 로드 + reranker(~2.3GB) 호출 시 로드 → 3GB 마진 (PR-3, 기존 2048m)
+    mem_limit: 4096m
     cpus: '1.0'
     depends_on: [admin-api]
     restart: unless-stopped
+    logging: *default-logging
     networks:
       - synapse-net
   frontend:
@@ -218,6 +237,7 @@ services:
     cpus: '0.1'
     depends_on: [admin-api, log-analyzer]
     restart: unless-stopped
+    logging: *default-logging
     networks:
       - synapse-net
 
@@ -231,6 +251,7 @@ services:
     mem_limit: 1g
     cpus: '0.5'
     restart: unless-stopped
+    logging: *default-logging
     networks:
       - synapse-net
 
@@ -254,6 +275,7 @@ services:
     depends_on:
       - tempo
     restart: unless-stopped
+    logging: *default-logging
     networks:
       - synapse-net
 
@@ -296,6 +318,7 @@ services:
       postgres:
         condition: service_healthy
     restart: unless-stopped
+    logging: *default-logging
     networks:
       - synapse-net
 

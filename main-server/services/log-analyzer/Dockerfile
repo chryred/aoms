@@ -38,4 +38,10 @@ print('임베딩 + reranker 모델 다운로드 완료')\
 FROM deps AS app
 COPY . .
 EXPOSE 8000
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+
+# 운영 시 docker-compose 환경변수로 튜닝. 모델(bge-m3 ~1.2GB + reranker ~2.3GB)이
+# 워커마다 별도 로드되므로 mem_limit과 함께 산정 — 기본 1을 유지하는 것을 권장
+ENV UVICORN_WORKERS=1
+
+# exec로 uvicorn에 PID 1을 인계해 SIGTERM이 그대로 전달되도록 함
+CMD ["sh", "-c", "exec uvicorn main:app --host 0.0.0.0 --port 8000 --workers ${UVICORN_WORKERS:-1}"]

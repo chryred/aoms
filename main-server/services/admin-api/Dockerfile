@@ -23,4 +23,8 @@ COPY --from=cli-builder /build/synapse /app/bin/synapse
 
 EXPOSE 8080
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8080"]
+# 운영 시 docker-compose 환경변수로 워커 수 튜닝 (기본 1)
+ENV UVICORN_WORKERS=1
+
+# exec로 uvicorn에 PID 1을 인계해 SIGTERM이 그대로 전달되도록 함
+CMD ["sh", "-c", "exec uvicorn main:app --host 0.0.0.0 --port 8080 --workers ${UVICORN_WORKERS:-1}"]

@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import os
 from contextlib import asynccontextmanager
 
@@ -30,6 +31,9 @@ from services.db_collector import db_collection_loop
 from services.chat_tools.executors.ems import aclose_client as ems_aclose
 
 
+logger = logging.getLogger(__name__)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # 테이블 자동 생성 (운영에서는 init.sql / Alembic 사용 권장)
@@ -53,7 +57,7 @@ async def lifespan(app: FastAPI):
     try:
         await ems_aclose()
     except Exception:
-        pass
+        logger.warning("EMS aclose failed during shutdown", exc_info=True)
 
 
 app = FastAPI(

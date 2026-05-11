@@ -405,7 +405,12 @@ async def search_guides(
         ],
         "query":        {"fusion": "rrf"},
         "limit":        qdrant_limit,
-        "with_payload": True,
+        # 소비자(chat_tools _search_guides + 그룹화 로직)에서 실제 읽는 필드만 반환.
+        # matched_chunk_indexes/matched_chunks_count 는 그룹화 단계에서 Python이 주입.
+        "with_payload": [
+            "guide_id", "system_id", "title", "content",
+            "chunk_index", "total_chunks",
+        ],
     }
 
     if system_ids:

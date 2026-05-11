@@ -472,7 +472,12 @@ def chunk_pdf(
                     for img_file in page_images[:_PDF_MAX_IMAGES_PER_PAGE]:
                         try:
                             blob = img_file.data
-                        except Exception:
+                        except Exception as exc:
+                            logger.warning(
+                                "chunk_pdf: page=%d image blob extraction failed (%s)",
+                                page_no,
+                                exc,
+                            )
                             continue
                         if not blob:
                             continue

@@ -213,7 +213,7 @@ export function SystemContactPanel({ systemId }: SystemContactPanelProps) {
                       type="checkbox"
                       checked={selectedChannels.includes(ch)}
                       onChange={() => toggleChannel(ch)}
-                      className="rounded accent-[#00D4FF]"
+                      className="rounded-sm accent-[var(--color-accent)]"
                     />
                     {ch === 'teams' ? 'Teams' : 'Webhook'}
                   </label>

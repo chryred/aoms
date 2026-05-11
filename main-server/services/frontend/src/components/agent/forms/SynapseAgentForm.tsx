@@ -98,7 +98,7 @@ export function SynapseAgentForm({ form }: SynapseAgentFormProps) {
                 type="checkbox"
                 checked={collectors[key] ?? false}
                 onChange={() => toggleCollector(key)}
-                className="accent-[#00D4FF]"
+                className="accent-[var(--color-accent)]"
               />
               <span className="text-text-tertiary text-xs">{key}</span>
             </label>
