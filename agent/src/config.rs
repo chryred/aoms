@@ -40,7 +40,7 @@ fn default_collect_interval() -> u64 {
     15
 }
 fn default_top_process_count() -> usize {
-    20
+    10
 }
 fn default_log_dir() -> String {
     "./logs".to_string()

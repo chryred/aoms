@@ -629,10 +629,10 @@ async def get_process_summary(
                 logger.warning("process-summary: 쿼리 실패: %s — %s", promql[:80], exc)
                 return []
 
-        cpu_res, mem_res, total_res, cores_res = await asyncio.gather(
+        cpu_res, mem_res, mem_all_res, cores_res = await asyncio.gather(
             _query(f'process_cpu_percent{{system_name="{sn}"}}'),
             _query(f'process_memory_bytes{{system_name="{sn}"}}'),
-            _query(f'memory_used_bytes{{system_name="{sn}",type="total"}}'),
+            _query(f'memory_used_bytes{{system_name="{sn}"}}'),
             _query(f'count by (instance_role) (cpu_usage_percent{{system_name="{sn}",core!="total"}})'),
         )
 
@@ -646,15 +646,46 @@ async def get_process_summary(
             cores_map[role] = 1
 
     # 인스턴스별 전체 메모리 (bytes)
+    # type="total" 우선, 없으면 used+free+cached 합산으로 폴백 (구버전 에이전트 호환)
     total_mem_map: dict[str, float] = {}
-    for series in total_res:
-        role = series.get("metric", {}).get("instance_role", "")
+    sys_used_map: dict[str, float] = {}
+    sys_cached_map: dict[str, float] = {}
+    sys_free_map: dict[str, float] = {}
+    sys_anon_map: dict[str, float] = {}
+    sys_buffers_map: dict[str, float] = {}
+    sys_slab_unreclaim_map: dict[str, float] = {}
+    component_sum: dict[str, float] = {}
+    for series in mem_all_res:
+        metric = series.get("metric", {})
+        role = metric.get("instance_role", "")
+        mem_type = metric.get("type", "")
         try:
             val = series.get("value", [None, None])[1]
-            if val is not None:
-                total_mem_map[role] = float(val)
-        except (TypeError, ValueError, IndexError):
+            if val is None:
+                continue
+            fval = float(val)
+            if mem_type == "total":
+                total_mem_map[role] = fval
+            elif mem_type == "used":
+                sys_used_map[role] = fval
+                component_sum[role] = component_sum.get(role, 0.0) + fval
+            elif mem_type == "cached":
+                sys_cached_map[role] = fval
+                component_sum[role] = component_sum.get(role, 0.0) + fval
+            elif mem_type == "free":
+                sys_free_map[role] = fval
+                component_sum[role] = component_sum.get(role, 0.0) + fval
+            elif mem_type == "anon":
+                sys_anon_map[role] = fval
+            elif mem_type == "buffers":
+                sys_buffers_map[role] = fval
+            elif mem_type == "slab_unreclaim":
+                sys_slab_unreclaim_map[role] = fval
+        except (TypeError, ValueError):
             pass
+    for role, total in component_sum.items():
+        if role not in total_mem_map:
+            total_mem_map[role] = total
 
     # CPU — (instance_role, name) 복합키로 합산 후 인스턴스별 코어 수로 정규화
     proc_map: dict[str, dict] = {}
@@ -708,6 +739,33 @@ async def get_process_summary(
         total_mem = total_mem_map.get(instance_role)
         if total_mem and total_mem > 0:
             proc_map[key]["mem_percent"] = round(proc_map[key]["mem_bytes"] / total_mem * 100, 2)
+
+    # 인스턴스별 "기타 (미추적)" 합성 항목 — 시스템 used에서 추적된 프로세스 합산을 뺀 나머지
+    roles_in_map = {entry["instance_role"] for entry in proc_map.values()}
+    for role in roles_in_map:
+        sys_used = sys_used_map.get(role)
+        total_mem = total_mem_map.get(role)
+        if not sys_used or not total_mem or total_mem <= 0:
+            continue
+        tracked_bytes = sum(e["mem_bytes"] for e in proc_map.values() if e["instance_role"] == role)
+        others_bytes = sys_used - tracked_bytes
+        if others_bytes < 100 * 1024 * 1024:  # 100MB 미만이면 생략
+            continue
+        host = next((e["host"] for e in proc_map.values() if e["instance_role"] == role), "")
+        proc_map[f"{role}|__others__"] = {
+            "name": "기타 (미추적)",
+            "instance_role": role,
+            "host": host,
+            "cpu_percent": 0.0,
+            "mem_percent": round(others_bytes / total_mem * 100, 2),
+            "mem_bytes": round(others_bytes),
+            "sys_total_bytes": round(total_mem),
+            "sys_cached_bytes": round(sys_cached_map.get(role, 0)),
+            "sys_free_bytes": round(sys_free_map.get(role, 0)),
+            "sys_anon_bytes": round(sys_anon_map.get(role, 0)),
+            "sys_buffers_bytes": round(sys_buffers_map.get(role, 0)),
+            "sys_slab_unreclaim_bytes": round(sys_slab_unreclaim_map.get(role, 0)),
+        }
 
     # 인스턴스별로 묶고, 각 그룹 내 CPU% 내림차순 정렬
     return sorted(proc_map.values(), key=lambda x: (x["instance_role"], -x["cpu_percent"]))

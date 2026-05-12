@@ -17,14 +17,20 @@ pub fn collect(cfg: &AgentConfig) -> Vec<MetricSample> {
 
     let mut samples = Vec::new();
 
-    let types = [
-        ("used", (meminfo.mem_total - meminfo.mem_available.unwrap_or(meminfo.mem_free)) as f64 * 1024.0),
-        ("cached", meminfo.cached as f64 * 1024.0),
-        ("free", meminfo.mem_free as f64 * 1024.0),
-        ("swap_used", (meminfo.swap_total - meminfo.swap_free) as f64 * 1024.0),
+    // procfs 0.9.1+ returns Meminfo fields in bytes (not kB)
+    let available = meminfo.mem_available.unwrap_or(meminfo.mem_free);
+    let types: &[(&str, f64)] = &[
+        ("used",         (meminfo.mem_total - available) as f64),
+        ("cached",       meminfo.cached as f64),
+        ("free",         meminfo.mem_free as f64),
+        ("swap_used",    (meminfo.swap_total - meminfo.swap_free) as f64),
+        // 기타(미추적) 세부 분해용 — MemoryStackBar에서 JVM/커널 구분에 사용
+        ("anon",         meminfo.anon_pages.unwrap_or(0) as f64),
+        ("buffers",      meminfo.buffers as f64),
+        ("slab_unreclaim", meminfo.s_unreclaim.unwrap_or(0) as f64),
     ];
 
-    for (t, val) in types {
+    for &(t, val) in types {
         let mut lbs = base.clone();
         lbs.push(("type".to_string(), t.to_string()));
         samples.push(MetricSample::new("memory_used_bytes", lbs, val));
@@ -36,7 +42,7 @@ pub fn collect(cfg: &AgentConfig) -> Vec<MetricSample> {
     samples.push(MetricSample::new(
         "memory_used_bytes",
         lbs_total,
-        meminfo.mem_total as f64 * 1024.0,
+        meminfo.mem_total as f64,
     ));
 
     samples

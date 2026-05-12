@@ -720,7 +720,7 @@ def _build_config_toml(label_info: dict, agent_host: str, config_path: str) -> s
         f'instance_role = "{instance_role}"\n'
         f'host = "{agent_host}"\n'
         f'collect_interval_secs = 15\n'
-        f'top_process_count = 5\n'
+        f'top_process_count = 10\n'
         f'log_dir = "{log_dir}"\n'
         f'log_retention_days = 7\n'
         f'\n'

@@ -78,4 +78,11 @@ export interface ProcessSummary {
   cpu_percent: number
   mem_percent: number
   mem_bytes: number
+  // "기타 (미추적)" 항목에만 존재 — 전체 메모리 스택 바 렌더링용
+  sys_total_bytes?: number
+  sys_cached_bytes?: number
+  sys_free_bytes?: number
+  sys_anon_bytes?: number          // AnonPages — JVM heap/JIT 등 익명 메모리
+  sys_buffers_bytes?: number       // Buffers — 커널 I/O 버퍼
+  sys_slab_unreclaim_bytes?: number // SUnreclaim — 커널 비회수 Slab
 }

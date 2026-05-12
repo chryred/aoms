@@ -136,11 +136,22 @@ pub fn collect(cfg: &AgentConfig, services: &[ServiceConfig]) -> Vec<MetricSampl
         ));
     }
 
-    // Top-N unmatched processes by cpu
-    unmatched.sort_by(|a, b| b.3.partial_cmp(&a.3).unwrap_or(std::cmp::Ordering::Equal));
-    for (proc_name, pid, cmdline, cpu_percent, rss_kb) in
-        unmatched.iter().take(cfg.top_process_count)
-    {
+    // CPU top-N + 메모리 top-N 합집합 — 모드별로 중요한 프로세스를 모두 포함
+    let n = cfg.top_process_count;
+    let mut by_cpu = unmatched.clone();
+    by_cpu.sort_by(|a, b| b.3.partial_cmp(&a.3).unwrap_or(std::cmp::Ordering::Equal));
+    let mut by_mem = unmatched;
+    by_mem.sort_by(|a, b| b.4.partial_cmp(&a.4).unwrap_or(std::cmp::Ordering::Equal));
+
+    let mut seen_pids = std::collections::HashSet::new();
+    let top_union: Vec<_> = by_cpu
+        .iter()
+        .take(n)
+        .chain(by_mem.iter().take(n))
+        .filter(|p| seen_pids.insert(p.1))
+        .collect();
+
+    for (proc_name, pid, cmdline, cpu_percent, rss_kb) in top_union {
         let mut lbs_cpu = base.clone();
         lbs_cpu.push(("process".to_string(), proc_name.clone()));
         lbs_cpu.push(("pid".to_string(), pid.to_string()));
