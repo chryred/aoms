@@ -69,6 +69,7 @@ async def create_exclusions(
             active=True,
             max_count_per_window=item.max_count_per_window,
             expires_at=_normalize_expires_at(item.expires_at),
+            exclusion_type=item.exclusion_type,
         )
         db.add(rule)
         await db.flush()

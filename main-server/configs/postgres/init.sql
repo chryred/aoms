@@ -213,15 +213,17 @@ CREATE TABLE IF NOT EXISTS alert_exclusions (
     instance_role        VARCHAR(50),                              -- NULL = 해당 시스템 전체 role
     template             TEXT NOT NULL,                           -- synapse_agent 정규화 template 라벨
     reason               TEXT,
-    created_by           VARCHAR(100),
-    created_at           TIMESTAMP NOT NULL DEFAULT NOW(),
     active               BOOLEAN NOT NULL DEFAULT TRUE,
     deactivated_by       VARCHAR(100),
     deactivated_at       TIMESTAMP,
     skip_count           INTEGER NOT NULL DEFAULT 0,
     last_skipped_at      TIMESTAMP,
     max_count_per_window INTEGER,                                 -- NULL = 무제한 (모든 count에 예외 적용)
-    expires_at           TIMESTAMP                                -- NULL = 만료 없음 (UTC naive)
+    expires_at           TIMESTAMP,                               -- NULL = 만료 없음 (UTC naive)
+    exclusion_type       VARCHAR(20) NOT NULL DEFAULT 'skip',     -- 'skip': 완전 제외 | 'force_real': LLM 오판 정정
+    -- 시스템 필드
+    created_by           VARCHAR(100),
+    created_at           TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_alert_exclusions_active_system ON alert_exclusions(system_id, active);
@@ -235,14 +237,15 @@ CREATE TABLE IF NOT EXISTS metric_exclusions (
     metric_type          VARCHAR(30) NOT NULL,                 -- cpu | memory | disk_io | network_rx | network_tx | http_latency | log_error_rate
     override_threshold   DOUBLE PRECISION,                     -- NULL = 완전 차단. 값 있으면 해당 메트릭 임계치를 이 값으로 대체 (개발기 둔감화)
     reason               TEXT,
-    created_by           VARCHAR(100),
-    created_at           TIMESTAMP NOT NULL DEFAULT NOW(),
     active               BOOLEAN NOT NULL DEFAULT TRUE,
     deactivated_by       VARCHAR(100),
     deactivated_at       TIMESTAMP,
     skip_count           INTEGER NOT NULL DEFAULT 0,
     last_skipped_at      TIMESTAMP,
-    expires_at           TIMESTAMP                             -- NULL = 만료 없음 (UTC naive). Lazy 검증
+    expires_at           TIMESTAMP,                            -- NULL = 만료 없음 (UTC naive). Lazy 검증
+    -- 시스템 필드
+    created_by           VARCHAR(100),
+    created_at           TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_metric_exclusions_lookup     ON metric_exclusions(system_id, active, metric_type);
@@ -515,11 +518,14 @@ CREATE TABLE IF NOT EXISTS chat_messages (
 CREATE INDEX IF NOT EXISTS idx_chat_messages_session ON chat_messages(session_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_chat_messages_system ON chat_messages(system_id, created_at) WHERE system_id IS NOT NULL;
 
--- chat_assistant LLM agent 시드
+-- chat_assistant / cli_query LLM agent 시드
 INSERT INTO llm_agent_configs (area_code, area_name, agent_code, description) VALUES
     ('chat_assistant', 'ReAct 챗봇 어시스턴트',
      'custom_8f9ee032e5594452bff5602c03e966eb',
-     '운영 어시스턴트: EMS/admin/log-analyzer 도구를 활용한 대화형 분석')
+     '운영 어시스턴트: EMS/admin/log-analyzer 도구를 활용한 대화형 분석'),
+    ('cli_query', 'Synapse CLI 질의',
+     'custom_8f9ee032e5594452bff5602c03e966eb',
+     'synapse ask 명령어 — 터미널에서 LLM 단방향 질의')
 ON CONFLICT (area_code) DO NOTHING;
 
 -- chat_executor_configs 시드 (ems만 자격증명 필드, 나머지는 내부 시스템 — 환경변수로 URL 결정)

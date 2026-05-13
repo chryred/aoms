@@ -266,6 +266,29 @@ POST /metric/similarity
 ```
 > RRF 점수는 순위 기반(상대 스케일)이라 기존 cosine 임계값과 다르다. 운영 데이터 축적 후 재튜닝.
 
+### 알림성 로그 자동 분류 흐름 (notification classification)
+
+```
+5분 주기 analyze_with_vector_context():
+  1. Qdrant log_incidents 유사 검색
+  2. 상위 결과 payload.is_notification=true AND RRF ≥ 0.025?
+     → force_real 미등록: notification_auto 반환 (DB/Teams 없음, 완전 skip)
+     → force_real 등록됨: LLM 정상 분석 진행
+  3. LLM 분석 (is_notification 판단 포함)
+     → is_notification=true: Qdrant 저장(is_notification=True) + admin-api Teams 1회
+     → is_notification=false: 기존 warning/critical 흐름
+```
+
+**anomaly_type 값 정리**:
+| 값 | 의미 | Teams |
+|---|---|---|
+| `notification` | LLM이 최초 알림성 분류 | 알림성 카드 1회 |
+| `notification_auto` | Qdrant 유사도 자동 skip | 없음 (DB 저장도 없음) |
+| `new` / `recurring` / `related` / `duplicate` | 기존 이상 분류 | 기존 흐름 |
+
+**force_real**: `alert_exclusions.exclusion_type='force_real'` 등록 시 notification auto-skip 비활성화.
+`_NOTIFICATION_SKIP_THRESHOLD = 0.025` (상수 — `analyzer.py` 모듈 상단).
+
 ### 집계 처리 흐름 (Phase 5 — 내부 스케줄러)
 
 **PROMQL_MAP 수집기별 지원 현황 (Phase 9에서 node_exporter/jmx_exporter 제거):**

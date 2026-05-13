@@ -88,6 +88,7 @@ admin-api/
 | `llm_agent_configs` | 업무 영역별 DevX agent_code 관리 (9개 영역). `area_code` 유니크 (ADR-007) |
 | `system_contacts` | 시스템↔담당자 N:M 매핑. `notify_channels`에 콤마로 채널 지정 |
 | `alert_history` | 모든 알림 발송 이력. `alert_type`: `metric` / `log_analysis`. 메트릭 복구 시 원본 row 의 `resolved_at` 만 업데이트 (별도 row 생성 안 함). `error_message` 컬럼(ADR-002) 포함. `metric_types JSONB`: prometheus_analyzer 알림에 묶인 메트릭 종류 (예: `["cpu","disk_io"]`, NULL=레거시/Alertmanager 알림) |
+| `alert_exclusions` | 로그 분석 예외 처리 규칙. `exclusion_type`: `skip`(완전 제외) / `force_real`(LLM 알림성 오판 정정 — Qdrant notification auto-skip 무시하고 LLM 분석 강제). 매칭 키 `(system_id, template, instance_role)`. log-analyzer `_is_template_excluded()`가 분석 주기마다 참조 |
 | `metric_exclusions` | prometheus_analyzer 메트릭 알림 예외 처리 규칙. 매칭 키 `(system_id, host, metric_type)` — `host=NULL` 와일드카드. `override_threshold`: NULL=완전 차단 / 값=임계치 대체(개발기 둔감화). cycle 시작 시 활성 규칙 캐시 → push 사이트에서 anomaly append 차단. 로그 예외처리(`alert_exclusions`)와 대칭 |
 | `log_analysis_history` | LLM 분석 결과 저장. log-analyzer 서비스가 POST로 전달. `error_message`(실패 사유)·`model_used`(LLM_TYPE) 컬럼 포함(ADR-001/002) |
 | `alert_cooldown` | 중복 알림 방지용 쿨다운 추적. key: `{system}:{role}:{alertname}:{severity}` |

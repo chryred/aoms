@@ -59,8 +59,18 @@ ANALYSIS_QUERY = """다음 서버 로그를 분석하여 반드시 아래 JSON �
   "1) 즉시 조치: ...\\n2) 원인 분석: ...\\n3) 재발 방지: ..."
   한 줄에 모든 항목을 이어 쓰지 말 것. 항목 내부는 한 문장으로 간결하게.
 
+심각도 판단 추가 규칙 (is_notification 분류):
+ERROR 레벨이더라도 아래 조건을 **모두** 만족하면 severity=info, is_notification=true로 분류한다.
+1. 스택트레이스가 없다 (at com., at org., Caused by: 패턴 없음)
+   ※ 예외 클래스명만 있고 스택트레이스 없는 경우 → 메시지 내용으로 판단
+2. DB·API·메시지큐 등 외부 시스템 연결 실패가 아니다
+3. 메시지 내용이 상태 통보·비즈니스 규칙 거부·정상 종료 중 하나다
+   (예: 미사용/미설정/만료/없음/차단/완료)
+반드시 warning 이상: 스택트레이스 포함, 외부 연결 실패, 데이터 정합성 오류.
+is_notification=true 시 root_cause: "알림성 로그 — {{판단 근거 1줄}}" 형식으로 작성.
+
 응답 형식:
-{{"severity": "critical 또는 warning 또는 info", "root_cause": "원인 요약\\n근거/세부 설명", "recommendation": "1) 즉시 조치: ...\\n2) 원인 분석: ...\\n3) 재발 방지: ..."}}"""
+{{"severity": "critical 또는 warning 또는 info", "is_notification": false, "root_cause": "원인 요약\\n근거/세부 설명", "recommendation": "1) 즉시 조치: ...\\n2) 원인 분석: ...\\n3) 재발 방지: ..."}}"""
 
 
 async def get_systems() -> list[dict]:
@@ -167,6 +177,9 @@ async def fetch_logs_for_system(system_name: str) -> dict[str, list[dict]]:
     return by_role
 
 
+_NOTIFICATION_SKIP_THRESHOLD = 0.025  # Qdrant RRF 임계값 — notification auto-skip 판정 기준
+
+
 async def analyze_with_vector_context(
     system_name: str,
     instance_role: str,
@@ -174,6 +187,7 @@ async def analyze_with_vector_context(
     agent_code: str,
     trace_context: str = "",
     trace_tier: str = "5min",
+    has_force_real: bool = False,
 ) -> dict:
     """
     T4.14 — 벡터 유사도 검색 + LLM 분석 통합 파이프라인
@@ -215,6 +229,26 @@ async def analyze_with_vector_context(
             logger.warning(
                 f"Qdrant 검색 실패: {type(e).__name__}: {e!r} → 신규 이상으로 처리"
             )
+
+    # notification auto-skip: force_real 미등록 + Qdrant 유사 notification 패턴 존재 시 LLM 생략
+    if not has_force_real:
+        top_results = anomaly_info.get("top_results", [])
+        if top_results:
+            top = top_results[0]
+            if (top["payload"].get("is_notification") is True
+                    and top["score"] >= _NOTIFICATION_SKIP_THRESHOLD):
+                logger.info(
+                    f"{system_name}/{instance_role}: notification auto-skip "
+                    f"(score={top['score']:.3f})"
+                )
+                return {
+                    "anomaly_type":     "notification_auto",
+                    "severity":         "info",
+                    "is_notification":  True,
+                    "similarity_score": top["score"],
+                    "root_cause":       "",
+                    "recommendation":   "",
+                }
 
     if anomaly_info["type"] == "duplicate":
         # 중복 패턴이어도 LLM 분석은 매번 수행한다 (재분석 비용 < 빈 root_cause 로 인한
@@ -272,6 +306,7 @@ async def analyze_with_vector_context(
                 analysis.get("error_category"),
                 root_cause=analysis.get("root_cause"),
                 recommendation=analysis.get("recommendation"),
+                is_notification=bool(analysis.get("is_notification", False)),
             )
         except Exception as e:
             qdrant_store_error = f"qdrant_store_error: {type(e).__name__}: {e!r}"[:280]
@@ -371,14 +406,18 @@ def _is_template_excluded(
     instance_role: str,
     template: str,
     count: int = 0,
-) -> int | None:
-    """캐시된 규칙 목록에서 매칭 규칙 id 반환. 없으면 None.
+) -> tuple[int, str] | None:
+    """캐시된 규칙 목록에서 매칭 규칙 (id, exclusion_type) 반환. 없으면 None.
 
     매칭 조건:
       - system_id, template 일치
       - instance_role 일치 (rule.instance_role=None이면 모든 role)
       - expires_at 미래거나 NULL (Lazy 만료 검증)
       - max_count_per_window 임계값 이내 (count 인자 제공 시)
+
+    exclusion_type:
+      - 'skip': 완전 제외 (LLM/Teams/DB 없음)
+      - 'force_real': Qdrant notification auto-skip 무시, LLM 정상 분석 강제
     """
     now_naive = datetime.now(timezone.utc).replace(tzinfo=None)
     for rule in rules:
@@ -402,7 +441,7 @@ def _is_template_excluded(
         max_count = rule.get("max_count_per_window")
         if max_count is not None and count > max_count:
             continue
-        return rule["id"]
+        return (rule["id"], rule.get("exclusion_type", "skip"))
     return None
 
 
@@ -421,19 +460,25 @@ async def _analyze_one_role(
     label = f"{system_name}/{instance_role}"
 
     # 예외 처리 게이트 (semaphore 획득 전 — CPU only)
+    has_force_real = False  # force_real 템플릿 포함 여부 — Qdrant notification auto-skip 비활성화 플래그
     if exclusion_rules:
         filtered_logs = []
         excluded_templates: list[str] = []
         for log in logs:
             tmpl = log.get("template", "")
             cnt = int(log.get("count", 0))
-            rule_id = _is_template_excluded(
+            match = _is_template_excluded(
                 exclusion_rules, system_id, instance_role, tmpl, count=cnt,
             )
-            if rule_id is None:
+            if match is None:
                 filtered_logs.append(log)
             else:
-                excluded_templates.append(tmpl)
+                rule_id, excl_type = match
+                if excl_type == "force_real":
+                    filtered_logs.append(log)   # 분석 대상 유지
+                    has_force_real = True
+                else:
+                    excluded_templates.append(tmpl)  # skip: 완전 제외
         if excluded_templates:
             logger.info(f"[{label}] 예외 처리 템플릿 {len(excluded_templates)}건 스킵")
         if not filtered_logs:
@@ -455,7 +500,15 @@ async def _analyze_one_role(
                 system_name, instance_role, logs, agent_code,
                 trace_context=trace_ctx,
                 trace_tier="5min",
+                has_force_real=has_force_real,
             )
+
+            # notification_auto: Qdrant 유사도 자동 skip — DB/Teams 없이 종료
+            if analysis.get("anomaly_type") == "notification_auto":
+                logger.info(
+                    f"[{label}] notification_auto skip (score={analysis.get('similarity_score', 0):.3f})"
+                )
+                return {"status": "notification_auto", "label": label}
 
             severity       = analysis.get("severity", "info")
             root_cause     = analysis.get("root_cause", "")
@@ -514,7 +567,7 @@ async def run_analysis() -> dict:
       errors:    분석 과정 예외 발생 건 (실패 레코드는 DB에 별도 저장됨)
     """
     logger.info("로그 분석 시작")
-    results: dict = {"analyzed": 0, "skipped": 0, "no_logs": 0, "excluded": 0, "errors": 0, "systems": []}
+    results: dict = {"analyzed": 0, "skipped": 0, "no_logs": 0, "excluded": 0, "notification_auto": 0, "errors": 0, "systems": []}
 
     # 이번 분석 주기의 활성 예외 규칙 캐시 (300초 주기 1회 조회)
     exclusion_rules = await _load_exclusion_rules()

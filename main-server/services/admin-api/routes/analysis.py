@@ -29,6 +29,7 @@ async def create_analysis(payload: LogAnalysisCreate, db: AsyncSession = Depends
     if not system:
         raise HTTPException(status_code=404, detail="System not found")
 
+
     # ── 예외 처리 게이트 (이중 안전망 — log-analyzer 캐시 미스 방어) ──────────
     # templates 중 하나라도 예외 규칙에 해당하면 LLM 결과를 excluded=true 로 저장하고 즉시 반환
     # template_counts가 제공되면 max_count_per_window 임계값까지 검증
@@ -73,6 +74,7 @@ async def create_analysis(payload: LogAnalysisCreate, db: AsyncSession = Depends
     await db.flush()  # record.id 확보 (alert_record.log_analysis_id 연결용)
 
     is_failure = bool(payload.error_message)
+    is_notification_first = (payload.anomaly_type == "notification")
     # 분석 실패(severity="warning")도 포함 — LLM 연결 장애를 Teams로 알림
     will_send_teams = (
         payload.anomaly_type == "duplicate" or payload.severity in ("warning", "critical")
@@ -124,6 +126,31 @@ async def create_analysis(payload: LogAnalysisCreate, db: AsyncSession = Depends
             description=f"[{payload.severity.upper()}] {alert_record.title[:200]}",
             actor_name="system",
         ))
+
+    if is_notification_first:
+        # 알림성 로그 최초 감지 — 1회 알림성 Teams 카드 발송
+        _, contacts = await get_system_and_contacts(db, system.system_name)
+        contacts_data = [{"name": c["name"], "teams_upn": c["teams_upn"]} for c in contacts]
+        webhook_url = system.teams_webhook_url or DEFAULT_WEBHOOK_URL
+        if webhook_url:
+            force_real_url = (
+                f"{os.getenv('FRONTEND_EXTERNAL_URL', 'http://localhost:3001').rstrip('/')}"
+                f"/alert-exclusions?system_id={system.id}"
+                f"&instance_role={payload.instance_role or ''}"
+                f"&exclusion_type=force_real"
+            )
+            try:
+                await notifier.send_notification_alert(
+                    webhook_url=webhook_url,
+                    system_display_name=system.display_name,
+                    instance_role=payload.instance_role or "",
+                    log_sample=(payload.log_content or "")[:500],
+                    notification_reason=payload.root_cause or "",
+                    contacts=contacts_data,
+                    force_real_url=force_real_url,
+                )
+            except Exception as exc:
+                logger.warning("알림성 로그 Teams 카드 발송 실패: %s", exc)
 
     if will_send_teams:
         _, contacts = await get_system_and_contacts(db, system.system_name)

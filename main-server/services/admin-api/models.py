@@ -297,6 +297,8 @@ class AlertExclusion(Base):
     max_count_per_window = Column(Integer)
     # 자동 만료 시각 (NULL = 만료 없음). UTC naive — Lazy 검증 (매칭 시점에 비교)
     expires_at           = Column(DateTime)
+    # 예외 유형: 'skip' 완전 제외 | 'force_real' LLM 알림성 오판 정정
+    exclusion_type       = Column(String(20), nullable=False, default="skip", server_default="skip")
 
     __table_args__ = (
         Index("idx_alert_exclusions_active_system", "system_id", "active"),

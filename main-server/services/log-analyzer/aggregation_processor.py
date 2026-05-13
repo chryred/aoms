@@ -44,6 +44,50 @@ ADMIN_API_URL    = os.getenv("ADMIN_API_URL",    "http://admin-api:8080")
 PROMETHEUS_URL   = os.getenv("PROMETHEUS_URL",   "http://prometheus:9090")
 TEAMS_WEBHOOK_URL = os.getenv("TEAMS_WEBHOOK_URL", "")
 
+# 알림성 로그 비율 임계값 — 이 비율 이상이면 집계 LLM 프롬프트에 필터링 컨텍스트 주입
+_NOTIFICATION_RATIO_THRESHOLD = 0.5
+
+
+async def _get_notification_ratio(
+    client: httpx.AsyncClient,
+    system_id: int,
+    from_dt: str,
+    to_dt: str,
+) -> float:
+    """해당 기간 log_analysis_history에서 알림성 로그(anomaly_type=notification|notification_auto) 비율 반환.
+    조회 실패 시 0.0 반환 (안전 fallback — 비율 주입 없이 계속)."""
+    try:
+        resp = await client.get(
+            f"{ADMIN_API_URL}/api/v1/analysis",
+            params={"system_id": system_id, "from_dt": from_dt, "to_dt": to_dt, "limit": 500},
+            timeout=5.0,
+        )
+        if resp.status_code != 200:
+            return 0.0
+        records = resp.json()
+        if not records:
+            return 0.0
+        notification_count = sum(
+            1 for r in records
+            if r.get("anomaly_type") in ("notification", "notification_auto")
+        )
+        return notification_count / len(records)
+    except Exception as exc:
+        logger.debug("알림성 비율 조회 실패 (무시): %s", exc)
+        return 0.0
+
+
+def _notification_hint(ratio: float) -> str:
+    """알림성 비율이 임계값 이상이면 LLM 프롬프트에 주입할 컨텍스트 반환."""
+    if ratio < _NOTIFICATION_RATIO_THRESHOLD:
+        return ""
+    pct = int(ratio * 100)
+    return (
+        f"\n[참고] 해당 기간 로그 분석 중 알림성 로그 비율: {pct}%\n"
+        "알림성 로그는 실제 시스템 이상이 아니므로 심각도 판단에서 제외하세요.\n"
+    )
+
+
 # ── PromQL 매핑 ──────────────────────────────────────────────────────────────
 
 PROMQL_MAP: dict[str, dict[str, dict[str, str]]] = {
@@ -523,11 +567,23 @@ async def _process_single_config(
                 if lines:
                     trend_section = "\n[최근 추이]\n" + "\n".join(lines) + "\n"
 
+            # 알림성 로그 비율 조회 → log 메트릭 그룹에만 프롬프트 컨텍스트 주입
+            notif_hint = ""
+            if metric_group == "log":
+                hour_from = (
+                    datetime.fromisoformat(hour_bucket_iso).replace(tzinfo=None)
+                    - timedelta(hours=1)
+                ).isoformat()
+                notif_ratio = await _get_notification_ratio(
+                    client, system_id, hour_from, hour_bucket_iso
+                )
+                notif_hint = _notification_hint(notif_ratio)
+
             llm_prompt = build_hourly_agg_prompt(
                 display_name, system_name, hour_bucket_iso,
                 collector_type, metric_group, anomaly_reason,
                 metrics_formatted, trace_section, trend_section,
-            )
+            ) + notif_hint
 
             _hourly_agent_code = await get_agent_code_for_area("metric_hourly_aggregation")
             llm_text = await call_llm_text(llm_prompt, max_tokens=400, agent_code=_hourly_agent_code)
@@ -942,9 +998,20 @@ async def run_daily_aggregation() -> dict:
                 + (f", 주요원인: {ds['cause'][:50]}" if ds.get("cause") else "")
                 for ds in daily_system_summary.values()
             ]
+            # 전날 전체 알림성 비율 — system_id=None이면 전체 시스템 합산 추정
+            daily_notif_ratios = []
+            for sn_info in daily_system_summary.values():
+                # system_name → system_id 역조회는 비용이 크므로 system_id 없이 전체 비율 사용
+                pass
+            # 단순화: 일별 집계는 system_id 없이 전체 비율 추정 불가 → 프롬프트에 일반 안내만 추가
+            daily_notif_hint = (
+                "\n[참고] 알림성 로그(is_notification)는 실제 시스템 이상이 아니므로 "
+                "심각도 판단에서 제외하세요.\n"
+            )
+
             daily_llm_prompt = build_daily_agg_prompt(
                 day_label, daily_system_lines, len(daily_system_summary),
-            )
+            ) + daily_notif_hint
             try:
                 _daily_agent_code = await get_agent_code_for_area("metric_daily_aggregation")
                 daily_llm_text = await call_llm_text(daily_llm_prompt, max_tokens=200, agent_code=_daily_agent_code)
@@ -1082,7 +1149,10 @@ async def run_weekly_report() -> dict:
             f"{week_end_dt.strftime('%Y년 %m월 %d일')}"
         )
 
-        llm_prompt = build_weekly_agg_prompt(system_lines, len(system_summary))
+        llm_prompt = build_weekly_agg_prompt(system_lines, len(system_summary)) + (
+            "\n[참고] 알림성 로그(is_notification)는 실제 시스템 이상이 아니므로 "
+            "심각도 판단에서 제외하세요.\n"
+        )
 
         _weekly_agent_code = await get_agent_code_for_area("metric_weekly_aggregation")
         llm_text = await call_llm_text(llm_prompt, max_tokens=300, agent_code=_weekly_agent_code)
@@ -1291,7 +1361,10 @@ async def run_monthly_report() -> dict:
             for s in sorted_systems
         ]
 
-        llm_prompt = build_monthly_agg_prompt(month_name, system_lines, len(system_summary))
+        llm_prompt = build_monthly_agg_prompt(month_name, system_lines, len(system_summary)) + (
+            "\n[참고] 알림성 로그(is_notification)는 실제 시스템 이상이 아니므로 "
+            "심각도 판단에서 제외하세요.\n"
+        )
 
         _monthly_agent_code = await get_agent_code_for_area("metric_monthly_aggregation")
         llm_text = await call_llm_text(llm_prompt, max_tokens=400, agent_code=_monthly_agent_code)
@@ -1462,7 +1535,10 @@ async def _run_single_period_report(
         "annual":    "연간",
     }.get(period_type, period_type)
 
-    llm_prompt = build_longperiod_agg_prompt(label, period_label_kr, system_lines, len(system_summary))
+    llm_prompt = build_longperiod_agg_prompt(label, period_label_kr, system_lines, len(system_summary)) + (
+        "\n[참고] 알림성 로그(is_notification)는 실제 시스템 이상이 아니므로 "
+        "심각도 판단에서 제외하세요.\n"
+    )
 
     _longperiod_agent_code = await get_agent_code_for_area("metric_longperiod_aggregation")
     llm_text = await call_llm_text(llm_prompt, max_tokens=500, agent_code=_longperiod_agent_code)

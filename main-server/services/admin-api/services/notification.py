@@ -20,6 +20,7 @@ from .adaptive_card_builder import (
     build_log_analysis_card,
     build_mention_text,
     build_metric_alert_card,
+    build_notification_card,
     build_recovery_card,
 )
 
@@ -134,6 +135,27 @@ class TeamsNotifier:
             instance_role=instance_role,
             host=host,
             contacts=contacts,
+        )
+        return await _post_webhook(webhook_url, body)
+
+    async def send_notification_alert(
+        self,
+        webhook_url: str,
+        system_display_name: str,
+        instance_role: str,
+        log_sample: str,
+        notification_reason: str,
+        contacts: list[dict],
+        force_real_url: str,
+    ) -> bool:
+        """알림성 로그 최초 감지 Teams 카드 (1회만 발송)."""
+        body = build_notification_card(
+            system_display_name=system_display_name,
+            instance_role=instance_role,
+            log_sample=log_sample,
+            notification_reason=notification_reason,
+            contacts=contacts,
+            force_real_url=force_real_url,
         )
         return await _post_webhook(webhook_url, body)
 

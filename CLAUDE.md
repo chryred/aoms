@@ -188,6 +188,7 @@ make test-api        # 단위 테스트 (SQLite in-memory)
   - 스키마 변경 migration은 이 폴더로 통일. **다른 위치(admin-api/migrations 등)에 생성 금지**
 - **3중 동기화** 필수: `models.py` (SQLAlchemy ORM) + `postgres/init.sql` + `postgres/migrations/*.sql`
 - `main.py` lifespan의 `create_all()`은 개발 편의용이다. 운영 스키마 변경은 직접 SQL로 적용한다.
+- **DDL 컬럼 순서**: `CREATE TABLE` 작성 시 시스템/감사 필드(`created_by`, `created_at`, `updated_by`, `updated_at`, `deactivated_by`, `deactivated_at`)는 **반드시 맨 끝**에 위치한다. 비즈니스 컬럼이 먼저, 시스템 필드가 마지막. 자세한 예시는 `main-server/CLAUDE.md` 참조.
 
 ### [Frontend / React] 디자인 시스템 일탈 금지
 - 뉴모피즘 디자인 시스템(`design-system.md` 또는 기존 컴포넌트 참고)을 벗어난 스타일을 임의로 추가하지 않는다.

@@ -504,6 +504,7 @@ async def store_incident_vector(
     error_category: str | None = None,
     root_cause: str | None = None,
     recommendation: str | None = None,
+    is_notification: bool = False,
 ) -> str:
     """분석된 로그 패턴을 Qdrant에 Dense+Sparse로 저장. point_id 반환."""
     point_id = str(uuid4())
@@ -518,6 +519,7 @@ async def store_incident_vector(
         "timestamp":        datetime.now(timezone.utc).isoformat(),
         "occurrence_count": 1,
         "resolved":         False,
+        "is_notification":  is_notification,
     }
 
     await ensure_collection(COLLECTION, hybrid=True)

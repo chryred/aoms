@@ -99,7 +99,26 @@ def build_enhanced_prompt(
   한 줄에 모든 항목을 이어 쓰지 말 것. 항목 내부는 한 문장으로 간결하게.
 - analysis_type: 로그가 여러 [log_type] 섹션으로 구분되어 있을 때만 작성. 단일 원인에서 연쇄된 경우 "cascade", 서로 독립된 이상인 경우 "independent". 단일 섹션이면 생략.
 
-{{"severity": "critical 또는 warning 또는 info", "root_cause": "원인 요약\\n근거/세부 설명", "recommendation": "1) 즉시 조치: ...\\n2) 원인 분석: ...\\n3) 재발 방지: ...", "error_category": "오류 카테고리 (예: DB_CONNECTION, MEMORY, NETWORK 등)", "estimated_impact": "예상 영향 범위 (한국어, 1문장)", "analysis_type": "cascade 또는 independent (복수 log_type 섹션일 때만)"}}"""
+심각도 판단 추가 규칙 (is_notification 분류):
+ERROR 레벨이더라도 아래 조건을 **모두** 만족하면 severity=info, is_notification=true로 분류한다.
+1. 스택트레이스가 없다 (at com., at org., Caused by: 패턴 없음)
+   ※ 예외 클래스명만 있고 스택트레이스 없는 경우 → 메시지 내용으로 판단
+2. DB·API·메시지큐 등 외부 시스템 연결 실패가 아니다
+3. 메시지 내용이 상태 통보·비즈니스 규칙 거부·정상 종료 중 하나다
+   (예: 미사용/미설정/만료/없음/차단/완료)
+
+반드시 warning 이상으로 분류:
+- 스택트레이스 포함 (at com., at org., Caused by:)
+- 외부 시스템 연결·응답 실패 (DB, API, 메시지큐 등)
+- 데이터 처리·정합성 오류
+
+is_notification=true 시 root_cause 작성 규칙:
+- 형식: "알림성 로그 — {{판단 근거 1줄}}"
+- 예시: "알림성 로그 — 스택트레이스 없음, SSO 미사용 상태 통보"
+        "알림성 로그 — 외부 연결 실패 아님, 세션 만료 정상 처리"
+- 이 내용이 담당자 알림 카드의 판단 근거로 표시됨
+
+{{"severity": "critical 또는 warning 또는 info", "is_notification": false, "root_cause": "원인 요약\\n근거/세부 설명", "recommendation": "1) 즉시 조치: ...\\n2) 원인 분석: ...\\n3) 재발 방지: ...", "error_category": "오류 카테고리 (예: DB_CONNECTION, MEMORY, NETWORK 등)", "estimated_impact": "예상 영향 범위 (한국어, 1문장)", "analysis_type": "cascade 또는 independent (복수 log_type 섹션일 때만)"}}"""
 
 
 # ── 집계 프롬프트 (aggregation_processor.py) ─────────────────────────────────

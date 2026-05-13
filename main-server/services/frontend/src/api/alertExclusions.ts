@@ -7,6 +7,7 @@ export interface AlertExclusionItem {
   reason?: string | null
   max_count_per_window?: number | null
   expires_at?: string | null // ISO 8601 UTC
+  exclusion_type?: 'skip' | 'force_real' // 'skip': 완전 제외 | 'force_real': LLM 오판 정정
 }
 
 export interface AlertExclusionCreate {
@@ -29,6 +30,7 @@ export interface AlertExclusion {
   last_skipped_at: string | null
   max_count_per_window: number | null
   expires_at: string | null // ISO 8601 UTC
+  exclusion_type: 'skip' | 'force_real'
 }
 
 export interface BulkExcludeResult {
@@ -43,6 +45,7 @@ export interface AlertsBulkExcludeRequest {
   created_by?: string | null
   max_count_per_window?: number | null
   expires_at?: string | null // ISO 8601 UTC
+  exclusion_type?: 'skip' | 'force_real'
 }
 
 export interface AlertTemplateInfo {

@@ -304,3 +304,77 @@ def build_recovery_card(
         entities=build_entities(contacts),
         summary=f"{title} — {system_display_name}",
     )
+
+
+def build_notification_card(
+    system_display_name: str,
+    instance_role: str,
+    log_sample: str,
+    notification_reason: str,
+    contacts: list[dict],
+    force_real_url: str,
+) -> dict:
+    """알림성 로그 최초 감지 Teams 카드 (최초 1회만 발송)."""
+    mention_text = build_mention_text(contacts)
+    title = f"[알림성 로그 감지] {system_display_name}"
+
+    facts = [
+        {"title": "시스템",   "value": system_display_name},
+        {"title": "서버 역할", "value": instance_role or "-"},
+    ]
+
+    body_extra = [
+        {
+            "type": "TextBlock",
+            "text": "**로그 내용**",
+            "weight": "Bolder",
+            "spacing": "Medium",
+        },
+        {
+            "type": "TextBlock",
+            "text": (log_sample[:500] if log_sample else "-"),
+            "wrap": True,
+            "fontType": "Monospace",
+            "size": "Small",
+        },
+        {
+            "type": "TextBlock",
+            "text": "**알림성 판단 근거**",
+            "weight": "Bolder",
+            "spacing": "Medium",
+        },
+        {
+            "type": "TextBlock",
+            "text": (notification_reason or "-"),
+            "wrap": True,
+        },
+        {
+            "type": "TextBlock",
+            "text": "이후 동일 패턴은 알림이 발송되지 않습니다. 실제 에러라고 판단되면 아래 버튼을 클릭하세요.",
+            "wrap": True,
+            "spacing": "Medium",
+            "color": "Warning",
+        },
+    ]
+
+    if mention_text:
+        body_extra.append({"type": "TextBlock", "text": f"담당자: {mention_text}", "wrap": True})
+
+    actions = [
+        {
+            "type": "Action.OpenUrl",
+            "title": "실제 에러로 분석 강제",
+            "url": force_real_url,
+        }
+    ]
+
+    return _build_base_card(
+        alert_type_label="알림성 로그 감지",
+        title=title,
+        severity_color="Default",
+        facts=facts,
+        body_extra=body_extra,
+        actions=actions,
+        entities=build_entities(contacts),
+        summary=f"{title} / {instance_role}",
+    )

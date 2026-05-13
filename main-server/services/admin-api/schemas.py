@@ -400,6 +400,8 @@ class AlertExclusionItem(BaseModel):
     max_count_per_window: Optional[int] = None
     # 자동 만료 시각 (None = 만료 없음). 입력은 UTC naive 또는 ISO 8601 'Z'.
     expires_at: Optional[datetime] = None
+    # 예외 유형: 'skip' 완전 제외 | 'force_real' LLM 알림성 오판 정정
+    exclusion_type: str = "skip"
 
 
 class AlertExclusionCreate(BaseModel):
@@ -422,6 +424,7 @@ class AlertExclusionOut(BaseModel):
     last_skipped_at: Optional[UtcDatetime]
     max_count_per_window: Optional[int] = None
     expires_at: Optional[UtcDatetime] = None
+    exclusion_type: str = "skip"
 
     model_config = {"from_attributes": True}
 

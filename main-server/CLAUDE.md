@@ -76,6 +76,44 @@ configs/postgres/
 
 > `services/admin-api/migrations/` 폴더는 폐기됨. 향후 마이그레이션은 반드시 `configs/postgres/migrations/`에 생성.
 
+### DDL 컬럼 순서 규칙
+
+`CREATE TABLE` 작성 시 컬럼 순서는 반드시 아래 순서를 따른다.
+
+```
+1. PK (id)
+2. FK (system_id, 관련 외래키)
+3. 비즈니스 컬럼 (도메인 의미를 가진 필드)
+4. 시스템/감사 필드 — 반드시 맨 끝에 위치
+   - created_by, created_at
+   - updated_by, updated_at
+   - deactivated_by, deactivated_at
+```
+
+**잘못된 예 (시스템 필드가 중간에 위치)**:
+```sql
+CREATE TABLE foo (
+    id SERIAL PRIMARY KEY,
+    name TEXT,
+    created_by VARCHAR(100),  -- ❌ 중간에 위치
+    created_at TIMESTAMP,
+    active BOOLEAN,
+    expires_at TIMESTAMP
+);
+```
+
+**올바른 예 (시스템 필드가 맨 끝)**:
+```sql
+CREATE TABLE foo (
+    id SERIAL PRIMARY KEY,
+    name TEXT,
+    active BOOLEAN,
+    expires_at TIMESTAMP,
+    created_by VARCHAR(100),  -- ✅ 맨 끝
+    created_at TIMESTAMP
+);
+```
+
 ### 운영 DB 초기화
 ```bash
 docker exec -i synapse-postgres psql -U synapse -d synapse < configs/postgres/init.sql

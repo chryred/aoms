@@ -79,6 +79,7 @@ export function AlertHistoryPage() {
   const [maxCountInput, setMaxCountInput] = useState('') // count 임계값 (로그 모드 전용, 빈문자열 = 무제한)
   const [expiryOption, setExpiryOption] = useState<'30' | '7' | '90' | 'custom' | 'never'>('30')
   const [customExpiryDate, setCustomExpiryDate] = useState('') // YYYY-MM-DD (KST)
+  const [exclusionType, setExclusionType] = useState<'skip' | 'force_real'>('skip')
   const [isExcluding, setIsExcluding] = useState(false)
   const [excludeResultMsg, setExcludeResultMsg] = useState<string | null>(null)
   // 로그 — 템플릿 선택 상태
@@ -412,6 +413,7 @@ export function AlertHistoryPage() {
           reason: excludeReason || null,
           max_count_per_window: maxCount,
           expires_at: expiresAt,
+          exclusion_type: exclusionType,
         })),
         created_by: user?.name ?? null,
       })
@@ -794,6 +796,7 @@ export function AlertHistoryPage() {
                     <th className="text-text-secondary px-3 py-3 text-left font-medium">
                       Template
                     </th>
+                    <th className="text-text-secondary px-3 py-3 text-left font-medium">유형</th>
                     <th className="text-text-secondary px-3 py-3 text-left font-medium">사유</th>
                     <th className="text-text-secondary px-3 py-3 text-center font-medium">
                       임계값
@@ -836,6 +839,18 @@ export function AlertHistoryPage() {
                         <td className="text-text-primary max-w-xs px-3 py-2.5">
                           <span title={ex.template} className="block truncate font-mono text-xs">
                             {ex.template}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2.5">
+                          <span
+                            className={[
+                              'inline-flex rounded-sm px-1.5 py-0.5 text-[10px] font-medium',
+                              ex.exclusion_type === 'force_real'
+                                ? 'bg-warning/10 text-warning'
+                                : 'text-text-disabled bg-bg-base',
+                            ].join(' ')}
+                          >
+                            {ex.exclusion_type === 'force_real' ? '분석 강제' : '완전 제외'}
                           </span>
                         </td>
                         <td className="text-text-secondary max-w-[160px] px-3 py-2.5">
@@ -1287,6 +1302,41 @@ export function AlertHistoryPage() {
 
             {modalMode === 'log' ? (
               <div role="tabpanel" id="exclude-panel-log">
+                {/* 예외 유형 선택 */}
+                <div className="mb-4">
+                  <span className="text-text-secondary mb-1.5 block text-xs font-medium">예외 유형</span>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setExclusionType('skip')}
+                      className={[
+                        'flex-1 rounded-sm px-3 py-2 text-xs font-medium transition-colors',
+                        exclusionType === 'skip'
+                          ? 'bg-accent text-accent-contrast shadow-neu-pressed'
+                          : 'bg-bg-base text-text-secondary shadow-neu-flat hover:text-text-primary',
+                      ].join(' ')}
+                    >
+                      완전 제외
+                      <span className="text-text-disabled ml-1 font-normal">LLM 분석 없음</span>
+                    </button>
+                    <button
+                      onClick={() => setExclusionType('force_real')}
+                      className={[
+                        'flex-1 rounded-sm px-3 py-2 text-xs font-medium transition-colors',
+                        exclusionType === 'force_real'
+                          ? 'bg-accent text-accent-contrast shadow-neu-pressed'
+                          : 'bg-bg-base text-text-secondary shadow-neu-flat hover:text-text-primary',
+                      ].join(' ')}
+                    >
+                      분석 강제
+                      <span className="text-text-disabled ml-1 font-normal">LLM 오판 정정</span>
+                    </button>
+                  </div>
+                  {exclusionType === 'force_real' && (
+                    <p className="text-warning mt-1.5 text-xs">
+                      LLM이 알림성으로 분류했으나 실제 에러인 경우 사용. 이후 이 패턴은 항상 LLM 분석 후 Teams 알림됩니다.
+                    </p>
+                  )}
+                </div>
                 <p className="text-text-secondary mb-4 text-sm">
                   예외로 등록할 template을 선택하세요. 이후 동일한 에러 패턴은 알림/인시던트가
                   생성되지 않습니다.
