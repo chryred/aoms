@@ -172,7 +172,7 @@ async def refresh(request: Request, db: AsyncSession = Depends(get_db)):
     if not refresh_token:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token 없음")
 
-    from jose import JWTError
+    from jwt.exceptions import PyJWTError as JWTError
     try:
         payload = decode_token(refresh_token)
     except JWTError:

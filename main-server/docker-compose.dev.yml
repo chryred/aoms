@@ -7,7 +7,7 @@
 
 services:
   postgres:
-    image: postgres:16-alpine
+    image: postgres:16.13-alpine
     container_name: dev-postgres
     ports:
       - "5432:5432"
@@ -28,7 +28,7 @@ services:
       - dev-net
 
   prometheus:
-    image: prom/prometheus:v3.10.0
+    image: prom/prometheus:v3.11.3
     container_name: dev-prometheus
     ports:
       - "9090:9090"
@@ -48,7 +48,7 @@ services:
       - dev-net
 
   alertmanager:
-    image: prom/alertmanager:main
+    image: prom/alertmanager:v0.32.1
     container_name: dev-alertmanager
     ports:
       - "9093:9093"
@@ -114,7 +114,7 @@ services:
       - dev-net
 
   grafana:
-    image: grafana/grafana:12.4.0
+    image: grafana/grafana:12.4.2
     container_name: dev-grafana
     ports:
       - "3000:3000"
@@ -145,7 +145,7 @@ services:
   # docker compose에서 제외 — 빌드된 이미지(synapse-frontend:1.0) 없어도 dev-up 가능
 
   tempo:
-    image: grafana/tempo:2.9.1
+    image: grafana/tempo:2.9.2
     container_name: dev-tempo
     command: ["-config.file=/etc/tempo/tempo.yml"]
     volumes:

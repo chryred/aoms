@@ -271,7 +271,8 @@ async def _token_from_refresh(
 @router.get("/oauth/userinfo")
 async def userinfo(request: Request, db: AsyncSession = Depends(get_db)):
     """access_token으로 로그인한 사용자 정보 반환."""
-    from jose import JWTError, jwt as jose_jwt
+    import jwt as jose_jwt
+    from jwt.exceptions import PyJWTError as JWTError
 
     auth_header = request.headers.get("Authorization", "")
     if not auth_header.startswith("Bearer "):

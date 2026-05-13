@@ -16,6 +16,7 @@ from models import (
     AlertHistory,
     ChatMessage,
     ChatSession,
+    LlmAgentConfig,
     LogAnalysisHistory,
     System,
     User,
@@ -125,7 +126,15 @@ async def llm_query(
     context = await _build_context(db, body.system_name)
     full_prompt = context + body.prompt
 
-    answer = await call_llm_text(full_prompt, max_tokens=2048, agent_code=body.area_code)
+    cfg = (
+        await db.execute(
+            select(LlmAgentConfig.agent_code)
+            .where(LlmAgentConfig.area_code == body.area_code)
+            .where(LlmAgentConfig.is_active == True)
+        )
+    ).scalar_one_or_none() or ""
+
+    answer = await call_llm_text(full_prompt, max_tokens=2048, agent_code=cfg)
     if answer is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
