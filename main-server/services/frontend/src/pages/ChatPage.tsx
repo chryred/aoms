@@ -179,19 +179,39 @@ export function ChatPage() {
   // Scroll to bottom on new messages/tokens
   const scrollRef = useRef<HTMLDivElement>(null)
   const userScrolledUpRef = useRef(false)
+  const rafRef = useRef<number | null>(null)
 
   const handleScroll = useCallback(() => {
     const el = scrollRef.current
     if (!el) return
-    userScrolledUpRef.current = el.scrollHeight - el.scrollTop - el.clientHeight > 100
+    userScrolledUpRef.current = el.scrollHeight - el.scrollTop - el.clientHeight > 150
   }, [])
 
+  // [1] 스트리밍 토큰: rAF로 프레임당 1회 병합 (토큰마다 즉시 scrollTo 방지)
+  useEffect(() => {
+    if (userScrolledUpRef.current) return
+    if (rafRef.current) cancelAnimationFrame(rafRef.current)
+    rafRef.current = requestAnimationFrame(() => {
+      const el = scrollRef.current
+      if (el) el.scrollTop = el.scrollHeight
+      rafRef.current = null
+    })
+  }, [streamText, streamingTools.length])
+
+  // [2] 메시지 목록·스트리밍 상태 전환: 저빈도 이벤트 → smooth/instant
   useEffect(() => {
     const el = scrollRef.current
     if (!el) return
     if (isStreaming && userScrolledUpRef.current) return
     el.scrollTo({ top: el.scrollHeight, behavior: isStreaming ? 'instant' : 'smooth' })
-  }, [messages?.length, streamText, streamingTools.length, isStreaming])
+  }, [messages?.length, isStreaming])
+
+  // [3] 언마운트 시 rAF 정리
+  useEffect(() => {
+    return () => {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current)
+    }
+  }, [])
 
   // Cancel stream on unmount
   useEffect(() => {

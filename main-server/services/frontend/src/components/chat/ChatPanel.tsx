@@ -102,6 +102,7 @@ export function ChatPanel() {
   const [restoreValue, setRestoreValue] = useState<{ content: string; nonce: number } | undefined>()
   const scrollRef = useRef<HTMLDivElement>(null)
   const userScrolledUpRef = useRef(false)
+  const rafRef = useRef<number | null>(null)
 
   useEffect(() => {
     isStreamingRef.current = isStreaming
@@ -427,17 +428,34 @@ export function ChatPanel() {
   const handleScroll = useCallback(() => {
     const el = scrollRef.current
     if (!el) return
-    userScrolledUpRef.current = el.scrollHeight - el.scrollTop - el.clientHeight > 100
+    userScrolledUpRef.current = el.scrollHeight - el.scrollTop - el.clientHeight > 150
   }, [])
 
-  // 새 메시지/스트림 업데이트 시 하단으로 스크롤
+  // [1] 스트리밍 토큰: rAF로 프레임당 1회 병합 (토큰마다 즉시 scrollTo 방지)
+  useEffect(() => {
+    if (userScrolledUpRef.current) return
+    if (rafRef.current) cancelAnimationFrame(rafRef.current)
+    rafRef.current = requestAnimationFrame(() => {
+      const el = scrollRef.current
+      if (el) el.scrollTop = el.scrollHeight
+      rafRef.current = null
+    })
+  }, [streamText, streamingTools.length])
+
+  // [2] 메시지 목록·스트리밍 상태 전환: 저빈도 이벤트 → smooth/instant
   useEffect(() => {
     const el = scrollRef.current
     if (!el) return
-    // 스트리밍 중 사용자가 위로 스크롤했으면 강제 이동 안 함
     if (isStreaming && userScrolledUpRef.current) return
     el.scrollTo({ top: el.scrollHeight, behavior: isStreaming ? 'instant' : 'smooth' })
-  }, [messages?.length, streamText, streamingTools.length, isStreaming])
+  }, [messages?.length, isStreaming])
+
+  // [3] 언마운트 시 rAF 정리
+  useEffect(() => {
+    return () => {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current)
+    }
+  }, [])
 
   // 언마운트/패널 닫힘 시 스트림 취소
   useEffect(() => {
