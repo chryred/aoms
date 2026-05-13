@@ -215,8 +215,9 @@ export function ChatPage() {
 
   // Cancel stream on unmount
   useEffect(() => {
+    const ctrl = abortRef.current
     return () => {
-      abortRef.current?.abort()
+      ctrl?.abort()
     }
   }, [abortRef])
 
