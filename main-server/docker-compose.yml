@@ -220,8 +220,8 @@ services:
       - KNOWLEDGE_DOCS_DIR=${KNOWLEDGE_DOCS_DIR:-/attaches/knowledge-docs}
       # uvicorn worker 수 — 모델이 워커마다 로드되므로 기본 1 권장 (PR-3)
       - UVICORN_WORKERS=${LOG_ANALYZER_WORKERS:-1}
-    # bge-m3 ONNX(~1.2GB) 상시 로드 + reranker(~2.3GB) 호출 시 로드 → 3GB 마진 (PR-3, 기존 2048m)
-    mem_limit: 4096m
+    # Dense(~1.2GB) + Reranker(~2.3GB) startup eager 로드 + 처리 버퍼(~0.5GB) + 안전 마진 → 6GB
+    mem_limit: 6144m
     cpus: '1.0'
     depends_on: [admin-api]
     restart: unless-stopped

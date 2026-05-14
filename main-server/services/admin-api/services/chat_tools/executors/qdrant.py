@@ -295,7 +295,7 @@ async def _search_knowledge(
         payload["sources"] = sources
 
     try:
-        async with httpx.AsyncClient(timeout=20.0) as client:
+        async with httpx.AsyncClient(timeout=60.0) as client:
             resp = await client.post(f"{base}/knowledge/search", json=payload)
             if resp.status_code >= 400:
                 return {

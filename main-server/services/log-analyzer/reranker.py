@@ -23,6 +23,7 @@ Hybrid retrieval (Dense+Sparse RRF) 결과를 cross-encoder로 재정렬하여
 import asyncio
 import logging
 import os
+import threading
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +40,7 @@ _RERANK_MAX_CHARS = 3000
 _reranker_session = None       # onnxruntime.InferenceSession
 _reranker_tokenizer = None
 _reranker_input_names = None
+_reranker_load_lock = threading.Lock()  # 동시 요청 시 중복 로딩 방지
 _reranker_output_name = None   # 보통 "logits"
 
 
@@ -71,35 +73,40 @@ def _resolve_reranker_model_dir() -> str:
 
 
 def _get_reranker_session():
-    """bge-reranker-v2-m3 ONNX InferenceSession + tokenizer를 lazy-load."""
+    """bge-reranker-v2-m3 ONNX InferenceSession + tokenizer를 lazy-load (thread-safe)."""
     global _reranker_session, _reranker_tokenizer, _reranker_input_names, _reranker_output_name
     if _reranker_session is None:
-        import onnxruntime as ort
-        from tokenizers import Tokenizer  # PyTorch 불필요 — Rust 기반 tokenizers 직접 사용
+        with _reranker_load_lock:
+            if _reranker_session is None:  # double-checked locking
+                import onnxruntime as ort
+                from tokenizers import Tokenizer  # PyTorch 불필요 — Rust 기반 tokenizers 직접 사용
 
-        logger.info("Reranker 모델 로딩: %s (onnxruntime 직접 호출)", RERANKER_MODEL)
-        model_dir = _resolve_reranker_model_dir()
-        onnx_path = os.path.join(model_dir, RERANKER_ONNX_FILE)
+                logger.info("Reranker 모델 로딩 : %s (onnxruntime 직접 호출)", RERANKER_MODEL)
+                model_dir = _resolve_reranker_model_dir()
+                onnx_path = os.path.join(model_dir, RERANKER_ONNX_FILE)
 
-        sess_opt = ort.SessionOptions()
-        _reranker_session = ort.InferenceSession(
-            onnx_path,
-            sess_options=sess_opt,
-            providers=["CPUExecutionProvider"],
-        )
-        _reranker_input_names = {i.name for i in _reranker_session.get_inputs()}
-        output_names = [o.name for o in _reranker_session.get_outputs()]
-        # cross-encoder 출력은 일반적으로 "logits" — 첫 출력을 사용
-        _reranker_output_name = output_names[0]
+                sess_opt = ort.SessionOptions()
+                session = ort.InferenceSession(
+                    onnx_path,
+                    sess_options=sess_opt,
+                    providers=["CPUExecutionProvider"],
+                )
+                input_names = {i.name for i in session.get_inputs()}
+                output_names = [o.name for o in session.get_outputs()]
 
-        raw_tok = Tokenizer.from_file(os.path.join(model_dir, "tokenizer.json"))
-        raw_tok.enable_padding()
-        raw_tok.enable_truncation(max_length=RERANKER_MAX_LENGTH)
-        _reranker_tokenizer = raw_tok
-        logger.info(
-            "bge-reranker-v2-m3 ONNX 로드 완료 (FP32, ~2.3GB) — outputs=%s",
-            output_names,
-        )
+                raw_tok = Tokenizer.from_file(os.path.join(model_dir, "tokenizer.json"))
+                raw_tok.enable_padding()
+                raw_tok.enable_truncation(max_length=RERANKER_MAX_LENGTH)
+
+                # 모두 준비된 뒤 한 번에 할당 (부분 초기화 상태로 다른 스레드에 노출 방지)
+                _reranker_tokenizer = raw_tok
+                _reranker_input_names = input_names
+                _reranker_output_name = output_names[0]  # cross-encoder 출력은 일반적으로 "logits"
+                _reranker_session = session
+                logger.info(
+                    "bge-reranker-v2-m3 ONNX 로드 완료 (FP32, ~2.3GB) — outputs=%s",
+                    output_names,
+                )
     return _reranker_session, _reranker_tokenizer, _reranker_input_names, _reranker_output_name
 
 

@@ -57,6 +57,15 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning("임베딩 모델 사전 로드 실패 — 첫 요청 시 지연 발생 가능: %s", e)
 
+    # Reranker(bge-reranker-v2-m3, ~2.3GB) 사전 로드 — 첫 knowledge/search 요청 타임아웃 방지
+    try:
+        from reranker import _get_reranker_session
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, _get_reranker_session)
+        logger.info("Reranker 모델 사전 로드 완료")
+    except Exception as e:
+        logger.warning("Reranker 사전 로드 실패 — 첫 요청 시 지연 발생 가능: %s", e)
+
     # ADR-011: log_incidents / metric_baselines 는 Hybrid (Dense+Sparse) 스키마
     for col in ("log_incidents", "metric_baselines"):
         try:
