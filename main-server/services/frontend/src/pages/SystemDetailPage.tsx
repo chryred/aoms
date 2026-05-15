@@ -18,6 +18,29 @@ import { cn } from '@/lib/utils'
 import type { HourlyAggregation } from '@/types/aggregation'
 import type { AlertHistory } from '@/types/alert'
 
+interface ParsedAlertDesc {
+  root_cause?: string
+  recommendation?: string
+  log_content?: string
+}
+
+function parseAlertDescription(desc: string | null | undefined): ParsedAlertDesc | null {
+  if (!desc) return null
+  try {
+    const obj = JSON.parse(desc)
+    if (
+      obj &&
+      typeof obj === 'object' &&
+      ('root_cause' in obj || 'recommendation' in obj || 'anomaly_type' in obj || 'severity' in obj || 'log_content' in obj)
+    ) {
+      return obj as ParsedAlertDesc
+    }
+  } catch {
+    // not JSON
+  }
+  return null
+}
+
 type TabKey = 'metrics' | 'alerts' | 'analysis' | 'contacts'
 type TimeRange = '6h' | '12h' | '24h' | '48h'
 
@@ -216,29 +239,40 @@ export function SystemDetailPage() {
             <p className="text-text-secondary text-sm">알림 이력이 없습니다.</p>
           ) : (
             <div className="flex flex-col gap-2">
-              {alerts.map((a) => (
-                <NeuCard key={a.id} severity={a.severity as 'warning' | 'critical' | undefined}>
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <p className="text-text-primary text-sm font-medium">{a.title}</p>
-                      {a.description && (
-                        <p className="text-text-secondary mt-0.5 text-xs">{a.description}</p>
-                      )}
+              {alerts.map((a) => {
+                const parsed = parseAlertDescription(a.description)
+                const descText = parsed?.root_cause ?? (!parsed ? a.description : null)
+                return (
+                  <NeuCard
+                    key={a.id}
+                    severity={a.severity as 'warning' | 'critical' | undefined}
+                    className="cursor-pointer"
+                    onClick={() => setSelectedAlert(a)}
+                  >
+                    <div className="flex items-start justify-between">
+                      <div className="min-w-0 flex-1 pr-3">
+                        <p className="text-text-primary text-sm font-medium">{a.title}</p>
+                        {descText && (
+                          <p className="text-text-secondary mt-0.5 line-clamp-2 text-xs">
+                            {descText}
+                          </p>
+                        )}
+                      </div>
+                      <NeuBadge
+                        variant={
+                          a.severity === 'critical'
+                            ? 'critical'
+                            : a.severity === 'warning'
+                              ? 'warning'
+                              : 'muted'
+                        }
+                      >
+                        {a.severity}
+                      </NeuBadge>
                     </div>
-                    <NeuBadge
-                      variant={
-                        a.severity === 'critical'
-                          ? 'critical'
-                          : a.severity === 'warning'
-                            ? 'warning'
-                            : 'muted'
-                      }
-                    >
-                      {a.severity}
-                    </NeuBadge>
-                  </div>
-                </NeuCard>
-              ))}
+                  </NeuCard>
+                )
+              })}
             </div>
           )}
         </div>
@@ -253,11 +287,12 @@ export function SystemDetailPage() {
               <AlertTable alerts={logAnalysisAlerts} onSelect={setSelectedAlert} />
             </NeuCard>
           )}
-          <AlertDetailPanel alert={selectedAlert} onClose={() => setSelectedAlert(null)} />
         </>
       )}
 
       {tab === 'contacts' && <SystemContactPanel systemId={id} />}
+
+      <AlertDetailPanel alert={selectedAlert} onClose={() => setSelectedAlert(null)} />
     </div>
   )
 }

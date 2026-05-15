@@ -47,7 +47,7 @@ async def create_analysis(payload: LogAnalysisCreate, db: AsyncSession = Depends
             excluded_record = LogAnalysisHistory(
                 system_id=payload.system_id,
                 instance_role=payload.instance_role,
-                log_content=payload.log_content[:10000],
+                log_content=payload.log_content,
                 analysis_result=payload.analysis_result,
                 severity=payload.severity,
                 root_cause=payload.root_cause,
@@ -85,6 +85,16 @@ async def create_analysis(payload: LogAnalysisCreate, db: AsyncSession = Depends
     # - 분석 실패(warning): 알림 발송됨, error_message로 "분석 실패" 뱃지 노출
     should_log_alert = will_send_teams
 
+    # 성공 케이스 description: analysis_result JSON에 log_content 병합
+    if not is_failure:
+        try:
+            success_desc = json.dumps(
+                {**json.loads(payload.analysis_result), "log_content": (payload.log_content or "")[:3000]},
+                ensure_ascii=False,
+            )
+        except (json.JSONDecodeError, ValueError):
+            success_desc = payload.analysis_result
+
     alert_record: AlertHistory | None = None
     if should_log_alert:
         alert_record = AlertHistory(
@@ -103,7 +113,7 @@ async def create_analysis(payload: LogAnalysisCreate, db: AsyncSession = Depends
             description=(
                 json.dumps({"log_content": (payload.log_content or "")[:2500]}, ensure_ascii=False)
                 if is_failure
-                else payload.analysis_result
+                else success_desc
             ),
             instance_role=payload.instance_role,
             anomaly_type=payload.anomaly_type,

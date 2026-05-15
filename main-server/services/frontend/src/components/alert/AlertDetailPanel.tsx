@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { X, CheckCircle, Lightbulb, Siren } from 'lucide-react'
+import { X, CheckCircle, Lightbulb, Siren, ChevronDown } from 'lucide-react'
 import { ROUTES } from '@/constants/routes'
 import { NeuButton } from '@/components/neumorphic/NeuButton'
 import { NeuBadge } from '@/components/neumorphic/NeuBadge'
@@ -88,6 +88,34 @@ export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
     () => parseDescription(displayAlert?.description),
     [displayAlert?.description],
   )
+
+  const [isLogExpanded, setIsLogExpanded] = useState(false)
+
+  useEffect(() => {
+    setIsLogExpanded(false)
+  }, [displayAlert?.id])
+
+  const logAccordion = parsedDesc?.log_content ? (
+    <div>
+      <button
+        type="button"
+        onClick={() => setIsLogExpanded((v) => !v)}
+        className="type-label flex w-full items-center gap-1 text-left"
+      >
+        원본 로그
+        <ChevronDown
+          className={cn('h-3.5 w-3.5 transition-transform duration-200', isLogExpanded && 'rotate-180')}
+        />
+      </button>
+      {isLogExpanded && (
+        <div className="bg-bg-base shadow-neu-inset mt-1.5 max-h-96 overflow-y-auto rounded-sm p-4">
+          <pre className="text-text-primary font-mono text-xs leading-relaxed break-words whitespace-pre-wrap">
+            {parsedDesc.log_content}
+          </pre>
+        </div>
+      )}
+    </div>
+  ) : null
 
   // 인시던트 단위 피드백 조회 (incident_id가 있을 때만)
   const { data: feedbacks } = useIncidentFeedback(displayAlert?.incident_id ?? null, 'all')
@@ -287,19 +315,10 @@ export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
                 </div>
               )}
 
-              {/* LLM 분석 실패 — 원본 로그 표시 */}
+              {/* 원본 로그 + 분석 결과 */}
               {displayAlert.error_message ? (
                 <>
-                  {parsedDesc?.log_content ? (
-                    <div>
-                      <p className="type-label mb-1.5">원본 로그</p>
-                      <div className="bg-bg-base shadow-neu-inset max-h-96 overflow-y-auto rounded-sm p-4">
-                        <pre className="text-text-primary font-mono text-xs leading-relaxed break-words whitespace-pre-wrap">
-                          {parsedDesc.log_content}
-                        </pre>
-                      </div>
-                    </div>
-                  ) : (
+                  {logAccordion ?? (
                     displayAlert.description && (
                       <div>
                         <p className="type-label mb-1.5">상세 내용</p>
@@ -318,17 +337,19 @@ export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
                     </p>
                   </div>
                 </>
-              ) : /* 해결방안 */
-              parsedDesc?.recommendation ? (
-                <div className="border-accent rounded-sm border p-4">
-                  <div className="mb-2.5 flex items-center gap-2">
-                    <Lightbulb className="text-accent h-5 w-5" aria-hidden="true" />
-                    <p className="text-accent text-lg font-bold tracking-tight">해결방안</p>
+              ) : parsedDesc?.recommendation ? (
+                <>
+                  {logAccordion}
+                  <div className="border-accent rounded-sm border p-4">
+                    <div className="mb-2.5 flex items-center gap-2">
+                      <Lightbulb className="text-accent h-5 w-5" aria-hidden="true" />
+                      <p className="text-accent text-lg font-bold tracking-tight">해결방안</p>
+                    </div>
+                    <p className="text-text-primary text-base leading-relaxed font-medium break-words whitespace-pre-wrap">
+                      {parsedDesc.recommendation}
+                    </p>
                   </div>
-                  <p className="text-text-primary text-base leading-relaxed font-medium break-words whitespace-pre-wrap">
-                    {parsedDesc.recommendation}
-                  </p>
-                </div>
+                </>
               ) : (
                 !parsedDesc &&
                 displayAlert.description && (

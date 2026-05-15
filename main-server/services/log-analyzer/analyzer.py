@@ -361,7 +361,7 @@ async def submit_analysis(
     payload: dict = {
         "system_id":       system_id,
         "instance_role":   instance_role,
-        "log_content":     log_content[:10000],  # DB 저장 크기 제한
+        "log_content":     log_content,
         "analysis_result": json.dumps(analysis_result, ensure_ascii=False),
         "severity":        severity,
         "root_cause":      root_cause,
@@ -492,7 +492,9 @@ async def _analyze_one_role(
         if tmpl:
             analysis_template_counts[tmpl] = analysis_template_counts.get(tmpl, 0) + int(log.get("count", 0))
 
-    masked_log = mask_sensitive_data(_format_logs_by_type(_sample_logs_by_type(logs)))
+    # DB 저장용: 전체 로그 (샘플링 없음, PII 마스킹만)
+    # LLM용 샘플링은 analyze_with_vector_context 내부에서 별도 처리
+    full_log = mask_sensitive_data(_format_logs_by_type(logs))
 
     async with sem:
         try:
@@ -517,7 +519,7 @@ async def _analyze_one_role(
             await submit_analysis(
                 system_id=system_id,
                 instance_role=instance_role,
-                log_content=masked_log,
+                log_content=full_log,
                 analysis_result=analysis,
                 severity=severity,
                 root_cause=root_cause,
@@ -542,7 +544,7 @@ async def _analyze_one_role(
                 await submit_analysis(
                     system_id=system_id,
                     instance_role=instance_role,
-                    log_content=masked_log,
+                    log_content=full_log,
                     analysis_result={"error": str(e)[:500]},
                     severity="warning",
                     root_cause="LLM 분석 실패 — 재시도 필요",
