@@ -60,7 +60,7 @@ export function SSHSessionModal({
         </div>
 
         <p className="text-text-secondary mb-4 text-xs">
-          계정 정보는 30분간 메모리에만 보관되며, 미사용 시 자동 삭제됩니다.
+          계정 정보는 5분간 메모리에만 보관되며, 미사용 또는 새로고침시 자동 삭제됩니다.
         </p>
 
         <form onSubmit={handleSubmit} className="space-y-3">

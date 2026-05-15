@@ -155,6 +155,20 @@ async def start_agent(
         raise HTTPException(400, "pid_file 경로가 설정되어 있지 않습니다.")
 
     cmd = _make_start_cmd(agent)
+
+    try:
+        chk, _, _ = await asyncio.wait_for(
+            asyncio.to_thread(
+                ssh_exec, session["host"], session["port"], session["username"], session["password"],
+                f"test -f {_shell_path(agent.install_path)}",
+            ),
+            timeout=30.0,
+        )
+    except (asyncio.TimeoutError, SSHError):
+        chk = 1
+    if chk != 0:
+        raise HTTPException(422, "바이너리 파일이 원격 서버에 없습니다. 설치를 먼저 실행해 주세요.")
+
     try:
         code, stdout, stderr = await asyncio.wait_for(
             asyncio.to_thread(
@@ -250,6 +264,20 @@ async def restart_agent(
     pf = _shell_path(agent.pid_file)
     stop_cmd = f"kill $(cat {pf}) 2>/dev/null; rm -f {pf}; sleep 1"
     start_cmd = _make_start_cmd(agent)
+
+    try:
+        chk, _, _ = await asyncio.wait_for(
+            asyncio.to_thread(
+                ssh_exec, session["host"], session["port"], session["username"], session["password"],
+                f"test -f {_shell_path(agent.install_path)}",
+            ),
+            timeout=30.0,
+        )
+    except (asyncio.TimeoutError, SSHError):
+        chk = 1
+    if chk != 0:
+        raise HTTPException(422, "바이너리 파일이 원격 서버에 없습니다. 설치를 먼저 실행해 주세요.")
+
     try:
         await asyncio.wait_for(
             asyncio.to_thread(

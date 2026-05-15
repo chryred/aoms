@@ -340,6 +340,10 @@ export function AgentDetailPage() {
     } catch (err) {
       if (err instanceof HTTPError && err.response.status === 401) {
         handleSSHExpired()
+      } else if (err instanceof HTTPError) {
+        const body = await err.response.json().catch(() => null)
+        const detail = (body as { detail?: string } | null)?.detail
+        showMsg('error', detail ?? `${action} 실패`)
       } else {
         showMsg('error', `${action} 실패`)
       }
