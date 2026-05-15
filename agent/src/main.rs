@@ -391,14 +391,15 @@ fn start_log_tailers(
                 let stop = Arc::new(AtomicBool::new(false));
                 let matcher = KeywordMatcher::new(&lm_cfg.keywords);
                 let log_type = lm_cfg.log_type.clone();
+                let multiline = lm_cfg.multiline;
                 let services = cfg.services.clone();
                 let counter_clone = counter.clone();
                 let stop_clone = stop.clone();
                 let path_clone = path.clone();
                 std::thread::spawn(move || {
-                    start_tailer(path_clone, log_type, matcher, services, counter_clone, stop_clone);
+                    start_tailer(path_clone, log_type, multiline, matcher, services, counter_clone, stop_clone);
                 });
-                info!("Log tailer spawned: {} (log_type={})", path, lm_cfg.log_type);
+                info!("Log tailer spawned: {} (log_type={} multiline={})", path, lm_cfg.log_type, lm_cfg.multiline);
                 stops.insert(path, stop);
             }
         }
@@ -472,14 +473,15 @@ fn reconcile_log_tailers(
                     let stop = Arc::new(AtomicBool::new(false));
                     let matcher = KeywordMatcher::new(&lm_cfg.keywords);
                     let log_type = lm_cfg.log_type.clone();
+                    let multiline = lm_cfg.multiline;
                     let services = new_cfg.services.clone();
                     let counter_clone = counter.clone();
                     let stop_clone = stop.clone();
                     let path_clone = added.clone();
                     std::thread::spawn(move || {
-                        start_tailer(path_clone, log_type, matcher, services, counter_clone, stop_clone);
+                        start_tailer(path_clone, log_type, multiline, matcher, services, counter_clone, stop_clone);
                     });
-                    info!("Log tailer spawned (hot-reload): {} (log_type={})", added, lm_cfg.log_type);
+                    info!("Log tailer spawned (hot-reload): {} (log_type={} multiline={})", added, lm_cfg.log_type, lm_cfg.multiline);
                     stops.insert(added, stop);
                 }
             }

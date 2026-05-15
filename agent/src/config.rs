@@ -131,6 +131,8 @@ pub struct LogMonitorConfig {
     pub keywords: Vec<String>,
     #[serde(default = "default_log_type")]
     pub log_type: String,
+    #[serde(default)]
+    pub multiline: bool,
 }
 
 fn default_keywords() -> Vec<String> {

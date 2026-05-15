@@ -46,28 +46,34 @@ fn get_patterns() -> &'static Vec<(Regex, &'static str)> {
                 Regex::new(r"\b0\d{1,2}[-\s]?\d{3,4}[-\s]?\d{4}\b").unwrap(),
                 "<PHONE>",
             ),
-            // 숫자 ID / 트랜잭션 번호 (5자리 이상 순수 숫자)
-            (
-                Regex::new(r"\b\d{5,}\b").unwrap(),
-                "<NUM>",
-            ),
         ]
     })
 }
 
 /// Mask PII from a log line and return a normalized template string.
-/// The template is truncated to 200 chars to limit cardinality.
 pub fn extract_template(line: &str) -> String {
     let mut result = line.to_string();
     for (re, replacement) in get_patterns() {
         result = re.replace_all(&result, *replacement).to_string();
     }
-    // Truncate to avoid high cardinality in Prometheus labels
-    if result.chars().count() > 200 {
-        result.chars().take(200).collect::<String>() + "…"
-    } else {
-        result
-    }
+    mask_large_numbers(&result)
+}
+
+/// 5자리 이상 숫자를 <NUM>으로 마스킹하되, ClassName.java:NNN 패턴은 보호.
+/// Rust regex lookbehind 미지원으로 클로저 기반 처리.
+fn mask_large_numbers(s: &str) -> String {
+    static RE: OnceLock<Regex> = OnceLock::new();
+    let re = RE.get_or_init(|| {
+        Regex::new(r"([\w\$]+\.java:\d+)|(\b\d{5,}\b)").unwrap()
+    });
+    re.replace_all(s, |caps: &regex::Captures| {
+        if caps.get(1).is_some() {
+            caps[1].to_string()
+        } else {
+            "<NUM>".to_string()
+        }
+    })
+    .to_string()
 }
 
 #[cfg(test)]
@@ -94,18 +100,31 @@ mod tests {
     }
 
     #[test]
+    fn test_java_line_number_preserved() {
+        let t = extract_template("at com.example.Service.method(Service.java:12345)");
+        assert!(t.contains("Service.java:12345"), "Java 라인 번호는 마스킹 안 됨: {}", t);
+        assert!(!t.contains("<NUM>"));
+    }
+
+    #[test]
+    fn test_large_number_still_masked() {
+        let t = extract_template("transaction id=12345 failed");
+        assert!(t.contains("<NUM>"), "독립 5자리+ 숫자는 여전히 마스킹: {}", t);
+    }
+
+    #[test]
+    fn test_inner_class_line_number_preserved() {
+        let t = extract_template("at com.example.Outer$Inner.run(Outer.java:99999)");
+        assert!(t.contains("Outer.java:99999"), "내부 클래스 라인 번호 보호: {}", t);
+    }
+
+    #[test]
     fn test_no_false_positive() {
         // Short words should not be replaced
         let t = extract_template("ERROR: disk full at /var/log");
         assert!(t.contains("disk full"));
     }
 
-    #[test]
-    fn test_truncation() {
-        let long = "ERROR ".repeat(50);
-        let t = extract_template(&long);
-        assert!(t.chars().count() <= 201); // 200 + "…"
-    }
 
     // T-N-02: UUID 마스킹
     #[test]
@@ -158,15 +177,6 @@ mod tests {
         let t = extract_template(line);
         // 200자 이하이므로 … 없음
         assert!(!t.ends_with('…'));
-    }
-
-    // T-E-06: 200자 초과 — … 접미사
-    #[test]
-    fn test_long_line_truncated_with_ellipsis() {
-        let long = "X".repeat(300);
-        let t = extract_template(&long);
-        assert!(t.ends_with('…'), "truncated string must end with …");
-        assert_eq!(t.chars().count(), 201); // 200 chars + …
     }
 
     // T-E-08: 한글 포함 — 한글 유지, 주민번호 마스킹

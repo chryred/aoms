@@ -37,6 +37,7 @@ log_type = "jeus"
 paths = ["/opt/app/logs/*.log"]
 keywords = ["ERROR", "CRITICAL", "PANIC", "Fatal", "Exception"]
 log_type = "app"
+multiline = true  # Java 스택트레이스(at/Caused by: 줄) 멀티라인 수집 (기본값: false)
 
 [[services]]
 name = "jeus-was1"
