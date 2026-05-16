@@ -57,7 +57,8 @@ export function AgentCard({ agent }: AgentCardProps) {
                 }
               })()
               const instanceRole = labelInfo.instance_role as string | undefined
-              const parts = [agent.host, agent.os_type, agent.server_type, instanceRole].filter(
+              const accountPart = agent.ssh_username ? `@${agent.ssh_username}` : undefined
+              const parts = [agent.host, accountPart, agent.os_type, agent.server_type, instanceRole].filter(
                 Boolean,
               )
               return parts.join(' · ')

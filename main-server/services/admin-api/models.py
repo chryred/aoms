@@ -473,7 +473,7 @@ class SchedulerRunHistory(Base):
 
 
 class AgentInstance(Base):
-    """설치된 수집기 인스턴스 메타정보 (계정 정보는 저장하지 않음)"""
+    """설치된 수집기 인스턴스 메타정보. ssh_username 저장, password 저장 금지."""
     __tablename__ = "agent_instances"
 
     id           = Column(Integer, primary_key=True)
@@ -486,6 +486,7 @@ class AgentInstance(Base):
     os_type      = Column(String(20))                            # 'linux' | 'windows' — 에이전트 설치 서버 OS
     server_type  = Column(String(50))                           # 'web' | 'was' | 'db' | 'middleware' | 'other' — 서버 역할
     pid_file     = Column(String(500))                          # PID 파일 경로 (systemd 없으므로)
+    ssh_username = Column(String(100), nullable=True)           # SSH 접속 계정 (synapse_agent/otel_javaagent 전용; NULL=검증 스킵)
     label_info   = Column(Text)                                 # JSON: system_name, instance_role 등
     status       = Column(String(20), default="unknown")        # installed | running | stopped | unknown
     created_at   = Column(DateTime, default=func.now())

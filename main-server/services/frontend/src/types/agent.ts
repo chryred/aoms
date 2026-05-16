@@ -51,6 +51,7 @@ export interface AgentInstance {
   config_path: string | null // db 에이전트는 null
   port: number | null
   pid_file: string | null
+  ssh_username: string | null // synapse_agent/otel_javaagent 전용; null이면 계정 검증 스킵
   label_info: string | null
   os_type: OsType | null
   server_type: ServerType | null
@@ -67,6 +68,7 @@ export interface AgentInstanceCreate {
   config_path?: string // db 에이전트는 불필요
   port?: number
   pid_file?: string
+  ssh_username?: string // synapse_agent/otel_javaagent 필수
   label_info?: string
   os_type?: OsType
   server_type?: ServerType
@@ -77,6 +79,7 @@ export interface AgentInstanceUpdate {
   config_path?: string
   port?: number
   pid_file?: string
+  ssh_username?: string
   label_info?: string
   status?: AgentStatus
   os_type?: OsType

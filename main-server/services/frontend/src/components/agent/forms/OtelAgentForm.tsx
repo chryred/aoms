@@ -8,6 +8,8 @@ import type { System } from '@/types/system'
 interface OtelAgentFormProps {
   form: Pick<
     AgentFormState,
+    | 'sshUsername'
+    | 'setSshUsername'
     | 'installPath'
     | 'setInstallPath'
     | 'otelServiceName'
@@ -25,6 +27,8 @@ interface OtelAgentFormProps {
 
 export function OtelAgentForm({ form, systems }: OtelAgentFormProps) {
   const {
+    sshUsername,
+    setSshUsername,
     installPath,
     setInstallPath,
     otelServiceName,
@@ -45,6 +49,20 @@ export function OtelAgentForm({ form, systems }: OtelAgentFormProps) {
         WAS 기동 계정으로 SSH 접속하여 사용자 홈 디렉토리에 설치합니다. systemd 시스템 모드만 root가
         필요합니다.
       </p>
+      <div>
+        <label className="text-text-secondary mb-1 block text-xs">
+          SSH 계정 (OS 사용자명) <span className="text-critical">*</span>
+        </label>
+        <NeuInput
+          value={sshUsername}
+          onChange={(e) => setSshUsername(e.target.value)}
+          placeholder="예: webtob"
+          required
+        />
+        <p className="text-text-disabled mt-1 text-[11px]">
+          이 경로에 접근 가능한 OS 계정. 이후 에이전트 제어 시 동일 계정으로 로그인해야 합니다.
+        </p>
+      </div>
       <div>
         <label className="text-text-secondary mb-1 block text-xs">설치 경로</label>
         <NeuInput

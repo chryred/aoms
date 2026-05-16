@@ -179,6 +179,9 @@ export interface AgentFormState {
     field: K,
     value: WebServerForm[K],
   ) => void
+  // SSH 계정 (synapse_agent / otel_javaagent 전용)
+  sshUsername: string
+  setSshUsername: (v: string) => void
   // OTel fields
   otelServiceName: string
   setOtelServiceName: (v: string) => void
@@ -230,6 +233,9 @@ export function useAgentFormLogic(
     { paths: '', log_type: 'app', keywords: 'ERROR, CRITICAL, PANIC, Fatal, Exception' },
   ])
   const [webServers, setWebServers] = useState<WebServerForm[]>([])
+
+  // SSH 계정 (synapse_agent / otel_javaagent 전용)
+  const [sshUsername, setSshUsername] = useState('')
 
   // OTel fields
   const [otelServiceName, setOtelServiceName] = useState('')
@@ -383,6 +389,11 @@ export function useAgentFormLogic(
     setLoading(true)
     const isDb = agentType === 'db'
     const isOtelSubmit = agentType === 'otel_javaagent'
+    if (!isDb && !sshUsername.trim()) {
+      setError('SSH 계정(OS 사용자명)을 입력하세요.')
+      setLoading(false)
+      return
+    }
     try {
       const agent = await agentsApi.createAgent({
         system_id: selectedSystemId,
@@ -394,6 +405,7 @@ export function useAgentFormLogic(
             ? { install_path: installPath }
             : { install_path: installPath, config_path: configPath }),
         pid_file: isOtelSubmit ? undefined : pidFile || undefined,
+        ...(!isDb ? { ssh_username: sshUsername.trim() } : {}),
         port: isDb
           ? port
             ? Number(port)
@@ -464,6 +476,8 @@ export function useAgentFormLogic(
     addWebServer,
     removeWebServer,
     updateWebServer,
+    sshUsername,
+    setSshUsername,
     otelServiceName,
     setOtelServiceName,
     otelServiceType,

@@ -32,6 +32,7 @@ async def create_agent_via_api(client: AsyncClient, system_id: int, agent_type: 
         "system_id": system_id,
         "agent_type": agent_type,
         "host": "1.2.3.4",
+        "ssh_username": "testuser",
         "status": "running",
         "label_info": json.dumps(label_info),
     })

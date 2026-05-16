@@ -633,6 +633,7 @@ export function AgentDetailPage() {
             })()}
             {agent.agent_type !== 'db' && (
               <>
+                <InfoRow label="SSH 계정" value={agent.ssh_username ?? '-'} />
                 <InfoRow label="설치 경로" value={agent.install_path ?? '-'} />
                 <InfoRow label="PID 파일" value={agent.pid_file ?? '-'} />
               </>
@@ -1102,7 +1103,7 @@ export function AgentDetailPage() {
       {showSSHModal && (
         <SSHSessionModal
           defaultHost={agent.host}
-          defaultUsername={''}
+          requiredUsername={agent.ssh_username ?? undefined}
           onSuccess={() => setShowSSHModal(false)}
           onClose={() => setShowSSHModal(false)}
         />

@@ -769,6 +769,7 @@ class AgentInstanceCreate(BaseModel):
     config_path: Optional[str] = None    # db 에이전트는 설정 파일 없음
     port: Optional[int] = None
     pid_file: Optional[str] = None
+    ssh_username: Optional[str] = None  # synapse_agent/otel_javaagent 전용 — 라우터에서 필수 검증
     label_info: Optional[str] = None   # JSON string
     os_type: Optional[str] = None      # 'linux' | 'windows'
     server_type: Optional[str] = None  # 'web' | 'was' | 'db' | 'middleware' | 'other'
@@ -785,6 +786,7 @@ class AgentInstanceUpdate(BaseModel):
     config_path: Optional[str] = None
     port: Optional[int] = None
     pid_file: Optional[str] = None
+    ssh_username: Optional[str] = None
     label_info: Optional[str] = None
     status: Optional[str] = None
     os_type: Optional[str] = None
@@ -805,6 +807,7 @@ class AgentInstanceOut(BaseModel):
     config_path: Optional[str]    # db 에이전트는 null
     port: Optional[int]
     pid_file: Optional[str]
+    ssh_username: Optional[str]   # synapse_agent/otel_javaagent 전용; NULL이면 계정 검증 스킵
     label_info: Optional[str]
     os_type: Optional[str]
     server_type: Optional[str]

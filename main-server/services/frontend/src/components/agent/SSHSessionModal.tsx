@@ -9,6 +9,8 @@ import { useSSHSessionStore } from '@/store/sshSessionStore'
 interface SSHSessionModalProps {
   defaultHost?: string
   defaultUsername?: string
+  /** 설정 시 해당 계정으로 username을 고정(읽기 전용). 에이전트 등록 계정과 세션 계정이 일치해야 할 때 사용. */
+  requiredUsername?: string
   onSuccess: () => void
   onClose: () => void
 }
@@ -16,12 +18,13 @@ interface SSHSessionModalProps {
 export function SSHSessionModal({
   defaultHost = '',
   defaultUsername = '',
+  requiredUsername,
   onSuccess,
   onClose,
 }: SSHSessionModalProps) {
   const [host, setHost] = useState(defaultHost)
   const [port, setPort] = useState<number | string>(22)
-  const [username, setUsername] = useState(defaultUsername)
+  const [username, setUsername] = useState(requiredUsername ?? defaultUsername)
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
@@ -88,12 +91,19 @@ export function SSHSessionModal({
             </div>
           </div>
           <div>
-            <label className="text-text-secondary mb-1 block text-xs">SSH 계정</label>
+            <label className="text-text-secondary mb-1 block text-xs">
+              SSH 계정
+              {requiredUsername && (
+                <span className="text-text-disabled ml-1">(등록 계정: {requiredUsername})</span>
+              )}
+            </label>
             <NeuInput
               value={username}
-              onChange={(e) => setUsername(e.target.value)}
+              onChange={(e) => !requiredUsername && setUsername(e.target.value)}
+              readOnly={!!requiredUsername}
               placeholder="계정명"
               required
+              className={requiredUsername ? 'cursor-default opacity-75' : undefined}
             />
           </div>
           <div>

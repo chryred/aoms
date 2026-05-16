@@ -96,6 +96,19 @@ def _check_host_match(agent, session: dict):
         )
 
 
+def _assert_session_account(agent, session: dict) -> None:
+    """에이전트 등록 계정과 SSH 세션 계정이 일치하지 않으면 422. ssh_username=NULL이면 스킵(기존 레코드 하위호환)."""
+    if agent.ssh_username and session.get("username") != agent.ssh_username:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"SSH 세션 계정({session['username']})이 "
+                f"에이전트 등록 계정({agent.ssh_username})과 다릅니다. "
+                f"'{agent.ssh_username}' 계정으로 다시 로그인하세요."
+            ),
+        )
+
+
 # ── 에이전트 제어 (동기) ──────────────────────────────────────────────────────
 
 async def _get_agent_or_404(agent_id: int, db: AsyncSession) -> AgentInstance:
@@ -151,6 +164,7 @@ async def start_agent(
     if session is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "X-SSH-Session 헤더가 필요합니다.")
     _check_host_match(agent, session)
+    _assert_session_account(agent, session)
     if not agent.pid_file:
         raise HTTPException(400, "pid_file 경로가 설정되어 있지 않습니다.")
 
@@ -213,6 +227,7 @@ async def stop_agent(
     if session is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "X-SSH-Session 헤더가 필요합니다.")
     _check_host_match(agent, session)
+    _assert_session_account(agent, session)
     if not agent.pid_file:
         raise HTTPException(400, "pid_file 경로가 설정되어 있지 않습니다.")
 
@@ -258,6 +273,7 @@ async def restart_agent(
     if session is None:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "X-SSH-Session 헤더가 필요합니다.")
     _check_host_match(agent, session)
+    _assert_session_account(agent, session)
     if not agent.pid_file:
         raise HTTPException(400, "pid_file 경로가 설정되어 있지 않습니다.")
 
@@ -316,6 +332,7 @@ async def get_agent_status(
 ):
     agent = await _get_agent_or_404(agent_id, db)
     _check_host_match(agent, session)
+    _assert_session_account(agent, session)
     pid: Optional[int] = None
     agent_status = "unknown"
     message = ""
@@ -363,6 +380,7 @@ async def get_agent_config(
 ):
     agent = await _get_agent_or_404(agent_id, db)
     _check_host_match(agent, session)
+    _assert_session_account(agent, session)
     config_path = agent.config_path or ""
     try:
         if "~" in config_path:
@@ -430,6 +448,7 @@ async def upload_agent_config(
 ):
     agent = await _get_agent_or_404(agent_id, db)
     _check_host_match(agent, session)
+    _assert_session_account(agent, session)
     config_path = agent.config_path or ""
     try:
         if "~" in config_path:
@@ -492,6 +511,8 @@ async def install_agent(
         if entry is None:
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, "SSH 세션이 만료되었습니다. 다시 로그인해 주세요.")
         session = entry
+        _check_host_match(agent, session)
+        _assert_session_account(agent, session)
     job_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc).replace(tzinfo=None)
 

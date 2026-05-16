@@ -429,6 +429,7 @@ CREATE TABLE IF NOT EXISTS agent_instances (
     os_type      VARCHAR(20),               -- 'linux' | 'windows' — 에이전트 설치 서버 OS (Phase 9)
     server_type  VARCHAR(50),               -- 'web' | 'was' | 'db' | 'middleware' | 'other' (Phase 9)
     pid_file     VARCHAR(500),               -- PID 파일 경로
+    ssh_username VARCHAR(100),               -- SSH 접속 계정 (synapse_agent/otel_javaagent 전용; NULL=검증 스킵)
     label_info   TEXT,                       -- JSON: system_name, instance_role 등
     status       VARCHAR(20) DEFAULT 'unknown',  -- installed | running | stopped | unknown
     created_at   TIMESTAMP DEFAULT NOW(),

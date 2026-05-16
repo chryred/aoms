@@ -8,6 +8,8 @@ import type { WebServerLogFormat } from '@/types/agent'
 interface SynapseAgentFormProps {
   form: Pick<
     AgentFormState,
+    | 'sshUsername'
+    | 'setSshUsername'
     | 'instanceRole'
     | 'setInstanceRole'
     | 'installPath'
@@ -31,6 +33,8 @@ interface SynapseAgentFormProps {
 
 export function SynapseAgentForm({ form }: SynapseAgentFormProps) {
   const {
+    sshUsername,
+    setSshUsername,
     instanceRole,
     setInstanceRole,
     installPath,
@@ -53,6 +57,22 @@ export function SynapseAgentForm({ form }: SynapseAgentFormProps) {
 
   return (
     <>
+      {/* SSH 계정 */}
+      <div>
+        <label className="text-text-secondary mb-1 block text-xs">
+          SSH 계정 (OS 사용자명) <span className="text-critical">*</span>
+        </label>
+        <NeuInput
+          value={sshUsername}
+          onChange={(e) => setSshUsername(e.target.value)}
+          placeholder="예: jeussic"
+          required
+        />
+        <p className="text-text-disabled mt-1 text-[11px]">
+          이 경로에 접근 가능한 OS 계정. 이후 에이전트 제어 시 동일 계정으로 로그인해야 합니다.
+        </p>
+      </div>
+
       {/* instance_role */}
       <div>
         <label className="text-text-secondary mb-1 block text-xs">

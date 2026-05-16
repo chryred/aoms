@@ -99,7 +99,7 @@ admin-api/
 | `metric_monthly_aggregations` | 월/분기/반기/연간 집계. `period_type`으로 구분 (Phase 5) |
 | `aggregation_report_history` | Teams 주기별 리포트 발송 이력. 중복 방지용 (Phase 5) |
 | `users` | 프론트엔드 인증 사용자. `role`: admin / operator. `is_approved`: admin 승인 여부 (Phase 0) |
-| `agent_instances` | 수집기 인스턴스 메타정보. `ssh_username` 저장, password 저장 금지 (Phase 6). `agent_type='db'`는 `label_info` JSON에 `db_type`(oracle/postgresql/mssql/mysql) + 연결 정보 저장 (Phase 9) |
+| `agent_instances` | 수집기 인스턴스 메타정보. `ssh_username` 저장(synapse_agent/otel_javaagent 필수), password 저장 금지 (Phase 6). 동일 IP에 서로 다른 OS 계정으로 등록된 에이전트 간 혼용 차단: 제어 API가 세션 계정과 등록 계정 일치 여부 검증. `agent_type='db'`는 `label_info` JSON에 `db_type`(oracle/postgresql/mssql/mysql) + 연결 정보 저장 (Phase 9) |
 | `agent_install_jobs` | 비동기 설치 Job 이력. `status`: pending/running/done/failed (Phase 6) |
 | `incidents` | 인시던트 라이프사이클 — 관련 알림을 하나의 사건으로 묶어 MTTA/MTTR 추적. `status`: open/acknowledged/investigating/resolved/closed |
 | `incident_timeline` | 인시던트 이벤트 타임라인 — `event_type`: alert_added / analysis_added / status_changed / comment |
