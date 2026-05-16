@@ -227,30 +227,57 @@ def build_longperiod_agg_prompt(
     )
 
 
+_METRIC_GROUP_LABEL: dict[str, str] = {
+    "cpu": "CPU",
+    "memory": "메모리",
+    "disk": "디스크 I/O",
+    "network": "네트워크",
+    "web": "웹 응답",
+    "log": "로그 에러",
+    "db_connections": "DB 연결",
+    "db_query": "DB 쿼리",
+    "db_cache": "DB 캐시",
+    "db_replication": "DB 복제",
+}
+
+
 def build_trend_alert_prompt(
     display_name: str,
     system_name: str,
-    anomaly_hours: int,
-    collector_type: str,
-    metric_group: str,
-    worst_severity: str,
-    trend_sequence: str,
-    predictions: str,
+    metric_items: list[dict],
 ) -> str:
+    """
+    metric_items: [
+        {
+            "metric_group": str,
+            "anomaly_hours": int,
+            "worst_severity": str,
+            "trend_sequence": str,
+            "predictions": str,
+        },
+        ...
+    ]
+    """
+    items_text = ""
+    for mi in metric_items:
+        label = _METRIC_GROUP_LABEL.get(mi["metric_group"], mi["metric_group"])
+        items_text += (
+            f"- {label}: 최근 8시간 중 {mi['anomaly_hours']}시간 이상,"
+            f" 최고 심각도: {mi['worst_severity']}\n"
+            f"  추세: {mi.get('trend_sequence', '추세 데이터 없음')}\n"
+            f"  기존 예측: {mi.get('predictions', '예측 없음')}\n"
+        )
     return (
         f"시스템: {display_name} ({system_name})\n"
-        f"분석 기간: 최근 8시간 중 {anomaly_hours}시간 이상 감지\n"
-        f"수집기: {collector_type} / {metric_group}\n"
-        f"최고 심각도: {worst_severity}\n\n"
-        f"[시간별 추세 흐름]\n{trend_sequence}\n\n"
-        f"[기존 예측 목록]\n{predictions}\n\n"
-        "이 시스템이 지속적으로 이상 상태를 보이고 있습니다.\n"
+        f"분석 기간: 최근 8시간\n\n"
+        f"[이상 자원 목록]\n{items_text}\n"
+        "이 시스템이 복수의 자원에서 지속적으로 이상 상태를 보이고 있습니다.\n"
         "임계치 도달 예상 시점과 조치 우선순위를 다음 JSON 형식으로만 응답해 주세요:\n"
         "{\n"
         '  "hours_to_breach": 숫자 또는 null,\n'
-        '  "breach_metric": "임계치에 먼저 도달할 메트릭명",\n'
+        '  "breach_metric": "임계치에 먼저 도달할 자원명 (한국어)",\n'
         '  "severity": "warning 또는 critical 중 하나",\n'
-        '  "trend_summary": "지속 추세 요약 (1문장)",\n'
+        '  "trend_summary": "전체 추세 요약 (1~2문장)",\n'
         '  "immediate_actions": "즉시 조치 사항 (1~2문장)"\n'
         "}"
     )

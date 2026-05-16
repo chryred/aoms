@@ -30,12 +30,11 @@
 - **n8n** (5678): 현재 미사용. 컨테이너만 예비 유지(WF4 일일 리포트 / WF5 에스컬레이션은 향후 log-analyzer 이관 예정으로 `main-server/n8n-workflows/`에 JSON만 보존)
 
 ### Server B
-- **Qdrant** (6333): Dense+Sparse Hybrid Search (ADR-011)
-  - `log_incidents`, `metric_baselines`, `aggregation_summaries`, `incident_postmortems`: Dense(1024) + Sparse(BM25) Hybrid
-  - `metric_hourly_patterns`: Dense(1024) + Sparse(BM25) Hybrid (챗봇 RAG + UI 검색)
-  - `incident_postmortems`: Wave 1B — 인시던트 사후분석 서사 (lifespan 자동 ensure, log-analyzer 전담)
-  - `knowledge_guides`: Dense(1024) + Sparse(BM25) Hybrid (운영 가이드 + Synapse 사용법, **1500자 청크 단위**, log-analyzer 전담). system_id=NULL은 전체 공용 가이드, system_id=N은 시스템별 가이드. 챗봇 ReAct 도구 `qdrant_search_guide`로 조회 (group_by_guide=True 기본 — 가이드 단위 결과, payload에 matched_chunk_indexes / matched_chunks_count 포함)
-  - Ollama는 ADR-011로 제거됨 — 임베딩은 log-analyzer 컨테이너 내 FastEmbed ONNX가 담당
+- **Qdrant** (6333): Dense(1024) + Sparse(BM25) Hybrid Search (ADR-011). **총 9개 컬렉션** — 정식 정의는 `main-server/CLAUDE.md` "Qdrant 컬렉션 구조" 참조
+  - **운영 분석 계열 (5)**: `log_incidents`, `metric_baselines`, `incident_postmortems`(Wave 1B), `metric_hourly_patterns`, `aggregation_summaries`
+  - **Knowledge 계열 (4)**: `knowledge_guides`(1500자 청크, system_id=NULL은 공용), `knowledge_jira_issues`, `knowledge_confluence_pages`, `knowledge_documents`(operator_note 포함)
+  - 시스템 필터 정책은 컬렉션별로 다름(`system_name` / `system_id` / 미적용 — V1 정책). 챗봇 RAG 도구 매핑: `qdrant_search_incident_knowledge`(log+metric 통합) / `qdrant_search_hourly_patterns` / `qdrant_search_aggregation_summary` / `qdrant_search_guide` / `/knowledge/search` federated
+  - Ollama는 ADR-011로 제거됨 — 임베딩은 log-analyzer 컨테이너 내 FastEmbed ONNX(bge-m3) + reranker(bge-reranker-v2-m3 ONNX FP32)
 
 ### 핵심 환경변수
 | 변수 | 기본 값 / 설명 |

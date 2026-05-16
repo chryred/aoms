@@ -123,28 +123,43 @@ docker exec -i synapse-postgres psql -U synapse -d synapse < configs/postgres/in
 
 ## Qdrant 컬렉션 구조 (ADR-011 Hybrid)
 
-| 컬렉션 | 저장 주체 | 벡터 구성 | 내용 |
+총 **9개 컬렉션**. 모두 Dense(1024) + Sparse(BM25) Hybrid 스키마.
+운영 분석 계열 5개 + Knowledge 계열 4개로 구분.
+
+### 운영 분석 계열 (5개)
+
+| 컬렉션 | 저장 주체 | 시스템 필터 | 내용 |
 |---|---|---|---|
-| `metric_baselines` | log-analyzer | **Dense(1024) + Sparse(BM25)** | 메트릭 알림 이상 이력 (alert_history.qdrant_point_id) |
-| `log_incidents` | log-analyzer | **Dense(1024) + Sparse(BM25)** | 로그 분석 이상 이력 (log_analysis_history.qdrant_point_id) |
-| `aggregation_summaries` | log-analyzer (Phase 5) | **Dense(1024) + Sparse(BM25)** | 일/주/월 집계 스케줄러가 저장하는 리포트 요약 — **RAG 챗봇 핵심** |
-| `metric_hourly_patterns` | log-analyzer (Phase 5) | **Dense(1024) + Sparse(BM25)** | `_hourly_agg_scheduler`가 저장하는 1시간 집계 LLM 분석 패턴 — **챗봇 RAG (`qdrant_search_hourly_patterns`)** |
-| `incident_postmortems` | log-analyzer (Wave 1B) | **Dense(1024) + Sparse(BM25)** | 인시던트 사후분석 서사 — lifespan 자동 ensure. 피드백 승인 시 embed |
+| `metric_baselines` | log-analyzer (lifespan 자동 ensure) | `system_name` + `metric_name` | 메트릭 알림 이상 이력 (`alert_history.qdrant_point_id`) |
+| `log_incidents` | log-analyzer (lifespan 자동 ensure) | `system_name` | 로그 분석 이상 이력 (`log_analysis_history.qdrant_point_id`) |
+| `incident_postmortems` | log-analyzer (Wave 1B, lifespan 자동 ensure) | `system_id` IN list | 인시던트 사후분석 서사. 피드백 승인 시 embed. payload: `incident_id`, `severity`, `narrative` |
+| `metric_hourly_patterns` | log-analyzer (Phase 5, `POST /aggregation/collections/setup` 수동 1회) | `system_name` | `_hourly_agg_scheduler`가 저장하는 1시간 집계 LLM 분석 패턴 — 챗봇 `qdrant_search_hourly_patterns` |
+| `aggregation_summaries` | log-analyzer (Phase 5, `POST /aggregation/collections/setup` 수동 1회) | `system_name` | 일/주/월/분기/반기/연간 스케줄러가 저장하는 리포트 요약 — 챗봇 `qdrant_search_aggregation_summary` |
+
+### Knowledge 계열 (4개)
+
+| 컬렉션 | 저장 주체 | 시스템 필터 | 내용 |
+|---|---|---|---|
+| `knowledge_guides` | log-analyzer (lifespan 자동 ensure) | `system_id` (NULL=전체 공용) | 운영 가이드 + Synapse 사용법. **1500자 청크(overlap 200)** 단위. payload: `guide_id`, `chunk_index`, `title`. 챗봇 `qdrant_search_guide` (group_by_guide=True 기본) |
+| `knowledge_jira_issues` | log-analyzer (lifespan 자동 ensure, `_jira_sync_scheduler` 매일 04:00 KST) | ❌ 미적용 (V1) | Jira 이슈 (issue 단위). payload 인덱스: `project`, `status`, `system_name` |
+| `knowledge_confluence_pages` | log-analyzer (lifespan 자동 ensure, `_confluence_sync_scheduler` 매일 04:30 KST) | ❌ 미적용 (V1) | Confluence 페이지 청크(섹션 1500자). payload 인덱스: `space`, `system_name` |
+| `knowledge_documents` | log-analyzer (lifespan 자동 ensure) | `system_ids` IN list (P2-A) | 업로드 문서 청크(1500자) + 운영자 노트. payload 인덱스: `doc_type`, `system_id`, `tags`, `stored_at`. `doc_type=operator_note`는 운영자 Q&A |
 
 **검색 방식 (ADR-011)**:
 - 모든 컬렉션 Hybrid: `/points/query` + `prefetch[dense>=0.5, sparse]` + `fusion: rrf`
 - RRF 점수 스케일이 cosine과 다르므로 classify_anomaly 임계값 재설정됨 (운영 후 튜닝 필요)
+- `score_threshold` 파라미터(기본 0.5)로 dense prefetch 최소 유사도 조정 가능 (Track B — `/incident/search`, `/aggregation/search`, `/knowledge/search`, `/guides/search`)
 
-피드백 등록 시 어느 컬렉션에 해결책을 업데이트할지 `alert_history.alert_type`으로 구분:
+**검색 통합 패턴**:
+- `log_incidents` + `metric_baselines` → 챗봇 도구 `qdrant_search_incident_knowledge`가 `/incident/search`로 통합 검색 (RRF)
+- `knowledge_jira_issues` + `knowledge_confluence_pages` + `knowledge_documents` → `/knowledge/search`가 federated 검색(2차 RRF + corrected 보너스 + 옵션 reranker)
+- `metric_hourly_patterns` / `aggregation_summaries` → UI 유사도 검색 프록시(`/aggregation/search`, `/aggregation/similar-period`)
+- `incident_postmortems` → `/incident-postmortem/search` 단독 검색 (LLM 해결책 프롬프트 강화)
+- `knowledge_guides` → `/guides/search` (group_by_guide=True 기본, reranker on)
+
+**피드백 등록 시 해결책 업데이트 분기** — `alert_history.alert_type` 기준:
 - `metric`, `metric_resolved` → `metric_baselines`
 - 그 외 → `log_incidents`
-
-`metric_hourly_patterns` / `aggregation_summaries`는 UI 유사도 검색 프록시(`/aggregation/search`, `/aggregation/similar-period`)가 활용.
-`log_incidents` + `metric_baselines`는 **챗봇 RAG 툴**(`qdrant_search_incident_knowledge`, ADR-011)이 `/incident/search`로 통합 검색.
-
-컬렉션 초기화:
-- `log_incidents` / `metric_baselines`: log-analyzer 부팅 시 자동 `ensure_collection(hybrid=True)` (ADR-004 + ADR-011)
-- `metric_hourly_patterns` / `aggregation_summaries`: `POST /aggregation/collections/setup` 수동 1회
 
 **차원 불일치 주의**: 벡터 차원 변경 시 기존 컬렉션 삭제 후 재생성 필요 (Qdrant는 생성 후 차원 변경 불가). ADR-011에서 768 → 1024로 변경됨.
 

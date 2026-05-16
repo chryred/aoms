@@ -160,6 +160,50 @@ TREND_THRESHOLDS: dict[tuple[str, str], dict] = {
 }
 
 
+# ── metric_group 한국어 라벨 ─────────────────────────────────────────────────
+_METRIC_GROUP_LABEL: dict[str, str] = {
+    "cpu": "CPU",
+    "memory": "메모리",
+    "disk": "디스크 I/O",
+    "network": "네트워크",
+    "web": "웹 응답",
+    "log": "로그 에러",
+    "db_connections": "DB 연결",
+    "db_query": "DB 쿼리",
+    "db_cache": "DB 캐시",
+    "db_replication": "DB 복제",
+}
+
+
+def _metric_label(metric_group: str) -> str:
+    return _METRIC_GROUP_LABEL.get(metric_group, metric_group)
+
+
+def _mention_text(contacts: list[dict]) -> str:
+    return " ".join(f"<at>{c['name']}</at>" for c in contacts if c.get("teams_upn"))
+
+
+def _mention_entities(contacts: list[dict]) -> list[dict]:
+    return [
+        {
+            "type": "mention",
+            "text": f"<at>{c['name']}</at>",
+            "mentioned": {"id": c["teams_upn"], "name": c["name"]},
+        }
+        for c in contacts if c.get("teams_upn")
+    ]
+
+
+async def _fetch_contacts(client: httpx.AsyncClient, system_id: int) -> tuple[int, list[dict]]:
+    try:
+        r = await client.get(
+            f"{ADMIN_API_URL}/api/v1/systems/{system_id}/contacts", timeout=5.0
+        )
+        return system_id, r.json() if r.status_code == 200 else []
+    except Exception:
+        return system_id, []
+
+
 # ── 공통 헬퍼 ────────────────────────────────────────────────────────────────
 
 async def _query_prometheus(client: httpx.AsyncClient, promql: str) -> float | None:
@@ -460,6 +504,7 @@ async def _process_single_config(
     config: dict,
     hour_bucket_iso: str,
     otel_system_ids: set[int] | None = None,
+    contacts_map: dict[int, list[dict]] | None = None,
 ) -> dict:
     """
     단일 collector_config에 대한 1시간 집계 처리.
@@ -667,6 +712,20 @@ async def _process_single_config(
                 )
             )
             if needs_alert:
+                contacts  = (contacts_map or {}).get(system_id, [])
+                entities  = _mention_entities(contacts)
+                mention   = _mention_text(contacts)
+                hourly_facts = [
+                    _make_alert_type_fact("시간별 예방 알림 · 매시 :05분"),
+                    {"title": "시스템",    "value": f"{display_name} ({system_name})"},
+                    {"title": "자원",      "value": _metric_label(metric_group)},
+                    {"title": "이상 감지", "value": anomaly_reason},
+                    {"title": "추세",      "value": llm_trend or "-"},
+                    {"title": "예측",      "value": llm_prediction or "-"},
+                    {"title": "권고 조치", "value": llm_summary or "-"},
+                ]
+                if mention:
+                    hourly_facts.append({"title": "담당자", "value": mention})
                 card = {
                     "type": "message",
                     "attachments": [{
@@ -683,19 +742,9 @@ async def _process_single_config(
                                     "size": "Medium",
                                     "color": "Warning",
                                 },
-                                {
-                                    "type": "FactSet",
-                                    "facts": [
-                                        _make_alert_type_fact("시간별 예방 알림 · 매시 :05분"),
-                                        {"title": "시스템",    "value": f"{display_name} ({system_name})"},
-                                        {"title": "수집기",    "value": f"{collector_type} / {metric_group}"},
-                                        {"title": "이상 감지", "value": anomaly_reason},
-                                        {"title": "추세",      "value": llm_trend or "-"},
-                                        {"title": "예측",      "value": llm_prediction or "-"},
-                                        {"title": "권고 조치", "value": llm_summary or "-"},
-                                    ],
-                                },
+                                {"type": "FactSet", "facts": hourly_facts},
                             ],
+                            "msteams": {"entities": entities},
                         },
                     }],
                 }
@@ -758,9 +807,14 @@ async def run_hourly_aggregation() -> dict:
         except Exception as exc:
             logger.debug("hourly OTel system set 조회 실패: %s", exc)
 
+        # 담당자 멘션용 contacts 선조회 (시스템별 병렬)
+        unique_sids = {cfg["system_id"] for cfg in configs}
+        contact_results = await asyncio.gather(*[_fetch_contacts(client, sid) for sid in unique_sids])
+        contacts_map: dict[int, list[dict]] = dict(contact_results)
+
         sem = asyncio.Semaphore(20)
         tasks = [
-            _process_single_config(client, sem, cfg, hour_bucket_iso, otel_system_ids)
+            _process_single_config(client, sem, cfg, hour_bucket_iso, otel_system_ids, contacts_map)
             for cfg in configs
         ]
         results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -1687,32 +1741,36 @@ async def _process_single_trend_alert(
     sem: asyncio.Semaphore,
     item: dict,
     systems_map: dict[int, dict],
+    contacts_map: dict[int, list[dict]],
 ) -> dict:
-    """단일 시스템의 지속 이상 트렌드 알림 처리"""
+    """단일 시스템의 지속 이상 트렌드 알림 처리 — 모든 이상 자원 통합 카드 1장"""
     async with sem:
         try:
             system_id      = item.get("system_id")
-            collector_type = item.get("collector_type", "")
-            metric_group   = item.get("metric_group", "")
-            anomaly_hours  = item.get("anomaly_hours", 0)
             worst_severity = item.get("worst_severity", "warning")
-            trend_sequence = item.get("trend_sequence", "추세 데이터 없음")
-            predictions    = item.get("predictions", "예측 없음")
+            metric_items   = item.get("metric_items", {})
 
-            # 시스템별 webhook URL + 이름 (hourly 응답엔 system_name 없으므로 systems_map 우선)
-            sys_info       = systems_map.get(system_id, {})
-            system_name    = item.get("system_name") or sys_info.get("system_name", "")
-            display_name   = item.get("display_name") or sys_info.get("display_name", system_name)
-            webhook_url    = sys_info.get("teams_webhook_url") or ""
+            sys_info     = systems_map.get(system_id, {})
+            system_name  = item.get("system_name") or sys_info.get("system_name", "")
+            display_name = item.get("display_name") or sys_info.get("display_name", system_name)
+            webhook_url  = sys_info.get("teams_webhook_url") or ""
 
-            llm_prompt = build_trend_alert_prompt(
-                display_name, system_name, anomaly_hours,
-                collector_type, metric_group, worst_severity,
-                trend_sequence, predictions,
-            )
+            # LLM 프롬프트용 자원 목록 (3시간 이상만)
+            metric_items_for_prompt = [
+                {
+                    "metric_group":   mi["metric_group"],
+                    "anomaly_hours":  mi["anomaly_hours"],
+                    "worst_severity": mi["worst_severity"],
+                    "trend_sequence": " → ".join(mi["trends"]) if mi["trends"] else "추세 데이터 없음",
+                    "predictions":    " | ".join(mi["predictions"]) if mi["predictions"] else "예측 없음",
+                }
+                for mi in metric_items.values()
+                if mi["anomaly_hours"] >= 3
+            ]
 
+            llm_prompt = build_trend_alert_prompt(display_name, system_name, metric_items_for_prompt)
             _trend_agent_code = await get_agent_code_for_area("trend_alert")
-            llm_text = await call_llm_text(llm_prompt, max_tokens=300, agent_code=_trend_agent_code)
+            llm_text = await call_llm_text(llm_prompt, max_tokens=400, agent_code=_trend_agent_code)
             llm_result = _parse_llm_json(llm_text, {
                 "severity": "warning",
                 "trend_summary": "분석 실패",
@@ -1721,60 +1779,83 @@ async def _process_single_trend_alert(
                 "immediate_actions": "-",
             })
 
-            severity    = llm_result.get("severity", "warning")
-            hours_text  = (
+            severity   = llm_result.get("severity", "warning")
+            hours_text = (
                 f"약 {llm_result['hours_to_breach']}시간 후"
                 if llm_result.get("hours_to_breach") else "예측 불가"
             )
+
+            # 이상 자원 요약 텍스트 — "CPU (5h/8h, CRITICAL) · 메모리 (3h/8h, WARNING)"
+            resource_parts = [
+                f"{_metric_label(mi['metric_group'])} ({mi['anomaly_hours']}h/8h, {mi['worst_severity'].upper()})"
+                for mi in metric_items.values()
+                if mi["anomaly_hours"] >= 3
+            ]
+            resource_text = " · ".join(resource_parts)
+
+            contacts = contacts_map.get(system_id, [])
+            entities = _mention_entities(contacts)
+            mention  = _mention_text(contacts)
+
+            trend_facts = [
+                _make_alert_type_fact("지속 이상 트렌드 · 4시간주기"),
+                {"title": "시스템",     "value": f"{display_name} ({system_name})"},
+                {"title": "이상 자원",  "value": resource_text},
+                {"title": "최고 심각도","value": worst_severity.upper()},
+                {"title": "추세",       "value": llm_result.get("trend_summary", "-")},
+                {"title": "임계치 예상","value": f"{llm_result.get('breach_metric', '-')} — {hours_text}"},
+                {"title": "즉시 조치",  "value": llm_result.get("immediate_actions", "-")},
+            ]
+            if mention:
+                trend_facts.append({"title": "담당자", "value": mention})
+
+            _frontend_url = os.getenv("FRONTEND_EXTERNAL_URL", "")
+            actions = []
+            if _frontend_url:
+                actions.append({
+                    "type": "Action.OpenUrl",
+                    "title": "대시보드 보기",
+                    "url": f"{_frontend_url}/trend-alerts",
+                })
+
+            content: dict = {
+                "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                "type": "AdaptiveCard",
+                "version": "1.4",
+                "body": [
+                    {
+                        "type": "TextBlock",
+                        "text": f"[장애 예방] {display_name} 지속 이상 감지",
+                        "weight": "Bolder",
+                        "size": "Medium",
+                        "color": "Attention" if severity == "critical" else "Warning",
+                    },
+                    {"type": "FactSet", "facts": trend_facts},
+                ],
+                "msteams": {"entities": entities},
+            }
+            if actions:
+                content["actions"] = actions
 
             card = {
                 "type": "message",
                 "attachments": [{
                     "contentType": "application/vnd.microsoft.card.adaptive",
-                    "content": {
-                        "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
-                        "type": "AdaptiveCard",
-                        "version": "1.4",
-                        "body": [
-                            {
-                                "type": "TextBlock",
-                                "text": f"[장애 예방] {display_name} 지속 이상 감지",
-                                "weight": "Bolder",
-                                "size": "Medium",
-                                "color": "Attention" if severity == "critical" else "Warning",
-                            },
-                            {
-                                "type": "FactSet",
-                                "facts": [
-                                    _make_alert_type_fact("지속 이상 트렌드 · 4시간주기"),
-                                    {"title": "시스템",      "value": f"{display_name} ({system_name})"},
-                                    {"title": "수집기",      "value": f"{collector_type} / {metric_group}"},
-                                    {"title": "지속 이상",   "value": f"최근 8시간 중 {anomaly_hours}시간"},
-                                    {"title": "추세",        "value": llm_result.get("trend_summary", "-")},
-                                    {"title": "임계치 예상", "value": f"{llm_result.get('breach_metric', '-')} — {hours_text}"},
-                                    {"title": "즉시 조치",   "value": llm_result.get("immediate_actions", "-")},
-                                ],
-                            },
-                        ],
-                    },
+                    "content": content,
                 }],
             }
 
             await _send_teams(client, webhook_url, card)
 
-            # alert_history 저장 — admin-api에 적절한 엔드포인트 없음 → 로그만 기록
             logger.info(
-                "프로액티브 트렌드 알림 발송 — system=%s collector=%s/%s severity=%s",
-                system_name, collector_type, metric_group, severity,
+                "프로액티브 트렌드 알림 발송 — system=%s resources=%s severity=%s",
+                system_name, resource_text, severity,
             )
 
             return {"status": "ok", "system": system_name, "severity": severity}
 
         except Exception as exc:
-            logger.error(
-                "트렌드 알림 처리 오류 [%s]: %s",
-                item.get("system_name"), exc,
-            )
+            logger.error("트렌드 알림 처리 오류 [%s]: %s", item.get("system_name"), exc)
             return {"status": "error", "system": item.get("system_name"), "error": str(exc)}
 
 
@@ -1808,49 +1889,50 @@ async def run_trend_alert() -> dict:
             logger.error("트렌드 알림 — hourly 데이터 조회 실패: %s", exc)
             return {"status": "error", "error": str(exc)}
 
-        # 시스템+collector_type+metric_group 그룹핑
-        groups: dict[tuple, dict] = {}
+        # 시스템 단위 그룹핑 — metric_group별 이상을 한 카드로 통합
+        groups: dict[int, dict] = {}
         for row in hourly_rows:
             sev = row.get("llm_severity", "normal")
             if sev not in ("warning", "critical"):
                 continue
-            key = (
-                row.get("system_id"),
-                row.get("system_name", ""),
-                row.get("display_name", ""),
-                row.get("collector_type", ""),
-                row.get("metric_group", ""),
-            )
-            if key not in groups:
-                groups[key] = {
-                    "system_id":      key[0],
-                    "system_name":    key[1],
-                    "display_name":   key[2],
-                    "collector_type": key[3],
-                    "metric_group":   key[4],
+            sid          = row.get("system_id")
+            system_name  = row.get("system_name", "")
+            display_name = row.get("display_name", "")
+            ctype        = row.get("collector_type", "")
+            mgroup       = row.get("metric_group", "")
+            if sid not in groups:
+                groups[sid] = {
+                    "system_id":      sid,
+                    "system_name":    system_name,
+                    "display_name":   display_name,
+                    "worst_severity": "warning",
+                    "metric_items":   {},
+                }
+            g = groups[sid]
+            item_key = f"{ctype}/{mgroup}"
+            if item_key not in g["metric_items"]:
+                g["metric_items"][item_key] = {
+                    "collector_type": ctype,
+                    "metric_group":   mgroup,
                     "anomaly_hours":  0,
                     "worst_severity": "warning",
                     "trends":         [],
                     "predictions":    [],
                 }
-            g = groups[key]
-            g["anomaly_hours"] += 1
+            mi = g["metric_items"][item_key]
+            mi["anomaly_hours"] += 1
             if sev == "critical":
-                g["worst_severity"] = "critical"
+                mi["worst_severity"] = "critical"
+                g["worst_severity"]  = "critical"
             if row.get("llm_trend"):
-                g["trends"].append(row["llm_trend"])
+                mi["trends"].append(row["llm_trend"])
             if row.get("llm_prediction"):
-                g["predictions"].append(row["llm_prediction"])
+                mi["predictions"].append(row["llm_prediction"])
 
-        # anomaly_hours >= 3 필터
+        # 시스템 내 어느 자원이라도 anomaly_hours >= 3이면 대상
         targets = [
-            {
-                **g,
-                "trend_sequence": " → ".join(g["trends"]) if g["trends"] else "추세 데이터 없음",
-                "predictions":    " | ".join(g["predictions"]) if g["predictions"] else "예측 없음",
-            }
-            for g in groups.values()
-            if g["anomaly_hours"] >= 3
+            g for g in groups.values()
+            if any(mi["anomaly_hours"] >= 3 for mi in g["metric_items"].values())
         ]
 
         if not targets:
@@ -1870,9 +1952,15 @@ async def run_trend_alert() -> dict:
         except Exception as exc:
             logger.warning("시스템 목록 조회 실패: %s", exc)
 
+        # 담당자 contacts 병렬 조회
+        contact_results = await asyncio.gather(*[
+            _fetch_contacts(client, t["system_id"]) for t in targets
+        ])
+        contacts_map: dict[int, list[dict]] = dict(contact_results)
+
         sem = asyncio.Semaphore(10)
         tasks = [
-            _process_single_trend_alert(client, sem, item, systems_map)
+            _process_single_trend_alert(client, sem, item, systems_map, contacts_map)
             for item in targets[:20]  # 최대 20개
         ]
         results = await asyncio.gather(*tasks, return_exceptions=True)

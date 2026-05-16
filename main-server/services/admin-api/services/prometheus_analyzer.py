@@ -742,7 +742,7 @@ async def run_analysis_cycle() -> None:
                 if not info:
                     continue
 
-                anomaly_title = f"[prometheus_analyzer] {', '.join(sm.anomalies[:2])}"
+                anomaly_title = f"[메트릭분석] {', '.join(sm.anomalies[:2])}"
                 parsed_analysis = _parse_prom_llm_json(analysis) if analysis else None
                 stored_description = (
                     json.dumps(parsed_analysis, ensure_ascii=False)[:500]
@@ -783,7 +783,7 @@ async def run_analysis_cycle() -> None:
                 db.add(IncidentTimeline(
                     incident_id=incident.id,
                     event_type="alert_added",
-                    description=f"[{severity.upper()}] prometheus_analyzer: {', '.join(sm.anomalies)}",
+                    description=f"[{severity.upper()}] 메트릭분석: {', '.join(sm.anomalies)}",
                     actor_name="prometheus_analyzer",
                 ))
 
