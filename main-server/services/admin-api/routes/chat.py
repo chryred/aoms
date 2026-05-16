@@ -227,24 +227,24 @@ async def send_message(
     async def event_stream():
         # 자체 세션을 만들어 generator 수명과 일치시킴
         async with AsyncSessionLocal() as db:
-            session = await _ensure_owner(db, session_id, user.id)
-            attachments = []
-            for key in (payload.attachment_keys or []):
-                # key는 이미 업로드된 상태. size/mime은 파일시스템에서 조회
-                p = ATTACH_ROOT / session_id / key
-                if not p.exists():
-                    continue
-                attachments.append(
-                    {
-                        "type": "image",
-                        "key": key,
-                        "size": p.stat().st_size,
-                    }
-                )
-
-            # 가이드 검색은 ReAct 도구(qdrant_search_guide)로 위임됨.
-            # LLM이 질문 의도에 따라 능동적으로 호출하며 텍스트가 컨텍스트에 포함된다.
             try:
+                session = await _ensure_owner(db, session_id, user.id)
+                attachments = []
+                for key in (payload.attachment_keys or []):
+                    # key는 이미 업로드된 상태. size/mime은 파일시스템에서 조회
+                    p = ATTACH_ROOT / session_id / key
+                    if not p.exists():
+                        continue
+                    attachments.append(
+                        {
+                            "type": "image",
+                            "key": key,
+                            "size": p.stat().st_size,
+                        }
+                    )
+
+                # 가이드 검색은 ReAct 도구(qdrant_search_guide)로 위임됨.
+                # LLM이 질문 의도에 따라 능동적으로 호출하며 텍스트가 컨텍스트에 포함된다.
                 async for event in run_react_stream(
                     db, session, payload.content,
                     attachments=attachments,
@@ -278,21 +278,21 @@ async def auto_insight(
     """
     async def event_generator():
         async with AsyncSessionLocal() as db:
-            session = await _ensure_owner(db, session_id, user.id)
-            if session.area_code == "help_inquiry":
-                yield _sse("error", {"message": "auto-insight는 일반 운영자 세션에서만 사용 가능합니다"})
-                return
-
-            # 인시던트 존재 검증
-            from models import Incident
-            incident = await db.get(Incident, payload.incident_id)
-            if not incident:
-                yield _sse("error", {"message": f"Incident #{payload.incident_id} not found"})
-                return
-
-            auto_seed = build_auto_insight_seed(payload.incident_id, payload.screen_context)
-
             try:
+                session = await _ensure_owner(db, session_id, user.id)
+                if session.area_code == "help_inquiry":
+                    yield _sse("error", {"message": "auto-insight는 일반 운영자 세션에서만 사용 가능합니다"})
+                    return
+
+                # 인시던트 존재 검증
+                from models import Incident
+                incident = await db.get(Incident, payload.incident_id)
+                if not incident:
+                    yield _sse("error", {"message": f"Incident #{payload.incident_id} not found"})
+                    return
+
+                auto_seed = build_auto_insight_seed(payload.incident_id, payload.screen_context)
+
                 yield _sse("auto_insight_start", {"incident_id": payload.incident_id})
                 async for event in run_react_stream(
                     db, session, auto_seed,

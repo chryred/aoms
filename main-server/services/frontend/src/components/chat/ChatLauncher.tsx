@@ -48,7 +48,7 @@ export function ChatLauncher() {
         {!isOpen && unread > 0 && (
           <span
             aria-label={`미읽은 메시지 ${unread}개`}
-            className="bg-critical absolute -top-1 -right-1 z-10 flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-bold text-white"
+            className="bg-normal absolute -top-1 -right-1 z-10 flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-bold text-white"
           >
             {unread > 9 ? '9+' : unread}
           </span>

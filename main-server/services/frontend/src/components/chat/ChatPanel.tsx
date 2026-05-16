@@ -40,6 +40,7 @@ export function ChatPanel() {
   const setFilterSystemIds = useChatStore((s) => s.setFilterSystemIds)
   const setThinking = useChatStore((s) => s.setThinking)
   const resetUnread = useChatStore((s) => s.resetUnread)
+  const incrementUnread = useChatStore((s) => s.incrementUnread)
   const consumePendingScreenContext = useChatStore((s) => s.consumePendingScreenContext)
   const autoInsightIncidentId = useChatStore((s) => s.autoInsightIncidentId)
   const setAutoInsightIncidentId = useChatStore((s) => s.setAutoInsightIncidentId)
@@ -71,12 +72,13 @@ export function ChatPanel() {
   // 세션이 없으면 열 때 자동 생성 또는 최신 세션 복원
   useEffect(() => {
     if (!isOpen) return
-    if (currentSessionId) return
-    if (sessions && sessions.length > 0) {
+    if (sessions === undefined) return // 아직 로딩 중
+    if (currentSessionId) return // 유효한 세션 존재
+    if (sessions.length > 0) {
       setCurrentSessionId(sessions[0].id)
       return
     }
-    if (sessions && sessions.length === 0 && !createSession.isPending) {
+    if (!createSession.isPending) {
       createSession.mutate(undefined, {
         onSuccess: (s) => {
           setCurrentSessionId(s.id)
@@ -89,7 +91,14 @@ export function ChatPanel() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, currentSessionId, sessions, setCurrentSessionId, createSession])
 
-  const { data: messages } = useChatMessages(currentSessionId)
+  const { data: messages, isError: isMessagesError } = useChatMessages(currentSessionId)
+
+  // localStorage에 남은 삭제된 세션 ID 무효화 — messages 404 감지 시 초기화
+  useEffect(() => {
+    if (isMessagesError && currentSessionId) {
+      setCurrentSessionId(null)
+    }
+  }, [isMessagesError, currentSessionId, setCurrentSessionId])
 
   const [streamText, setStreamText] = useState('')
   const [streamThought, setStreamThought] = useState<string | undefined>()
@@ -141,7 +150,10 @@ export function ChatPanel() {
       qc.invalidateQueries({ queryKey: qk.chat.messages(currentSessionId) })
       qc.invalidateQueries({ queryKey: qk.chat.sessions() })
     }
-  }, [qc, currentSessionId])
+    if (!isOpen) {
+      incrementUnread()
+    }
+  }, [qc, currentSessionId, isOpen, incrementUnread])
 
   const handleEventRef = useRef<(event: ChatStreamEvent) => void>(() => {})
 
@@ -457,10 +469,12 @@ export function ChatPanel() {
     }
   }, [])
 
-  // 언마운트/패널 닫힘 시 스트림 취소
+  // 언마운트 시 스트림 취소 (닫기는 백그라운드 유지)
   useEffect(() => {
-    if (!isOpen) abortRef.current?.abort()
-  }, [isOpen])
+    return () => {
+      abortRef.current?.abort()
+    }
+  }, [])
 
   // inert 속성: 닫힌 상태에서 DOM 내부 요소의 키보드 포커스 및 AT 접근 차단 (WCAG 2.1.1)
   const inertProps = !isOpen ? { inert: '' as const } : {}
@@ -505,7 +519,7 @@ export function ChatPanel() {
           onScroll={handleScroll}
           className="bg-bg-base flex-1 space-y-3 overflow-y-auto px-3 py-3"
         >
-          {messages?.length === 0 && !isStreaming && (
+          {(!currentSessionId || !messages || messages.length === 0) && !isStreaming && (
             <div className="mt-4 px-1">
               <p className="text-text-primary mb-3 text-center text-sm font-medium">
                 어떤 도움이 필요하신가요?
