@@ -110,6 +110,36 @@ async def get_agent_code_for_area(area_code: str) -> str:
     return configs.get(area_code, LLM_AGENT_CODE)
 
 
+async def fetch_system_metrics(system_name: str) -> dict:
+    """Prometheus에서 현재 시스템 메트릭 instant 조회. 실패 시 빈 dict 반환."""
+    queries = {
+        "cpu":     f'avg(cpu_usage_percent{{system_name="{system_name}",core="total"}})',
+        "memory":  (
+            f'avg(memory_used_bytes{{system_name="{system_name}",type="used"}})'
+            f' / avg(memory_used_bytes{{system_name="{system_name}",type="total"}}) * 100'
+        ),
+        "disk_io": f'avg(disk_io_time_ms{{system_name="{system_name}"}})',
+        "net_rx":  (
+            f'avg(rate(network_bytes_total{{system_name="{system_name}",direction="rx"}}[5m]))'
+            f' / 1048576'
+        ),
+    }
+    result: dict = {}
+    for key, promql in queries.items():
+        try:
+            resp = await _prom_http.get(
+                f"{PROMETHEUS_URL}/api/v1/query",
+                params={"query": promql},
+                timeout=5.0,
+            )
+            data = resp.json().get("data", {}).get("result", [])
+            if data:
+                result[key] = float(data[0]["value"][1])
+        except Exception:
+            pass
+    return result
+
+
 async def fetch_logs_for_system(system_name: str) -> dict[str, list[dict]]:
     """
     최근 5분간 log_error_total 증분이 있는 시리즈를 Prometheus에서 조회.
@@ -208,15 +238,30 @@ async def analyze_with_vector_context(
     log_text     = mask_sensitive_data(_format_logs_by_type(sampled_logs))
     normalized = normalize_log_for_embedding(log_text)
 
-    # 2. 임베딩 생성 (FastEmbed ONNX — Dense bge-m3 + Sparse BM25)
+    # 2. 임베딩 생성 + 메트릭 조회 병렬 (FastEmbed ONNX — Dense bge-m3 + Sparse BM25)
     dense_vec = None
     sparse_vec = None
+    metric_snapshot: dict = {}
     try:
-        dense_vec  = await get_embedding(normalized)
-        sparse_vec = await get_sparse_vector(normalized)
+        results = await asyncio.gather(
+            get_embedding(normalized),
+            get_sparse_vector(normalized),
+            fetch_system_metrics(system_name),
+            return_exceptions=True,
+        )
+        if not isinstance(results[0], Exception):
+            dense_vec = results[0]
+        if not isinstance(results[1], Exception):
+            sparse_vec = results[1]
+        if not isinstance(results[2], Exception):
+            metric_snapshot = results[2]
+        if isinstance(results[0], Exception) or isinstance(results[1], Exception):
+            logger.warning(
+                f"임베딩 생성 실패: → 벡터 검색 없이 분석 진행"
+            )
     except Exception as e:
         logger.warning(
-            f"임베딩 생성 실패: {type(e).__name__}: {e!r} → 벡터 검색 없이 분석 진행"
+            f"임베딩/메트릭 조회 실패: {type(e).__name__}: {e!r} → 벡터 검색 없이 분석 진행"
         )
 
     # 3. 유사 이력 Hybrid 검색 (Dense + Sparse RRF)
@@ -291,10 +336,20 @@ async def analyze_with_vector_context(
         trace_context=_trace_context,
         trace_tier=_trace_tier,
         postmortems=postmortems if postmortems else None,
+        metric_snapshot=metric_snapshot if metric_snapshot else None,
     )
-    analysis = await call_llm_structured(prompt, agent_code=agent_code)
 
-    # 5. 벡터 저장 (새로운 분석 결과 누적 — duplicate 포함, Dense+Sparse)
+    # LLM 호출 — 실패해도 벡터 저장은 진행 (패턴 누적 목적)
+    analysis: dict = {}
+    llm_error: str | None = None
+    try:
+        analysis = await call_llm_structured(prompt, agent_code=agent_code)
+    except Exception as e:
+        llm_error = f"{type(e).__name__}: {str(e)[:300]}"
+        logger.warning(f"[{system_name}/{instance_role}] LLM 분석 실패 — 벡터 저장은 계속: {llm_error}")
+
+    # 5. 벡터 저장 (LLM 성공 여부와 무관하게 수행 — 패턴 누적 + 역방향 incident_id 연결 대상)
+    # LLM 실패 시 is_notification=False(기본값) → notification_auto_skip에 영향 없음
     point_id = None
     qdrant_store_error: str | None = None
     if dense_vec and sparse_vec:
@@ -329,7 +384,8 @@ async def analyze_with_vector_context(
         "qdrant_point_id":    point_id,
         "has_solution":       has_solution,
         "similar_incidents":  similar_incidents,
-        "qdrant_store_error": qdrant_store_error,  # 값 있으면 LLM 성공했으나 벡터 저장 실패
+        "llm_error":          llm_error,          # LLM 호출 실패 사유 (벡터 저장은 완료)
+        "qdrant_store_error": qdrant_store_error,  # 값 있으면 벡터 저장 실패
     }
 
 
@@ -529,7 +585,7 @@ async def _analyze_one_role(
                 qdrant_point_id=analysis.get("qdrant_point_id"),
                 has_solution=analysis.get("has_solution"),
                 similar_incidents=analysis.get("similar_incidents"),
-                error_message=analysis.get("qdrant_store_error"),
+                error_message=analysis.get("llm_error") or analysis.get("qdrant_store_error"),
                 referenced_trace_ids=trace_ref_ids or None,
                 trace_summary_text=trace_ctx or None,
                 templates=analysis_templates or None,

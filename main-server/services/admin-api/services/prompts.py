@@ -217,8 +217,15 @@ def help_final_prompt(history: str) -> str:
 
 # ── Prometheus 이상 감지 LLM 분석 프롬프트 ──────────────────────────────────
 
-def build_prometheus_llm_prompt(hc: HostContext, system_infos: dict[str, dict]) -> str:
-    """host 전체 컨텍스트를 포함한 LLM 프롬프트 생성."""
+def build_prometheus_llm_prompt(
+    hc: "HostContext",
+    system_infos: dict[str, dict],
+    solution_ctx: str = "",
+) -> str:
+    """host 전체 컨텍스트를 포함한 LLM 프롬프트 생성.
+
+    solution_ctx: 과거 유사 장애 해결책 참고 텍스트 (비어있으면 생략).
+    """
     lines = [f"[물리 서버: {hc.host}]", ""]
 
     # 인프라 메트릭
@@ -286,6 +293,11 @@ def build_prometheus_llm_prompt(hc: HostContext, system_infos: dict[str, dict]) 
     ]
     if anomalous_systems:
         lines.append(f"이상 감지 시스템: {', '.join(anomalous_systems)}")
+        lines.append("")
+    if solution_ctx:
+        lines.append("[참고 해결책]")
+        lines.append(solution_ctx)
+        lines.append("※ 과거 사례 참고용. 현재 수치와 맥락을 기준으로 독립적으로 판단할 것.")
         lines.append("")
     lines.append(
         '위 현황을 종합하여 다음 JSON 형식으로만 응답하세요:\n'

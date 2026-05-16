@@ -42,9 +42,10 @@ from services.prompts import (
 
 logger = logging.getLogger(__name__)
 
-_PROMETHEUS_URL   = os.getenv("PROMETHEUS_URL", "").rstrip("/")
-_ANALYZE_INTERVAL = int(os.getenv("PROMETHEUS_ANALYZE_INTERVAL_SECONDS", "300"))
+_PROMETHEUS_URL    = os.getenv("PROMETHEUS_URL", "").rstrip("/")
+_ANALYZE_INTERVAL  = int(os.getenv("PROMETHEUS_ANALYZE_INTERVAL_SECONDS", "300"))
 _TEAMS_WEBHOOK_URL = os.getenv("TEAMS_WEBHOOK_URL", "")
+_LOG_ANALYZER_URL  = os.getenv("LOG_ANALYZER_URL", "http://log-analyzer:8000")
 
 # ── 임계치 (warning) — prompts.py에서 import ─────────────────────────────────
 # _CPU_THRESHOLD, _MEM_THRESHOLD, _LOG_ERROR_RATE_THRESHOLD,
@@ -668,7 +669,47 @@ async def run_analysis_cycle() -> None:
                 if info:
                     system_infos[sn] = info
 
-            prompt = build_prometheus_llm_prompt(hc, system_infos)
+            # 과거 해결책 조회 (best-effort — 역방향 업데이트로 incident_id 연결된 경우에만 유효)
+            solution_ctx = ""
+            for sn, sm in hc.systems.items():
+                if not sm.anomalies or not sm.matched_metric_types:
+                    continue
+                try:
+                    async with httpx.AsyncClient(timeout=5.0) as _hc:
+                        sim_resp = await _hc.post(
+                            f"{_LOG_ANALYZER_URL}/metric/similarity",
+                            json={
+                                "system_name":   sn,
+                                "instance_role": "prometheus_analyzer",
+                                "alertname":     "prometheus_analyzer_anomaly",
+                                "labels": {
+                                    "metric_name": ",".join(sm.matched_metric_types),
+                                    "severity":    severity,
+                                },
+                                "annotations": {},
+                            },
+                        )
+                    if sim_resp.status_code == 200:
+                        sim_data = sim_resp.json()
+                        incident_ids = [
+                            r["payload"].get("incident_id")
+                            for r in sim_data.get("top_results", [])
+                            if r["payload"].get("incident_id") is not None
+                        ]
+                        if incident_ids:
+                            async with httpx.AsyncClient(timeout=5.0) as _hc:
+                                pm_resp = await _hc.get(
+                                    f"{_LOG_ANALYZER_URL}/incident-postmortem/by-incident/{incident_ids[0]}",
+                                )
+                            if pm_resp.status_code == 200 and pm_resp.json():
+                                sol = (pm_resp.json().get("solution") or "").strip()
+                                if sol:
+                                    solution_ctx = f"과거 유사 장애 해결책 (참고용):\n- {sol[:200]}"
+                                    break
+                except Exception as exc:
+                    logger.debug("메트릭 해결책 조회 실패 (분석 계속): %s", exc)
+
+            prompt = build_prometheus_llm_prompt(hc, system_infos, solution_ctx=solution_ctx)
             logger.info("Anomaly detected — host=%s severity=%s systems=%s", host, severity, list(hc.systems.keys()))
 
             analysis: Optional[str] = None

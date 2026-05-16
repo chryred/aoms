@@ -15,6 +15,7 @@ def build_enhanced_prompt(
     trace_context: str = "",
     trace_tier: str = "5min",
     postmortems: list[dict] | None = None,
+    metric_snapshot: dict | None = None,
 ) -> str:
     """유사 이력 + 해결책을 포함한 강화 프롬프트 생성.
 
@@ -25,6 +26,9 @@ def build_enhanced_prompt(
       각 항목: {"solution": str, "root_cause": str, ...} (payload 필드)
       제공 시 "검증된 해결책" 섹션을 postmortem.solution으로 렌더링.
       None이면 기존 payload.resolution 폴백 동작 유지.
+
+    metric_snapshot: Prometheus instant 조회 결과 {"cpu", "memory", "disk_io", "net_rx"}.
+      값이 있으면 "현재 시스템 메트릭" 섹션 삽입 (로그와 메트릭 교차 원인 분석 지원).
     """
     log_limit_map = {"5min": 2600, "hourly": 2700, "daily": 2800}
     log_limit = log_limit_map.get(trace_tier, 3000) if trace_context else 3000
@@ -79,11 +83,25 @@ def build_enhanced_prompt(
     if trace_context:
         trace_section = f"\n=== 분산 추적 요약 ({trace_tier}) ===\n{trace_context}\n"
 
+    metric_section = ""
+    if metric_snapshot:
+        parts = []
+        if "cpu" in metric_snapshot:
+            parts.append(f"CPU {metric_snapshot['cpu']:.1f}%")
+        if "memory" in metric_snapshot:
+            parts.append(f"메모리 {metric_snapshot['memory']:.1f}%")
+        if "disk_io" in metric_snapshot:
+            parts.append(f"디스크 I/O {metric_snapshot['disk_io']:.0f}ms")
+        if "net_rx" in metric_snapshot:
+            parts.append(f"네트워크 RX {metric_snapshot['net_rx']:.1f}MB/s")
+        if parts:
+            metric_section = f"\n=== 현재 시스템 메트릭 ===\n{' | '.join(parts)}\n"
+
     return f"""=== 현재 이상 분류: {type_label} ===
 시스템: {system_name} / {instance_role}
 {trace_section}
 {log_content[:log_limit]}
-
+{metric_section}
 === 과거 유사 장애 이력 (상위 3건) ===
 {history_ctx}
 

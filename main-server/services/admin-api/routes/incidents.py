@@ -11,7 +11,7 @@ from sqlalchemy.orm import selectinload
 from auth import get_current_user, require_admin
 from database import AsyncSessionLocal, get_db
 from services.incident_status_meta import status_meta
-from models import AlertFeedback, AlertFeedbackAttachment, AlertHistory, Contact, Incident, IncidentTimeline, LlmAgentConfig, System, User
+from models import AlertFeedback, AlertFeedbackAttachment, AlertHistory, Contact, Incident, IncidentTimeline, LlmAgentConfig, LogAnalysisHistory, System, User
 from schemas import (
     AlertHistoryOut,
     FeedbackCreateRequest,
@@ -33,12 +33,14 @@ from schemas import (
 from services.llm_client import call_llm_text
 from services import incident_postmortem_client as postmortem_client
 from services.notification import TeamsNotifier
+import httpx
 import os
 import uuid
 from pathlib import Path
 from sqlalchemy import delete as sa_delete
 
 logger = logging.getLogger(__name__)
+_LOG_ANALYZER_URL = os.getenv("LOG_ANALYZER_URL", "http://log-analyzer:8000")
 _KST = timezone(timedelta(hours=9))
 
 router = APIRouter(prefix="/api/v1/incidents", tags=["incidents"])
@@ -54,6 +56,50 @@ _FEEDBACK_ATTACH_DIR = _KNOWLEDGE_DOCS_DIR / "feedback"
 _MAX_ATTACHMENTS_PER_FEEDBACK = 10
 _RESUBMIT_SOFT_LIMIT = 3   # 이상 시 warning 동봉
 _RESUBMIT_HARD_LIMIT = 5   # 이상 시 409 거부 → 신규 피드백 등록 강제
+
+
+async def _link_qdrant_incident_points(incident_id: int) -> None:
+    """피드백 승인 후 관련 Qdrant 포인트에 incident_id를 역방향 주입 (best-effort).
+
+    log_analysis_history.qdrant_point_id → log_incidents 포인트
+    alert_history.qdrant_point_id (metric) → metric_baselines 포인트
+    이후 유사도 검색 → incident_id → incident_postmortems.solution 경로 활성화.
+    """
+    try:
+        async with AsyncSessionLocal() as db:
+            log_result = await db.execute(
+                select(LogAnalysisHistory.qdrant_point_id)
+                .where(LogAnalysisHistory.incident_id == incident_id)
+                .where(LogAnalysisHistory.qdrant_point_id.isnot(None))
+            )
+            log_point_ids = list(log_result.scalars().all())
+
+            metric_result = await db.execute(
+                select(AlertHistory.qdrant_point_id)
+                .where(AlertHistory.incident_id == incident_id)
+                .where(AlertHistory.alert_type.in_(["metric", "metric_resolved"]))
+                .where(AlertHistory.qdrant_point_id.isnot(None))
+            )
+            metric_point_ids = list(metric_result.scalars().all())
+
+        if not log_point_ids and not metric_point_ids:
+            return
+
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            await client.patch(
+                f"{_LOG_ANALYZER_URL}/incidents/points/link-incident",
+                json={
+                    "incident_id":      incident_id,
+                    "log_point_ids":    log_point_ids,
+                    "metric_point_ids": metric_point_ids,
+                },
+            )
+        logger.info(
+            "Qdrant incident_id 역방향 업데이트 완료 — incident_id=%s log=%d metric=%d",
+            incident_id, len(log_point_ids), len(metric_point_ids),
+        )
+    except Exception as exc:
+        logger.warning("Qdrant incident_id 역방향 업데이트 실패 (best-effort): %s", exc)
 
 
 def _staging_dir() -> Path:
@@ -655,6 +701,7 @@ async def approve_incident_feedback(
         logger.warning("incident postmortem embed 실패 (feedback_id=%s): %s", feedback_id, exc)
 
     await db.commit()
+    background_tasks.add_task(_link_qdrant_incident_points, incident_id)
     await db.refresh(feedback)
     result2 = await db.execute(
         select(AlertFeedback).where(AlertFeedback.id == feedback_id)

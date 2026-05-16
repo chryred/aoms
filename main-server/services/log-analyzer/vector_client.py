@@ -560,6 +560,28 @@ async def update_resolution(point_id: str, resolution: str, resolver: str) -> No
     resp.raise_for_status()
 
 
+async def update_log_incident_ids(point_ids: list[str], incident_id: int) -> None:
+    """log_incidents 포인트들에 incident_id payload 추가 (피드백 승인 역방향 업데이트)."""
+    if not point_ids:
+        return
+    resp = await _qdrant_http.post(
+        f"{QDRANT_URL}/collections/{COLLECTION}/points/payload",
+        json={"payload": {"incident_id": incident_id}, "points": point_ids},
+    )
+    resp.raise_for_status()
+
+
+async def update_metric_incident_ids(point_ids: list[str], incident_id: int) -> None:
+    """metric_baselines 포인트들에 incident_id payload 추가 (피드백 승인 역방향 업데이트)."""
+    if not point_ids:
+        return
+    resp = await _qdrant_http.post(
+        f"{QDRANT_URL}/collections/{METRIC_COLLECTION}/points/payload",
+        json={"payload": {"incident_id": incident_id}, "points": point_ids},
+    )
+    resp.raise_for_status()
+
+
 # ── 이상 분류 (RRF 점수 기반 재설계) ─────────────────────────────────────────
 
 # RRF 점수는 cosine과 스케일이 다르므로 순위/개수 기반 판단으로 전환.

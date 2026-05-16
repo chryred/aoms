@@ -274,6 +274,32 @@ async def solution_update(req: SolutionUpdateRequest):
     return {"point_id": req.point_id, "updated": True}
 
 
+# ── 역방향 incident_id 업데이트 ───────────────────────────────────────────────
+
+class LinkIncidentRequest(BaseModel):
+    incident_id:      int
+    log_point_ids:    list[str] = []
+    metric_point_ids: list[str] = []
+
+
+@app.patch("/incidents/points/link-incident")
+async def link_incident_points(req: LinkIncidentRequest):
+    """
+    피드백 승인 시 admin-api가 호출.
+    log_incidents / metric_baselines Qdrant 포인트에 incident_id를 역방향 주입.
+    이후 유사도 검색 → incident_id → incident_postmortems.solution 경로 활성화.
+    """
+    if req.log_point_ids:
+        await vector_client.update_log_incident_ids(req.log_point_ids, req.incident_id)
+    if req.metric_point_ids:
+        await vector_client.update_metric_incident_ids(req.metric_point_ids, req.incident_id)
+    return {
+        "incident_id":     req.incident_id,
+        "updated_log":     len(req.log_point_ids),
+        "updated_metric":  len(req.metric_point_ids),
+    }
+
+
 # ── Phase 5: 집계 벡터 검색 엔드포인트 (UI 프록시) ────────────────────────────
 
 class AggregationSearchRequest(BaseModel):
