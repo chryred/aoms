@@ -300,6 +300,26 @@ async def link_incident_points(req: LinkIncidentRequest):
     }
 
 
+class NotificationFlagRequest(BaseModel):
+    point_ids: list[str]
+
+
+@app.patch("/incident/notification-flag")
+async def mark_notification_flag(body: NotificationFlagRequest):
+    """담당자 정보성 분류 → log_incidents Qdrant 포인트 is_notification=True 갱신."""
+    if not body.point_ids:
+        return {"updated": 0}
+    resp = await vector_client._qdrant_http.put(
+        f"{vector_client.QDRANT_URL}/collections/{vector_client.COLLECTION}/points/payload",
+        json={
+            "payload": {"is_notification": True, "notification_source": "human"},
+            "points": body.point_ids,
+        },
+    )
+    resp.raise_for_status()
+    return {"updated": len(body.point_ids)}
+
+
 # ── Phase 5: 집계 벡터 검색 엔드포인트 (UI 프록시) ────────────────────────────
 
 class AggregationSearchRequest(BaseModel):
