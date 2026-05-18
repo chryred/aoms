@@ -309,14 +309,19 @@ async def mark_notification_flag(body: NotificationFlagRequest):
     """담당자 정보성 분류 → log_incidents Qdrant 포인트 is_notification=True 갱신."""
     if not body.point_ids:
         return {"updated": 0}
-    resp = await vector_client._qdrant_http.put(
-        f"{vector_client.QDRANT_URL}/collections/{vector_client.COLLECTION}/points/payload",
-        json={
-            "payload": {"is_notification": True, "notification_source": "human"},
-            "points": body.point_ids,
-        },
-    )
-    resp.raise_for_status()
+    try:
+        resp = await vector_client._qdrant_http.put(
+            f"{vector_client.QDRANT_URL}/collections/{vector_client.COLLECTION}/points/payload",
+            json={
+                "payload": {"is_notification": True, "notification_source": "human"},
+                "points": body.point_ids,
+            },
+        )
+        resp.raise_for_status()
+    except Exception as exc:
+        logger.error("notification-flag Qdrant 업데이트 실패: %s", exc)
+        raise HTTPException(status_code=502, detail=f"Qdrant 업데이트 실패: {str(exc)[:200]}")
+    logger.info("notification-flag: %d건 is_notification=True 갱신 완료", len(body.point_ids))
     return {"updated": len(body.point_ids)}
 
 
