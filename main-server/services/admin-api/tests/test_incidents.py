@@ -322,3 +322,73 @@ async def test_ai_analyze_returns_502_on_malformed_json(authed_client: AsyncClie
             f"/api/v1/incidents/{incidents[0]['id']}/ai-analyze"
         )
     assert resp.status_code == 502
+
+
+# ── severity → info Qdrant 갱신 ───────────────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_severity_to_info_calls_notification_flag(authed_client: AsyncClient, db_session):
+    """인시던트 severity→info 변경 시 _mark_incident_logs_notification 호출 검증."""
+    import asyncio
+    from models import LogAnalysisHistory
+
+    await _create_system(authed_client)
+    await _fire_alert(authed_client)
+    incidents = (await authed_client.get("/api/v1/incidents")).json()
+    incident_id = incidents[0]["id"]
+    system_id = incidents[0]["system_id"]
+
+    db_session.add(LogAnalysisHistory(
+        system_id=system_id,
+        instance_role="was1",
+        log_content="test log",
+        analysis_result="{}",
+        severity="warning",
+        anomaly_type="new",
+        qdrant_point_id="test-point-uuid-001",
+        incident_id=incident_id,
+    ))
+    await db_session.flush()
+
+    with patch(
+        "routes.incidents._mark_incident_logs_notification",
+        new_callable=AsyncMock,
+    ) as mock_mark:
+        resp = await authed_client.patch(
+            f"/api/v1/incidents/{incident_id}",
+            json={"severity": "info"},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["severity"] == "info"
+
+        await asyncio.sleep(0.05)
+        mock_mark.assert_awaited_once()
+        assert mock_mark.call_args[0][0] == incident_id
+
+
+@pytest.mark.asyncio
+async def test_severity_info_to_info_does_not_call_notification_flag(authed_client: AsyncClient):
+    """이미 info인 인시던트를 다시 info로 변경해도 _mark_incident_logs_notification 미호출."""
+    import asyncio
+
+    await _create_system(authed_client)
+    await _fire_alert(authed_client)
+    incidents = (await authed_client.get("/api/v1/incidents")).json()
+    incident_id = incidents[0]["id"]
+
+    # 먼저 warning→info로 변경 (mock 없이)
+    with patch("routes.incidents._mark_incident_logs_notification", new_callable=AsyncMock):
+        await authed_client.patch(f"/api/v1/incidents/{incident_id}", json={"severity": "info"})
+
+    # 이미 info인 상태에서 다시 info로 변경 → 미호출이어야 함
+    with patch(
+        "routes.incidents._mark_incident_logs_notification",
+        new_callable=AsyncMock,
+    ) as mock_mark:
+        resp = await authed_client.patch(
+            f"/api/v1/incidents/{incident_id}",
+            json={"severity": "info"},
+        )
+        assert resp.status_code == 200
+        await asyncio.sleep(0.05)
+        mock_mark.assert_not_awaited()
