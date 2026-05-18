@@ -307,6 +307,7 @@ def build_prometheus_llm_prompt(
         '  "immediate_action": "운영팀이 즉시 취해야 할 조치 (한국어, 1~2문장)"\n'
         '}'
     )
+    return "\n".join(lines)
 
 
 # ── 챗봇 자동 통찰 (Feature 5C-2) ──────────────────────────────────────────
@@ -342,5 +343,3 @@ def build_auto_insight_seed(
         f"   - 마지막에 \"추가 질문이 있으시면 알려주세요\" 안내\n"
         f"전체 응답 800자 이내."
     )
-
-    return "\n".join(lines)
