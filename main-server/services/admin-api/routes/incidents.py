@@ -102,6 +102,36 @@ async def _link_qdrant_incident_points(incident_id: int) -> None:
         logger.warning("Qdrant incident_id 역방향 업데이트 실패 (best-effort): %s", exc)
 
 
+async def _mark_incident_logs_notification(incident_id: int, actor_name: str) -> None:
+    """인시던트 severity→info 변경 시 log_incidents Qdrant 포인트 is_notification=True 갱신 (best-effort)."""
+    try:
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(
+                select(LogAnalysisHistory.qdrant_point_id)
+                .where(LogAnalysisHistory.incident_id == incident_id)
+                .where(LogAnalysisHistory.qdrant_point_id.isnot(None))
+            )
+            point_ids = list(result.scalars().all())
+
+        if not point_ids:
+            logger.info("incident %s: 연결된 log Qdrant 포인트 없음 (정보성 갱신 skip)", incident_id)
+            return
+
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.patch(
+                f"{_LOG_ANALYZER_URL}/incident/notification-flag",
+                json={"point_ids": point_ids},
+            )
+            resp.raise_for_status()
+
+        logger.info(
+            "incident %s: Qdrant 정보성 갱신 완료 — %d건 (by %s)",
+            incident_id, len(point_ids), actor_name,
+        )
+    except Exception as exc:
+        logger.warning("incident %s: Qdrant 정보성 갱신 실패 (best-effort): %s", incident_id, exc)
+
+
 def _staging_dir() -> Path:
     d = _FEEDBACK_ATTACH_DIR / "staging"
     d.mkdir(parents=True, exist_ok=True)
@@ -1225,10 +1255,13 @@ async def update_incident(
 
     if payload.title is not None:
         incident.title = payload.title
+    severity_to_info = False
     if payload.severity is not None:
         _VALID_SEVERITIES = {"critical", "warning", "info"}
         if payload.severity not in _VALID_SEVERITIES:
             raise HTTPException(status_code=422, detail=f"유효하지 않은 심각도: {payload.severity}")
+        if payload.severity == "info" and incident.severity != "info":
+            severity_to_info = True
         incident.severity = payload.severity
     if payload.root_cause is not None:
         incident.root_cause = payload.root_cause
@@ -1245,8 +1278,21 @@ async def update_incident(
             actor_name=current_user.name,
         ))
 
+    if severity_to_info:
+        db.add(IncidentTimeline(
+            incident_id=incident_id,
+            event_type="status_changed",
+            description=f"담당자 {current_user.name}이 정보성 로그로 분류 — 유사 로그 자동 skip 등록",
+            actor_name=current_user.name,
+        ))
+
     await db.commit()
     await db.refresh(incident)
+
+    if severity_to_info:
+        asyncio.create_task(
+            _mark_incident_logs_notification(incident_id, current_user.name)
+        )
 
     system_display_name = None
     if incident.system_id:
