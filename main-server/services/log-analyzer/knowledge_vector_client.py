@@ -23,6 +23,7 @@ RRF cross-collection 병합:
 import asyncio
 import hashlib
 import logging
+import os
 from datetime import datetime, timezone
 
 from vector_client import (
@@ -50,6 +51,12 @@ DOCUMENTS_PAYLOAD_INDEXES  = [("doc_type", "keyword"), ("system_id", "integer"),
 _RRF_K = 60
 # corrected 보너스 (2차 RRF 후 적용)
 _CORRECTED_BONUS = 0.2
+# 소스별 RRF 가중치 — documents(업로드 문서·운영자 노트)를 상위로 배치
+_SOURCE_WEIGHTS: dict[str, float] = {
+    "documents":  float(os.getenv("KNOWLEDGE_DOCS_WEIGHT",        "2.0")),
+    "jira":       float(os.getenv("KNOWLEDGE_JIRA_WEIGHT",        "1.0")),
+    "confluence": float(os.getenv("KNOWLEDGE_CONFLUENCE_WEIGHT",  "1.0")),
+}
 
 
 # ── 컬렉션 보장 ─────────────────────────────────────────────────────────────
@@ -1047,9 +1054,10 @@ def _cross_collection_rrf(
     merged: dict[int | str, dict] = {}
 
     for source, results in results_by_source.items():
+        weight = _SOURCE_WEIGHTS.get(source, 1.0)
         for rank, hit in enumerate(results):
             pid = hit["id"]
-            rrf = _rrf_score(rank)
+            rrf = _rrf_score(rank) * weight
             if pid not in merged:
                 merged[pid] = {
                     "point_id":   pid,
@@ -1120,7 +1128,14 @@ async def federated_search(
         logger.warning("Knowledge 임베딩 실패: %s", exc)
         return {"results": [], "by_source": {s: 0 for s in active_sources}}
 
-    retrieval_limit = limit * 4 if rerank else limit * 2
+    # rerank 시: 소스별로 rerank_top_k를 균등 분배하되 최소 limit*2 보장
+    # 예) rerank_top_k=10, 3소스 → 소스당 max(ceil(10/3)*2, 4) = 8건
+    if rerank:
+        n = len(active_sources) or 1
+        per_source = max(-(-rerank_top_k // n) * 2, limit * 2)  # ceiling division * 2
+        retrieval_limit = per_source
+    else:
+        retrieval_limit = limit * 2
 
     # 컬렉션별 필터 구성
     async def _search_source(source: str) -> tuple[str, list[dict]]:
@@ -1181,12 +1196,21 @@ async def federated_search(
                     parts.append(str(v)[:500])
             return " | ".join(parts)
 
-        candidates = [{**r, "_rt": _result_text(r)} for r in merged]
+        # CPU 추론 시간 상한 보호 — 환경변수로 튜닝 가능 (기본 20건)
+        _cap = int(os.getenv("RERANKER_CANDIDATE_CAP", "20"))
+        capped_top_k = min(rerank_top_k, _cap)
+        candidates = [{**r, "_rt": _result_text(r)} for r in merged[:capped_top_k]]
         try:
-            reranked = await _rerank(query, candidates, top_k=rerank_top_k, text_field="_rt")
+            reranked = await asyncio.wait_for(
+                _rerank(query, candidates, top_k=capped_top_k, text_field="_rt"),
+                timeout=20.0,
+            )
             for r in reranked:
                 r.pop("_rt", None)
             merged = reranked
+        except asyncio.TimeoutError:
+            logger.warning("Knowledge Reranker 20s 타임아웃 → RRF 순서 유지")
+            merged = merged[:rerank_top_k]
         except Exception as exc:
             logger.warning("Knowledge Reranker 실패: %s → RRF 순서 유지", exc)
             merged = merged[:rerank_top_k]

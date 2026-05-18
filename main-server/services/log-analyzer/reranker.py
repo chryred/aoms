@@ -32,6 +32,9 @@ RERANKER_MODEL       = os.getenv("RERANKER_MODEL", "BAAI/bge-reranker-v2-m3")
 RERANKER_ONNX_FILE   = os.getenv("RERANKER_ONNX_FILE", "onnx/model.onnx")
 RERANKER_MODEL_CACHE = os.getenv("RERANKER_MODEL_CACHE") or None
 RERANKER_MAX_LENGTH  = int(os.getenv("RERANKER_MAX_LENGTH", "512"))
+# 운영 서버 CPU 코어 수에 맞춰 설정. 0이면 onnxruntime 자동 감지
+RERANKER_INTRA_THREADS = int(os.getenv("RERANKER_INTRA_THREADS", "0"))
+RERANKER_INTER_THREADS = int(os.getenv("RERANKER_INTER_THREADS", "1"))
 
 # 후보 텍스트 컷오프 (vector_client._EMBED_MAX_CHARS 와 동일 컨벤션)
 _RERANK_MAX_CHARS = 3000
@@ -86,6 +89,9 @@ def _get_reranker_session():
                 onnx_path = os.path.join(model_dir, RERANKER_ONNX_FILE)
 
                 sess_opt = ort.SessionOptions()
+                if RERANKER_INTRA_THREADS > 0:
+                    sess_opt.intra_op_num_threads = RERANKER_INTRA_THREADS
+                sess_opt.inter_op_num_threads = RERANKER_INTER_THREADS
                 session = ort.InferenceSession(
                     onnx_path,
                     sess_options=sess_opt,

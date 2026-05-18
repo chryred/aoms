@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["knowledge-verify"])
 
 _LOG_ANALYZER_URL = os.getenv("LOG_ANALYZER_URL", "http://log-analyzer:8000")
-_TIMEOUT = 20.0
+_TIMEOUT = 60.0
 
 # 컬렉션 → log-analyzer 엔드포인트 분류 (Qdrant 실제 컬렉션 이름 기준)
 _INCIDENT_COLLECTIONS = {"log_incidents", "metric_baselines"}
@@ -70,7 +70,7 @@ class ChatbotSearchRequest(BaseModel):
     system_ids: list[int] = []
     top_k: int = Field(default=10, ge=1, le=50)
     score_threshold: float = Field(default=0.5, ge=0.0, le=1.0)
-    rerank_pool_size: int = Field(default=50, ge=10, le=200)
+    rerank_pool_size: int = Field(default=10, ge=5, le=200)
     with_scores: bool = False   # Track C: dense/sparse 개별 점수 병합
 
 
@@ -83,7 +83,7 @@ class CollectionsSearchRequest(BaseModel):
     use_reranker: bool = True
     top_k: int = Field(default=10, ge=1, le=50)
     score_threshold: float = Field(default=0.5, ge=0.0, le=1.0)
-    rerank_pool_size: int = Field(default=50, ge=10, le=200)
+    rerank_pool_size: int = Field(default=10, ge=5, le=200)
     with_scores: bool = False   # Track C: dense/sparse 개별 점수 병합
 
 

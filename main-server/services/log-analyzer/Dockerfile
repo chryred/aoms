@@ -23,7 +23,7 @@ ENV DENSE_MODEL_CACHE=/app/dense-models \
 # 배포 이미지에는 포함되지 않음. 모델 tar.gz 추출 후 서버 볼륨에 1회 배포.
 #   - Dense    : BAAI/bge-m3 ONNX                                (~1.1GB, 1024dim)
 #   - Sparse   : Qdrant/bm25 (fastembed BM25)                    (~50MB)
-#   - Reranker : onnx-community/bge-reranker-v2-m3-ONNX FP32     (~2.3GB)
+#   - Reranker : onnx-community/bge-reranker-v2-m3-ONNX FP32     (~2.3GB, 서버 볼륨에서 int8 양자화)
 FROM deps AS model-downloader
 RUN python -c "\
 from fastembed import SparseTextEmbedding; \
@@ -36,10 +36,12 @@ print('임베딩 + reranker 모델 다운로드 완료')\
 
 # ── app: 배포 이미지 (모델은 /opt/synapse/models 볼륨 마운트로 주입) ───────
 FROM deps AS app
+# int8 양자화 모델 사용 (서버 볼륨에 model_int8.onnx가 준비돼 있어야 함)
+ENV RERANKER_ONNX_FILE=onnx/model_int8.onnx
 COPY . .
 EXPOSE 8000
 
-# 운영 시 docker-compose 환경변수로 튜닝. 모델(bge-m3 ~1.2GB + reranker ~2.3GB)이
+# 운영 시 docker-compose 환경변수로 튜닝. 모델(bge-m3 ~1.2GB + reranker int8 ~600MB)이
 # 워커마다 별도 로드되므로 mem_limit과 함께 산정 — 기본 1을 유지하는 것을 권장
 ENV UVICORN_WORKERS=1
 

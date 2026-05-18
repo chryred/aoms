@@ -312,16 +312,18 @@ async def _search_knowledge(
         "count":    len(results),
         "results":  [
             {
-                "source":     r.get("source"),
-                "title":      (r.get("title") or "")[:200],
-                "content":    (r.get("content") or r.get("text") or "")[:500],
+                # federated_search 응답: {"point_id", "collection", "score", "payload": {...}}
+                # 본문 필드는 payload 안에 중첩되어 있으므로 반드시 payload를 경유해야 함
+                "source":     r.get("collection"),
+                "title":      ((p := r.get("payload") or {}).get("title") or p.get("page_title") or "")[:200],
+                "content":    (p.get("text") or p.get("content") or p.get("description") or "")[:500],
                 "score":      r.get("score"),
-                "system_id":  r.get("system_id"),
-                "tags":       r.get("tags"),
-                # 전문 조회용 식별자 — LLM이 qdrant_get_*_full 호출 시 사용
-                "file_hash":  r.get("file_hash"),
-                "page_id":    r.get("page_id"),
-                "file_name":  r.get("file_name"),
+                "system_id":  p.get("system_id"),
+                "tags":       p.get("tags"),
+                # 전문 조회용 식별자 — LLM이 qdrant_get_chunks 호출 시 사용
+                "file_hash":  p.get("file_hash"),
+                "page_id":    p.get("page_id"),
+                "file_name":  p.get("file_name"),
             }
             for r in results
         ],
