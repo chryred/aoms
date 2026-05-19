@@ -30,6 +30,7 @@ interface AlertDetailPanelProps {
 
 interface ParsedDescription {
   severity?: string
+  anomaly_item?: string
   root_cause?: string
   recommendation?: string
   log_content?: string
@@ -57,12 +58,14 @@ function parseDescription(desc: string | null | undefined): ParsedDescription | 
         'recommendation' in obj ||
         'anomaly_type' in obj ||
         'severity' in obj ||
-        'log_content' in obj)
+        'log_content' in obj ||
+        'immediate_action' in obj)
     ) {
       return {
         ...obj,
         root_cause: normalizeMultiline(obj.root_cause),
-        recommendation: normalizeMultiline(obj.recommendation),
+        // 기존 데이터 호환: immediate_action → recommendation 폴백
+        recommendation: normalizeMultiline(obj.recommendation ?? obj.immediate_action),
       } as ParsedDescription
     }
   } catch {
@@ -337,21 +340,32 @@ export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
                     </p>
                   </div>
                 </>
-              ) : parsedDesc?.recommendation ? (
+              ) : parsedDesc ? (
                 <>
                   {logAccordion}
-                  <div className="border-accent rounded-sm border p-4">
-                    <div className="mb-2.5 flex items-center gap-2">
-                      <Lightbulb className="text-accent h-5 w-5" aria-hidden="true" />
-                      <p className="text-accent text-lg font-bold tracking-tight">해결방안</p>
+                  {parsedDesc.root_cause && (
+                    <div>
+                      <p className="type-label mb-1.5">근본 원인</p>
+                      <div className="bg-bg-base shadow-neu-inset rounded-sm p-4">
+                        <p className="text-text-primary text-sm leading-relaxed break-words whitespace-pre-wrap">
+                          {parsedDesc.root_cause}
+                        </p>
+                      </div>
                     </div>
-                    <p className="text-text-primary text-base leading-relaxed font-medium break-words whitespace-pre-wrap">
-                      {parsedDesc.recommendation}
-                    </p>
-                  </div>
+                  )}
+                  {parsedDesc.recommendation && (
+                    <div className="border-accent rounded-sm border p-4">
+                      <div className="mb-2.5 flex items-center gap-2">
+                        <Lightbulb className="text-accent h-5 w-5" aria-hidden="true" />
+                        <p className="text-accent text-lg font-bold tracking-tight">해결방안</p>
+                      </div>
+                      <p className="text-text-primary text-base leading-relaxed font-medium break-words whitespace-pre-wrap">
+                        {parsedDesc.recommendation}
+                      </p>
+                    </div>
+                  )}
                 </>
               ) : (
-                !parsedDesc &&
                 displayAlert.description && (
                   <div>
                     <p className="type-label mb-1.5">상세 내용</p>

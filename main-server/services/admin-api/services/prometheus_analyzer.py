@@ -722,7 +722,11 @@ async def run_analysis_cycle() -> None:
                 anomaly_title = f"[메트릭분석] {', '.join(sm.anomalies[:2])}"
                 parsed_analysis = _parse_prom_llm_json(analysis) if analysis else None
                 stored_description = (
-                    json.dumps(parsed_analysis, ensure_ascii=False)[:500]
+                    json.dumps({
+                        "anomaly_item": parsed_analysis.get("anomaly_item", ""),
+                        "root_cause": parsed_analysis.get("root_cause", ""),
+                        "recommendation": parsed_analysis.get("immediate_action", ""),
+                    }, ensure_ascii=False)
                     if parsed_analysis else analysis[:500]
                 )
                 stored_root_cause = (
