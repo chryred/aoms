@@ -291,6 +291,7 @@ async def analyze_with_vector_context(
                     "severity":         "info",
                     "is_notification":  True,
                     "similarity_score": top["score"],
+                    "qdrant_point_id":  str(top["id"]),
                     "root_cause":       "",
                     "recommendation":   "",
                 }
@@ -561,10 +562,23 @@ async def _analyze_one_role(
                 has_force_real=has_force_real,
             )
 
-            # notification_auto: Qdrant 유사도 자동 skip — DB/Teams 없이 종료
+            # notification_auto: Qdrant 유사도 자동 skip — Teams/incident 없이 DB만 기록
             if analysis.get("anomaly_type") == "notification_auto":
                 logger.info(
                     f"[{label}] notification_auto skip (score={analysis.get('similarity_score', 0):.3f})"
+                )
+                await submit_analysis(
+                    system_id=system_id,
+                    instance_role=instance_role,
+                    log_content=full_log,
+                    analysis_result={},
+                    severity="info",
+                    root_cause="",
+                    recommendation="",
+                    anomaly_type="notification_auto",
+                    similarity_score=analysis.get("similarity_score"),
+                    qdrant_point_id=analysis.get("qdrant_point_id"),
+                    templates=analysis_templates or None,
                 )
                 return {"status": "notification_auto", "label": label}
 
