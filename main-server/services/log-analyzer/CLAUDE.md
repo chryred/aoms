@@ -236,6 +236,8 @@ log-analyzer/
 | `CONFLUENCE_SPACES` | 동기화 대상 Space 키 (콤마 구분, 예: `DEV,OPS`). 미설정 시 비활성 |
 | `KNOWLEDGE_SYNC_RATE_LIMIT` | Knowledge 동기화 req/sec 상한 (기본 5) |
 | `KNOWLEDGE_DOCS_DIR` | 문서 원본 파일 저장 루트 (기본 `/app/synapse/knowledge-docs`). admin-api와 동일 경로 사용 — `{KNOWLEDGE_DOCS_DIR}/{system_id}/{file_name}` 구조 |
+| `UVICORN_MAX_REQUESTS` | 워커당 처리 요청 수 상한 (기본 200). 초과 시 graceful restart → glibc 힙 단편화 리셋. OOM 방지 핵심 설정 |
+| `UVICORN_MAX_REQUESTS_JITTER` | `UVICORN_MAX_REQUESTS`에 더할 랜덤 편차 (기본 50). 다중 워커 동시 재시작 방지 |
 
 ## 핵심 로직
 

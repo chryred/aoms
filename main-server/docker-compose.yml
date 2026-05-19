@@ -169,8 +169,13 @@ services:
       - KNOWLEDGE_DOCS_DIR=${KNOWLEDGE_DOCS_DIR:-/attaches/knowledge-docs}
       # uvicorn worker 수 (PR-3: 운영 시 챗봇 동시 호출 부하에 맞춰 튜닝, 기본 1)
       - UVICORN_WORKERS=${ADMIN_API_WORKERS:-1}
-    mem_limit: 256m
-    cpus: '0.3'
+      # 워커당 요청 상한 — 초과 시 graceful restart로 glibc 힙 단편화 리셋 (OOM 방지)
+      - UVICORN_MAX_REQUESTS=${ADMIN_API_MAX_REQUESTS:-500}
+      # glibc malloc 튜닝 — 128KB 이상 블록을 mmap으로 처리해 해제 즉시 OS 반환
+      - MALLOC_TRIM_THRESHOLD_=131072
+      - MALLOC_MMAP_THRESHOLD_=131072
+    mem_limit: 1024m
+    cpus: '0.4'
     depends_on:
       postgres:
         condition: service_healthy
@@ -186,9 +191,9 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - /app/synapse/models/dense-models:/app/dense-models:ro,z
-      - /app/synapse/models/fastembed-models:/app/fastembed-models:ro,z
-      - /app/synapse/models/reranker-models:/app/reranker-models:ro,z
+      - ./services/log-analyzer/models/dense-models:/app/dense-models:ro,z
+      - ./services/log-analyzer/models/fastembed-models:/app/fastembed-models:ro,z
+      - ./services/log-analyzer/models/reranker-models:/app/reranker-models:ro,z
       - ./services/attaches/knowledge-docs:/attaches/knowledge-docs:z
     environment:
       - PROMETHEUS_URL=http://prometheus:9090
@@ -220,7 +225,12 @@ services:
       - KNOWLEDGE_DOCS_DIR=${KNOWLEDGE_DOCS_DIR:-/attaches/knowledge-docs}
       # uvicorn worker 수 — 모델이 워커마다 로드되므로 기본 1 권장 (PR-3)
       - UVICORN_WORKERS=${LOG_ANALYZER_WORKERS:-1}
-    # Dense(~1.2GB) + Reranker(~2.3GB) startup eager 로드 + 처리 버퍼(~0.5GB) + 안전 마진 → 6GB
+      # 워커당 요청 상한 — 초과 시 graceful restart로 glibc 힙 단편화 리셋 (OOM 방지)
+      - UVICORN_MAX_REQUESTS=${LOG_ANALYZER_MAX_REQUESTS:-200}
+      # glibc malloc 튜닝 — 128KB 이상 블록을 mmap으로 처리해 해제 즉시 OS 반환
+      - MALLOC_TRIM_THRESHOLD_=131072
+      - MALLOC_MMAP_THRESHOLD_=131072
+    # Dense(~1.2GB) + Reranker int8(~0.6GB) + 처리 버퍼 + 안전 마진 → 6GB
     mem_limit: 6144m
     cpus: '1.0'
     depends_on: [admin-api]

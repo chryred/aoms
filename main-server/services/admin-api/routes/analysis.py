@@ -130,6 +130,7 @@ async def create_analysis(payload: LogAnalysisCreate, db: AsyncSession = Depends
             db, system.id, title=alert_record.title, severity=payload.severity
         )
         alert_record.incident_id = incident.id
+        record.incident_id = incident.id
         db.add(IncidentTimeline(
             incident_id=incident.id,
             event_type="analysis_added",

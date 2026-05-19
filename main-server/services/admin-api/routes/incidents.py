@@ -111,7 +111,16 @@ async def _mark_incident_logs_notification(incident_id: int, actor_name: str) ->
                 .where(LogAnalysisHistory.incident_id == incident_id)
                 .where(LogAnalysisHistory.qdrant_point_id.isnot(None))
             )
-            point_ids = list(result.scalars().all())
+            point_ids: set[str] = set(result.scalars().all())
+
+            # Fallback: incident_id가 NULL인 기존 레코드를 alert_history 경유로 구제
+            fallback = await db.execute(
+                select(AlertHistory.qdrant_point_id)
+                .where(AlertHistory.incident_id == incident_id)
+                .where(AlertHistory.alert_type == "log_analysis")
+                .where(AlertHistory.qdrant_point_id.isnot(None))
+            )
+            point_ids.update(fallback.scalars().all())
 
         if not point_ids:
             logger.info("incident %s: 연결된 log Qdrant 포인트 없음 (정보성 갱신 skip)", incident_id)
@@ -120,7 +129,7 @@ async def _mark_incident_logs_notification(incident_id: int, actor_name: str) ->
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.patch(
                 f"{_LOG_ANALYZER_URL}/incident/notification-flag",
-                json={"point_ids": point_ids},
+                json={"point_ids": list(point_ids)},
             )
             resp.raise_for_status()
 

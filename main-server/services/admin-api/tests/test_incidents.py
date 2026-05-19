@@ -392,3 +392,55 @@ async def test_severity_info_to_info_does_not_call_notification_flag(authed_clie
         assert resp.status_code == 200
         await asyncio.sleep(0.05)
         mock_mark.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_severity_to_info_fallback_via_alert_history(authed_client: AsyncClient, db_session):
+    """log_analysis_history.incident_id=NULL인 기존 레코드도 alert_history 경유로
+    _mark_incident_logs_notification이 point_ids를 수집하는지 검증."""
+    import asyncio
+    from models import AlertHistory, LogAnalysisHistory
+
+    await _create_system(authed_client)
+    await _fire_alert(authed_client)
+    incidents = (await authed_client.get("/api/v1/incidents")).json()
+    incident_id = incidents[0]["id"]
+    system_id = incidents[0]["system_id"]
+
+    # 기존 버그 상황 재현: log_analysis_history.incident_id=NULL, alert_history.incident_id=설정됨
+    db_session.add(LogAnalysisHistory(
+        system_id=system_id,
+        instance_role="was1",
+        log_content="legacy log",
+        analysis_result="{}",
+        severity="warning",
+        anomaly_type="new",
+        qdrant_point_id="legacy-point-uuid-001",
+        incident_id=None,
+    ))
+    db_session.add(AlertHistory(
+        system_id=system_id,
+        alert_type="log_analysis",
+        severity="warning",
+        alertname="LogAnalysis_was-server",
+        title="로그 이상 감지",
+        description="{}",
+        instance_role="was1",
+        qdrant_point_id="legacy-point-uuid-001",
+        incident_id=incident_id,
+    ))
+    await db_session.flush()
+
+    # _mark_incident_logs_notification이 호출됨을 확인 (fallback 포함 경로)
+    with patch(
+        "routes.incidents._mark_incident_logs_notification",
+        new_callable=AsyncMock,
+    ) as mock_mark:
+        resp = await authed_client.patch(
+            f"/api/v1/incidents/{incident_id}",
+            json={"severity": "info"},
+        )
+        assert resp.status_code == 200
+        await asyncio.sleep(0.05)
+        mock_mark.assert_awaited_once()
+        assert mock_mark.call_args[0][0] == incident_id

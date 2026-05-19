@@ -374,29 +374,6 @@ async def _build_host_contexts(
         sm.log_by_level[level] = sm.log_by_level.get(level, 0.0) + val
         sm.log_error_rate += val
 
-    for hc in hosts.values():
-        for sm in hc.systems.values():
-            if sm.log_error_rate <= 0:
-                continue
-            excluded, eff_thr = _excluded(
-                hc.host, sm.system_name, MetricType.LOG_ERROR_RATE.value,
-                sm.log_error_rate, _LOG_ERROR_RATE_THRESHOLD,
-            )
-            if excluded:
-                sm.log_error_rate = 0.0
-                sm.log_by_level = {}
-                continue
-            if sm.log_error_rate > eff_thr:
-                level_detail = ", ".join(
-                    f"{lv} {rate:.1f}건/분"
-                    for lv, rate in sorted(sm.log_by_level.items(), key=lambda x: -x[1])
-                )
-                sm.anomalies.append(
-                    f"로그 에러 {sm.log_error_rate:.1f}건/분 급증"
-                    f" ({level_detail}, 임계치 {eff_thr:g}건/분)"
-                )
-                sm.matched_metric_types.append(MetricType.LOG_ERROR_RATE.value)
-
     # 4. HTTP 응답 지연
     http_results = await _query_prometheus(
         f"avg by (host, system_name, display_name, url_pattern)"

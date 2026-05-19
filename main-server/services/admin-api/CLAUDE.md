@@ -560,6 +560,8 @@ log-analyzer → POST /api/v1/analysis
 | `OAUTH_PRIVATE_KEY_PATH` | 없음 (필수) | RSA private key PEM 파일 경로. `admin-api/secrets/` 이미지 번들 → 컨테이너 `/app/secrets/oauth_private.pem` 고정. 로컬: 절대경로 지정 |
 | `OAUTH_PUBLIC_KEY_PATH` | 없음 (필수) | RSA public key PEM 파일 경로 (JWKS 노출용). 이미지 번들 → `/app/secrets/oauth_public.pem`. 로컬: 절대경로 지정 |
 | `OAUTH_ISSUER` | `http://localhost:8080` | OIDC issuer URL (id_token `iss` 클레임 + discovery 메타데이터) |
+| `UVICORN_MAX_REQUESTS` | `500` | 워커당 처리 요청 수 상한. 초과 시 graceful restart → glibc 힙 단편화 리셋. OOM 방지 핵심 설정 |
+| `UVICORN_MAX_REQUESTS_JITTER` | `100` | `UVICORN_MAX_REQUESTS`에 더할 랜덤 편차. 다중 워커 동시 재시작 방지 |
 
 ## DB 초기화
 

@@ -43,7 +43,11 @@ EXPOSE 8000
 
 # 운영 시 docker-compose 환경변수로 튜닝. 모델(bge-m3 ~1.2GB + reranker int8 ~600MB)이
 # 워커마다 별도 로드되므로 mem_limit과 함께 산정 — 기본 1을 유지하는 것을 권장
-ENV UVICORN_WORKERS=1
+# UVICORN_MAX_REQUESTS: 워커당 처리 요청 수 상한. 초과 시 graceful restart → glibc 힙 단편화 리셋
+ENV UVICORN_WORKERS=1 \
+    UVICORN_MAX_REQUESTS=200
 
 # exec로 uvicorn에 PID 1을 인계해 SIGTERM이 그대로 전달되도록 함
-CMD ["sh", "-c", "exec uvicorn main:app --host 0.0.0.0 --port 8000 --workers ${UVICORN_WORKERS:-1}"]
+CMD ["sh", "-c", "exec uvicorn main:app --host 0.0.0.0 --port 8000 \
+  --workers ${UVICORN_WORKERS:-1} \
+  --limit-max-requests ${UVICORN_MAX_REQUESTS:-200}"]
