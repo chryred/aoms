@@ -32,7 +32,8 @@ logger = logging.getLogger(__name__)
 
 MAX_ITERS = int(os.getenv("CHAT_MAX_ITERS", "5"))
 HISTORY_WINDOW = int(os.getenv("CHAT_HISTORY_WINDOW", "20"))
-TOOL_RESULT_MAX = int(os.getenv("CHAT_TOOL_RESULT_MAX", "8192"))  # observation bytes
+TOOL_RESULT_MAX = int(os.getenv("CHAT_TOOL_RESULT_MAX", "2000"))  # observation bytes
+HISTORY_BUDGET_BYTES = int(os.getenv("CHAT_HISTORY_BUDGET_BYTES", "10000"))  # total history bytes
 
 # run_react_stream이 저장하는 시스템 에러 메시지 prefix 목록.
 # 이 prefix로 시작하는 assistant 메시지는 _history_lines에서 제외한다.
@@ -53,25 +54,37 @@ def _truncate(text: str, limit: int) -> str:
 
 
 def _history_lines(messages: list[ChatMessage]) -> str:
-    lines: list[str] = []
+    # Build per-message groups to allow atomic budget trimming
+    groups: list[list[str]] = []
     for m in messages:
+        group: list[str] = []
         if m.role == "user":
-            lines.append(f"user: {m.content}")
+            group.append(f"user: {m.content}")
         elif m.role == "tool":
             args = json.dumps(m.tool_args or {}, ensure_ascii=False)
             result = json.dumps(m.tool_result or {}, ensure_ascii=False)
-            lines.append(
+            group.append(
                 f"assistant: {{\"thought\":\"{(m.thought or '').replace(chr(34), '')}\","
                 f"\"action\":\"{m.tool_name or ''}\",\"args\":{args}}}"
             )
-            lines.append(f"observation: {_truncate(result, TOOL_RESULT_MAX)}")
+            group.append(f"observation: {_truncate(result, TOOL_RESULT_MAX)}")
         elif m.role == "assistant":
             if m.content:
                 if not any(m.content.startswith(p) for p in _SYSTEM_ERROR_PREFIXES):
-                    lines.append(f"assistant: {m.content}")
+                    group.append(f"assistant: {m.content}")
             elif m.thought:
-                lines.append(f"assistant: (thought) {m.thought}")
-    return "\n".join(lines)
+                group.append(f"assistant: (thought) {m.thought}")
+        if group:
+            groups.append(group)
+
+    # Drop oldest message groups until total history fits within budget
+    while len(groups) > 1:
+        text = "\n".join(line for g in groups for line in g)
+        if len(text.encode("utf-8")) <= HISTORY_BUDGET_BYTES:
+            break
+        groups.pop(0)
+
+    return "\n".join(line for g in groups for line in g)
 
 
 async def _get_agent_code(db: AsyncSession, area_code: str) -> str:
@@ -279,12 +292,17 @@ async def run_react_stream(
         try:
             raw = await call_llm_text(prompt, max_tokens=10000, agent_code=agent_code)
         except Exception as e:  # noqa: BLE001
-            yield {"type": "error", "data": {"message": f"LLM 호출 실패: {e}"}}
+            err_str = str(e)
+            if "413" in err_str:
+                content = "대화 이력이 너무 길어 처리할 수 없습니다. 새 대화를 시작해 주세요."
+            else:
+                content = f"LLM 호출에 실패했습니다: {err_str[:150]}"
+            yield {"type": "error", "data": {"message": content}}
             await _append_message(
                 db,
                 session_id=session.id,
                 role="assistant",
-                content=f"LLM 호출에 실패했습니다: {str(e)[:150]}",
+                content=content,
             )
             await db.commit()
             return

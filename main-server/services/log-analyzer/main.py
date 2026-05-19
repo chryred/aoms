@@ -310,7 +310,7 @@ async def mark_notification_flag(body: NotificationFlagRequest):
     if not body.point_ids:
         return {"updated": 0}
     try:
-        resp = await vector_client._qdrant_http.put(
+        resp = await vector_client._qdrant_http.post(
             f"{vector_client.QDRANT_URL}/collections/{vector_client.COLLECTION}/points/payload",
             json={
                 "payload": {"is_notification": True, "notification_source": "human"},
