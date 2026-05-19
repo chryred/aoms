@@ -276,22 +276,22 @@ async def analyze_with_vector_context(
             )
 
     # notification auto-skip: force_real 미등록 + Qdrant 유사 notification 패턴 존재 시 LLM 생략
+    # 상위 N개(최대 3) 중 하나라도 is_notification=True이면 skip —
+    # 새 duplicate 포인트가 1위를 차지해도 notification 포인트가 2~3위에 있으면 skip 발동
     if not has_force_real:
-        top_results = anomaly_info.get("top_results", [])
-        if top_results:
-            top = top_results[0]
-            if (top["payload"].get("is_notification") is True
-                    and top["score"] >= _NOTIFICATION_SKIP_THRESHOLD):
+        for candidate in anomaly_info.get("top_results", []):
+            if (candidate["payload"].get("is_notification") is True
+                    and candidate["score"] >= _NOTIFICATION_SKIP_THRESHOLD):
                 logger.info(
                     f"{system_name}/{instance_role}: notification auto-skip "
-                    f"(score={top['score']:.3f})"
+                    f"(score={candidate['score']:.3f})"
                 )
                 return {
                     "anomaly_type":     "notification_auto",
                     "severity":         "info",
                     "is_notification":  True,
-                    "similarity_score": top["score"],
-                    "qdrant_point_id":  str(top["id"]),
+                    "similarity_score": candidate["score"],
+                    "qdrant_point_id":  str(candidate["id"]),
                     "root_cause":       "",
                     "recommendation":   "",
                 }
