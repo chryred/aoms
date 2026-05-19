@@ -30,7 +30,7 @@ from services.prompts import (
 
 logger = logging.getLogger(__name__)
 
-MAX_ITERS = int(os.getenv("CHAT_MAX_ITERS", "5"))
+MAX_ITERS = int(os.getenv("CHAT_MAX_ITERS", "10"))
 HISTORY_WINDOW = int(os.getenv("CHAT_HISTORY_WINDOW", "20"))
 TOOL_RESULT_MAX = int(os.getenv("CHAT_TOOL_RESULT_MAX", "2000"))  # observation bytes
 HISTORY_BUDGET_BYTES = int(os.getenv("CHAT_HISTORY_BUDGET_BYTES", "10000"))  # total history bytes
