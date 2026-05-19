@@ -35,6 +35,14 @@ HISTORY_WINDOW = int(os.getenv("CHAT_HISTORY_WINDOW", "20"))
 TOOL_RESULT_MAX = int(os.getenv("CHAT_TOOL_RESULT_MAX", "2000"))  # observation bytes
 HISTORY_BUDGET_BYTES = int(os.getenv("CHAT_HISTORY_BUDGET_BYTES", "10000"))  # total history bytes
 
+# 도구별 응답 사이클 내 최대 호출 횟수. 초과 시 synthetic error observation 주입.
+# 환경변수로 튜닝 가능. 0 = 무제한.
+_TOOL_CALL_LIMITS: dict[str, int] = {
+    "qdrant_search_knowledge": int(os.getenv("CHAT_LIMIT_SEARCH_KNOWLEDGE", "3")),
+    "qdrant_search_guide":     int(os.getenv("CHAT_LIMIT_SEARCH_GUIDE",     "3")),
+    "qdrant_get_chunks":       int(os.getenv("CHAT_LIMIT_GET_CHUNKS",       "5")),
+}
+
 # run_react_stream이 저장하는 시스템 에러 메시지 prefix 목록.
 # 이 prefix로 시작하는 assistant 메시지는 _history_lines에서 제외한다.
 # LLM 실패 후 재시도 시 에러 텍스트가 ReAct 히스토리에 주입되어 JSON 파싱을 깨뜨리는 문제를 방지.
@@ -257,6 +265,8 @@ async def run_react_stream(
 
     agent_code = await _get_agent_code(db, session.area_code or "chat_assistant")
 
+    tool_call_counts: dict[str, int] = {}
+
     for iteration in range(1, MAX_ITERS + 1):
         yield {"type": "iter_start", "data": {"iteration": iteration}}
 
@@ -392,7 +402,19 @@ async def run_react_stream(
             safe_args["_session_id"] = str(session.id)
 
         yield {"type": "tool_call", "data": {"tool": action, "args": safe_args}}
-        result = await run_tool(db, action, safe_args)
+
+        _tool_limit = _TOOL_CALL_LIMITS.get(action, 0)
+        if _tool_limit and tool_call_counts.get(action, 0) >= _tool_limit:
+            result = {
+                "error": (
+                    f"{action} 도구는 이번 응답에서 최대 {_tool_limit}회 사용 한도에 도달했습니다. "
+                    "지금까지 수집된 정보를 바탕으로 최종 답변을 작성하세요."
+                )
+            }
+        else:
+            result = await run_tool(db, action, safe_args)
+            if _tool_limit:
+                tool_call_counts[action] = tool_call_counts.get(action, 0) + 1
 
         # 도구 결과의 images 키를 추적 — final assistant 메시지에 영구 저장 (Path C UX)
         if isinstance(result, dict):
