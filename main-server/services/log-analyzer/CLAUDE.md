@@ -288,8 +288,8 @@ POST /metric/similarity
 | `notification_auto` | Qdrant 유사도 자동 skip | 없음 (DB 저장도 없음) |
 | `new` / `recurring` / `related` / `duplicate` | 기존 이상 분류 | 기존 흐름 |
 
-**force_real**: `alert_exclusions.exclusion_type='force_real'` 등록 시 notification auto-skip 비활성화.
 `_NOTIFICATION_SKIP_THRESHOLD = 0.025` (상수 — `analyzer.py` 모듈 상단).
+**regex guard** (`_has_definite_real_error`): 스택트레이스 등 명확한 실에러 패턴 감지 시 notification_auto skip 비활성화.
 
 ### 집계 처리 흐름 (Phase 5 — 내부 스케줄러)
 

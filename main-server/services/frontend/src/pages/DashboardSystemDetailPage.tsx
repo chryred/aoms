@@ -530,6 +530,7 @@ export function DashboardSystemDetailPage() {
       {/* 차트 팝업 */}
       {chartPopup && (
         <MetricChartPopup
+          systemId={numericId}
           chartPopup={chartPopup}
           popupClosing={popupClosing}
           timeRange={timeRange}

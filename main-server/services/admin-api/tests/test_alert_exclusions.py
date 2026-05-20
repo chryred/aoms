@@ -115,7 +115,7 @@ async def test_mark_skipped_increments(db_session: AsyncSession):
 # ── API 통합 테스트 ────────────────────────────────────────────────────────
 
 async def test_create_exclusion_and_list(authed_client: AsyncClient):
-    """예외 규칙 등록 후 목록 조회"""
+    """alert_exclusions 폐기 후: POST/GET 모두 410 Gone 반환"""
     system = await _create_system(authed_client)
 
     resp = await authed_client.post("/api/v1/alert-exclusions", json={
@@ -128,54 +128,40 @@ async def test_create_exclusion_and_list(authed_client: AsyncClient):
             }
         ]
     })
-    assert resp.status_code == 200
-    data = resp.json()
-    assert len(data["succeeded"]) == 1
-    assert data["failed"] == []
+    assert resp.status_code == 410
 
     list_resp = await authed_client.get("/api/v1/alert-exclusions", params={"active": "true"})
-    assert list_resp.status_code == 200
-    rules = list_resp.json()
-    assert any(r["template"] == "ERROR: test pattern" for r in rules)
+    assert list_resp.status_code == 410
 
 
 async def test_create_exclusion_duplicate_skipped(authed_client: AsyncClient):
-    """동일 규칙 재등록 시 failed에 추가"""
+    """alert_exclusions 폐기 후: POST는 410 Gone 반환"""
     system = await _create_system(authed_client)
     item = {"system_id": system["id"], "instance_role": "was1", "template": "ERROR: dup"}
 
-    await authed_client.post("/api/v1/alert-exclusions", json={"items": [item]})
     resp = await authed_client.post("/api/v1/alert-exclusions", json={"items": [item]})
-    assert resp.status_code == 200
-    data = resp.json()
-    assert len(data["succeeded"]) == 0
-    assert len(data["failed"]) == 1
+    assert resp.status_code == 410
 
 
 async def test_deactivate_exclusion(authed_client: AsyncClient):
-    """예외 규칙 해제"""
+    """alert_exclusions 폐기 후: POST/PATCH 모두 410 Gone 반환"""
     system = await _create_system(authed_client)
 
     create_resp = await authed_client.post("/api/v1/alert-exclusions", json={
         "items": [{"system_id": system["id"], "template": "ERROR: to-deactivate"}]
     })
-    rule_id = create_resp.json()["succeeded"][0]
+    assert create_resp.status_code == 410
 
-    deact_resp = await authed_client.patch("/api/v1/alert-exclusions/deactivate", json={"ids": [rule_id]})
-    assert deact_resp.status_code == 200
-    assert rule_id in deact_resp.json()["succeeded"]
-
-    list_resp = await authed_client.get("/api/v1/alert-exclusions", params={"active": "false"})
-    rules = list_resp.json()
-    assert any(r["id"] == rule_id and not r["active"] for r in rules)
+    deact_resp = await authed_client.patch("/api/v1/alert-exclusions/deactivate", json={"ids": [1]})
+    assert deact_resp.status_code == 410
 
 
 async def test_analysis_excluded_skips_alert_and_incident(authed_client: AsyncClient):
-    """예외 규칙 매칭 시 alert_history, incident 미생성, excluded=True 저장"""
+    """alert_exclusions 폐기 후: 예외 규칙 등록해도 critical 분析은 alert/incident 생성됨."""
     system = await _create_system(authed_client)
     template = "ERROR: known batch job template"
 
-    # 예외 규칙 등록
+    # 예외 규칙 등록 (폐기됨 — 분析 경로에서 참조 안 함)
     await authed_client.post("/api/v1/alert-exclusions", json={
         "items": [{"system_id": system["id"], "instance_role": "was1", "template": template}]
     })
@@ -189,20 +175,11 @@ async def test_analysis_excluded_skips_alert_and_incident(authed_client: AsyncCl
 
     assert resp.status_code == 201
     data = resp.json()
-    # excluded 분석이어도 LogAnalysisHistory 레코드는 생성됨
     assert data["id"] is not None
-    # excluded=True 확인
-    assert data.get("excluded") is True or data.get("alert_sent") is False
-
-    # alert_history 미생성 확인
+    # alert_exclusions 폐기 후: critical → alert 생성
     alert_resp = await authed_client.get("/api/v1/alerts", params={"system_id": system["id"]})
     assert alert_resp.status_code == 200
-    assert len(alert_resp.json()) == 0
-
-    # incident 미생성 확인
-    inc_resp = await authed_client.get("/api/v1/incidents", params={"system_id": system["id"]})
-    assert inc_resp.status_code == 200
-    assert len(inc_resp.json()) == 0
+    assert len(alert_resp.json()) >= 1
 
 
 # ── count 임계값 테스트 ────────────────────────────────────────────────────
@@ -328,7 +305,7 @@ async def test_is_excluded_null_expiry_matches(db_session: AsyncSession):
 # ── /analysis 통합 테스트 ──────────────────────────────────────────────────
 
 async def test_analysis_count_below_threshold_excluded(authed_client: AsyncClient):
-    """template_counts가 임계값 이하 → alert/incident 미생성"""
+    """alert_exclusions 폐기 후: template_counts 임계값 무시 — critical → alert 생성됨."""
     system = await _create_system(authed_client)
     template = "ERROR: batch noise"
 
@@ -339,18 +316,18 @@ async def test_analysis_count_below_threshold_excluded(authed_client: AsyncClien
         }]
     })
 
-    resp = await authed_client.post("/api/v1/analysis", json={
-        **ANALYSIS_PAYLOAD,
-        "system_id": system["id"],
-        "templates": [template],
-        "template_counts": {template: 3},   # 임계값 이하
-    })
+    with patch("routes.analysis.notifier.send_log_analysis_alert", new_callable=AsyncMock, return_value=True):
+        resp = await authed_client.post("/api/v1/analysis", json={
+            **ANALYSIS_PAYLOAD,
+            "system_id": system["id"],
+            "templates": [template],
+            "template_counts": {template: 3},
+        })
     assert resp.status_code == 201
 
+    # alert_exclusions 폐기 후: critical → alert 생성
     alerts = (await authed_client.get("/api/v1/alerts", params={"system_id": system["id"]})).json()
-    incidents = (await authed_client.get("/api/v1/incidents", params={"system_id": system["id"]})).json()
-    assert len(alerts) == 0
-    assert len(incidents) == 0
+    assert len(alerts) >= 1
 
 
 async def test_analysis_count_exceeds_threshold_alerts(authed_client: AsyncClient):
@@ -383,24 +360,19 @@ async def test_analysis_count_exceeds_threshold_alerts(authed_client: AsyncClien
 # ── 만료 자동 필터링 (list API) ────────────────────────────────────────────
 
 async def test_list_exclusions_active_excludes_expired_by_default(authed_client: AsyncClient):
-    """GET /alert-exclusions?active=true는 기본적으로 만료된 규칙 제외"""
+    """alert_exclusions 폐기 후: POST/GET 모두 410 Gone 반환"""
     system = await _create_system(authed_client)
 
-    # 활성 + 미만료
-    await authed_client.post("/api/v1/alert-exclusions", json={
-        "items": [{"system_id": system["id"], "template": "ERROR: live"}]
-    })
-    # 활성 + 만료
     past = (_utc_naive_now() - timedelta(days=1)).isoformat() + "Z"
-    await authed_client.post("/api/v1/alert-exclusions", json={
-        "items": [{"system_id": system["id"], "template": "ERROR: expired", "expires_at": past}]
-    })
+    for item in [
+        {"system_id": system["id"], "template": "ERROR: live"},
+        {"system_id": system["id"], "template": "ERROR: expired", "expires_at": past},
+    ]:
+        resp = await authed_client.post("/api/v1/alert-exclusions", json={"items": [item]})
+        assert resp.status_code == 410
 
     resp = await authed_client.get("/api/v1/alert-exclusions", params={"active": "true"})
-    rules = resp.json()
-    templates = {r["template"] for r in rules}
-    assert "ERROR: live" in templates
-    assert "ERROR: expired" not in templates
+    assert resp.status_code == 410
 
 
 async def test_analysis_not_excluded_without_matching_template(authed_client: AsyncClient):

@@ -243,6 +243,7 @@ class AlertHistoryLogOut(AlertHistoryBaseOut):
     anomaly_type:     Optional[str] = None
     similarity_score: Optional[float] = None
     qdrant_point_id:  Optional[str] = None
+    log_analysis_id:  Optional[int] = None
 
 
 # 하위 호환 슈퍼셋: 기존 라우트·프론트엔드 JSON 와이어 포맷 변경 없이 유지
@@ -252,6 +253,7 @@ class AlertHistoryOut(AlertHistoryBaseOut):
     anomaly_type:     Optional[str] = None
     similarity_score: Optional[float] = None
     qdrant_point_id:  Optional[str] = None
+    log_analysis_id:  Optional[int] = None  # log_analysis 타입 알림의 연결된 분析 이력 ID
 
 
 class AcknowledgeRequest(BaseModel):
@@ -536,6 +538,10 @@ class LogAnalysisCreate(BaseModel):
     # OTel trace 상관
     referenced_trace_ids: Optional[list[str]] = None
     trace_summary_text:   Optional[str]       = None
+    # 실에러/알림성 분리 분류 건수 + per-template 분류
+    real_error_count:              int = 0
+    notification_count:            int = 0
+    template_classifications_json: Optional[str] = None
 
 
 class LogAnalysisOut(BaseModel):
@@ -554,6 +560,11 @@ class LogAnalysisOut(BaseModel):
     similarity_score: Optional[float]
     has_solution:     Optional[bool]
     error_message:    Optional[str]   # NULL=성공, 값=LLM/분석 실패 사유
+    # 실에러/알림성 분리 건수 + 템플릿 목록 + per-template LLM 분류
+    real_error_count:              int = 0
+    notification_count:            int = 0
+    templates_json:                Optional[list[str]] = None
+    template_classifications_json: Optional[str] = None
     created_at: UtcDatetime
 
 
@@ -636,12 +647,17 @@ class HourlyAggregationCreate(_AggregationBase):
     hour_bucket: datetime
     llm_prediction: Optional[str] = None
     llm_model_used: Optional[str] = None
+    # log 그룹 분리 건수
+    real_error_count:   int = 0
+    notification_count: int = 0
 
 
 class HourlyAggregationOut(_AggregationOutBase):
     hour_bucket: UtcDatetime
     llm_prediction: Optional[str]
     llm_model_used: Optional[str]
+    real_error_count:   int = 0
+    notification_count: int = 0
 
 
 # ── 1일 집계 ─────────────────────────────────────────────────────────────────

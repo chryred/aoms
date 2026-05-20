@@ -1,6 +1,6 @@
 export type AlertType = 'metric' | 'log_analysis'
 export type Severity = 'info' | 'warning' | 'critical'
-export type AnomalyType = 'new' | 'related' | 'recurring' | 'duplicate'
+export type AnomalyType = 'new' | 'related' | 'recurring' | 'duplicate' | 'notification' | 'reclassified'
 
 export interface AlertHistory {
   id: number
@@ -29,5 +29,7 @@ export interface AlertHistory {
   incident_id: number | null
   /** prometheus_analyzer 알림에 묶인 메트릭 종류 (예: ["cpu","disk_io"]). NULL = 레거시/Alertmanager 알림 */
   metric_types: string[] | null
+  /** log_analysis 타입일 때 연결된 log_analysis_history id */
+  log_analysis_id: number | null
   created_at: string
 }

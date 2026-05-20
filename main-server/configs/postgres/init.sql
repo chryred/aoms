@@ -192,11 +192,17 @@ CREATE TABLE IF NOT EXISTS log_analysis_history (
     exclusion_rule_id INTEGER,   -- FK는 alert_exclusions 생성 후 ALTER TABLE로 추가
     -- 개별 template 목록 (예외 처리 UI용)
     templates_json    JSONB,
+    -- 실에러/알림성 분리 분류 건수
+    real_error_count          INTEGER NOT NULL DEFAULT 0,
+    notification_count        INTEGER NOT NULL DEFAULT 0,
+    template_classifications_json TEXT,
     created_at       TIMESTAMP DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_log_analysis_system   ON log_analysis_history(system_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_log_analysis_excluded ON log_analysis_history(excluded, system_id);
+CREATE INDEX IF NOT EXISTS idx_log_analysis_history_system_created ON log_analysis_history(system_id, created_at);
+-- 주의: migration 파일의 CONCURRENTLY 인덱스는 psql 트랜잭션 밖에서 단독 실행 필요
 
 -- alert_history.log_analysis_id FK (log_analysis_history 생성 후)
 DO $$ BEGIN
@@ -206,28 +212,7 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN null;
 END $$;
 
--- ── 에러 알림 예외 처리 규칙 ────────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS alert_exclusions (
-    id                   SERIAL PRIMARY KEY,
-    system_id            INTEGER NOT NULL REFERENCES systems(id) ON DELETE CASCADE,
-    instance_role        VARCHAR(50),                              -- NULL = 해당 시스템 전체 role
-    template             TEXT NOT NULL,                           -- synapse_agent 정규화 template 라벨
-    reason               TEXT,
-    active               BOOLEAN NOT NULL DEFAULT TRUE,
-    deactivated_by       VARCHAR(100),
-    deactivated_at       TIMESTAMP,
-    skip_count           INTEGER NOT NULL DEFAULT 0,
-    last_skipped_at      TIMESTAMP,
-    max_count_per_window INTEGER,                                 -- NULL = 무제한 (모든 count에 예외 적용)
-    expires_at           TIMESTAMP,                               -- NULL = 만료 없음 (UTC naive)
-    exclusion_type       VARCHAR(20) NOT NULL DEFAULT 'skip',     -- 'skip': 완전 제외 | 'force_real': LLM 오판 정정
-    -- 시스템 필드
-    created_by           VARCHAR(100),
-    created_at           TIMESTAMP NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX IF NOT EXISTS idx_alert_exclusions_active_system ON alert_exclusions(system_id, active);
-CREATE INDEX IF NOT EXISTS idx_alert_exclusions_expires_at    ON alert_exclusions(expires_at);
+-- alert_exclusions 테이블은 Qdrant semantic similarity 기반 재분류로 대체됨 (폐기)
 
 -- ── 메트릭 알림 예외 처리 규칙 (prometheus_analyzer 전용) ────────────────
 CREATE TABLE IF NOT EXISTS metric_exclusions (
@@ -251,13 +236,7 @@ CREATE TABLE IF NOT EXISTS metric_exclusions (
 CREATE INDEX IF NOT EXISTS idx_metric_exclusions_lookup     ON metric_exclusions(system_id, active, metric_type);
 CREATE INDEX IF NOT EXISTS idx_metric_exclusions_expires_at ON metric_exclusions(expires_at);
 
--- log_analysis_history.exclusion_rule_id FK (alert_exclusions 생성 후)
-DO $$ BEGIN
-    ALTER TABLE log_analysis_history
-        ADD CONSTRAINT fk_log_analysis_exclusion_rule
-        FOREIGN KEY (exclusion_rule_id) REFERENCES alert_exclusions(id) ON DELETE SET NULL;
-EXCEPTION WHEN duplicate_object THEN null;
-END $$;
+-- log_analysis_history.exclusion_rule_id FK: alert_exclusions 폐기로 제거됨
 
 -- ── 알림 쿨다운 추적 ─────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS alert_cooldown (
@@ -324,6 +303,9 @@ CREATE TABLE IF NOT EXISTS metric_hourly_aggregations (
     llm_prediction TEXT,                    -- 임계치 도달 예측 ("3.2시간 후 85% 도달 예상")
     llm_model_used VARCHAR(100),
     qdrant_point_id VARCHAR(36),            -- metric_hourly_patterns 컬렉션 UUID
+    -- log 그룹 1시간 집계 분리 건수
+    real_error_count   INTEGER NOT NULL DEFAULT 0,
+    notification_count INTEGER NOT NULL DEFAULT 0,
     created_at     TIMESTAMP DEFAULT NOW(),
     UNIQUE(system_id, hour_bucket, collector_type, metric_group)
 );

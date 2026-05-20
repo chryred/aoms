@@ -1192,3 +1192,64 @@ async def delete_document_endpoint(file_hash: str):
                 break
 
     return {"deleted_points": deleted_points, "deleted_file": deleted_file}
+
+# ── 재분류(Reclassify) 지원 엔드포인트 ──────────────────────────────────────
+
+class SubmitGroupRequest(BaseModel):
+    system_name: str
+    system_id: int
+    instance_role: str
+    templates: list[str]
+    template_counts: dict[str, int] = {}
+    is_notification: bool
+    severity: str
+
+
+@app.post("/log-incidents/submit-group")
+async def submit_log_incident_group(req: SubmitGroupRequest):
+    """템플릿 그룹 임베딩 → Qdrant log_incidents upsert → qdrant_point_id 반환.
+
+    재분류(reclassify) UI가 admin-api PATCH /api/v1/analysis/{id}/reclassify를
+    통해 호출. 알림성/실에러 그룹별로 1회씩 호출되어 각각 새 Qdrant 포인트를 생성한다.
+    """
+    text_parts = []
+    for tmpl in req.templates:
+        count = req.template_counts.get(tmpl, 1)
+        text_parts.append(f"[N={count}] {tmpl}")
+    embed_text = f"[{req.instance_role}] " + " | ".join(text_parts)
+
+    dense, sparse = await asyncio.gather(
+        vector_client.get_embedding(embed_text),
+        vector_client.get_sparse_vector(embed_text),
+    )
+    point_id = await vector_client.store_incident_vector(
+        dense, sparse,
+        system_name=req.system_name,
+        instance_role=req.instance_role,
+        severity=req.severity,
+        log_pattern=embed_text[:500],
+        is_notification=req.is_notification,
+    )
+    return {"qdrant_point_id": point_id}
+
+
+class DeletePointRequest(BaseModel):
+    point_id: str
+
+
+@app.delete("/log-incidents/delete-point")
+async def delete_log_incident_point(req: DeletePointRequest):
+    """Qdrant log_incidents에서 단일 포인트 삭제 (재분류 시 기존 포인트 교체).
+
+    idempotent — 포인트 미존재 시에도 {"deleted": true} 반환.
+    """
+    try:
+        resp = await vector_client._qdrant_http.post(
+            f"{vector_client.QDRANT_URL}/collections/{vector_client.COLLECTION}/points/delete",
+            json={"points": [req.point_id]},
+        )
+        resp.raise_for_status()
+    except Exception as e:
+        logger.warning("Qdrant 포인트 삭제 실패 (무시): %s", e)
+        return {"deleted": False}
+    return {"deleted": True}

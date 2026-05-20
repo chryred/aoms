@@ -18,8 +18,7 @@ import { cn, kstDateToUtcStart, kstDateToUtcEnd, formatKST } from '@/lib/utils'
 import type { AlertHistory, Severity } from '@/types/alert'
 import {
   alertExclusionsApi,
-  type AlertExclusion,
-  type TemplateSelectItem,
+  type AlertExclusion
 } from '@/api/alertExclusions'
 import { metricExclusionsApi, type MetricExclusion } from '@/api/metricExclusions'
 import {
@@ -32,14 +31,13 @@ import { useAuthStore } from '@/store/authStore'
 
 const PAGE_SIZE = 20
 type AckFilter = 'all' | 'unack' | 'ack'
-type TabType = 'all' | 'metric' | 'resolved' | 'log_analysis' | 'exclusions'
+type TabType = 'all' | 'metric' | 'resolved' | 'log_analysis'
 
 const TABS: { key: TabType; label: string }[] = [
   { key: 'all', label: '전체' },
   { key: 'metric', label: '메트릭' },
   { key: 'resolved', label: '복구됨' },
   { key: 'log_analysis', label: '로그분석' },
-  { key: 'exclusions', label: '예외 처리됨' },
 ]
 
 const isSeverity = (v: string): v is Severity => v === 'critical' || v === 'warning' || v === 'info'
@@ -71,21 +69,14 @@ export function AlertHistoryPage() {
   // 체크박스 선택 상태
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
 
-  // 예외 처리 모달 — 로그 vs 메트릭 분기
+  // 메트릭 예외 처리 모달
   const [showExcludeModal, setShowExcludeModal] = useState(false)
-  const [modalMode, setModalMode] = useState<'log' | 'metric'>('log')
   const [excludeReason, setExcludeReason] = useState('')
-  const [includeRole, setIncludeRole] = useState(true)
-  const [maxCountInput, setMaxCountInput] = useState('') // count 임계값 (로그 모드 전용, 빈문자열 = 무제한)
   const [expiryOption, setExpiryOption] = useState<'30' | '7' | '90' | 'custom' | 'never'>('30')
   const [customExpiryDate, setCustomExpiryDate] = useState('') // YYYY-MM-DD (KST)
-  const [exclusionType, setExclusionType] = useState<'skip' | 'force_real'>('skip')
   const [isExcluding, setIsExcluding] = useState(false)
   const [excludeResultMsg, setExcludeResultMsg] = useState<string | null>(null)
   // 로그 — 템플릿 선택 상태
-  const [templateItems, setTemplateItems] = useState<TemplateSelectItem[]>([])
-  const [selectedTemplateKeys, setSelectedTemplateKeys] = useState<Set<string>>(new Set())
-  const [isLoadingTemplates, setIsLoadingTemplates] = useState(false)
   // 메트릭 — 알림별 (host, metric_types) 표시 + 선택 상태
   const [metricAlertContext, setMetricAlertContext] = useState<
     { alertId: number; systemId: number; host: string | null; types: MetricType[] }[]
@@ -290,9 +281,6 @@ export function AlertHistoryPage() {
   )
   const selectedLogAnalysisCount = selectedLogAlerts.length
   const selectedMetricCount = selectedMetricAlerts.length
-  const hasUnsupportedSelected = currentAlerts.some(
-    (a) => selectedIds.has(a.id) && a.alert_type !== 'log_analysis' && !isMetricAnalyzerAlert(a),
-  )
 
   // 만료 옵션 → ISO UTC 변환
   const computeExpiresAt = (): string | null => {
@@ -309,9 +297,10 @@ export function AlertHistoryPage() {
   }
 
   // 모달 오픈 — 선택된 알림 구성에 따라 초기 모드 결정 (혼합 시 로그 우선)
-  const openExcludeModal = async () => {
+  const openExcludeModal = () => {
+    if (selectedMetricCount === 0) return
     setShowExcludeModal(true)
-    // 메트릭 컨텍스트 prefill — 선택된 메트릭 알림에서 host + metric_types 추출
+    // 메트릭 컨텍스트 prefill
     const metricCtx: {
       alertId: number
       systemId: number
@@ -333,46 +322,6 @@ export function AlertHistoryPage() {
     setSelectedMetricKeys(metricKeys)
     setOverrideThresholdInput('')
     setApplyToAllHosts(false)
-
-    // 초기 탭: 로그가 있으면 로그, 메트릭만 있으면 메트릭
-    const initialMode: 'log' | 'metric' = selectedLogAnalysisCount > 0 ? 'log' : 'metric'
-    setModalMode(initialMode)
-
-    // 로그 분기 — 템플릿 조회 (로그 알림이 있을 때만)
-    if (selectedLogAnalysisCount === 0) {
-      setTemplateItems([])
-      setSelectedTemplateKeys(new Set())
-      return
-    }
-    setTemplateItems([])
-    setSelectedTemplateKeys(new Set())
-    setIsLoadingTemplates(true)
-    try {
-      const alertIds = selectedLogAlerts.map((a) => a.id)
-      const infos = await alertExclusionsApi.fetchAlertTemplates(alertIds)
-      const seen = new Set<string>()
-      const items: TemplateSelectItem[] = []
-      for (const info of infos) {
-        if (!info.system_id) continue
-        for (const tmpl of info.templates) {
-          const key = `${info.system_id}:${info.instance_role ?? ''}:${tmpl}`
-          if (seen.has(key)) continue
-          seen.add(key)
-          items.push({
-            key,
-            system_id: info.system_id,
-            instance_role: info.instance_role,
-            template: tmpl,
-          })
-        }
-      }
-      setTemplateItems(items)
-      setSelectedTemplateKeys(new Set(items.map((i) => i.key)))
-    } catch {
-      // 템플릿 로드 실패 시 빈 목록으로 진행
-    } finally {
-      setIsLoadingTemplates(false)
-    }
   }
 
   const resetModal = () => {
@@ -387,51 +336,6 @@ export function AlertHistoryPage() {
     setSelectedMetricKeys(new Set())
     setOverrideThresholdInput('')
     setApplyToAllHosts(false)
-  }
-
-  // 로그 예외 등록
-  const handleBulkExcludeLog = async () => {
-    const selected = templateItems.filter((i) => selectedTemplateKeys.has(i.key))
-    if (selected.length === 0) {
-      setExcludeResultMsg('등록할 템플릿을 1개 이상 선택하세요.')
-      return
-    }
-    setIsExcluding(true)
-    try {
-      const maxCount = maxCountInput.trim() === '' ? null : Number(maxCountInput)
-      if (maxCount !== null && (!Number.isFinite(maxCount) || maxCount < 1)) {
-        setExcludeResultMsg('임계값은 1 이상의 정수여야 합니다.')
-        setIsExcluding(false)
-        return
-      }
-      const expiresAt = computeExpiresAt()
-      const result = await alertExclusionsApi.createExclusions({
-        items: selected.map((i) => ({
-          system_id: i.system_id,
-          instance_role: includeRole ? i.instance_role : null,
-          template: i.template,
-          reason: excludeReason || null,
-          max_count_per_window: maxCount,
-          expires_at: expiresAt,
-          exclusion_type: exclusionType,
-        })),
-        created_by: user?.name ?? null,
-      })
-      const duplicates = result.failed.filter(
-        (f) => f.reason === '이미 활성 예외 규칙이 존재합니다',
-      )
-      const errors = result.failed.filter((f) => f.reason !== '이미 활성 예외 규칙이 존재합니다')
-      const parts = [`규칙 ${result.succeeded.length}건 등록`]
-      if (duplicates.length > 0) parts.push(`${duplicates.length}건 중복(기등록)`)
-      if (errors.length > 0) parts.push(`${errors.length}건 실패`)
-      setExcludeResultMsg(`로그 예외 처리 완료: ${parts.join(', ')}`)
-      setSelectedIds(new Set())
-      resetModal()
-    } catch {
-      setExcludeResultMsg('예외 처리 중 오류가 발생했습니다.')
-    } finally {
-      setIsExcluding(false)
-    }
   }
 
   // 메트릭 예외 등록 — (system_id, host, metric_type) 단위로 row 생성
@@ -493,10 +397,7 @@ export function AlertHistoryPage() {
     }
   }
 
-  const handleBulkExclude = () => {
-    if (modalMode === 'metric') return handleBulkExcludeMetric()
-    return handleBulkExcludeLog()
-  }
+  const handleBulkExclude = () => handleBulkExcludeMetric()
 
   // 예외 해제 실행
   const handleBulkDeactivate = async () => {
@@ -1126,23 +1027,19 @@ export function AlertHistoryPage() {
                   </span>
                 )}
               </span>
+              {selectedLogAnalysisCount > 0 && (
+                <span className="text-text-disabled text-xs">
+                  로그 알림은 상세 패널 → 재분류 버튼 사용
+                </span>
+              )}
               <NeuButton
                 size="sm"
-                onClick={() => {
-                  if (selectedLogAnalysisCount === 0 && selectedMetricCount === 0) return
-                  openExcludeModal()
-                }}
-                disabled={selectedLogAnalysisCount === 0 && selectedMetricCount === 0}
-                title={
-                  hasUnsupportedSelected
-                    ? '일부 알림은 예외 처리 대상이 아닙니다 (로그분석/메트릭 이상 알림만 가능)'
-                    : selectedLogAnalysisCount === 0 && selectedMetricCount === 0
-                      ? '로그분석 또는 메트릭 이상 알림을 선택하세요'
-                      : undefined
-                }
+                onClick={openExcludeModal}
+                disabled={selectedMetricCount === 0}
+                title={selectedMetricCount === 0 ? '메트릭 이상 알림을 선택하세요' : undefined}
               >
                 <Ban className="h-3.5 w-3.5" />
-                선택 예외 처리
+                메트릭 예외 처리
               </NeuButton>
               <NeuButton size="sm" variant="ghost" onClick={() => setSelectedIds(new Set())}>
                 선택 취소
@@ -1257,195 +1154,9 @@ export function AlertHistoryPage() {
             aria-labelledby="exclude-modal-title"
           >
             <h3 id="exclude-modal-title" className="text-text-primary mb-3 text-base font-semibold">
-              예외 처리 등록
+              메트릭 예외 처리
             </h3>
 
-            {/* 모드 탭 — 로그 알림과 메트릭 알림이 동시에 선택된 경우에만 노출 */}
-            {selectedLogAnalysisCount > 0 && selectedMetricCount > 0 && (
-              <div
-                role="tablist"
-                aria-label="예외 종류"
-                className="bg-bg-base shadow-neu-pressed mb-3 inline-flex gap-1 rounded-sm p-1"
-              >
-                <button
-                  role="tab"
-                  aria-selected={modalMode === 'log'}
-                  aria-controls="exclude-panel-log"
-                  onClick={() => setModalMode('log')}
-                  className={cn(
-                    'rounded-sm px-3 py-1.5 text-xs font-medium transition-colors',
-                    'focus:ring-accent focus:ring-offset-bg-base focus:ring-1 focus:outline-none',
-                    modalMode === 'log'
-                      ? 'bg-accent text-accent-contrast shadow-neu-flat font-semibold'
-                      : 'text-text-secondary hover:text-text-primary',
-                  )}
-                >
-                  로그 템플릿 예외 ({selectedLogAnalysisCount})
-                </button>
-                <button
-                  role="tab"
-                  aria-selected={modalMode === 'metric'}
-                  aria-controls="exclude-panel-metric"
-                  onClick={() => setModalMode('metric')}
-                  className={cn(
-                    'rounded-sm px-3 py-1.5 text-xs font-medium transition-colors',
-                    'focus:ring-accent focus:ring-offset-bg-base focus:ring-1 focus:outline-none',
-                    modalMode === 'metric'
-                      ? 'bg-accent text-accent-contrast shadow-neu-flat font-semibold'
-                      : 'text-text-secondary hover:text-text-primary',
-                  )}
-                >
-                  메트릭 예외 ({selectedMetricCount})
-                </button>
-              </div>
-            )}
-
-            {modalMode === 'log' ? (
-              <div role="tabpanel" id="exclude-panel-log">
-                {/* 예외 유형 선택 */}
-                <div className="mb-4">
-                  <span className="text-text-secondary mb-1.5 block text-xs font-medium">예외 유형</span>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => setExclusionType('skip')}
-                      className={[
-                        'flex-1 rounded-sm px-3 py-2 text-xs font-medium transition-colors',
-                        exclusionType === 'skip'
-                          ? 'bg-accent text-accent-contrast shadow-neu-pressed'
-                          : 'bg-bg-base text-text-secondary shadow-neu-flat hover:text-text-primary',
-                      ].join(' ')}
-                    >
-                      완전 제외
-                      <span className="text-text-disabled ml-1 font-normal">LLM 분석 없음</span>
-                    </button>
-                    <button
-                      onClick={() => setExclusionType('force_real')}
-                      className={[
-                        'flex-1 rounded-sm px-3 py-2 text-xs font-medium transition-colors',
-                        exclusionType === 'force_real'
-                          ? 'bg-accent text-accent-contrast shadow-neu-pressed'
-                          : 'bg-bg-base text-text-secondary shadow-neu-flat hover:text-text-primary',
-                      ].join(' ')}
-                    >
-                      분석 강제
-                      <span className="text-text-disabled ml-1 font-normal">LLM 오판 정정</span>
-                    </button>
-                  </div>
-                  {exclusionType === 'force_real' && (
-                    <p className="text-warning mt-1.5 text-xs">
-                      LLM이 알림성으로 분류했으나 실제 에러인 경우 사용. 이후 이 패턴은 항상 LLM 분석 후 Teams 알림됩니다.
-                    </p>
-                  )}
-                </div>
-                <p className="text-text-secondary mb-4 text-sm">
-                  예외로 등록할 template을 선택하세요. 이후 동일한 에러 패턴은 알림/인시던트가
-                  생성되지 않습니다.
-                </p>
-
-                {/* 템플릿 선택 */}
-                <div className="mb-4">
-                  <div className="mb-1.5 flex items-center justify-between">
-                    <span className="text-text-secondary text-xs font-medium">
-                      Templates{' '}
-                      {!isLoadingTemplates && templateItems.length > 0 && (
-                        <span className="text-text-disabled">
-                          ({selectedTemplateKeys.size}/{templateItems.length} 선택)
-                        </span>
-                      )}
-                    </span>
-                    {!isLoadingTemplates && templateItems.length > 1 && (
-                      <div className="flex gap-2">
-                        <button
-                          className="text-accent text-xs underline-offset-2 hover:underline hover:opacity-80"
-                          onClick={() =>
-                            setSelectedTemplateKeys(new Set(templateItems.map((i) => i.key)))
-                          }
-                        >
-                          전체 선택
-                        </button>
-                        <button
-                          className="text-text-secondary hover:text-text-primary text-xs underline-offset-2 hover:underline"
-                          onClick={() => setSelectedTemplateKeys(new Set())}
-                        >
-                          전체 해제
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                  <div className="bg-bg-base shadow-neu-inset max-h-40 overflow-y-auto rounded-sm p-2">
-                    {isLoadingTemplates ? (
-                      <p className="text-text-disabled py-2 text-center text-xs">불러오는 중...</p>
-                    ) : templateItems.length === 0 ? (
-                      <p className="text-text-disabled py-2 text-center text-xs">
-                        조회된 템플릿이 없습니다
-                      </p>
-                    ) : (
-                      templateItems.map((item) => (
-                        <label
-                          key={item.key}
-                          className="hover:bg-surface flex cursor-pointer items-start gap-2 rounded-sm px-2 py-1.5"
-                        >
-                          <input
-                            type="checkbox"
-                            className="accent-accent mt-0.5 shrink-0"
-                            checked={selectedTemplateKeys.has(item.key)}
-                            onChange={(e) => {
-                              setSelectedTemplateKeys((prev) => {
-                                const next = new Set(prev)
-                                if (e.target.checked) next.add(item.key)
-                                else next.delete(item.key)
-                                return next
-                              })
-                            }}
-                          />
-                          <span className="text-text-primary min-w-0 font-mono text-xs break-all">
-                            {item.template}
-                            {item.instance_role && (
-                              <span className="text-text-disabled ml-1">
-                                ({item.instance_role})
-                              </span>
-                            )}
-                          </span>
-                        </label>
-                      ))
-                    )}
-                  </div>
-                </div>
-
-                <div className="mb-4">
-                  <label className="text-text-secondary mb-1.5 block text-xs font-medium">
-                    발생 건수 임계값 (선택)
-                  </label>
-                  <NeuInput
-                    type="number"
-                    min={1}
-                    placeholder="비워두면 무제한 (모든 건수에 예외 적용)"
-                    value={maxCountInput}
-                    onChange={(e) => setMaxCountInput(e.target.value)}
-                  />
-                  <p className="text-text-disabled mt-1 text-xs">
-                    5분 윈도우 내 발생 건수가 이 값 이하일 때만 예외 처리됩니다. 초과 시 정상 알림
-                    발생.
-                  </p>
-                </div>
-
-                <div className="mb-6 flex items-center gap-2">
-                  <input
-                    id="includeRole"
-                    type="checkbox"
-                    className="accent-accent"
-                    checked={includeRole}
-                    onChange={(e) => setIncludeRole(e.target.checked)}
-                  />
-                  <label
-                    htmlFor="includeRole"
-                    className="text-text-secondary cursor-pointer text-sm"
-                  >
-                    instance_role 포함 (역할별 제한, 해제 시 시스템 전체 적용)
-                  </label>
-                </div>
-              </div>
-            ) : (
               <div role="tabpanel" id="exclude-panel-metric">
                 <p className="text-text-secondary mb-4 text-sm">
                   예외로 등록할 메트릭을 선택하세요. 완전 차단 또는 임계치 오버라이드 (개발기
@@ -1546,19 +1257,13 @@ export function AlertHistoryPage() {
                   </label>
                 </div>
               </div>
-            )}
-
             {/* 공통 — 사유, 자동 만료 */}
             <div className="mb-4">
               <label className="text-text-secondary mb-1.5 block text-xs font-medium">
                 사유 (선택)
               </label>
               <NeuInput
-                placeholder={
-                  modalMode === 'log'
-                    ? '예: 알려진 배치 작업 로그, 무시 가능'
-                    : '예: 개발기 디스크 I/O 둔감화'
-                }
+                placeholder="예: 개발기 디스크 I/O 둔감화"
                 value={excludeReason}
                 onChange={(e) => setExcludeReason(e.target.value)}
               />

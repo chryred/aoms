@@ -7,6 +7,8 @@ const LABELS: Record<AnomalyType, string> = {
   related: '유사',
   recurring: '반복',
   duplicate: '중복',
+  notification: '알림성',
+  reclassified: '재분류됨',
 }
 
 interface AnomalyTypeBadgeProps {

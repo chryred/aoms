@@ -21,7 +21,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import httpx
-from sqlalchemy import select
+from sqlalchemy import func, select as sa_select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import AsyncSessionLocal
@@ -182,6 +182,28 @@ async def _query_prometheus(promql: str) -> list[dict]:
 
 # ── DB 조회 ───────────────────────────────────────────────────────────────────
 
+async def _fetch_real_error_counts() -> dict[int, float]:
+    """최근 10분 log_analysis_history에서 system별 real_error_count 합계 → 건/분 단위 반환.
+
+    Prometheus log_error_total(알림성 포함) 대신 DB에서 알림성 제외 실에러만 집계.
+    """
+    cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=10)
+    try:
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(
+                sa_select(
+                    LogAnalysisHistory.system_id,
+                    func.sum(LogAnalysisHistory.real_error_count).label("total"),
+                )
+                .where(LogAnalysisHistory.created_at >= cutoff)
+                .where(LogAnalysisHistory.real_error_count > 0)
+                .group_by(LogAnalysisHistory.system_id)
+            )
+            return {row.system_id: float(row.total) / 10.0 for row in result}
+    except Exception as e:
+        logger.warning("real_error_counts DB 조회 실패 (빈 dict 반환): %s", e)
+        return {}
+
 # ── 메트릭 예외 매칭 ─────────────────────────────────────────────────────────
 # 로그 예외처리(log-analyzer/analyzer.py)와 대칭: cycle 시작 시 활성 규칙을 한 번 로드하고,
 # 각 메트릭 push 사이트에서 검사하여 anomaly append 자체를 차단한다.
@@ -197,7 +219,7 @@ async def _load_active_metric_exclusions(db: AsyncSession) -> MetricExclusionRul
     """
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     result = await db.execute(
-        select(MetricExclusion)
+        sa_select(MetricExclusion)
         .where(MetricExclusion.active == True)  # noqa: E712
         .where((MetricExclusion.expires_at.is_(None)) | (MetricExclusion.expires_at > now))
         .order_by(MetricExclusion.created_at.asc())
@@ -210,7 +232,7 @@ async def _load_active_metric_exclusions(db: AsyncSession) -> MetricExclusionRul
 
 async def _load_system_name_map(db: AsyncSession) -> dict[str, int]:
     """system_name → system_id 매핑 (push 사이트가 system_name 공간이므로 cycle 1회 로드)."""
-    result = await db.execute(select(System.id, System.system_name))
+    result = await db.execute(sa_select(System.id, System.system_name))
     return {row.system_name: row.id for row in result.all()}
 
 
@@ -249,12 +271,12 @@ def _check_metric_exclusion(
 
 async def _get_system_info(db: AsyncSession, system_name: str) -> Optional[dict]:
     """system_name → System + contacts"""
-    result = await db.execute(select(System).where(System.system_name == system_name))
+    result = await db.execute(sa_select(System).where(System.system_name == system_name))
     system = result.scalar_one_or_none()
     if not system:
         return None
     contacts_result = await db.execute(
-        select(Contact, User.name)
+        sa_select(Contact, User.name)
         .join(SystemContact, SystemContact.contact_id == Contact.id)
         .join(User, User.id == Contact.user_id)
         .where(SystemContact.system_id == system.id)
@@ -356,23 +378,23 @@ async def _build_host_contexts(
             sm.anomalies.append(f"메모리 사용률 {val:.1f}% (임계치 {eff_thr:g}%)")
             sm.matched_metric_types.append(MetricType.MEMORY.value)
 
-    # 3. 로그 에러 rate — 레벨별 (5분 평균, 건/분)
-    log_results = await _query_prometheus(
-        "sum by (host, system_name, display_name, level)"
-        " (rate(log_error_total[5m])) * 60"
-    )
-    for r in log_results:
-        host  = r["metric"].get("host", "")
-        sn    = r["metric"].get("system_name", "unknown")
-        dn    = r["metric"].get("display_name", sn)
-        level = r["metric"].get("level", "UNKNOWN")
-        val   = float(r["value"][1])
-        if not host:
+    # 3. 실에러 로그 rate — log_analysis_history DB 기반 (알림성 제외, 건/분)
+    # Prometheus log_error_total은 알림성 포함 원시값 → 정확한 실에러만 반영하기 위해 DB 전환
+    real_error_by_system_id = await _fetch_real_error_counts()
+    # system_id → system_name 역방향 매핑
+    name_map_local = system_name_to_id or {}
+    system_id_to_name = {v: k for k, v in name_map_local.items()}
+    for sys_id, rate_per_min in real_error_by_system_id.items():
+        sn = system_id_to_name.get(sys_id)
+        if not sn:
             continue
-        sm = _get_host(host).get_or_create(sn)
-        sm.display_name = sm.display_name or dn
-        sm.log_by_level[level] = sm.log_by_level.get(level, 0.0) + val
-        sm.log_error_rate += val
+        # hosts 딕셔너리에서 해당 system_name을 포함하는 host 찾기
+        for hc in hosts.values():
+            if sn in hc.systems:
+                sm = hc.systems[sn]
+                sm.log_error_rate += rate_per_min
+                sm.log_by_level["실에러"] = rate_per_min
+                break
 
     # 4. HTTP 응답 지연
     http_results = await _query_prometheus(
@@ -626,7 +648,7 @@ async def run_analysis_cycle() -> None:
     async with AsyncSessionLocal() as db:
         # 업무영역별 agent_code 조회 (한 번만)
         _cfg_result = await db.execute(
-            select(LlmAgentConfig.agent_code)
+            sa_select(LlmAgentConfig.agent_code)
             .where(LlmAgentConfig.area_code == "infra_analysis", LlmAgentConfig.is_active == True)
         )
         infra_agent_code = _cfg_result.scalar_one_or_none() or ""

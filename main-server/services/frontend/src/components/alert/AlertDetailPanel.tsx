@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { X, CheckCircle, Lightbulb, Siren, ChevronDown } from 'lucide-react'
+import { X, CheckCircle, Lightbulb, Siren, ChevronDown, RefreshCw } from 'lucide-react'
 import { ROUTES } from '@/constants/routes'
 import { NeuButton } from '@/components/neumorphic/NeuButton'
 import { NeuBadge } from '@/components/neumorphic/NeuBadge'
@@ -13,6 +13,7 @@ import { useAuthStore } from '@/store/authStore'
 import { useBannerVisible } from '@/hooks/useBannerVisible'
 import { cn, formatKST } from '@/lib/utils'
 import { FeedbackDetailView } from '@/components/incident/FeedbackDetailView'
+import { AlertReclassifyPanel } from './AlertReclassifyPanel'
 import type { AlertHistory } from '@/types/alert'
 
 const ALERT_TYPE_LABELS: Record<string, string> = {
@@ -59,7 +60,8 @@ function parseDescription(desc: string | null | undefined): ParsedDescription | 
         'anomaly_type' in obj ||
         'severity' in obj ||
         'log_content' in obj ||
-        'immediate_action' in obj)
+        'immediate_action' in obj ||
+        'reclassified_templates' in obj)
     ) {
       return {
         ...obj,
@@ -80,6 +82,7 @@ export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
   const bannerVisible = useBannerVisible()
   const { mutate: acknowledge, isPending } = useAcknowledgeAlert()
   const panelRef = useRef<HTMLDivElement>(null)
+  const [reclassifyOpen, setReclassifyOpen] = useState(false)
 
   // 닫힘 애니메이션 중에도 컨텐츠가 보이도록 마지막 alert를 유지
   const lastAlertRef = useRef<AlertHistory | null>(null)
@@ -431,10 +434,28 @@ export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
                   인시던트에서 해결책 관리
                 </NeuButton>
               )}
+              {displayAlert.alert_type === 'log_analysis' &&
+                displayAlert.log_analysis_id && (
+                  <NeuButton
+                    variant="ghost"
+                    size="sm"
+                    className="w-full"
+                    onClick={() => setReclassifyOpen(true)}
+                  >
+                    <RefreshCw className="h-4 w-4" />
+                    알림성/실에러 재분류
+                  </NeuButton>
+                )}
             </div>
           </>
         )}
       </div>
+
+      <AlertReclassifyPanel
+        alert={reclassifyOpen ? displayAlert : null}
+        onClose={() => setReclassifyOpen(false)}
+        onSuccess={() => setReclassifyOpen(false)}
+      />
     </>
   )
 }

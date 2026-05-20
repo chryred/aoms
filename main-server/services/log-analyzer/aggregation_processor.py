@@ -48,44 +48,73 @@ TEAMS_WEBHOOK_URL = os.getenv("TEAMS_WEBHOOK_URL", "")
 _NOTIFICATION_RATIO_THRESHOLD = 0.5
 
 
-async def _get_notification_ratio(
+async def _fetch_log_counts_from_db(
     client: httpx.AsyncClient,
     system_id: int,
-    from_dt: str,
-    to_dt: str,
-) -> float:
-    """해당 기간 log_analysis_history에서 알림성 로그(anomaly_type=notification|notification_auto) 비율 반환.
-    조회 실패 시 0.0 반환 (안전 fallback — 비율 주입 없이 계속)."""
+    hour_bucket_iso: str,
+) -> tuple[int, int, int | None]:
+    """해당 1시간 log_analysis_history에서 실에러/알림성 건수를 DB에서 조회.
+
+    반환: (real_error_count, notification_count, prev_real_error_count | None)
+    """
     try:
+        hour_bucket_dt = datetime.fromisoformat(hour_bucket_iso).replace(tzinfo=None)
+        hour_from = (hour_bucket_dt - timedelta(hours=1)).isoformat()
+        to_dt = hour_bucket_dt.isoformat()
         resp = await client.get(
             f"{ADMIN_API_URL}/api/v1/analysis",
-            params={"system_id": system_id, "from_dt": from_dt, "to_dt": to_dt, "limit": 500},
+            params={"system_id": system_id, "from_dt": hour_from, "to_dt": to_dt, "limit": 500},
             timeout=5.0,
         )
         if resp.status_code != 200:
-            return 0.0
+            return 0, 0, None
         records = resp.json()
-        if not records:
-            return 0.0
-        notification_count = sum(
-            1 for r in records
-            if r.get("anomaly_type") in ("notification", "notification_auto")
+        real_err = sum(r.get("real_error_count", 0) for r in records)
+        notif = sum(r.get("notification_count", 0) for r in records)
+        # 직전 시간 집계에서 prev_real_error_count 조회
+        prev_real_err: int | None = None
+        prev_from = (hour_bucket_dt - timedelta(hours=2)).isoformat()
+        prev_resp = await client.get(
+            f"{ADMIN_API_URL}/api/v1/aggregations/hourly",
+            params={"system_id": system_id, "from_dt": prev_from, "to_dt": hour_from, "limit": 1},
+            timeout=5.0,
         )
-        return notification_count / len(records)
+        if prev_resp.status_code == 200:
+            prev_rows = prev_resp.json()
+            if prev_rows:
+                prev_real_err = prev_rows[0].get("real_error_count", 0)
     except Exception as exc:
-        logger.debug("알림성 비율 조회 실패 (무시): %s", exc)
-        return 0.0
+        logger.debug("log_counts DB 조회 실패 (무시): %s", exc)
+        return 0, 0, None
+    return real_err, notif, prev_real_err
 
 
-def _notification_hint(ratio: float) -> str:
-    """알림성 비율이 임계값 이상이면 LLM 프롬프트에 주입할 컨텍스트 반환."""
-    if ratio < _NOTIFICATION_RATIO_THRESHOLD:
-        return ""
-    pct = int(ratio * 100)
-    return (
-        f"\n[참고] 해당 기간 로그 분석 중 알림성 로그 비율: {pct}%\n"
-        "알림성 로그는 실제 시스템 이상이 아니므로 심각도 판단에서 제외하세요.\n"
-    )
+async def _fetch_log_trend_context(
+    client: httpx.AsyncClient,
+    system_id: int,
+) -> dict:
+    """최근 4시간 log_analysis_history에서 실에러 합계 + 주요 원인 목록 반환."""
+    try:
+        from_dt = (datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=4)).isoformat()
+        resp = await client.get(
+            f"{ADMIN_API_URL}/api/v1/analysis",
+            params={"system_id": system_id, "from_dt": from_dt, "limit": 200},
+            timeout=5.0,
+        )
+        if resp.status_code != 200:
+            return {}
+        records = resp.json()
+        total_real = sum(r.get("real_error_count", 0) for r in records)
+        causes = list(dict.fromkeys(
+            r.get("root_cause")
+            for r in records
+            if r.get("root_cause") and r.get("anomaly_type") not in ("notification_auto", "notification")
+        ))[:5]
+        return {"real_error_4h_total": total_real, "root_causes": [c for c in causes if c]}
+    except Exception as exc:
+        logger.debug("log_trend_context 조회 실패: %s", exc)
+        return {}
+
 
 
 # ── PromQL 매핑 ──────────────────────────────────────────────────────────────
@@ -281,8 +310,10 @@ def _detect_anomaly(
             if metrics.get("mem_used_pct", 0) > 70:
                 return True, f"Memory avg {metrics['mem_used_pct']}% > 70%"
         elif metric_group == "log":
-            if metrics.get("log_errors_err", 0) > 10:
-                return True, f"ERROR 로그 {int(metrics['log_errors_err'])}건 발생"
+            # DB 기반 실에러 건수 사용 (알림성 제외)
+            real_err = metrics.get("real_error_count", 0)
+            if real_err > 10:
+                return True, f"실제 에러 로그 {int(real_err)}건 발생"
         elif metric_group == "web":
             if metrics.get("req_slow", 0) > 0 and metrics.get("req_total", 0) > 0:
                 slow_rate = metrics["req_slow"] / metrics["req_total"] * 100
@@ -518,27 +549,42 @@ async def _process_single_config(
 
     async with sem:
         try:
-            # metric_group PromQL 조회
-            group_queries = (PROMQL_MAP.get(collector_type) or {}).get(metric_group) or {}
-            if not group_queries:
-                return {"status": "skipped", "reason": "no_promql", "system": system_name}
+            # metric_group 데이터 수집 (log 그룹은 DB 기반, 나머지는 Prometheus)
+            real_error_count: int = 0
+            notification_count: int = 0
+            prev_real_err: int | None = None
 
-            keys    = list(group_queries.keys())
-            promqls = [q.format(sn=system_name) for q in group_queries.values()]
+            if metric_group == "log" and collector_type == "synapse_agent":
+                # log 그룹: Prometheus log_error_total 대신 DB real_error_count 사용
+                real_error_count, notification_count, prev_real_err = await _fetch_log_counts_from_db(
+                    client, system_id, hour_bucket_iso
+                )
+                metrics: dict[str, float] = {
+                    "real_error_count": float(real_error_count),
+                    "notification_count": float(notification_count),
+                }
+                if not real_error_count and not notification_count:
+                    return {"status": "skipped", "reason": "no_log_data", "system": system_name}
+            else:
+                group_queries = (PROMQL_MAP.get(collector_type) or {}).get(metric_group) or {}
+                if not group_queries:
+                    return {"status": "skipped", "reason": "no_promql", "system": system_name}
 
-            # 모든 쿼리 동시 실행
-            values = await asyncio.gather(
-                *[_query_prometheus(client, pql) for pql in promqls],
-                return_exceptions=True,
-            )
-            metrics: dict[str, float] = {}
-            for key, val in zip(keys, values):
-                if isinstance(val, Exception) or val is None:
-                    continue
-                metrics[key] = val
+                keys    = list(group_queries.keys())
+                promqls = [q.format(sn=system_name) for q in group_queries.values()]
 
-            if not metrics:
-                return {"status": "skipped", "reason": "no_prometheus_data", "system": system_name}
+                values = await asyncio.gather(
+                    *[_query_prometheus(client, pql) for pql in promqls],
+                    return_exceptions=True,
+                )
+                metrics = {}
+                for key, val in zip(keys, values):
+                    if isinstance(val, Exception) or val is None:
+                        continue
+                    metrics[key] = val
+
+                if not metrics:
+                    return {"status": "skipped", "reason": "no_prometheus_data", "system": system_name}
 
             # 이상 감지 — 절대값 임계치
             anomaly_detected, anomaly_reason = _detect_anomaly(
@@ -561,12 +607,14 @@ async def _process_single_config(
 
             # 기본 집계 저장 (llm_severity='normal')
             hourly_payload = {
-                "system_id":      system_id,
-                "hour_bucket":    hour_bucket_iso,
-                "collector_type": collector_type,
-                "metric_group":   metric_group,
-                "metrics_json":   json.dumps(metrics),
-                "llm_severity":   "normal",
+                "system_id":        system_id,
+                "hour_bucket":      hour_bucket_iso,
+                "collector_type":   collector_type,
+                "metric_group":     metric_group,
+                "metrics_json":     json.dumps(metrics),
+                "llm_severity":     "normal",
+                "real_error_count": real_error_count,
+                "notification_count": notification_count,
             }
             saved_resp = await client.post(
                 f"{ADMIN_API_URL}/api/v1/aggregations/hourly",
@@ -612,23 +660,21 @@ async def _process_single_config(
                 if lines:
                     trend_section = "\n[최근 추이]\n" + "\n".join(lines) + "\n"
 
-            # 알림성 로그 비율 조회 → log 메트릭 그룹에만 프롬프트 컨텍스트 주입
-            notif_hint = ""
-            if metric_group == "log":
-                hour_from = (
-                    datetime.fromisoformat(hour_bucket_iso).replace(tzinfo=None)
-                    - timedelta(hours=1)
-                ).isoformat()
-                notif_ratio = await _get_notification_ratio(
-                    client, system_id, hour_from, hour_bucket_iso
+            # log 그룹: 1시간 비교 컨텍스트 생성 (알림성 제외 실에러 건수 비교)
+            log_comparison = ""
+            if metric_group == "log" and prev_real_err is not None:
+                delta = real_error_count - prev_real_err
+                sign = "+" if delta >= 0 else ""
+                log_comparison = (
+                    f"이전 1시간: {int(prev_real_err)}건 → 현재: {int(real_error_count)}건 ({sign}{int(delta)}건)"
                 )
-                notif_hint = _notification_hint(notif_ratio)
 
             llm_prompt = build_hourly_agg_prompt(
                 display_name, system_name, hour_bucket_iso,
                 collector_type, metric_group, anomaly_reason,
                 metrics_formatted, trace_section, trend_section,
-            ) + notif_hint
+                log_comparison=log_comparison,
+            )
 
             _hourly_agent_code = await get_agent_code_for_area("metric_hourly_aggregation")
             llm_text = await call_llm_text(llm_prompt, max_tokens=400, agent_code=_hourly_agent_code)
@@ -686,17 +732,19 @@ async def _process_single_config(
 
             # hourly 레코드 LLM 결과로 업데이트
             update_payload = {
-                "system_id":      system_id,
-                "hour_bucket":    hour_bucket_iso,
-                "collector_type": collector_type,
-                "metric_group":   metric_group,
-                "metrics_json":   json.dumps(metrics),
-                "llm_summary":    llm_summary,
-                "llm_severity":   llm_severity,
-                "llm_trend":      llm_trend,
-                "llm_prediction": llm_prediction,
-                "llm_model_used": "internal_llm",
-                "qdrant_point_id": point_id,
+                "system_id":        system_id,
+                "hour_bucket":      hour_bucket_iso,
+                "collector_type":   collector_type,
+                "metric_group":     metric_group,
+                "metrics_json":     json.dumps(metrics),
+                "llm_summary":      llm_summary,
+                "llm_severity":     llm_severity,
+                "llm_trend":        llm_trend,
+                "llm_prediction":   llm_prediction,
+                "llm_model_used":   "internal_llm",
+                "qdrant_point_id":  point_id,
+                "real_error_count": real_error_count,
+                "notification_count": notification_count,
             }
             await client.post(
                 f"{ADMIN_API_URL}/api/v1/aggregations/hourly",
@@ -704,13 +752,22 @@ async def _process_single_config(
                 timeout=10.0,
             )
 
-            # 프로액티브 알림 필요 여부 (예측이 있고 critical 또는 예측에 '시간' 포함)
-            needs_alert = bool(
-                llm_prediction and (
-                    llm_severity == "critical"
-                    or "시간" in str(llm_prediction)
+            # 프로액티브 알림 필요 여부
+            # log 그룹: 50% 이상 증가 또는 절대값 20건 초과 시 알림
+            # 기타 그룹: 예측이 있고 critical 또는 예측에 '시간' 포함
+            if metric_group == "log":
+                needs_alert = (
+                    (real_error_count > 0 and prev_real_err is not None and prev_real_err > 0
+                     and real_error_count >= prev_real_err * 1.5)
+                    or real_error_count > 20
                 )
-            )
+            else:
+                needs_alert = bool(
+                    llm_prediction and (
+                        llm_severity == "critical"
+                        or "시간" in str(llm_prediction)
+                    )
+                )
             if needs_alert:
                 contacts  = (contacts_map or {}).get(system_id, [])
                 entities  = _mention_entities(contacts)
@@ -724,6 +781,11 @@ async def _process_single_config(
                     {"title": "예측",      "value": llm_prediction or "-"},
                     {"title": "권고 조치", "value": llm_summary or "-"},
                 ]
+                # log 그룹: 로그 에러 변화 facts 추가
+                if metric_group == "log":
+                    if log_comparison:
+                        hourly_facts.append({"title": "로그 에러 변화", "value": log_comparison})
+                    hourly_facts.append({"title": "알림성 로그", "value": f"{notification_count}건 (분류 제외)"})
                 if mention:
                     hourly_facts.append({"title": "담당자", "value": mention})
                 card = {
@@ -1768,7 +1830,9 @@ async def _process_single_trend_alert(
                 if mi["anomaly_hours"] >= 3
             ]
 
-            llm_prompt = build_trend_alert_prompt(display_name, system_name, metric_items_for_prompt)
+            # 4시간 로그 에러 컨텍스트 조회 (실에러 합계 + 주요 원인)
+            log_trend_ctx = await _fetch_log_trend_context(client, system_id)
+            llm_prompt = build_trend_alert_prompt(display_name, system_name, metric_items_for_prompt, log_context=log_trend_ctx)
             _trend_agent_code = await get_agent_code_for_area("trend_alert")
             llm_text = await call_llm_text(llm_prompt, max_tokens=400, agent_code=_trend_agent_code)
             llm_result = _parse_llm_json(llm_text, {
@@ -1806,6 +1870,12 @@ async def _process_single_trend_alert(
                 {"title": "임계치 예상","value": f"{llm_result.get('breach_metric', '-')} — {hours_text}"},
                 {"title": "즉시 조치",  "value": llm_result.get("immediate_actions", "-")},
             ]
+            # 4시간 로그 에러 컨텍스트 추가
+            if log_trend_ctx.get("real_error_4h_total", 0) > 0:
+                trend_facts.append({
+                    "title": "로그 에러 (4시간)",
+                    "value": f"{log_trend_ctx['real_error_4h_total']}건",
+                })
             if mention:
                 trend_facts.append({"title": "담당자", "value": mention})
 

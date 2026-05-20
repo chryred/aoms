@@ -1,140 +1,24 @@
-from datetime import datetime, timezone
-
-from fastapi import APIRouter, Depends, Query
-from sqlalchemy import or_, select
-from sqlalchemy.ext.asyncio import AsyncSession
-
-from database import get_db
-from models import AlertExclusion
-from schemas import (
-    AlertExclusionCreate,
-    AlertExclusionDeactivateRequest,
-    AlertExclusionOut,
-    BulkExcludeResult,
-)
+from fastapi import APIRouter
+from fastapi.responses import JSONResponse
 
 router = APIRouter(prefix="/api/v1/alert-exclusions", tags=["alert-exclusions"])
 
-
-def _normalize_expires_at(dt: datetime | None) -> datetime | None:
-    """입력 datetime을 UTC naive로 정규화 (CLAUDE.md 타임존 규칙)."""
-    if dt is None:
-        return None
-    if dt.tzinfo is not None:
-        return dt.astimezone(timezone.utc).replace(tzinfo=None)
-    return dt
+_GONE = JSONResponse(
+    status_code=410,
+    content={"detail": "alert_exclusions 기능이 폐기되었습니다. Qdrant semantic similarity가 알림 분류를 담당합니다."},
+)
 
 
-@router.post("", response_model=BulkExcludeResult, status_code=200)
-async def create_exclusions(
-    payload: AlertExclusionCreate,
-    db: AsyncSession = Depends(get_db),
-):
-    """예외 규칙 일괄 등록 (1건~다건). 활성·미만료 규칙 중복 시 skip."""
-    succeeded: list[int] = []
-    failed: list[dict] = []
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
-
-    for item in payload.items:
-        # 중복 체크 — 활성 + 미만료 규칙만 중복으로 간주
-        existing = await db.execute(
-            select(AlertExclusion)
-            .where(AlertExclusion.system_id == item.system_id)
-            .where(AlertExclusion.active == True)  # noqa: E712
-            .where(AlertExclusion.template == item.template)
-            .where(or_(AlertExclusion.expires_at.is_(None), AlertExclusion.expires_at > now))
-            .where(
-                AlertExclusion.instance_role == item.instance_role
-                if item.instance_role is not None
-                else AlertExclusion.instance_role.is_(None)
-            )
-            .limit(1)
-        )
-        if existing.scalar_one_or_none():
-            failed.append({
-                "system_id": item.system_id,
-                "instance_role": item.instance_role,
-                "template": item.template[:80],
-                "reason": "이미 활성 예외 규칙이 존재합니다",
-            })
-            continue
-
-        rule = AlertExclusion(
-            system_id=item.system_id,
-            instance_role=item.instance_role,
-            template=item.template,
-            reason=item.reason,
-            created_by=payload.created_by,
-            created_at=now,
-            active=True,
-            max_count_per_window=item.max_count_per_window,
-            expires_at=_normalize_expires_at(item.expires_at),
-            exclusion_type=item.exclusion_type,
-        )
-        db.add(rule)
-        await db.flush()
-        succeeded.append(rule.id)
-
-    await db.commit()
-    return BulkExcludeResult(succeeded=succeeded, failed=failed)
+@router.post("")
+async def create_exclusions():
+    return _GONE
 
 
-@router.get("", response_model=list[AlertExclusionOut])
-async def list_exclusions(
-    system_id: int | None = Query(None),
-    active: str | None = Query(None, description="true | false | all"),
-    include_expired: bool = Query(False, description="active=true 조회 시 만료된 규칙 포함 여부"),
-    limit: int = Query(100, le=500),
-    offset: int = Query(0, ge=0),
-    db: AsyncSession = Depends(get_db),
-):
-    """예외 규칙 목록 조회.
-
-    active=true 시 기본적으로 만료된 규칙은 제외됨. 감사용으로 만료 포함 보려면 include_expired=true.
-    """
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
-    stmt = (
-        select(AlertExclusion)
-        .order_by(AlertExclusion.created_at.desc())
-        .offset(offset)
-        .limit(limit)
-    )
-    if system_id is not None:
-        stmt = stmt.where(AlertExclusion.system_id == system_id)
-    if active == "true":
-        stmt = stmt.where(AlertExclusion.active == True)  # noqa: E712
-        if not include_expired:
-            stmt = stmt.where(or_(AlertExclusion.expires_at.is_(None), AlertExclusion.expires_at > now))
-    elif active == "false":
-        stmt = stmt.where(AlertExclusion.active == False)  # noqa: E712
-    # active == "all" 또는 None이면 필터 없음
-
-    result = await db.execute(stmt)
-    return result.scalars().all()
+@router.get("")
+async def list_exclusions():
+    return _GONE
 
 
-@router.patch("/deactivate", response_model=BulkExcludeResult)
-async def deactivate_exclusions(
-    payload: AlertExclusionDeactivateRequest,
-    db: AsyncSession = Depends(get_db),
-):
-    """예외 규칙 일괄 해제 (active=false). 이미 비활성이면 skip."""
-    succeeded: list[int] = []
-    failed: list[dict] = []
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
-
-    for rule_id in payload.ids:
-        rule = await db.get(AlertExclusion, rule_id)
-        if not rule:
-            failed.append({"id": rule_id, "reason": "규칙을 찾을 수 없습니다"})
-            continue
-        if not rule.active:
-            failed.append({"id": rule_id, "reason": "이미 비활성 상태입니다"})
-            continue
-        rule.active = False
-        rule.deactivated_by = payload.deactivated_by
-        rule.deactivated_at = now
-        succeeded.append(rule_id)
-
-    await db.commit()
-    return BulkExcludeResult(succeeded=succeeded, failed=failed)
+@router.patch("/deactivate")
+async def deactivate_exclusions():
+    return _GONE

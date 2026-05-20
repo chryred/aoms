@@ -202,11 +202,16 @@ class LogAnalysisHistory(Base):
     exclusion_rule_id  = Column(Integer, ForeignKey("alert_exclusions.id", ondelete="SET NULL"), nullable=True)
     # 개별 template 목록 (Prometheus log_error_total.template 라벨 원본, 예외 처리 UI용)
     templates_json     = Column(JSONB)
+    # 실에러/알림성 분리 분류 건수
+    real_error_count             = Column(Integer, nullable=False, default=0, server_default="0")
+    notification_count           = Column(Integer, nullable=False, default=0, server_default="0")
+    template_classifications_json = Column(Text, nullable=True)
     created_at = Column(DateTime, default=func.now())
 
     __table_args__ = (
         Index("idx_log_analysis_system", "system_id", "created_at"),
         Index("idx_log_analysis_excluded", "excluded", "system_id"),
+        Index("idx_log_analysis_history_system_created", "system_id", "created_at"),
     )
 
 
@@ -356,6 +361,9 @@ class MetricHourlyAggregation(Base):
     llm_prediction = Column(Text)                         # 임계치 도달 예측 ("3.2시간 후 85% 도달 예상")
     llm_model_used = Column(String(100))
     qdrant_point_id = Column(String(36))                  # metric_hourly_patterns 컬렉션 UUID
+    # log 그룹 1시간 집계 분리 건수
+    real_error_count   = Column(Integer, nullable=False, default=0, server_default="0")
+    notification_count = Column(Integer, nullable=False, default=0, server_default="0")
     created_at     = Column(DateTime, default=func.now())
 
     __table_args__ = (

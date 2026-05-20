@@ -85,7 +85,6 @@ class TestRunAnalysis:
         otel_class, _ = _make_async_client_cm({})
 
         with patch("analyzer.get_systems", AsyncMock(return_value=active_systems)), \
-             patch("analyzer._load_exclusion_rules", AsyncMock(return_value=[])), \
              patch("analyzer.fetch_logs_for_system", AsyncMock(return_value=logs_by_role)), \
              patch("analyzer.get_agent_code_for_area", AsyncMock(return_value="agent_log")), \
              patch("analyzer._analyze_one_role",
@@ -111,7 +110,6 @@ class TestRunAnalysis:
         otel_class, _ = _make_async_client_cm({})
 
         with patch("analyzer.get_systems", AsyncMock(return_value=systems)), \
-             patch("analyzer._load_exclusion_rules", AsyncMock(return_value=[])), \
              patch("analyzer.fetch_logs_for_system", fetch_mock), \
              patch("analyzer.get_agent_code_for_area", AsyncMock(return_value="agent_log")), \
              patch("analyzer._analyze_one_role", AsyncMock()), \
@@ -132,7 +130,6 @@ class TestRunAnalysis:
         otel_class, _ = _make_async_client_cm({})
 
         with patch("analyzer.get_systems", AsyncMock(return_value=systems)), \
-             patch("analyzer._load_exclusion_rules", AsyncMock(return_value=[])), \
              patch("analyzer.fetch_logs_for_system", AsyncMock(return_value={})), \
              patch("analyzer.get_agent_code_for_area", AsyncMock(return_value="agent_log")), \
              patch("analyzer._analyze_one_role", analyze_mock), \

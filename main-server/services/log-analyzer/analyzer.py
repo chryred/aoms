@@ -17,6 +17,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 from datetime import datetime, timezone
 
 import httpx
@@ -69,8 +70,39 @@ ERROR 레벨이더라도 아래 조건을 **모두** 만족하면 severity=info,
 반드시 warning 이상: 스택트레이스 포함, 외부 연결 실패, 데이터 정합성 오류.
 is_notification=true 시 root_cause: "알림성 로그 — {{판단 근거 1줄}}" 형식으로 작성.
 
-응답 형식:
-{{"severity": "critical 또는 warning 또는 info", "is_notification": false, "root_cause": "원인 요약\\n근거/세부 설명", "recommendation": "1) 즉시 조치: ...\\n2) 원인 분석: ...\\n3) 재발 방지: ..."}}"""
+응답 형식 (JSON만 출력):
+{{
+  "severity": "critical 또는 warning 또는 info",
+  "is_notification": false,
+  "notification_count": 0,
+  "real_error_count": 0,
+  "template_classifications": [
+    {{"template": "로그 템플릿 텍스트", "is_notification": true, "reason": "판단 근거 1줄"}}
+  ],
+  "root_cause": "원인 요약\\n근거/세부 설명",
+  "recommendation": "1) 즉시 조치: ...\\n2) 원인 분석: ...\\n3) 재발 방지: ..."
+}}
+
+필드 설명:
+- notification_count: 알림성으로 분류된 템플릿들의 [Nx] 발생횟수 합계
+- real_error_count: 실에러로 분류된 템플릿들의 발생횟수 합계
+- template_classifications: 각 템플릿별 분류 배열 (가능하면 포함, 없으면 빈 배열)
+- is_notification (최상위): 전체 윈도우가 알림성이면 true, 하나라도 실에러이면 false"""
+
+
+_REAL_ERROR_PATTERNS = re.compile(
+    r'\bat (com\.|org\.|java\.|net\.|io\.)|'
+    r'Caused by:|'
+    r'Connection refused|Connection reset|'
+    r'ORA-\d+|JDBC|SQL\s*Error|'
+    r'NullPointerException|OutOfMemoryError|StackOverflowError',
+    re.IGNORECASE,
+)
+
+
+def _has_definite_real_error(logs: list[dict]) -> bool:
+    """스택트레이스·DB 연결 실패 등 명확한 실에러 패턴이 하나라도 있으면 True"""
+    return any(_REAL_ERROR_PATTERNS.search(log.get("template", "")) for log in logs)
 
 
 async def get_systems() -> list[dict]:
@@ -217,7 +249,7 @@ async def analyze_with_vector_context(
     agent_code: str,
     trace_context: str = "",
     trace_tier: str = "5min",
-    has_force_real: bool = False,
+    skip_vector_store: bool = False,
 ) -> dict:
     """
     T4.14 — 벡터 유사도 검색 + LLM 분석 통합 파이프라인
@@ -275,10 +307,11 @@ async def analyze_with_vector_context(
                 f"Qdrant 검색 실패: {type(e).__name__}: {e!r} → 신규 이상으로 처리"
             )
 
-    # notification auto-skip: force_real 미등록 + Qdrant 유사 notification 패턴 존재 시 LLM 생략
+    # notification auto-skip: 명확한 실에러 패턴 없고 Qdrant 유사 notification 패턴 존재 시 LLM 생략
     # 상위 N개(최대 3) 중 하나라도 is_notification=True이면 skip —
     # 새 duplicate 포인트가 1위를 차지해도 notification 포인트가 2~3위에 있으면 skip 발동
-    if not has_force_real:
+    # _has_definite_real_error: 스택트레이스·DB 연결 실패 등 명확한 실에러 패턴이 있으면 skip 비활성화
+    if not _has_definite_real_error(logs):
         for candidate in anomaly_info.get("top_results", []):
             if (candidate["payload"].get("is_notification") is True
                     and candidate["score"] >= _NOTIFICATION_SKIP_THRESHOLD):
@@ -349,11 +382,11 @@ async def analyze_with_vector_context(
         llm_error = f"{type(e).__name__}: {str(e)[:300]}"
         logger.warning(f"[{system_name}/{instance_role}] LLM 분석 실패 — 벡터 저장은 계속: {llm_error}")
 
-    # 5. 벡터 저장 (LLM 성공 여부와 무관하게 수행 — 패턴 누적 + 역방향 incident_id 연결 대상)
+    # 5. 벡터 저장 (skip_vector_store=True이면 건너뜀 — _analyze_one_role에서 그룹별 저장)
     # LLM 실패 시 is_notification=False(기본값) → notification_auto_skip에 영향 없음
     point_id = None
     qdrant_store_error: str | None = None
-    if dense_vec and sparse_vec:
+    if dense_vec and sparse_vec and not skip_vector_store:
         try:
             point_id = await store_incident_vector(
                 dense_vec, sparse_vec, system_name, instance_role,
@@ -409,21 +442,27 @@ async def submit_analysis(
     trace_summary_text: str | None = None,
     templates: list[str] | None = None,
     template_counts: dict[str, int] | None = None,
+    real_error_count: int = 0,
+    notification_count: int = 0,
+    template_classifications_json: str | None = None,
 ) -> dict:
     """Admin API에 LLM 분석 결과 제출 (Teams 알림은 Admin API가 처리)
 
-    error_message: LLM/분석 실패 사유. 값이 있으면 admin-api에서 Teams 미발송 + UI 분석 실패 뱃지.
-    model_used: LLM 프로바이더 코드 (devx/claude/openai). 미지정 시 LLM_TYPE 기본값. (ADR-012: ollama 제거)
+    real_error_count: 실에러 로그 건수 (알림성 제외).
+    notification_count: 알림성 로그 건수.
+    template_classifications_json: LLM per-template 분류 JSON (디버깅용).
     """
     payload: dict = {
-        "system_id":       system_id,
-        "instance_role":   instance_role,
-        "log_content":     log_content,
-        "analysis_result": json.dumps(analysis_result, ensure_ascii=False),
-        "severity":        severity,
-        "root_cause":      root_cause,
-        "recommendation":  recommendation,
-        "model_used":      model_used or LLM_TYPE,
+        "system_id":          system_id,
+        "instance_role":      instance_role,
+        "log_content":        log_content,
+        "analysis_result":    json.dumps(analysis_result, ensure_ascii=False),
+        "severity":           severity,
+        "root_cause":         root_cause,
+        "recommendation":     recommendation,
+        "model_used":         model_used or LLM_TYPE,
+        "real_error_count":   real_error_count,
+        "notification_count": notification_count,
     }
     # Phase 4b: 벡터 필드 (값이 있을 때만 포함)
     if anomaly_type      is not None: payload["anomaly_type"]      = anomaly_type
@@ -436,70 +475,12 @@ async def submit_analysis(
     if trace_summary_text     is not None: payload["trace_summary_text"]     = trace_summary_text
     if templates              is not None: payload["templates"]              = templates
     if template_counts        is not None: payload["template_counts"]        = template_counts
+    if template_classifications_json is not None:
+        payload["template_classifications_json"] = template_classifications_json
 
     resp = await _admin_http.post(f"{ADMIN_API_URL}/api/v1/analysis", json=payload)
     resp.raise_for_status()
     return resp.json()
-
-
-async def _load_exclusion_rules() -> list[dict]:
-    """admin-api에서 활성 예외 규칙 목록 조회. 실패 시 빈 목록 반환."""
-    try:
-        resp = await _admin_http.get(
-            f"{ADMIN_API_URL}/api/v1/alert-exclusions",
-            params={"active": "true", "limit": 500},
-            timeout=5.0,
-        )
-        if resp.status_code == 200:
-            return resp.json()
-    except Exception as exc:
-        logger.warning("예외 규칙 조회 실패 (분석 계속): %s", exc)
-    return []
-
-
-def _is_template_excluded(
-    rules: list[dict],
-    system_id: int,
-    instance_role: str,
-    template: str,
-    count: int = 0,
-) -> tuple[int, str] | None:
-    """캐시된 규칙 목록에서 매칭 규칙 (id, exclusion_type) 반환. 없으면 None.
-
-    매칭 조건:
-      - system_id, template 일치
-      - instance_role 일치 (rule.instance_role=None이면 모든 role)
-      - expires_at 미래거나 NULL (Lazy 만료 검증)
-      - max_count_per_window 임계값 이내 (count 인자 제공 시)
-
-    exclusion_type:
-      - 'skip': 완전 제외 (LLM/Teams/DB 없음)
-      - 'force_real': Qdrant notification auto-skip 무시, LLM 정상 분석 강제
-    """
-    now_naive = datetime.now(timezone.utc).replace(tzinfo=None)
-    for rule in rules:
-        if rule["system_id"] != system_id:
-            continue
-        if rule["template"] != template:
-            continue
-        if rule["instance_role"] is not None and rule["instance_role"] != instance_role:
-            continue
-        # 만료 체크
-        expires_at = rule.get("expires_at")
-        if expires_at:
-            try:
-                # admin-api는 'Z' suffix UTC ISO로 응답
-                expires_dt = datetime.fromisoformat(expires_at.replace("Z", ""))
-                if expires_dt <= now_naive:
-                    continue
-            except (ValueError, AttributeError):
-                pass  # 파싱 실패 시 만료 무시 (안전 fallback)
-        # count 임계값 체크
-        max_count = rule.get("max_count_per_window")
-        if max_count is not None and count > max_count:
-            continue
-        return (rule["id"], rule.get("exclusion_type", "skip"))
-    return None
 
 
 async def _analyze_one_role(
@@ -511,36 +492,14 @@ async def _analyze_one_role(
     agent_code: str,
     trace_ctx: str,
     trace_ref_ids: list,
-    exclusion_rules: list,
 ) -> dict:
-    """단일 system/instance_role 조합 분석. run_analysis의 gather 태스크 단위."""
-    label = f"{system_name}/{instance_role}"
+    """단일 system/instance_role 조합 분析. run_analysis의 gather 태스크 단위.
 
-    # 예외 처리 게이트 (semaphore 획득 전 — CPU only)
-    has_force_real = False  # force_real 템플릿 포함 여부 — Qdrant notification auto-skip 비활성화 플래그
-    if exclusion_rules:
-        filtered_logs = []
-        excluded_templates: list[str] = []
-        for log in logs:
-            tmpl = log.get("template", "")
-            cnt = int(log.get("count", 0))
-            match = _is_template_excluded(
-                exclusion_rules, system_id, instance_role, tmpl, count=cnt,
-            )
-            if match is None:
-                filtered_logs.append(log)
-            else:
-                rule_id, excl_type = match
-                if excl_type == "force_real":
-                    filtered_logs.append(log)   # 분석 대상 유지
-                    has_force_real = True
-                else:
-                    excluded_templates.append(tmpl)  # skip: 완전 제외
-        if excluded_templates:
-            logger.info(f"[{label}] 예외 처리 템플릿 {len(excluded_templates)}건 스킵")
-        if not filtered_logs:
-            return {"status": "excluded", "label": label}
-        logs = filtered_logs
+    혼재 윈도우(알림성 + 실에러): LLM template_classifications 기반으로 분리하여
+    각 그룹별 별도 임베딩 + Qdrant 저장 + submit_analysis 호출.
+    alert_history 1 row = Qdrant 1 point (1:1 대응 원칙).
+    """
+    label = f"{system_name}/{instance_role}"
 
     analysis_templates = list({log.get("template", "") for log in logs if log.get("template")})
     analysis_template_counts: dict[str, int] = {}
@@ -549,17 +508,16 @@ async def _analyze_one_role(
         if tmpl:
             analysis_template_counts[tmpl] = analysis_template_counts.get(tmpl, 0) + int(log.get("count", 0))
 
-    # DB 저장용: 전체 로그 (샘플링 없음, PII 마스킹만)
-    # LLM용 샘플링은 analyze_with_vector_context 내부에서 별도 처리
     full_log = mask_sensitive_data(_format_logs_by_type(logs))
 
     async with sem:
         try:
+            # LLM 分析 + Qdrant 검색 (벡터 저장은 그룹 분리 후 별도 처리)
             analysis = await analyze_with_vector_context(
                 system_name, instance_role, logs, agent_code,
                 trace_context=trace_ctx,
                 trace_tier="5min",
-                has_force_real=has_force_real,
+                skip_vector_store=True,
             )
 
             # notification_auto: Qdrant 유사도 자동 skip — Teams/incident 없이 DB만 기록
@@ -579,37 +537,127 @@ async def _analyze_one_role(
                     similarity_score=analysis.get("similarity_score"),
                     qdrant_point_id=analysis.get("qdrant_point_id"),
                     templates=analysis_templates or None,
+                    notification_count=sum(int(l.get("count", 0)) for l in logs),
                 )
                 return {"status": "notification_auto", "label": label}
 
-            severity       = analysis.get("severity", "info")
-            root_cause     = analysis.get("root_cause", "")
-            recommendation = analysis.get("recommendation", "")
+            # ── template_classifications 기반 그룹 분리 ────────────────────────
+            tc_list = analysis.get("template_classifications", [])
+            notification_templates_set = {
+                tc["template"] for tc in tc_list if tc.get("is_notification")
+            }
+            # 폴백: LLM이 template_classifications 없이 is_notification만 반환한 경우
+            if not notification_templates_set and analysis.get("is_notification"):
+                notification_templates_set = {log.get("template", "") for log in logs}
+            # is_notification fallback 사용 시 tc_list 합성 (template_classifications_json 확보)
+            if not tc_list and notification_templates_set:
+                tc_list = [{"template": t, "is_notification": True} for t in notification_templates_set]
 
-            await submit_analysis(
-                system_id=system_id,
-                instance_role=instance_role,
-                log_content=full_log,
-                analysis_result=analysis,
-                severity=severity,
-                root_cause=root_cause,
-                recommendation=recommendation,
-                anomaly_type=analysis.get("anomaly_type"),
-                similarity_score=analysis.get("similarity_score"),
-                qdrant_point_id=analysis.get("qdrant_point_id"),
-                has_solution=analysis.get("has_solution"),
-                similar_incidents=analysis.get("similar_incidents"),
-                error_message=analysis.get("llm_error") or analysis.get("qdrant_store_error"),
-                referenced_trace_ids=trace_ref_ids or None,
-                trace_summary_text=trace_ctx or None,
-                templates=analysis_templates or None,
-                template_counts=analysis_template_counts or None,
-            )
-            logger.info(f"[{label}] 분석 완료: {severity} [{analysis.get('anomaly_type', 'unknown')}]")
+            notif_logs = [log for log in logs if log.get("template", "") in notification_templates_set]
+            real_error_logs = [log for log in logs if log.get("template", "") not in notification_templates_set]
+
+            severity = analysis.get("severity", "info")
+            root_cause = analysis.get("root_cause", "")
+            recommendation = analysis.get("recommendation", "")
+            tc_json = json.dumps(tc_list, ensure_ascii=False) if tc_list else None
+            llm_err = analysis.get("llm_error") or analysis.get("qdrant_store_error")
+
+            # ── 알림성 그룹 제출 ────────────────────────────────────────────────
+            if notif_logs:
+                notif_text = mask_sensitive_data(_format_logs_by_type(notif_logs))
+                notif_count = sum(int(l.get("count", 0)) for l in notif_logs)
+                notif_tmpls = list({l.get("template", "") for l in notif_logs if l.get("template")})
+                notif_tcounts = {
+                    t: sum(int(l.get("count", 0)) for l in notif_logs if l.get("template") == t)
+                    for t in notif_tmpls
+                }
+                notif_point_id = None
+                try:
+                    notif_normalized = normalize_log_for_embedding(notif_text)
+                    n_dense = await get_embedding(notif_normalized)
+                    n_sparse = await get_sparse_vector(notif_normalized)
+                    notif_point_id = await store_incident_vector(
+                        n_dense, n_sparse, system_name, instance_role,
+                        "info", notif_normalized[:500],
+                        root_cause=root_cause,
+                        is_notification=True,
+                    )
+                except Exception as e_n:
+                    logger.warning(f"[{label}] 알림성 그룹 벡터 저장 실패: {e_n}")
+
+                await submit_analysis(
+                    system_id=system_id,
+                    instance_role=instance_role,
+                    log_content=notif_text,
+                    analysis_result={"is_notification": True, "severity": "info"},
+                    severity="info",
+                    root_cause=root_cause,
+                    recommendation="",
+                    anomaly_type="notification",
+                    qdrant_point_id=notif_point_id,
+                    templates=notif_tmpls or None,
+                    template_counts=notif_tcounts or None,
+                    real_error_count=0,
+                    notification_count=notif_count,
+                    template_classifications_json=tc_json,
+                )
+
+            # ── 실에러 그룹 제출 ────────────────────────────────────────────────
+            if real_error_logs:
+                real_text = mask_sensitive_data(_format_logs_by_type(real_error_logs))
+                real_count = sum(int(l.get("count", 0)) for l in real_error_logs)
+                real_tmpls = list({l.get("template", "") for l in real_error_logs if l.get("template")})
+                real_tcounts = {
+                    t: sum(int(l.get("count", 0)) for l in real_error_logs if l.get("template") == t)
+                    for t in real_tmpls
+                }
+                real_point_id = None
+                try:
+                    real_normalized = normalize_log_for_embedding(real_text)
+                    r_dense = await get_embedding(real_normalized)
+                    r_sparse = await get_sparse_vector(real_normalized)
+                    real_point_id = await store_incident_vector(
+                        r_dense, r_sparse, system_name, instance_role,
+                        severity, real_normalized[:500],
+                        root_cause=root_cause,
+                        recommendation=recommendation,
+                        is_notification=False,
+                    )
+                except Exception as e_r:
+                    logger.warning(f"[{label}] 실에러 그룹 벡터 저장 실패: {e_r}")
+
+                await submit_analysis(
+                    system_id=system_id,
+                    instance_role=instance_role,
+                    log_content=real_text,
+                    analysis_result=analysis,
+                    severity=severity,
+                    root_cause=root_cause,
+                    recommendation=recommendation,
+                    anomaly_type=analysis.get("anomaly_type"),
+                    similarity_score=analysis.get("similarity_score"),
+                    qdrant_point_id=real_point_id,
+                    has_solution=analysis.get("has_solution"),
+                    similar_incidents=analysis.get("similar_incidents"),
+                    error_message=llm_err,
+                    referenced_trace_ids=trace_ref_ids or None,
+                    trace_summary_text=trace_ctx or None,
+                    templates=real_tmpls or None,
+                    template_counts=real_tcounts or None,
+                    real_error_count=real_count,
+                    notification_count=0,
+                    template_classifications_json=tc_json,
+                )
+
+            if real_error_logs or notif_logs:
+                logger.info(
+                    f"[{label}] 분析 완료: {severity} [{analysis.get('anomaly_type', 'unknown')}]"
+                    f" 실에러={len(real_error_logs)}템플릿 알림성={len(notif_logs)}템플릿"
+                )
             return {"status": "analyzed", "label": label}
 
         except Exception as e:
-            logger.error(f"[{label}] 분석 실패: {e}")
+            logger.error(f"[{label}] 분析 실패: {e}")
             try:
                 await submit_analysis(
                     system_id=system_id,
@@ -617,14 +665,14 @@ async def _analyze_one_role(
                     log_content=full_log,
                     analysis_result={"error": str(e)[:500]},
                     severity="warning",
-                    root_cause="LLM 분석 실패 — 재시도 필요",
+                    root_cause="LLM 분析 실패 — 재시도 필요",
                     recommendation="",
                     error_message=f"{type(e).__name__}: {str(e)[:300]}",
                     templates=analysis_templates or None,
                     template_counts=analysis_template_counts or None,
                 )
             except Exception as submit_e:
-                logger.error(f"[{label}] 분석 실패 레코드 저장도 실패: {submit_e}")
+                logger.error(f"[{label}] 분析 실패 레코드 저장도 실패: {submit_e}")
             return {"status": "error", "label": label}
 
 
@@ -635,15 +683,12 @@ async def run_analysis() -> dict:
       analyzed:  분석 완료 건 (성공)
       skipped:   비활성 시스템 skip 건
       no_logs:   활성 시스템이지만 최근 5분 이상 로그 없음
-      excluded:  예외 처리된 instance_role 건
       errors:    분석 과정 예외 발생 건 (실패 레코드는 DB에 별도 저장됨)
     """
     logger.info("로그 분석 시작")
-    results: dict = {"analyzed": 0, "skipped": 0, "no_logs": 0, "excluded": 0, "notification_auto": 0, "errors": 0, "systems": []}
+    results: dict = {"analyzed": 0, "skipped": 0, "no_logs": 0, "notification_auto": 0, "errors": 0, "systems": []}
 
     # 이번 분석 주기의 활성 예외 규칙 캐시 (300초 주기 1회 조회)
-    exclusion_rules = await _load_exclusion_rules()
-    logger.debug(f"활성 예외 규칙 {len(exclusion_rules)}건 로드")
 
     try:
         systems = await get_systems()
@@ -705,7 +750,7 @@ async def run_analysis() -> dict:
                 role_tasks.append(
                     _analyze_one_role(
                         sem, system_id, system_name, instance_role, logs,
-                        agent_code, trace_ctx, list(trace_ref_ids), exclusion_rules,
+                        agent_code, trace_ctx, list(trace_ref_ids),
                     )
                 )
 

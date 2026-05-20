@@ -151,12 +151,14 @@ def build_hourly_agg_prompt(
     metrics_formatted: str,
     trace_section: str = "",
     trend_section: str = "",
+    log_comparison: str = "",
 ) -> str:
+    log_section = f"\n[로그 에러 추이]\n{log_comparison}\n" if log_comparison else ""
     return (
         f"시스템: {display_name} ({system_name})\n"
         f"시간대: {hour_bucket_iso} (1시간 집계)\n"
         f"수집기: {collector_type} / {metric_group}\n"
-        f"이상 감지 사유: {anomaly_reason}\n{trace_section}{trend_section}\n"
+        f"이상 감지 사유: {anomaly_reason}\n{trace_section}{trend_section}{log_section}\n"
         f"[현재 시간 집계 메트릭]\n{metrics_formatted}\n\n"
         "위 메트릭 데이터를 분석하여 다음 JSON 형식으로만 응답하세요:\n"
         "{\n"
@@ -245,6 +247,7 @@ def build_trend_alert_prompt(
     display_name: str,
     system_name: str,
     metric_items: list[dict],
+    log_context: dict | None = None,
 ) -> str:
     """
     metric_items: [
@@ -267,10 +270,17 @@ def build_trend_alert_prompt(
             f"  추세: {mi.get('trend_sequence', '추세 데이터 없음')}\n"
             f"  기존 예측: {mi.get('predictions', '예측 없음')}\n"
         )
+    # 로그 에러 4시간 컨텍스트 섹션
+    log_section = ""
+    if log_context and log_context.get("real_error_4h_total", 0) > 0:
+        log_section = f"\n[로그 에러 4시간 현황]\n실제 에러 합계: {log_context['real_error_4h_total']}건\n"
+        causes = log_context.get("root_causes") or []
+        if causes:
+            log_section += "수집된 원인:\n" + "\n".join(f"  · {c}" for c in causes) + "\n"
     return (
         f"시스템: {display_name} ({system_name})\n"
         f"분석 기간: 최근 8시간\n\n"
-        f"[이상 자원 목록]\n{items_text}\n"
+        f"[이상 자원 목록]\n{items_text}{log_section}\n"
         "이 시스템이 복수의 자원에서 지속적으로 이상 상태를 보이고 있습니다.\n"
         "임계치 도달 예상 시점과 조치 우선순위를 다음 JSON 형식으로만 응답해 주세요:\n"
         "{\n"

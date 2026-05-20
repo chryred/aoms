@@ -28,6 +28,7 @@ import { cn } from '@/lib/utils'
 import { ROUTES } from '@/constants/routes'
 import { getMetricStatus, classifyByValue, STATUS_CFG, HOURS_MAP } from '@/hooks/useMetricDashboard'
 import { useUiStore } from '@/store/uiStore'
+import { useRealErrorSeries } from '@/hooks/queries/useRealErrorSeries'
 import type { TimeRange } from '@/hooks/useMetricDashboard'
 import type { HourlyAggregation } from '@/types/aggregation'
 
@@ -51,7 +52,7 @@ const CARD_METRIC_KEY: Record<string, string> = {
   memory: 'mem_max',
   disk: 'disk_io_ms',
   network: 'net_rx_mb',
-  log: 'log_errors',
+  log: 'real_error_count',
   web: 'resp_avg_ms',
   db_connections: 'conn_active_pct',
   db_query: 'tps',
@@ -123,6 +124,7 @@ interface MetricChartGridProps {
 }
 
 interface ChartPopupProps {
+  systemId: number
   chartPopup: { group: string; collectorType: string }
   popupClosing: boolean
   timeRange: TimeRange
@@ -386,6 +388,7 @@ export function MetricChartGrid({
 }
 
 export function MetricChartPopup({
+  systemId,
   chartPopup,
   popupClosing,
   timeRange,
@@ -397,6 +400,13 @@ export function MetricChartPopup({
   const theme = useUiStore((s) => s.theme)
   const gridColor = theme === 'dark' ? '#2B2F37' : '#D1D5DB'
   const tickColor = theme === 'dark' ? '#8B97AD' : '#6B7280'
+
+  const isLogGroup = chartPopup.group === 'log'
+  const { data: logSeries, isLoading: logSeriesLoading } = useRealErrorSeries(
+    isLogGroup ? systemId : undefined,
+    24,
+    5,
+  )
 
   // 인스턴스 뷰 / 시스템 집계 뷰 전환
   const [showAggregate, setShowAggregate] = useState(false)
@@ -599,6 +609,83 @@ export function MetricChartPopup({
               })}
             </div>
           </div>
+        ) : isLogGroup ? (
+          /* 로그 그룹 집계 뷰: 실제 에러 vs 알림성 5분 추이 */
+          logSeriesLoading ? (
+            <div className="text-text-secondary py-10 text-center text-sm">로딩 중...</div>
+          ) : !logSeries || logSeries.length === 0 ? (
+            <div className="text-text-secondary py-10 text-center text-sm">
+              최근 24시간 로그 분석 데이터가 없습니다.
+            </div>
+          ) : (
+            <div className="bg-bg-base shadow-neu-flat rounded-sm p-4">
+              <ResponsiveContainer width="100%" height={220}>
+                <ComposedChart data={logSeries}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={gridColor} />
+                  <XAxis
+                    dataKey="timestamp"
+                    tick={{ fontSize: 11, fill: tickColor }}
+                    interval="preserveStartEnd"
+                    minTickGap={24}
+                    angle={-35}
+                    textAnchor="end"
+                    height={44}
+                    tickMargin={8}
+                  />
+                  <YAxis tick={{ fontSize: 11, fill: tickColor }} unit="건" allowDecimals={false} />
+                  <Tooltip
+                    contentStyle={{
+                      background: 'var(--color-bg-base)',
+                      border: '1px solid var(--color-border)',
+                      borderRadius: '2px',
+                      fontSize: '11px',
+                    }}
+                    formatter={(value: number, name: string) => [
+                      `${value}건`,
+                      name === 'real_error' ? '실제 에러' : '알림성',
+                    ]}
+                  />
+                  <Line
+                    name="real_error"
+                    type="monotone"
+                    dataKey="real_error"
+                    stroke={theme === 'dark' ? '#EF4444' : '#F43F5E'}
+                    strokeWidth={2}
+                    dot={false}
+                    connectNulls={false}
+                    isAnimationActive={false}
+                  />
+                  <Line
+                    name="notification"
+                    type="monotone"
+                    dataKey="notification"
+                    stroke={theme === 'dark' ? '#8B97AD' : '#6B7280'}
+                    strokeWidth={1.5}
+                    strokeDasharray="4 2"
+                    dot={false}
+                    connectNulls={false}
+                    isAnimationActive={false}
+                  />
+                </ComposedChart>
+              </ResponsiveContainer>
+              <div className="mt-2 flex items-center justify-center gap-6">
+                <span className="flex items-center gap-1.5 text-[11px]">
+                  <span className="inline-block h-0.5 w-4 bg-critical" />
+                  <span className="text-text-secondary">실제 에러</span>
+                </span>
+                <span className="flex items-center gap-1.5 text-[11px]">
+                  <span
+                    className="inline-block h-0.5 w-4"
+                    style={{
+                      background: theme === 'dark' ? '#8B97AD' : '#6B7280',
+                      borderTop: '2px dashed',
+                    }}
+                  />
+                  <span className="text-text-secondary">알림성 (분류 제외)</span>
+                </span>
+              </div>
+            </div>
+          )
         ) : (
           /* 시스템 집계 뷰: 서브메트릭 차트 (CPU는 max만 기본 표시) */
           <MetricChart
