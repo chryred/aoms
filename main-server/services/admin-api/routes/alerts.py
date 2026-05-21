@@ -5,9 +5,11 @@ from datetime import datetime, timezone
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from auth import get_current_user
 from database import get_db
 from models import AlertHistory, IncidentTimeline, LogAnalysisHistory
 from schemas import AlertHistoryOut, AlertmanagerPayload, AcknowledgeRequest, AlertsTemplatesRequest, AlertTemplatesOut
@@ -406,3 +408,28 @@ async def get_alert_templates(
 
 # 장애보고서 자동 생성 엔드포인트는 routes/incidents.py::generate_incident_report 로 이관됨
 # (연결된 모든 알림 + 해결책을 반영한 인시던트 레벨 리포트)
+
+
+class UpdateAlertTitleRequest(BaseModel):
+    title: str
+
+
+@router.patch("/{alert_id}/title", response_model=AlertHistoryOut)
+async def update_alert_title(
+    alert_id: int,
+    body: UpdateAlertTitleRequest,
+    db: AsyncSession = Depends(get_db),
+    _user=Depends(get_current_user),
+):
+    """알림 제목 수정."""
+    trimmed = body.title.strip()
+    if not trimmed:
+        raise HTTPException(status_code=422, detail="제목을 입력해주세요")
+    alert = await db.get(AlertHistory, alert_id)
+    if not alert:
+        raise HTTPException(status_code=404, detail="알림을 찾을 수 없습니다")
+    alert.title = trimmed[:500]
+    db.add(alert)
+    await db.commit()
+    await db.refresh(alert)
+    return alert

@@ -72,6 +72,9 @@ export const alertsApi = {
   acknowledgeAlert: (id: number, body: { acknowledged_by: string }) =>
     adminApi.post(`api/v1/alerts/${id}/acknowledge`, { json: body }).json<AlertHistory>(),
 
+  updateTitle: (id: number, title: string) =>
+    adminApi.patch(`api/v1/alerts/${id}/title`, { json: { title } }).json<AlertHistory>(),
+
   createFeedback: (body: FeedbackCreateBody) =>
     adminApi.post('api/v1/feedback', { json: body }).json<FeedbackOut>(),
 

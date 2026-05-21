@@ -118,9 +118,10 @@ _TEMPLATES: dict[str, list[dict]] = {
     "synapse_agent": [
         {"metric_group": "cpu",     "description": "CPU avg/max/p95%, load avg 1/5m"},
         {"metric_group": "memory",  "description": "Memory used%, p95%"},
+        {"metric_group": "process", "description": "Named service process CPU max/avg%, memory max GB"},
         {"metric_group": "disk",    "description": "Disk read/write MB, I/O time ms"},
         {"metric_group": "network", "description": "Network rx/tx MB"},
-        {"metric_group": "log",     "description": "Log error count (total/ERROR level)"},
+        {"metric_group": "log",     "description": "Log real error count (DB-based, notification excluded)"},
         {"metric_group": "web",     "description": "HTTP requests total, slow count, avg response ms"},
     ],
     "custom": [

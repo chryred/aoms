@@ -161,12 +161,15 @@ PROMQL_MAP: dict[str, dict[str, dict[str, str]]] = {
             "net_tx_mb": 'avg_over_time(rate(network_bytes_total{{system_name="{sn}",direction="tx"}}[5m])[1h:5m]) / 1048576',
         },
         "log": {
-            # synapse_agent는 에러 로그 1건마다 별도 시계열(value=1)을 푸시.
-            # instant count()는 stale marker(기본 5분) 이후 비활성 시계열을 제외해
-            # 가끔 발생하는 로그에 대해 실제 건수보다 훨씬 작게 잡히는 문제가 있음.
-            # → range [1h] 내 존재한 샘플을 모두 합산하도록 수정.
-            "log_errors":     'sum(sum_over_time(log_error_total{{system_name="{sn}"}}[1h])) or vector(0)',
-            "log_errors_err": 'sum(sum_over_time(log_error_total{{system_name="{sn}",level="ERROR"}}[1h])) or vector(0)',
+            # synapse_agent log 그룹은 PROMQL_MAP을 사용하지 않음.
+            # _process_single_config에서 DB real_error_count 기반으로 직접 처리.
+        },
+        "process": {
+            # service_name!="" 조건으로 [[services]] 매핑된 프로세스만 집계
+            # proc_mem_pct: 단일 프로세스 최대 메모리를 시스템 총 메모리 대비 % — 절대값(GB)은 서버 크기 무관
+            "proc_cpu_max":  'max(avg_over_time(process_cpu_percent{{system_name="{sn}",service_name!=""}}[1h]))',
+            "proc_cpu_avg":  'avg(avg_over_time(process_cpu_percent{{system_name="{sn}",service_name!=""}}[1h]))',
+            "proc_mem_pct":  'max(avg_over_time(process_memory_bytes{{system_name="{sn}",service_name!=""}}[1h])) / ignoring(type) avg_over_time(memory_used_bytes{{system_name="{sn}",type="total"}}[1h]) * 100',
         },
         "web": {
             "req_total":   'sum_over_time(increase(http_request_total{{system_name="{sn}"}}[5m])[1h:5m])',
@@ -181,6 +184,7 @@ PROMQL_MAP: dict[str, dict[str, dict[str, str]]] = {
 TREND_THRESHOLDS: dict[tuple[str, str], dict] = {
     ("synapse_agent", "cpu"):          {"key": "cpu_avg",        "direction": "up",   "min_delta": 5.0,   "min_hours": 2, "min_floor": 60.0, "label": "CPU 평균 상승 추이"},
     ("synapse_agent", "memory"):       {"key": "mem_used_pct",   "direction": "up",   "min_delta": 3.0,   "min_hours": 2, "label": "메모리 사용률 상승 추이"},
+    ("synapse_agent", "process"):      {"key": "proc_cpu_max",   "direction": "up",   "min_delta": 10.0,  "min_hours": 2, "label": "프로세스 CPU 상승 추이"},
     ("synapse_agent", "web"):          {"key": "resp_avg_ms",    "direction": "up",   "min_delta": 300.0, "min_hours": 2, "label": "평균 응답시간 상승 추이"},
     ("synapse_agent", "disk"):         {"key": "disk_io_ms",     "direction": "up",   "min_delta": 50.0,  "min_hours": 2, "label": "디스크 I/O 지연 상승 추이"},
     ("synapse_agent", "network"):      {"key": "net_rx_mb",      "direction": "up",   "min_delta": 20.0,  "min_hours": 2, "label": "네트워크 RX 트래픽 상승 추이"},
@@ -193,6 +197,7 @@ TREND_THRESHOLDS: dict[tuple[str, str], dict] = {
 _METRIC_GROUP_LABEL: dict[str, str] = {
     "cpu": "CPU",
     "memory": "메모리",
+    "process": "프로세스",
     "disk": "디스크 I/O",
     "network": "네트워크",
     "web": "웹 응답",
@@ -321,6 +326,12 @@ def _detect_anomaly(
                     return True, f"슬로우 요청 {slow_rate:.1f}% > 5%"
             if metrics.get("resp_avg_ms", 0) > 2000:
                 return True, f"평균 응답시간 {metrics['resp_avg_ms']}ms > 2000ms"
+        elif metric_group == "process":
+            if metrics.get("proc_cpu_max", 0) > 80:
+                return True, f"프로세스 최대 CPU {metrics['proc_cpu_max']}% > 80%"
+            _proc_mem_thr = float(os.getenv("PROM_ALERT_PROC_MEM_PCT", "40.0"))
+            if metrics.get("proc_mem_pct", 0) > _proc_mem_thr:
+                return True, f"프로세스 최대 메모리 {metrics['proc_mem_pct']:.1f}% > {_proc_mem_thr:.0f}% (시스템 총 메모리 대비)"
         elif metric_group == "network":
             _net_max_mb = float(os.getenv("PROM_NET_MAX_MBPS", "1000.0")) / 8
             _net_thr = _net_max_mb * float(os.getenv("PROM_ALERT_NET_THRESHOLD_PCT", "70.0")) / 100

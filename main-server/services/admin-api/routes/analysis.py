@@ -401,50 +401,95 @@ async def reclassify_alert_history(
     real_templates = [t for t, _ in real_changes]
     real_severity = "critical" if any(s == "critical" for _, s in real_changes) else "warning" if real_changes else "info"
 
-    orig_log_content = (log_rec.log_content if log_rec else "")[:5000]
+    # 원본 template_classifications_json에서 count 정보 추출
+    orig_counts: dict[str, int] = {
+        tc.get("template", ""): int(tc.get("count", 1))
+        for tc in all_tc_list
+        if tc.get("template")
+    }
+
     instance_role = alert.instance_role or ""
+    original_title = alert.title
+    _SEV_KR = {"critical": "위험", "warning": "경고", "info": "정보"}
     new_alert_ids: list[int] = []
 
     async def _create_group(templates: list[str], is_notification: bool, severity: str) -> None:
         if not templates:
             return
 
-        # log-analyzer에 새 Qdrant 포인트 요청
+        # 선택된 템플릿의 log_content: 원본과 동일한 [Nx][LEVEL][log_type] 포맷
+        tmpl_set = set(templates)
+        selected_tc = [tc for tc in all_tc_list if tc.get("template") in tmpl_set]
+        if selected_tc:
+            filtered_log_content = "\n".join(
+                f"[{int(tc.get('count', 1))}x][{tc.get('level', 'ERROR')}][{tc.get('log_type', 'app')}] {tc.get('template', '')}"
+                for tc in selected_tc
+            )
+        else:
+            filtered_log_content = "\n".join(f"[1x][ERROR][app] {t}" for t in templates)
+
+        # log-analyzer에 새 Qdrant 포인트 요청 (실제 count 포함)
         new_point_id: str | None = None
+        group_counts = {t: orig_counts.get(t, 1) for t in templates}
         try:
             async with httpx.AsyncClient(timeout=15.0) as hc:
                 resp = await hc.post(
                     f"{LOG_ANALYZER_URL}/log-incidents/submit-group",
                     json={
-                        "system_name":    system.system_name,
-                        "system_id":      system.id,
-                        "instance_role":  instance_role,
-                        "templates":      templates,
-                        "template_counts": {},
+                        "system_name":     system.system_name,
+                        "system_id":       system.id,
+                        "instance_role":   instance_role,
+                        "templates":       templates,
+                        "template_counts": group_counts,
                         "is_notification": is_notification,
-                        "severity":       severity,
+                        "severity":        severity,
                     },
                 )
                 if resp.status_code == 200:
                     new_point_id = resp.json().get("qdrant_point_id")
+                else:
+                    logger.warning("submit-group HTTP %s: %s", resp.status_code, resp.text[:200])
         except Exception as exc:
             logger.warning("submit-group 호출 실패 (Qdrant 없이 계속): %s", exc)
 
-        # 새 LogAnalysisHistory
-        synth_tc = [{"template": t, "is_notification": is_notification} for t in templates]
+        # [알림#{원본ID} 재분류:{심각도}] {원본제목} 형식으로 제목 승계
+        severity_kr = _SEV_KR.get(severity, severity)
+        new_title = f"[알림#{alert_history_id} 재분류:{severity_kr}] {original_title}"
+
+        # analysis_result: 정규 분석 포맷과 통일
+        # qdrant_point_id는 전용 컬럼(log_analysis_history.qdrant_point_id)에 저장되므로 JSON에 불포함
+        unified_analysis_result = json.dumps({
+            "anomaly_type":      "notification" if is_notification else "reclassified",
+            "similarity_score":  None,
+            "has_solution":      False,
+            "similar_incidents": [],
+            "reclassified_from": alert_history_id,
+            "is_notification":   is_notification,
+        }, ensure_ascii=False)
+
+        # description: analysis_result + log_content 병합 (정규 분석과 동일 구조)
+        new_description = json.dumps(
+            {**json.loads(unified_analysis_result), "log_content": filtered_log_content[:3000]},
+            ensure_ascii=False,
+        )
+
+        synth_tc = [
+            {"template": t, "is_notification": is_notification,
+             "count": orig_counts.get(t, 1),
+             "level": next((tc.get("level", "ERROR") for tc in all_tc_list if tc.get("template") == t), "ERROR"),
+             "log_type": next((tc.get("log_type", "app") for tc in all_tc_list if tc.get("template") == t), "app")}
+            for t in templates
+        ]
         new_log = LogAnalysisHistory(
             system_id=system.id,
             instance_role=instance_role,
-            log_content=orig_log_content,
-            analysis_result=json.dumps(
-                {"reclassified": True, "templates": templates, "is_notification": is_notification},
-                ensure_ascii=False,
-            ),
+            log_content=filtered_log_content,
+            analysis_result=unified_analysis_result,
             severity=severity,
             root_cause="수동 재분류",
             recommendation="",
             model_used="manual_reclassify",
-            anomaly_type="notification" if is_notification else "new",
+            anomaly_type="notification" if is_notification else "reclassified",
             qdrant_point_id=new_point_id,
             templates_json=templates,
             template_classifications_json=json.dumps(synth_tc, ensure_ascii=False),
@@ -454,17 +499,17 @@ async def reclassify_alert_history(
         db.add(new_log)
         await db.flush()
 
-        # 새 AlertHistory
-        group_label = "알림성" if is_notification else "실에러"
+        # 새 AlertHistory (similarity_score=None 명시 — 재분류는 유사도 검색 없음)
         new_alert = AlertHistory(
             system_id=system.id,
             alert_type="log_analysis",
             severity=severity,
-            alertname=f"LogAnalysis_{system.system_name}",
-            title=f"{group_label} 재분류 - {system.display_name}",
-            description=json.dumps({"reclassified_templates": templates}, ensure_ascii=False),
+            alertname=alert.alertname or f"LogAnalysis_{system.system_name}",
+            title=new_title,
+            description=new_description,
             instance_role=instance_role,
-            anomaly_type="notification" if is_notification else "new",
+            anomaly_type="notification" if is_notification else "reclassified",
+            similarity_score=None,
             qdrant_point_id=new_point_id,
             log_analysis_id=new_log.id,
         )
@@ -545,7 +590,26 @@ async def simple_reclassify_alert_history(
     is_notification = payload.target_severity == "info"
     severity = payload.target_severity
     instance_role = alert.instance_role or ""
-    orig_log_content = (log_rec.log_content if log_rec else "")[:5000]
+    original_title = alert.title
+    _SEV_KR = {"critical": "위험", "warning": "경고", "info": "정보"}
+
+    # tc_list에서 count 추출
+    tc_list_full: list[dict] = []
+    if log_rec and log_rec.template_classifications_json:
+        try:
+            tc_list_full = json.loads(log_rec.template_classifications_json)
+        except Exception:
+            pass
+    orig_counts = {tc.get("template", ""): int(tc.get("count", 1)) for tc in tc_list_full}
+
+    # log_content: 원본과 동일한 [Nx][LEVEL][log_type] 포맷
+    if tc_list_full:
+        filtered_log_content = "\n".join(
+            f"[{int(tc.get('count', 1))}x][{tc.get('level', 'ERROR')}][{tc.get('log_type', 'app')}] {tc.get('template', '')}"
+            for tc in tc_list_full if tc.get("template") in set(templates)
+        ) or "\n".join(f"[1x][ERROR][app] {t}" for t in templates)
+    else:
+        filtered_log_content = "\n".join(f"[1x][ERROR][app] {t}" for t in templates)
 
     # 기존 Qdrant 포인트 삭제 (best-effort)
     if alert.qdrant_point_id:
@@ -564,8 +628,9 @@ async def simple_reclassify_alert_history(
     alert.qdrant_point_id = None
     db.add(alert)
 
-    # 새 Qdrant 포인트 생성 (best-effort)
+    # 새 Qdrant 포인트 생성 (best-effort, 실제 count 전달)
     new_point_id: str | None = None
+    group_counts = {t: orig_counts.get(t, 1) for t in templates}
     try:
         async with httpx.AsyncClient(timeout=15.0) as hc:
             resp = await hc.post(
@@ -575,32 +640,54 @@ async def simple_reclassify_alert_history(
                     "system_id":       system.id,
                     "instance_role":   instance_role,
                     "templates":       templates,
-                    "template_counts": {},
+                    "template_counts": group_counts,
                     "is_notification": is_notification,
                     "severity":        severity,
                 },
             )
             if resp.status_code == 200:
                 new_point_id = resp.json().get("qdrant_point_id")
+            else:
+                logger.warning("submit-group HTTP %s: %s", resp.status_code, resp.text[:200])
     except Exception as exc:
         logger.warning("submit-group 호출 실패 (Qdrant 없이 계속): %s", exc)
 
-    # 새 LogAnalysisHistory
-    group_label = "알림성" if is_notification else "실에러"
-    synth_tc = [{"template": t, "is_notification": is_notification} for t in templates]
+    severity_kr = _SEV_KR.get(severity, severity)
+    new_title = f"[알림#{alert_history_id} 재분류:{severity_kr}] {original_title}"
+
+    # analysis_result: 정규 분석 포맷과 통일
+    unified_analysis_result = json.dumps({
+        "anomaly_type":     "notification" if is_notification else "reclassified",
+        "similarity_score": None,
+        "qdrant_point_id":  new_point_id,
+        "has_solution":     False,
+        "similar_incidents": [],
+        "reclassified_from": alert_history_id,
+        "is_notification":  is_notification,
+    }, ensure_ascii=False)
+
+    new_description = json.dumps(
+        {**json.loads(unified_analysis_result), "log_content": filtered_log_content[:3000]},
+        ensure_ascii=False,
+    )
+
+    synth_tc = [
+        {"template": t, "is_notification": is_notification,
+         "count": orig_counts.get(t, 1),
+         "level": next((tc.get("level", "ERROR") for tc in tc_list_full if tc.get("template") == t), "ERROR"),
+         "log_type": next((tc.get("log_type", "app") for tc in tc_list_full if tc.get("template") == t), "app")}
+        for t in templates
+    ]
     new_log = LogAnalysisHistory(
         system_id=system.id,
         instance_role=instance_role,
-        log_content=orig_log_content,
-        analysis_result=json.dumps(
-            {"reclassified": True, "templates": templates, "is_notification": is_notification},
-            ensure_ascii=False,
-        ),
+        log_content=filtered_log_content,
+        analysis_result=unified_analysis_result,
         severity=severity,
         root_cause="수동 재분류",
         recommendation="",
         model_used="manual_reclassify",
-        anomaly_type="notification" if is_notification else "new",
+        anomaly_type="notification" if is_notification else "reclassified",
         qdrant_point_id=new_point_id,
         templates_json=templates,
         template_classifications_json=json.dumps(synth_tc, ensure_ascii=False),
@@ -610,16 +697,17 @@ async def simple_reclassify_alert_history(
     db.add(new_log)
     await db.flush()
 
-    # 새 AlertHistory
+    # 새 AlertHistory (similarity_score=None 명시)
     new_alert = AlertHistory(
         system_id=system.id,
         alert_type="log_analysis",
         severity=severity,
-        alertname=f"LogAnalysis_{system.system_name}",
-        title=f"{group_label} 재분류 - {system.display_name}",
-        description=json.dumps({"reclassified_templates": templates}, ensure_ascii=False),
+        alertname=alert.alertname or f"LogAnalysis_{system.system_name}",
+        title=new_title,
+        description=new_description,
         instance_role=instance_role,
-        anomaly_type="notification" if is_notification else "new",
+        anomaly_type="notification" if is_notification else "reclassified",
+        similarity_score=None,
         qdrant_point_id=new_point_id,
         log_analysis_id=new_log.id,
     )

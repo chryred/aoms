@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { X, CheckCircle, Lightbulb, Siren, ChevronDown, RefreshCw } from 'lucide-react'
+import { X, CheckCircle, Lightbulb, Siren, ChevronDown, Tag, Pencil, Check, ExternalLink } from 'lucide-react'
+import toast from 'react-hot-toast'
 import { ROUTES } from '@/constants/routes'
 import { NeuButton } from '@/components/neumorphic/NeuButton'
 import { NeuBadge } from '@/components/neumorphic/NeuBadge'
@@ -8,6 +9,7 @@ import { AnomalyTypeBadge } from './AnomalyTypeBadge'
 import { SeverityBadge } from '@/components/charts/SeverityBadge'
 import { formatAlertTitle } from './alertTitle'
 import { useAcknowledgeAlert } from '@/hooks/mutations/useAcknowledgeAlert'
+import { useUpdateAlertTitle } from '@/hooks/mutations/useUpdateAlertTitle'
 import { useIncidentFeedback } from '@/hooks/queries/useIncidentFeedback'
 import { useAuthStore } from '@/store/authStore'
 import { useBannerVisible } from '@/hooks/useBannerVisible'
@@ -60,8 +62,7 @@ function parseDescription(desc: string | null | undefined): ParsedDescription | 
         'anomaly_type' in obj ||
         'severity' in obj ||
         'log_content' in obj ||
-        'immediate_action' in obj ||
-        'reclassified_templates' in obj)
+        'immediate_action' in obj)
     ) {
       return {
         ...obj,
@@ -81,8 +82,12 @@ export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
   const user = useAuthStore((s) => s.user)
   const bannerVisible = useBannerVisible()
   const { mutate: acknowledge, isPending } = useAcknowledgeAlert()
+  const { mutate: updateTitle, isPending: isTitlePending } = useUpdateAlertTitle()
   const panelRef = useRef<HTMLDivElement>(null)
+  const titleInputRef = useRef<HTMLInputElement>(null)
   const [reclassifyOpen, setReclassifyOpen] = useState(false)
+  const [isEditingTitle, setIsEditingTitle] = useState(false)
+  const [titleDraft, setTitleDraft] = useState('')
 
   // 닫힘 애니메이션 중에도 컨텐츠가 보이도록 마지막 alert를 유지
   const lastAlertRef = useRef<AlertHistory | null>(null)
@@ -99,7 +104,42 @@ export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
 
   useEffect(() => {
     setIsLogExpanded(false)
-  }, [displayAlert?.id])
+    setIsEditingTitle(false)
+    setTitleDraft(displayAlert?.title ?? '')
+  }, [displayAlert?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (isEditingTitle) titleInputRef.current?.focus()
+  }, [isEditingTitle])
+
+  const handleTitleSave = () => {
+    if (!displayAlert) return
+    const trimmed = titleDraft.trim()
+    if (!trimmed) {
+      toast.error('제목을 입력해주세요')
+      setTitleDraft(displayAlert.title)
+      setIsEditingTitle(false)
+      return
+    }
+    if (trimmed === displayAlert.title) {
+      setIsEditingTitle(false)
+      return
+    }
+    updateTitle(
+      { id: displayAlert.id, title: trimmed },
+      {
+        onSuccess: () => {
+          toast.success('제목이 수정됐습니다')
+          setIsEditingTitle(false)
+        },
+        onError: () => {
+          toast.error('제목 수정에 실패했습니다')
+          setTitleDraft(displayAlert.title)
+          setIsEditingTitle(false)
+        },
+      },
+    )
+  }
 
   const logAccordion = parsedDesc?.log_content ? (
     <div>
@@ -252,9 +292,56 @@ export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
             {/* 내용 */}
             <div className="flex-1 space-y-5 overflow-y-auto px-6 py-5">
               <div>
-                <h3 id={PANEL_TITLE_ID} className="text-text-primary text-base font-semibold">
-                  {formatAlertTitle(displayAlert.title)}
-                </h3>
+                {isEditingTitle ? (
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      ref={titleInputRef}
+                      value={titleDraft}
+                      onChange={(e) => setTitleDraft(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') handleTitleSave()
+                        if (e.key === 'Escape') {
+                          e.stopPropagation()
+                          setTitleDraft(displayAlert.title)
+                          setIsEditingTitle(false)
+                        }
+                      }}
+                      onBlur={handleTitleSave}
+                      id={PANEL_TITLE_ID}
+                      className="bg-bg-base border-border text-text-primary focus:ring-accent shadow-neu-inset min-w-0 flex-1 rounded-sm border px-2 py-0.5 text-sm leading-snug font-semibold focus:ring-1 focus:outline-none"
+                      disabled={isTitlePending}
+                    />
+                    <button
+                      type="button"
+                      onClick={handleTitleSave}
+                      disabled={isTitlePending}
+                      className="text-accent hover:text-accent/80 shrink-0 transition-colors"
+                      aria-label="제목 저장"
+                    >
+                      <Check className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-start gap-1">
+                    <h3
+                      id={PANEL_TITLE_ID}
+                      className="text-text-primary min-w-0 flex-1 text-base leading-snug font-semibold"
+                    >
+                      {formatAlertTitle(displayAlert.title)}
+                    </h3>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTitleDraft(displayAlert.title)
+                        setIsEditingTitle(true)
+                      }}
+                      className="text-text-disabled hover:text-text-secondary mt-0.5 shrink-0 transition-colors"
+                      aria-label="제목 편집"
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                )}
               </div>
 
               {/* 메타 정보 */}
@@ -421,31 +508,36 @@ export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
                   확인 처리
                 </NeuButton>
               )}
-              {displayAlert.incident_id && (
-                <NeuButton
-                  variant="ghost"
-                  size="sm"
-                  className="w-full"
-                  onClick={() => {
-                    onClose()
-                    navigate(ROUTES.incidentDetail(displayAlert.incident_id!))
-                  }}
-                >
-                  인시던트에서 해결책 관리
-                </NeuButton>
+              {(displayAlert.incident_id ||
+                (displayAlert.alert_type === 'log_analysis' && displayAlert.log_analysis_id)) && (
+                <div className="flex gap-2">
+                  {displayAlert.incident_id && (
+                    <NeuButton
+                      variant="ghost"
+                      size="sm"
+                      className="flex-1"
+                      onClick={() => {
+                        onClose()
+                        navigate(ROUTES.incidentDetail(displayAlert.incident_id!))
+                      }}
+                    >
+                      <ExternalLink className="h-3.5 w-3.5" />
+                      해결책 관리
+                    </NeuButton>
+                  )}
+                  {displayAlert.alert_type === 'log_analysis' && displayAlert.log_analysis_id && (
+                    <NeuButton
+                      variant="ghost"
+                      size="sm"
+                      className="flex-1"
+                      onClick={() => setReclassifyOpen(true)}
+                    >
+                      <Tag className="h-4 w-4" />
+                      로그 분류 수정
+                    </NeuButton>
+                  )}
+                </div>
               )}
-              {displayAlert.alert_type === 'log_analysis' &&
-                displayAlert.log_analysis_id && (
-                  <NeuButton
-                    variant="ghost"
-                    size="sm"
-                    className="w-full"
-                    onClick={() => setReclassifyOpen(true)}
-                  >
-                    <RefreshCw className="h-4 w-4" />
-                    알림성/실에러 재분류
-                  </NeuButton>
-                )}
             </div>
           </>
         )}
