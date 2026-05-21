@@ -129,11 +129,23 @@ export function AlertReclassifyPanel({ alert, onClose, onSuccess }: AlertReclass
     })
   }
 
+  const hasActualChanges = classifications.some((c) => {
+    const newSev = severityMap[c.template]
+    if (newSev === undefined) return false
+    const originalSev: 'info' | 'warning' = c.is_notification ? 'info' : 'warning'
+    return newSev !== originalSev
+  })
+
   const handleSubmit = async () => {
     if (!alert) return
-    // severityMap에 명시 지정된 템플릿만 제출 (체크+심각도 선택 완료된 것)
+    // 원본 심각도와 달라진 템플릿만 제출
     const changes: TemplateChange[] = classifications
-      .filter((c) => severityMap[c.template] !== undefined)
+      .filter((c) => {
+        const newSev = severityMap[c.template]
+        if (newSev === undefined) return false
+        const originalSev: 'info' | 'warning' = c.is_notification ? 'info' : 'warning'
+        return newSev !== originalSev
+      })
       .map((c) => ({ template: c.template, new_severity: severityMap[c.template]! }))
     if (changes.length === 0) return
 
@@ -325,7 +337,7 @@ export function AlertReclassifyPanel({ alert, onClose, onSuccess }: AlertReclass
               variant="primary"
               className="w-full"
               onClick={handleSubmit}
-              disabled={submitting || done || Object.keys(severityMap).length === 0}
+              disabled={submitting || done || !hasActualChanges}
             >
               {submitting ? (
                 <span className="flex items-center justify-center gap-2">

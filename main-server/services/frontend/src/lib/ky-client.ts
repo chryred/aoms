@@ -48,7 +48,7 @@ const hooks = { beforeRequest: [beforeRequest], afterResponse: [afterResponse] }
 export const adminApi = ky.create({
   prefixUrl: (import.meta.env.VITE_ADMIN_API_URL as string | undefined) ?? '/',
   credentials: 'include',
-  timeout: 10_000,
+  timeout: 120_000,
   hooks,
 })
 
