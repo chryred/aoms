@@ -21,7 +21,7 @@ from schemas import ScreenContext
 _CPU_THRESHOLD            = float(os.getenv("PROM_ALERT_CPU_THRESHOLD",         "70.0"))
 _MEM_THRESHOLD            = float(os.getenv("PROM_ALERT_MEM_THRESHOLD",         "70.0"))
 _LOG_ERROR_RATE_THRESHOLD = float(os.getenv("PROM_ALERT_LOG_ERROR_RATE",         "5.0"))
-_DISK_IO_MS_THRESHOLD     = float(os.getenv("PROM_ALERT_DISK_IO_MS",           "200.0"))
+_DISK_IO_MS_THRESHOLD     = float(os.getenv("PROM_ALERT_DISK_IO_MS",           "500.0"))
 _NET_MAX_MBPS             = float(os.getenv("PROM_NET_MAX_MBPS",              "1000.0"))
 _NET_THRESHOLD_PCT        = float(os.getenv("PROM_ALERT_NET_THRESHOLD_PCT",     "70.0"))
 

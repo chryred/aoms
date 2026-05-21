@@ -109,8 +109,14 @@ def ssh_put_file(host: str, port: int, username: str, password: str, remote_path
     try:
         sftp = client.open_sftp()
         buf = io.BytesIO(content.encode("utf-8"))
-        sftp.putfo(buf, remote_path)
-        sftp.close()
+        try:
+            sftp.putfo(buf, remote_path)
+        except Exception as exc:
+            raise SSHError(
+                f"SFTP 파일 쓰기 실패 ({remote_path}): {type(exc).__name__}: {exc}"
+            ) from exc
+        finally:
+            sftp.close()
     finally:
         client.close()
 
@@ -121,10 +127,46 @@ def ssh_put_binary(host: str, port: int, username: str, password: str, remote_pa
     client = _ssh_connect(host, port, username, password)
     try:
         sftp = client.open_sftp()
-        sftp.putfo(io.BytesIO(content), remote_path)
-        sftp.close()
+        try:
+            sftp.putfo(io.BytesIO(content), remote_path)
+        except Exception as exc:
+            # paramiko SFTP 실패 원인 진단 힌트 포함
+            _diagnose_sftp_put_error(sftp, remote_path, exc)
+        finally:
+            sftp.close()
     finally:
         client.close()
+
+
+def _diagnose_sftp_put_error(sftp: "paramiko.SFTPClient", remote_path: str, exc: Exception) -> None:
+    """SFTP putfo 실패 시 원인을 진단하여 상세 메시지와 함께 SSHError를 raise한다."""
+    import stat as stat_mod
+
+    parent_dir = remote_path.rsplit("/", 1)[0] if "/" in remote_path else "."
+    hints: list[str] = []
+
+    # 상위 디렉터리 존재 여부
+    try:
+        sftp.stat(parent_dir)
+    except FileNotFoundError:
+        hints.append(f"상위 디렉터리가 없음: {parent_dir!r}")
+    except Exception:
+        hints.append(f"상위 디렉터리 stat 실패: {parent_dir!r}")
+    else:
+        # 경로 자체가 디렉터리인지 (파일 경로로 디렉터리명을 지정한 경우)
+        try:
+            attrs = sftp.stat(remote_path)
+            if stat_mod.S_ISDIR(attrs.st_mode):
+                hints.append(f"대상 경로가 이미 디렉터리로 존재함: {remote_path!r}")
+        except FileNotFoundError:
+            pass  # 정상 — 파일이 아직 없는 상태
+        except Exception:
+            pass
+
+    hint_str = " / ".join(hints) if hints else "권한 부족, 디스크 풀, 또는 SFTP 서브시스템 미설정 가능성 있음"
+    raise SSHError(
+        f"SFTP 바이너리 업로드 실패 ({remote_path}): {type(exc).__name__}: {exc} — {hint_str}"
+    ) from exc
 
 
 def ssh_get_file(host: str, port: int, username: str, password: str, remote_path: str) -> str:
