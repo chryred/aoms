@@ -85,7 +85,7 @@ def parse_context_from_transcript(transcript_path):
                         # Estimate context usage (assume 200k context for Claude Sonnet)
                         total_tokens = input_tokens + cache_read + cache_creation
                         if total_tokens > 0:
-                            percent_used = min(100, (total_tokens / 200000) * 100)
+                            percent_used = (total_tokens / 200000) * 100
                             return {
                                 "percent": percent_used,
                                 "tokens": total_tokens,
@@ -136,7 +136,10 @@ def get_context_display(context_info):
     warning = context_info.get("warning")
 
     # Color and icon based on usage level
-    if percent >= 95:
+    if percent > 100:
+        icon, color = "💥", "\033[31;1m"  # Over limit
+        alert = f"OVER({percent:.0f}%)"
+    elif percent >= 95:
         icon, color = "🚨", "\033[31;1m"  # Blinking red
         alert = "CRIT"
     elif percent >= 90:
@@ -152,9 +155,9 @@ def get_context_display(context_info):
         icon, color = "🟢", "\033[32m"  # Green
         alert = ""
 
-    # Create progress bar
+    # Create progress bar (cap fill at 8 when over 100%)
     segments = 8
-    filled = int((percent / 100) * segments)
+    filled = min(segments, int((percent / 100) * segments))
     bar = "█" * filled + "▁" * (segments - filled)
 
     # Special warnings

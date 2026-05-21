@@ -57,15 +57,15 @@ async def create_analysis(payload: LogAnalysisCreate, db: AsyncSession = Depends
     # 인시던트 자동 생성은 실에러 그룹(warning/critical)만
     should_create_incident = will_send_teams and not is_notification_first
 
-    # 성공 케이스 description: analysis_result JSON에 log_content 병합
+    # 성공 케이스 description: 재분류와 동일한 5-field 표준 포맷
     if not is_failure:
-        try:
-            success_desc = json.dumps(
-                {**json.loads(payload.analysis_result), "log_content": (payload.log_content or "")[:3000]},
-                ensure_ascii=False,
-            )
-        except (json.JSONDecodeError, ValueError):
-            success_desc = payload.analysis_result
+        success_desc = json.dumps({
+            "anomaly_type":      payload.anomaly_type,
+            "similarity_score":  payload.similarity_score,
+            "has_solution":      payload.has_solution,
+            "similar_incidents": payload.similar_incidents or [],
+            "log_content":       (payload.log_content or "")[:3000],
+        }, ensure_ascii=False)
 
     alert_record: AlertHistory | None = None
     if should_log_alert:
@@ -379,18 +379,31 @@ async def reclassify_alert_history(
                 json.dumps(remaining_tc_list, ensure_ascii=False) if remaining_tc_list else None
             )
             log_rec.qdrant_point_id = new_remaining_point_id
-            log_rec.notification_count = sum(
-                1 for tc in remaining_tc_list if tc.get("is_notification")
-            )
-            log_rec.real_error_count = sum(
-                1 for tc in remaining_tc_list if not tc.get("is_notification")
-            )
+            if remaining_tc_list:
+                # tc_list의 count 필드 기반 발생횟수 합산
+                log_rec.notification_count = sum(
+                    int(tc.get("count", 1)) for tc in remaining_tc_list if tc.get("is_notification")
+                )
+                log_rec.real_error_count = sum(
+                    int(tc.get("count", 1)) for tc in remaining_tc_list if not tc.get("is_notification")
+                )
+            else:
+                # template_classifications_json이 NULL인 경우: templates_json 기반 폴백
+                remaining_is_notif = (alert.anomaly_type == "notification")
+                log_rec.notification_count = len(remaining_templates) if remaining_is_notif else 0
+                log_rec.real_error_count = 0 if remaining_is_notif else len(remaining_templates)
             db.add(log_rec)
         alert.qdrant_point_id = new_remaining_point_id
         # alert_history는 유지 (anomaly_type 변경 안 함)
     else:
-        # 모든 템플릿이 재분류됨 → 원본 alert 마킹
+        # 모든 템플릿이 재분류됨 → 원본 alert + log_rec 클리어
         alert.anomaly_type = "reclassified"
+        if log_rec:
+            log_rec.templates_json = []
+            log_rec.template_classifications_json = None
+            log_rec.real_error_count = 0
+            log_rec.notification_count = 0
+            db.add(log_rec)
 
     db.add(alert)
 
@@ -467,11 +480,14 @@ async def reclassify_alert_history(
             "is_notification":   is_notification,
         }, ensure_ascii=False)
 
-        # description: analysis_result + log_content 병합 (정규 분석과 동일 구조)
-        new_description = json.dumps(
-            {**json.loads(unified_analysis_result), "log_content": filtered_log_content[:3000]},
-            ensure_ascii=False,
-        )
+        # description: 정규 분석과 동일 구조 (reclassified_from·is_notification은 analysis_result 전용)
+        new_description = json.dumps({
+            "anomaly_type":      "notification" if is_notification else "reclassified",
+            "similarity_score":  None,
+            "has_solution":      False,
+            "similar_incidents": [],
+            "log_content":       filtered_log_content[:3000],
+        }, ensure_ascii=False)
 
         synth_tc = [
             {"template": t, "is_notification": is_notification,
@@ -480,6 +496,7 @@ async def reclassify_alert_history(
              "log_type": next((tc.get("log_type", "app") for tc in all_tc_list if tc.get("template") == t), "app")}
             for t in templates
         ]
+        total_count = sum(int(tc.get("count", 1)) for tc in synth_tc)
         new_log = LogAnalysisHistory(
             system_id=system.id,
             instance_role=instance_role,
@@ -493,8 +510,8 @@ async def reclassify_alert_history(
             qdrant_point_id=new_point_id,
             templates_json=templates,
             template_classifications_json=json.dumps(synth_tc, ensure_ascii=False),
-            real_error_count=0 if is_notification else len(templates),
-            notification_count=len(templates) if is_notification else 0,
+            real_error_count=0 if is_notification else total_count,
+            notification_count=total_count if is_notification else 0,
         )
         db.add(new_log)
         await db.flush()
@@ -623,10 +640,16 @@ async def simple_reclassify_alert_history(
         except Exception as exc:
             logger.warning("기존 Qdrant 포인트 삭제 실패 (계속): %s", exc)
 
-    # 기존 alert_history 마킹
+    # 기존 alert_history 마킹 + 원본 log_rec 클리어 (전체 재분류)
     alert.anomaly_type = "reclassified"
     alert.qdrant_point_id = None
     db.add(alert)
+    if log_rec:
+        log_rec.templates_json = []
+        log_rec.template_classifications_json = None
+        log_rec.real_error_count = 0
+        log_rec.notification_count = 0
+        db.add(log_rec)
 
     # 새 Qdrant 포인트 생성 (best-effort, 실제 count 전달)
     new_point_id: str | None = None
@@ -666,10 +689,14 @@ async def simple_reclassify_alert_history(
         "is_notification":  is_notification,
     }, ensure_ascii=False)
 
-    new_description = json.dumps(
-        {**json.loads(unified_analysis_result), "log_content": filtered_log_content[:3000]},
-        ensure_ascii=False,
-    )
+    # description: 정규 분석과 동일 구조 (reclassified_from·is_notification·qdrant_point_id는 analysis_result 전용)
+    new_description = json.dumps({
+        "anomaly_type":      "notification" if is_notification else "reclassified",
+        "similarity_score":  None,
+        "has_solution":      False,
+        "similar_incidents": [],
+        "log_content":       filtered_log_content[:3000],
+    }, ensure_ascii=False)
 
     synth_tc = [
         {"template": t, "is_notification": is_notification,
@@ -678,6 +705,7 @@ async def simple_reclassify_alert_history(
          "log_type": next((tc.get("log_type", "app") for tc in tc_list_full if tc.get("template") == t), "app")}
         for t in templates
     ]
+    total_count = sum(int(tc.get("count", 1)) for tc in synth_tc)
     new_log = LogAnalysisHistory(
         system_id=system.id,
         instance_role=instance_role,
@@ -691,8 +719,8 @@ async def simple_reclassify_alert_history(
         qdrant_point_id=new_point_id,
         templates_json=templates,
         template_classifications_json=json.dumps(synth_tc, ensure_ascii=False),
-        real_error_count=0 if is_notification else len(templates),
-        notification_count=len(templates) if is_notification else 0,
+        real_error_count=0 if is_notification else total_count,
+        notification_count=total_count if is_notification else 0,
     )
     db.add(new_log)
     await db.flush()

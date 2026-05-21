@@ -181,7 +181,7 @@ export function AlertReclassifyPanel({ alert, onClose, onSuccess }: AlertReclass
       <div
         role="dialog"
         aria-modal="true"
-        aria-label="알림 재분류"
+        aria-label="로그 분류 수정"
         className={cn(
           'border-border bg-bg-base fixed right-0 bottom-0 z-50 flex w-full max-w-[480px] flex-col border-l transition-[translate,top] duration-200',
           bannerVisible ? 'top-12' : 'top-0',
@@ -191,9 +191,9 @@ export function AlertReclassifyPanel({ alert, onClose, onSuccess }: AlertReclass
         {/* 헤더 */}
         <div className="border-border flex flex-shrink-0 items-center justify-between border-b px-4 py-3">
           <div>
-            <h2 className="text-text-primary font-semibold">알림 재분류</h2>
+            <h2 className="text-text-primary font-semibold">로그 분류 수정</h2>
             <p className="text-text-secondary mt-0.5 text-xs">
-              템플릿을 선택하고 하단에서 심각도를 일괄 변경하세요
+              템플릿을 선택한 뒤 하단에서 심각도를 일괄 지정하세요
             </p>
           </div>
           <button
@@ -272,7 +272,7 @@ export function AlertReclassifyPanel({ alert, onClose, onSuccess }: AlertReclass
                           <p className="text-text-secondary mt-1 text-[10px]">{c.reason}</p>
                         )}
                       </div>
-                      <div className={cn('flex-shrink-0', !assignedSev && 'opacity-40')}>
+                      <div className="flex-shrink-0">
                         <SeverityBadge severity={currentSev} size="sm" />
                       </div>
                     </div>
@@ -288,7 +288,7 @@ export function AlertReclassifyPanel({ alert, onClose, onSuccess }: AlertReclass
           <div className="border-border flex-shrink-0 space-y-2.5 border-t px-4 py-3">
             {/* 일괄 변경 바 */}
             <div className="flex items-center gap-2">
-              <span className="text-text-secondary shrink-0 text-xs">재분류:</span>
+              <span className="text-text-secondary shrink-0 text-xs">심각도:</span>
               <div className="flex gap-1.5">
                 {SEVERITY_BUTTONS.map((btn) => (
                   <button
@@ -305,9 +305,9 @@ export function AlertReclassifyPanel({ alert, onClose, onSuccess }: AlertReclass
                   </button>
                 ))}
               </div>
-              {selected.size === 0 && (
-                <span className="text-text-disabled text-[10px]">항목을 선택하세요</span>
-              )}
+              <span className="text-text-secondary ml-auto shrink-0 text-xs">
+                {selected.size === 0 ? '항목을 선택하세요 ↑' : `${selected.size}개 선택됨`}
+              </span>
             </div>
 
             {error && (
@@ -336,7 +336,7 @@ export function AlertReclassifyPanel({ alert, onClose, onSuccess }: AlertReclass
                 '재분류 저장'
               )}
             </NeuButton>
-            <p className="text-text-disabled text-center text-[10px]">
+            <p className="text-text-secondary text-center text-xs">
               저장 시 원본 알림은 재분류됨으로 표시되고 심각도별 새 알림이 생성됩니다
             </p>
           </div>
