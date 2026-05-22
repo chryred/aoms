@@ -17,7 +17,6 @@ import asyncio
 import json
 import logging
 import os
-import re
 from datetime import datetime, timezone
 
 import httpx
@@ -89,20 +88,6 @@ is_notification=true 시 root_cause: "알림성 로그 — {{판단 근거 1줄}
 - template_classifications: 각 템플릿별 분류 배열 (가능하면 포함, 없으면 빈 배열)
 - is_notification (최상위): 전체 윈도우가 알림성이면 true, 하나라도 실에러이면 false"""
 
-
-_REAL_ERROR_PATTERNS = re.compile(
-    r'\bat (com\.|org\.|java\.|net\.|io\.)|'
-    r'Caused by:|'
-    r'Connection refused|Connection reset|'
-    r'ORA-\d+|JDBC|SQL\s*Error|'
-    r'NullPointerException|OutOfMemoryError|StackOverflowError',
-    re.IGNORECASE,
-)
-
-
-def _has_definite_real_error(logs: list[dict]) -> bool:
-    """스택트레이스·DB 연결 실패 등 명확한 실에러 패턴이 하나라도 있으면 True"""
-    return any(_REAL_ERROR_PATTERNS.search(log.get("template", "")) for log in logs)
 
 
 async def get_systems() -> list[dict]:
@@ -297,37 +282,34 @@ async def analyze_with_vector_context(
         )
 
     # 3. 유사 이력 Hybrid 검색 (Dense + Sparse RRF)
+    similar_all: list[dict] = []
     anomaly_info: dict = {"type": "new", "score": 0.0, "has_solution": False, "top_results": []}
     if dense_vec and sparse_vec:
         try:
-            similar      = await search_similar_incidents(dense_vec, sparse_vec, system_name)
-            anomaly_info = classify_anomaly(similar)
+            similar_all  = await search_similar_incidents(dense_vec, sparse_vec, system_name)
+            anomaly_info = classify_anomaly(similar_all)
         except Exception as e:
             logger.warning(
                 f"Qdrant 검색 실패: {type(e).__name__}: {e!r} → 신규 이상으로 처리"
             )
 
-    # notification auto-skip: 명확한 실에러 패턴 없고 Qdrant 유사 notification 패턴 존재 시 LLM 생략
-    # 상위 N개(최대 3) 중 하나라도 is_notification=True이면 skip —
-    # 새 duplicate 포인트가 1위를 차지해도 notification 포인트가 2~3위에 있으면 skip 발동
-    # _has_definite_real_error: 스택트레이스·DB 연결 실패 등 명확한 실에러 패턴이 있으면 skip 비활성화
-    if not _has_definite_real_error(logs):
-        for candidate in anomaly_info.get("top_results", []):
-            if (candidate["payload"].get("is_notification") is True
-                    and candidate["score"] >= _NOTIFICATION_SKIP_THRESHOLD):
-                logger.info(
-                    f"{system_name}/{instance_role}: notification auto-skip "
-                    f"(score={candidate['score']:.3f})"
-                )
-                return {
-                    "anomaly_type":     "notification_auto",
-                    "severity":         "info",
-                    "is_notification":  True,
-                    "similarity_score": candidate["score"],
-                    "qdrant_point_id":  str(candidate["id"]),
-                    "root_cause":       "",
-                    "recommendation":   "",
-                }
+    # notification auto-skip: Qdrant RRF 점수 상위 3건 중 is_notification=True 포인트가 임계값 이상이면 LLM 생략
+    for candidate in similar_all[:3]:
+        if (candidate["payload"].get("is_notification") is True
+                and candidate["score"] >= _NOTIFICATION_SKIP_THRESHOLD):
+            logger.info(
+                f"{system_name}/{instance_role}: notification auto-skip "
+                f"(score={candidate['score']:.3f})"
+            )
+            return {
+                "anomaly_type":     "notification_auto",
+                "severity":         "info",
+                "is_notification":  True,
+                "similarity_score": candidate["score"],
+                "qdrant_point_id":  str(candidate["id"]),
+                "root_cause":       "",
+                "recommendation":   "",
+            }
 
     if anomaly_info["type"] == "duplicate":
         # 중복 패턴이어도 LLM 분석은 매번 수행한다 (재분석 비용 < 빈 root_cause 로 인한

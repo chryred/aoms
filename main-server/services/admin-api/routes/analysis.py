@@ -57,7 +57,7 @@ async def create_analysis(payload: LogAnalysisCreate, db: AsyncSession = Depends
     # 인시던트 자동 생성은 실에러 그룹(warning/critical)만
     should_create_incident = will_send_teams and not is_notification_first
 
-    # 성공 케이스 description: 재분류와 동일한 5-field 표준 포맷
+    # 성공 케이스 description: 재분류와 동일한 5-field 표준 포맷 + recommendation
     if not is_failure:
         success_desc = json.dumps({
             "anomaly_type":      payload.anomaly_type,
@@ -65,6 +65,7 @@ async def create_analysis(payload: LogAnalysisCreate, db: AsyncSession = Depends
             "has_solution":      payload.has_solution,
             "similar_incidents": payload.similar_incidents or [],
             "log_content":       (payload.log_content or "")[:3000],
+            "recommendation":    payload.recommendation or "",
         }, ensure_ascii=False)
 
     alert_record: AlertHistory | None = None
