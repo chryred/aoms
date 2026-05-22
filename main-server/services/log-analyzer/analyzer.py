@@ -293,8 +293,8 @@ async def analyze_with_vector_context(
                 f"Qdrant 검색 실패: {type(e).__name__}: {e!r} → 신규 이상으로 처리"
             )
 
-    # notification auto-skip: Qdrant RRF 점수 상위 3건 중 is_notification=True 포인트가 임계값 이상이면 LLM 생략
-    for candidate in similar_all[:3]:
+    # notification auto-skip: Qdrant 검색 결과(최대 5건) 중 is_notification=True 포인트가 임계값 이상이면 LLM 생략
+    for candidate in similar_all:
         if (candidate["payload"].get("is_notification") is True
                 and candidate["score"] >= _NOTIFICATION_SKIP_THRESHOLD):
             logger.info(
