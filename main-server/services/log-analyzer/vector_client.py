@@ -354,6 +354,7 @@ async def _hybrid_search(
     filter_must: list[dict] | None = None,
     limit: int = 5,
     dense_prefetch_threshold: float = 0.5,
+    score_threshold: float | None = None,
     with_scores: bool = False,
 ) -> list[dict]:
     """
@@ -365,6 +366,7 @@ async def _hybrid_search(
     fusion:
       - RRF (Reciprocal Rank Fusion)
 
+    score_threshold: RRF fusion 최종 점수 하한. 미만 포인트는 Qdrant가 반환하지 않음.
     with_scores=True 시 dense/sparse 개별 점수를 추가 Qdrant 쿼리로 수집해
     각 결과 dict에 dense_score, sparse_score, dense_rank, sparse_rank 필드를 병합.
     (Track C 점수 분해 디버그용 — 자동 분석 파이프라인에서는 항상 False)
@@ -389,6 +391,8 @@ async def _hybrid_search(
     }
     if filter_must:
         body["filter"] = {"must": filter_must}
+    if score_threshold is not None:
+        body["score_threshold"] = score_threshold
 
     resp = await _qdrant_http.post(
         f"{QDRANT_URL}/collections/{collection}/points/query",
@@ -491,6 +495,31 @@ async def search_similar_incidents(
         sparse=sparse,
         filter_must=[{"key": "system_name", "match": {"value": system_name}}],
         limit=limit,
+    )
+
+
+async def search_notification_incidents(
+    dense: list[float],
+    sparse: dict,
+    system_name: str,
+    score_threshold: float = 0.025,
+) -> list[dict]:
+    """is_notification=True 포인트 중 score_threshold 이상인 건만 검색 (존재 여부 확인용).
+
+    warning 포인트가 상위권을 점유해 similar_all(limit=5)에서 notification 포인트가
+    누락될 때 사용. Qdrant가 threshold 미만을 반환하지 않으므로 결과 비어 있으면
+    notification_auto 트리거 안 함. limit=1로 존재 여부만 확인.
+    """
+    return await _hybrid_search(
+        collection=COLLECTION,
+        dense=dense,
+        sparse=sparse,
+        filter_must=[
+            {"key": "system_name", "match": {"value": system_name}},
+            {"key": "is_notification", "match": {"value": True}},
+        ],
+        limit=1,
+        score_threshold=score_threshold,
     )
 
 

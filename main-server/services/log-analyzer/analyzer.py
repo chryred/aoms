@@ -28,6 +28,7 @@ from vector_client import (
     get_postmortem_by_incident,
     get_sparse_vector,
     normalize_log_for_embedding,
+    search_notification_incidents,
     search_similar_incidents,
     store_incident_vector,
 )
@@ -293,23 +294,39 @@ async def analyze_with_vector_context(
                 f"Qdrant 검색 실패: {type(e).__name__}: {e!r} → 신규 이상으로 처리"
             )
 
-    # notification auto-skip: Qdrant 검색 결과(최대 5건) 중 is_notification=True 포인트가 임계값 이상이면 LLM 생략
-    for candidate in similar_all:
-        if (candidate["payload"].get("is_notification") is True
-                and candidate["score"] >= _NOTIFICATION_SKIP_THRESHOLD):
-            logger.info(
-                f"{system_name}/{instance_role}: notification auto-skip "
-                f"(score={candidate['score']:.3f})"
+    # notification auto-skip
+    # 1단계: similar_all(상위 5건)에서 빠르게 확인
+    _notif_candidate = next(
+        (c for c in similar_all
+         if c["payload"].get("is_notification") is True
+         and c["score"] >= _NOTIFICATION_SKIP_THRESHOLD),
+        None,
+    )
+    # 2단계: 없으면 is_notification=True 전용 쿼리 — score_threshold로 Qdrant가 직접 필터링
+    if _notif_candidate is None and dense_vec and sparse_vec:
+        try:
+            _notif_hits = await search_notification_incidents(
+                dense_vec, sparse_vec, system_name,
+                score_threshold=_NOTIFICATION_SKIP_THRESHOLD,
             )
-            return {
-                "anomaly_type":     "notification_auto",
-                "severity":         "info",
-                "is_notification":  True,
-                "similarity_score": candidate["score"],
-                "qdrant_point_id":  str(candidate["id"]),
-                "root_cause":       "",
-                "recommendation":   "",
-            }
+            _notif_candidate = _notif_hits[0] if _notif_hits else None
+        except Exception as e:
+            logger.warning("notification 전용 검색 실패 (계속): %s", e)
+
+    if _notif_candidate is not None:
+        logger.info(
+            f"{system_name}/{instance_role}: notification auto-skip "
+            f"(score={_notif_candidate['score']:.3f})"
+        )
+        return {
+            "anomaly_type":     "notification_auto",
+            "severity":         "info",
+            "is_notification":  True,
+            "similarity_score": _notif_candidate["score"],
+            "qdrant_point_id":  str(_notif_candidate["id"]),
+            "root_cause":       "",
+            "recommendation":   "",
+        }
 
     if anomaly_info["type"] == "duplicate":
         # 중복 패턴이어도 LLM 분석은 매번 수행한다 (재분석 비용 < 빈 root_cause 로 인한
