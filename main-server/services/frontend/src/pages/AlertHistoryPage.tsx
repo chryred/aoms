@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
+import toast from 'react-hot-toast'
 import { Ban, Bell, ChevronLeft, ChevronRight, RefreshCw, X } from 'lucide-react'
 import { useAlerts } from '@/hooks/queries/useAlerts'
 import { useAlertsCount } from '@/hooks/queries/useAlertsCount'
@@ -17,6 +18,7 @@ import { AlertDetailPanel } from '@/components/alert/AlertDetailPanel'
 import { cn, kstDateToUtcStart, kstDateToUtcEnd } from '@/lib/utils'
 import type { AlertHistory, Severity } from '@/types/alert'
 import { metricExclusionsApi } from '@/api/metricExclusions'
+import { reclassifyApi } from '@/api/reclassify'
 import {
   METRIC_TYPE_LABELS_KO,
   extractMetricTypesFromTitle,
@@ -64,6 +66,10 @@ export function AlertHistoryPage() {
 
   // 체크박스 선택 상태
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
+
+  // 로그 심각도 변경 모달
+  const [showLogSeverityModal, setShowLogSeverityModal] = useState(false)
+  const [isChangingLogSeverity, setIsChangingLogSeverity] = useState(false)
 
   // 메트릭 예외 처리 모달
   const [showExcludeModal, setShowExcludeModal] = useState(false)
@@ -235,6 +241,8 @@ export function AlertHistoryPage() {
   )
   const selectedLogAnalysisCount = selectedLogAlerts.length
   const selectedMetricCount = selectedMetricAlerts.length
+  // 심각도 변경 가능한 로그: qdrant_point_id 있는 항목 (severity 무관)
+  const qualifyingLogAlerts = selectedLogAlerts.filter((a) => a.qdrant_point_id)
 
   // 만료 옵션 → ISO UTC 변환
   const computeExpiresAt = (): string | null => {
@@ -246,6 +254,45 @@ export function AlertHistoryPage() {
     const days = parseInt(expiryOption, 10)
     const target = new Date(Date.now() + days * 86400000)
     return target.toISOString()
+  }
+
+  // 로그 심각도 일괄 변경
+  const handleBulkLogSeverityChange = async (newSeverity: 'info' | 'warning' | 'critical') => {
+    const targets = qualifyingLogAlerts.filter((a) => a.severity !== newSeverity)
+    if (targets.length === 0) {
+      toast('선택된 항목이 이미 동일한 심각도입니다.', { icon: 'ℹ️' })
+      return
+    }
+    setIsChangingLogSeverity(true)
+    const results = await Promise.allSettled(
+      targets.map((a) =>
+        reclassifyApi.changeNotificationSeverity(a.id, { new_severity: newSeverity }),
+      ),
+    )
+    setIsChangingLogSeverity(false)
+    setShowLogSeverityModal(false)
+    setSelectedIds(new Set())
+    await refetch()
+
+    const skipped = qualifyingLogAlerts.length - targets.length
+    const succeeded = results.filter((r) => r.status === 'fulfilled').length
+    const failed = results.filter((r) => r.status === 'rejected').length
+
+    if (failed > 0) {
+      toast.error(`${succeeded}건 변경 완료, ${failed}건 실패`)
+    } else {
+      const SEV_KO = { info: '정보', warning: '경고', critical: '위험' }
+      const skippedNote = skipped > 0 ? ` (동일 심각도 ${skipped}건 건너뜀)` : ''
+      const revertNote =
+        newSeverity === 'critical'
+          ? '\n이후 유사 로그부터 Teams 알림이 발송됩니다. 되돌리려면 해당 항목을 다시 선택하세요.'
+          : newSeverity === 'warning'
+            ? '\n이후 유사 로그부터 Teams 경고 알림이 발송됩니다.'
+            : '\n이후 유사 로그가 알림 없이 자동 건너뜁니다.'
+      toast.success(`${succeeded}건을 ${SEV_KO[newSeverity]}로 변경했습니다.${skippedNote}${revertNote}`, {
+        duration: 5000,
+      })
+    }
   }
 
   // 모달 오픈 — 선택된 알림 구성에 따라 초기 모드 결정
@@ -421,9 +468,9 @@ export function AlertHistoryPage() {
           onChange={(e) => updateParam('severity', e.target.value)}
         >
           <option value="">전체 심각도</option>
-          <option value="critical">Critical</option>
-          <option value="warning">Warning</option>
-          <option value="info">Info</option>
+          <option value="critical">위험</option>
+          <option value="warning">경고</option>
+          <option value="info">정보</option>
         </NeuSelect>
         <NeuSelect
           aria-label="확인 상태 필터"
@@ -504,11 +551,15 @@ export function AlertHistoryPage() {
               </span>
             )}
           </span>
-          {selectedLogAnalysisCount > 0 && (
-            <span className="text-text-disabled text-xs">
-              로그 알림은 상세 패널 → 재분류 버튼 사용
-            </span>
-          )}
+          <NeuButton
+            size="sm"
+            onClick={() => setShowLogSeverityModal(true)}
+            disabled={selectedLogAnalysisCount === 0}
+            title={selectedLogAnalysisCount === 0 ? '로그 분석 알림을 선택하세요' : undefined}
+          >
+            <Bell className="h-3.5 w-3.5" />
+            로그 심각도 변경
+          </NeuButton>
           <NeuButton
             size="sm"
             onClick={openExcludeModal}
@@ -615,6 +666,108 @@ export function AlertHistoryPage() {
               다음
               <ChevronRight className="h-4 w-4" />
             </NeuButton>
+          </div>
+        </div>
+      )}
+
+      {/* 로그 심각도 변경 모달 */}
+      {showLogSeverityModal && (
+        <div
+          className="bg-overlay fixed inset-0 z-50 flex items-center justify-center"
+          onClick={() => !isChangingLogSeverity && setShowLogSeverityModal(false)}
+        >
+          <div
+            className="bg-surface shadow-neu-flat w-full max-w-md rounded-sm p-6"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="log-severity-modal-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3
+              id="log-severity-modal-title"
+              className="text-text-primary mb-3 text-base font-semibold"
+            >
+              로그 심각도 변경
+            </h3>
+
+            <>
+                {/* 현재 심각도 분포 */}
+                {(() => {
+                  const sevCount = { info: 0, warning: 0, critical: 0 } as Record<string, number>
+                  qualifyingLogAlerts.forEach((a) => { sevCount[a.severity] = (sevCount[a.severity] ?? 0) + 1 })
+                  const SEV_LABEL: Record<string, string> = { info: '정보', warning: '경고', critical: '위험' }
+                  const SEV_COLOR: Record<string, string> = {
+                    info: 'text-text-secondary',
+                    warning: 'text-warning',
+                    critical: 'text-critical',
+                  }
+                  const parts = (['info', 'warning', 'critical'] as const).filter((s) => sevCount[s] > 0)
+                  return (
+                    <p className="text-text-secondary mb-3 text-sm">
+                      선택된{' '}
+                      <span className="text-text-primary font-medium">
+                        {qualifyingLogAlerts.length}건
+                      </span>
+                      의 알림 패턴을 변경합니다.
+                      {parts.length > 0 && (
+                        <span className="ml-2">
+                          (
+                          {parts.map((s, i) => (
+                            <span key={s}>
+                              {i > 0 && ' · '}
+                              <span className={SEV_COLOR[s]}>{SEV_LABEL[s]} {sevCount[s]}건</span>
+                            </span>
+                          ))}
+                          )
+                        </span>
+                      )}
+                    </p>
+                  )
+                })()}
+                <p className="text-text-secondary mb-4 text-xs">
+                  · 정보 선택 시 이후 유사 로그가 알림 없이 자동 건너뜁니다.
+                  <br />· 경고/위험 선택 시 이후 유사 로그부터 Teams 알림이 발송됩니다.
+                  <br />· 동일 심각도 항목은 건너뜁니다.
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <NeuButton
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => handleBulkLogSeverityChange('info')}
+                    loading={isChangingLogSeverity}
+                    disabled={isChangingLogSeverity || qualifyingLogAlerts.length === 0}
+                  >
+                    정보 (알림 제외)
+                  </NeuButton>
+                  <NeuButton
+                    size="sm"
+                    variant="secondary"
+                    className="border-warning/40 text-warning hover:bg-warning/10"
+                    onClick={() => handleBulkLogSeverityChange('warning')}
+                    loading={isChangingLogSeverity}
+                    disabled={isChangingLogSeverity || qualifyingLogAlerts.length === 0}
+                  >
+                    경고로 변경
+                  </NeuButton>
+                  <NeuButton
+                    size="sm"
+                    variant="danger"
+                    onClick={() => handleBulkLogSeverityChange('critical')}
+                    loading={isChangingLogSeverity}
+                    disabled={isChangingLogSeverity || qualifyingLogAlerts.length === 0}
+                  >
+                    위험으로 변경
+                  </NeuButton>
+                  <NeuButton
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => setShowLogSeverityModal(false)}
+                    disabled={isChangingLogSeverity}
+                  >
+                    취소
+                  </NeuButton>
+                </div>
+            </>
           </div>
         </div>
       )}

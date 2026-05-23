@@ -2,7 +2,7 @@ import json
 import logging
 import os
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Literal, Optional
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -759,3 +759,61 @@ async def simple_reclassify_alert_history(
 
     await db.commit()
     return {"reclassified_from": alert_history_id, "new_alert_history_id": new_alert.id}
+
+
+class NotificationSeverityRequest(BaseModel):
+    new_severity: Literal["info", "warning", "critical"]
+
+
+@router.patch("/{alert_history_id}/notification-severity")
+async def change_notification_severity(
+    alert_history_id: int,
+    payload: NotificationSeverityRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """로그 알림 심각도 일괄 변경 (Qdrant + alert_history + log_analysis_history 동기화).
+
+    - info → anomaly_type='notification', is_notification=True (스킵 패턴 유지)
+    - warning/critical → anomaly_type='reclassified', is_notification=False (알림 발송 전환)
+    - real_error_count / notification_count도 새 심각도에 맞게 재배분
+    """
+    alert = await db.get(AlertHistory, alert_history_id)
+    if not alert or alert.alert_type != "log_analysis":
+        raise HTTPException(status_code=404, detail="로그분석 알림을 찾을 수 없습니다")
+    if not alert.qdrant_point_id:
+        raise HTTPException(status_code=400, detail="Qdrant 포인트가 없는 항목입니다")
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as hc:
+            resp = await hc.patch(
+                f"{LOG_ANALYZER_URL}/log-incidents/update-notification-severity",
+                json={"point_id": alert.qdrant_point_id, "new_severity": payload.new_severity},
+            )
+            resp.raise_for_status()
+    except Exception as exc:
+        logger.warning("Qdrant 심각도 업데이트 실패: %s", exc)
+        raise HTTPException(status_code=502, detail="Qdrant 업데이트에 실패했습니다")
+
+    new_severity = payload.new_severity
+    new_anomaly_type = "notification" if new_severity == "info" else "reclassified"
+
+    # alert_history 업데이트
+    alert.severity = new_severity
+    alert.anomaly_type = new_anomaly_type
+
+    # log_analysis_history 동기화 (severity, anomaly_type, 카운트)
+    if alert.log_analysis_id:
+        log_rec = await db.get(LogAnalysisHistory, alert.log_analysis_id)
+        if log_rec:
+            total = (log_rec.real_error_count or 0) + (log_rec.notification_count or 0)
+            log_rec.severity = new_severity
+            log_rec.anomaly_type = new_anomaly_type
+            if new_severity == "info":
+                log_rec.real_error_count = 0
+                log_rec.notification_count = total
+            else:
+                log_rec.real_error_count = total
+                log_rec.notification_count = 0
+
+    await db.commit()
+    return {"updated": True, "new_severity": new_severity}

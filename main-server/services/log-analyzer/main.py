@@ -1237,6 +1237,18 @@ class DeletePointRequest(BaseModel):
     point_id: str
 
 
+class UpdateNotificationSeverityRequest(BaseModel):
+    point_id: str
+    new_severity: str  # "info" | "warning" | "critical"
+
+
+@app.patch("/log-incidents/update-notification-severity")
+async def update_notification_severity_endpoint(req: UpdateNotificationSeverityRequest):
+    """log_incidents 포인트의 severity + is_notification 업데이트 (일괄 심각도 변경)."""
+    await vector_client.update_notification_severity(req.point_id, req.new_severity)
+    return {"updated": True}
+
+
 @app.delete("/log-incidents/delete-point")
 async def delete_log_incident_point(req: DeletePointRequest):
     """Qdrant log_incidents에서 단일 포인트 삭제 (재분류 시 기존 포인트 교체).

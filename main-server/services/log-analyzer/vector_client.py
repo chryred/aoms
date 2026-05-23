@@ -589,6 +589,22 @@ async def update_resolution(point_id: str, resolution: str, resolver: str) -> No
     resp.raise_for_status()
 
 
+async def update_notification_severity(point_id: str, new_severity: str) -> None:
+    """log_incidents 포인트의 severity + is_notification 변경 (일괄 심각도 변경 시)."""
+    is_notification = new_severity == "info"
+    resp = await _qdrant_http.post(
+        f"{QDRANT_URL}/collections/{COLLECTION}/points/payload",
+        json={
+            "payload": {
+                "severity": new_severity,
+                "is_notification": is_notification,
+            },
+            "points": [point_id],
+        },
+    )
+    resp.raise_for_status()
+
+
 async def update_log_incident_ids(point_ids: list[str], incident_id: int) -> None:
     """log_incidents 포인트들에 incident_id payload 추가 (피드백 승인 역방향 업데이트)."""
     if not point_ids:

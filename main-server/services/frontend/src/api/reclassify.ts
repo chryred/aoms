@@ -41,4 +41,12 @@ export const reclassifyApi = {
     adminApi
       .patch(`api/v1/analysis/reclassify/${alertHistoryId}/simple`, { json: body })
       .json<SimpleReclassifyResult>(),
+
+  changeNotificationSeverity: (
+    alertHistoryId: number,
+    body: { new_severity: 'info' | 'warning' | 'critical' },
+  ) =>
+    adminApi
+      .patch(`api/v1/analysis/${alertHistoryId}/notification-severity`, { json: body })
+      .json<{ updated: boolean; new_severity: string }>(),
 }
