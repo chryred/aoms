@@ -72,13 +72,14 @@ services:
       - GF_SERVER_PROTOCOL=https
       - GF_SERVER_CERT_FILE=/etc/grafana/ssl/grafana.crt
       - GF_SERVER_CERT_KEY=/etc/grafana/ssl/grafana.key
+      - GF_SERVER_DOMAIN=${SYNAPSE_HOST:-localhost}
       - GF_SERVER_ROOT_URL=https://%(domain)s:3001/grafana/
       - GF_SERVER_SERVE_FROM_SUB_PATH=true
-      # 보안 강화
-      - GF_SECURITY_COOKIE_SECURE=true
-      - GF_SECURITY_COOKIE_SAMESITE=strict
+      # 보안 강화 — COOKIE_SECURE는 브라우저가 HTTPS로 접속할 때만 true로 설정
+      - GF_SECURITY_COOKIE_SECURE=false
+      - GF_SECURITY_COOKIE_SAMESITE=lax
       - GF_SECURITY_ALLOW_EMBEDDING=true
-      - GF_SECURITY_CONTENT_SECURITY_POLICY=true
+      - GF_SECURITY_CONTENT_SECURITY_POLICY=false
       - GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS=
       # 시간대
       - GF_DATE_FORMATS_DEFAULT_TIMEZONE=Asia/Seoul
