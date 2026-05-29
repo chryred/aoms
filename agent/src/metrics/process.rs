@@ -29,7 +29,7 @@ pub fn collect(cfg: &AgentConfig, services: &[ServiceConfig]) -> Vec<MetricSampl
 
     // Gather current snapshot for every process
     // (pid, proc_name, cmdline, curr_ticks, rss_kb)
-    let mut active: Vec<(u32, String, String, u64, u64)> = Vec::new();
+    let mut active: Vec<(u32, String, String, u64, u64, char)> = Vec::new();
     let mut current_prev: HashMap<u32, (u64, Instant)> = HashMap::new();
 
     for proc_result in procs {
@@ -43,6 +43,7 @@ pub fn collect(cfg: &AgentConfig, services: &[ServiceConfig]) -> Vec<MetricSampl
         let cpu_ticks = stat.utime + stat.stime;
         let rss_kb = (stat.rss as u64).saturating_mul(4); // 4KB pages typical
         let pid = stat.pid as u32;
+        let state = stat.state;
 
         let cmdline = proc
             .cmdline()
@@ -51,15 +52,19 @@ pub fn collect(cfg: &AgentConfig, services: &[ServiceConfig]) -> Vec<MetricSampl
         let proc_name = stat.comm.clone();
 
         current_prev.insert(pid, (cpu_ticks, now));
-        active.push((pid, proc_name, cmdline, cpu_ticks, rss_kb));
+        active.push((pid, proc_name, cmdline, cpu_ticks, rss_kb, state));
     }
 
     // Compute per-PID cpu% using delta vs previous snapshot
     let mutex = PREV.get_or_init(|| Mutex::new(HashMap::new()));
     let mut prev_guard = mutex.lock().unwrap();
 
+    // 좀비 프로세스 카운트 (state == 'Z') — CPU/메모리 계산과 무관하게 집계
+    let zombie_count = active.iter().filter(|(_, _, _, _, _, s)| *s == 'Z').count() as f64;
+    samples.push(MetricSample::new("process_zombie_count", base.clone(), zombie_count));
+
     let mut pid_cpu: HashMap<u32, f64> = HashMap::new();
-    for (pid, _name, _cmd, curr_ticks, _rss) in &active {
+    for (pid, _name, _cmd, curr_ticks, _rss, _state) in &active {
         if let Some((prev_ticks, prev_time)) = prev_guard.get(pid) {
             let delta_secs = now.duration_since(*prev_time).as_secs_f64();
             if delta_secs > 0.0 {
@@ -80,7 +85,7 @@ pub fn collect(cfg: &AgentConfig, services: &[ServiceConfig]) -> Vec<MetricSampl
     let mut service_stats: HashMap<String, (String, f64, u64)> = HashMap::new();
     let mut unmatched: Vec<(String, u32, String, f64, u64)> = Vec::new();
 
-    for (pid, proc_name, cmdline, _curr_ticks, rss_kb) in active {
+    for (pid, proc_name, cmdline, _curr_ticks, rss_kb, _state) in active {
         let Some(cpu_pct) = pid_cpu.get(&pid).copied() else {
             continue; // 첫 관측 PID — CPU delta 없음. 이번 round는 skip
         };
