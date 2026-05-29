@@ -670,7 +670,7 @@ export function MetricChartPopup({
               </ResponsiveContainer>
               <div className="mt-2 flex items-center justify-center gap-6">
                 <span className="flex items-center gap-1.5 text-[11px]">
-                  <span className="inline-block h-0.5 w-4 bg-critical" />
+                  <span className="bg-critical inline-block h-0.5 w-4" />
                   <span className="text-text-secondary">실제 에러</span>
                 </span>
                 <span className="flex items-center gap-1.5 text-[11px]">

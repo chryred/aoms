@@ -1,5 +1,6 @@
-from datetime import datetime
-from typing import Annotated, Optional
+from datetime import datetime, date
+from decimal import Decimal
+from typing import Annotated, Any, Dict, List, Optional
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pydantic.functional_serializers import PlainSerializer
 
@@ -1076,3 +1077,115 @@ class KnowledgeSyncStatusOut(BaseModel):
     updated_at:    UtcDatetime
 
     model_config = {"from_attributes": True}
+
+
+# ── SSL 인증서 자동화 관리 ─────────────────────────────────────────────────────
+
+class SslHaGroupCreate(BaseModel):
+    group_name:  str
+    system_code: Optional[str] = None
+    serial_size: int = 1
+
+
+class SslHaGroupOut(BaseModel):
+    id:          int
+    group_name:  str
+    system_code: Optional[str]
+    serial_size: int
+    created_at:  UtcDatetime
+
+    model_config = {"from_attributes": True}
+
+
+class SslServerCreate(BaseModel):
+    system_code:   str
+    system_name:   str
+    host:          str
+    account:       str
+    password:      str                       # 최초 1회 — authorized_keys 등록 후 DB에 저장하지 않음
+    instance_role: Optional[str] = None
+    web_type:      str                       # webtob|nginx|apache|lets_encrypt_http01
+    cert_type:     str = "wildcard"          # wildcard|individual
+    domain:        Optional[str] = None      # cert_type=individual 필수
+    config_file:   Optional[str] = None
+    cert_dir:      Optional[str] = None
+    webtob_home:   Optional[str] = None
+    ssh_port:      int = 22
+    ha_group_id:   Optional[int] = None
+    serial_order:  int = 1
+    network_zone:  str = "internal"          # internal|dmz
+
+
+class SslServerUpdate(BaseModel):
+    system_code:   Optional[str] = None
+    system_name:   Optional[str] = None
+    instance_role: Optional[str] = None
+    web_type:      Optional[str] = None
+    cert_type:     Optional[str] = None
+    domain:        Optional[str] = None
+    config_file:   Optional[str] = None
+    cert_dir:      Optional[str] = None
+    webtob_home:   Optional[str] = None
+    ssh_port:      Optional[int] = None
+    ha_group_id:   Optional[int] = None
+    serial_order:  Optional[int] = None
+    network_zone:  Optional[str] = None
+    status:        Optional[str] = None
+
+
+class SslServerOut(BaseModel):
+    id:            int
+    system_code:   str
+    system_name:   str
+    host:          str
+    account:       str
+    instance_role: Optional[str]
+    web_type:      str
+    cert_type:     str
+    domain:        Optional[str]
+    config_file:   Optional[str]
+    cert_dir:      Optional[str]
+    webtob_home:   Optional[str]
+    ssh_port:      int
+    ha_group_id:   Optional[int]
+    serial_order:  int
+    network_zone:  str
+    status:        str
+    created_at:    UtcDatetime
+    updated_at:    UtcDatetime
+
+    model_config = {"from_attributes": True}
+
+
+class SslDeploymentOut(BaseModel):
+    id:            int
+    server_id:     Optional[int]
+    trigger_type:  str
+    cert_type:     Optional[str]
+    cert_expiry:   Optional[date]
+    status:        str
+    duration_sec:  Optional[Decimal]
+    deploy_log:    Optional[str]
+    steps_result:  Optional[str]
+    rule_analysis: Optional[str]
+    llm_analysis:  Optional[str]
+    deployed_at:   UtcDatetime
+
+    model_config = {"from_attributes": True}
+
+
+class SslCertSnapshotOut(BaseModel):
+    id:          int
+    server_id:   Optional[int]
+    expiry_date: Optional[date]
+    days_left:   Optional[int]
+    is_valid:    Optional[bool]
+    checked_at:  UtcDatetime
+
+    model_config = {"from_attributes": True}
+
+
+class SslCertStatusOut(BaseModel):
+    """인증서 현황 대시보드 — 서버 + 최신 스냅샷"""
+    server:   SslServerOut
+    snapshot: Optional[SslCertSnapshotOut]

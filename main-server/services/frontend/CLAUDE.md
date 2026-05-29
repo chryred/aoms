@@ -59,7 +59,12 @@ src/
 │   ├── FeedbackSubmitPage.tsx        # Teams 카드 "해결책 등록" 버튼 진입 단독 페이지 (AppLayout 외부)
 │   ├── FeedbackManagePage.tsx        # 해결책 관리 (/feedback/manage, 해결책 검색+감리 두 탭. /feedback/search redirect 포함)
 │   ├── AgentListPage.tsx             # 에이전트 목록 (시스템별 그룹, SSH 세션 관리) (Phase 6)
-│   └── AgentDetailPage.tsx           # 에이전트 제어 + 설정 파일 편집기 (Phase 6)
+│   ├── AgentDetailPage.tsx           # 에이전트 제어 + 설정 파일 편집기 (Phase 6)
+│   └── ssl/
+│       ├── SslDashboardPage.tsx      # 인증서 D-day 현황 대시보드 (60초 폴링)
+│       ├── SslServersPage.tsx        # 서버 등록/삭제/SSH 테스트
+│       ├── SslDeploymentHistoryPage.tsx  # 배포 이력 + WebSocket 로그 뷰어
+│       └── RootCaGuidePage.tsx       # Root CA 설치 가이드 (공개, AuthGuard 없음, OS별 탭)
 ├── store/         # Zustand 스토어 (authStore, uiStore, wizardStore, sshSessionStore)
 │   └── sshSessionStore.ts  # SSH 세션 토큰 인메모리 관리 (Phase 6)
 ├── types/         # TypeScript 타입 정의

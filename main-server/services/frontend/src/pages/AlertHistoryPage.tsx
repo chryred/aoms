@@ -289,9 +289,12 @@ export function AlertHistoryPage() {
           : newSeverity === 'warning'
             ? '\n이후 유사 로그부터 Teams 경고 알림이 발송됩니다.'
             : '\n이후 유사 로그가 알림 없이 자동 건너뜁니다.'
-      toast.success(`${succeeded}건을 ${SEV_KO[newSeverity]}로 변경했습니다.${skippedNote}${revertNote}`, {
-        duration: 5000,
-      })
+      toast.success(
+        `${succeeded}건을 ${SEV_KO[newSeverity]}로 변경했습니다.${skippedNote}${revertNote}`,
+        {
+          duration: 5000,
+        },
+      )
     }
   }
 
@@ -603,9 +606,7 @@ export function AlertHistoryPage() {
             icon={<Bell className="h-10 w-10" />}
             title={hasActiveFilters ? '조건에 맞는 알림이 없습니다' : '알림 이력이 없습니다'}
             description={hasActiveFilters ? '필터를 조정하거나 초기화해 보세요' : undefined}
-            cta={
-              hasActiveFilters ? { label: '필터 초기화', onClick: clearAllFilters } : undefined
-            }
+            cta={hasActiveFilters ? { label: '필터 초기화', onClick: clearAllFilters } : undefined}
           />
         </div>
       ) : (
@@ -691,82 +692,92 @@ export function AlertHistoryPage() {
             </h3>
 
             <>
-                {/* 현재 심각도 분포 */}
-                {(() => {
-                  const sevCount = { info: 0, warning: 0, critical: 0 } as Record<string, number>
-                  qualifyingLogAlerts.forEach((a) => { sevCount[a.severity] = (sevCount[a.severity] ?? 0) + 1 })
-                  const SEV_LABEL: Record<string, string> = { info: '정보', warning: '경고', critical: '위험' }
-                  const SEV_COLOR: Record<string, string> = {
-                    info: 'text-text-secondary',
-                    warning: 'text-warning',
-                    critical: 'text-critical',
-                  }
-                  const parts = (['info', 'warning', 'critical'] as const).filter((s) => sevCount[s] > 0)
-                  return (
-                    <p className="text-text-secondary mb-3 text-sm">
-                      선택된{' '}
-                      <span className="text-text-primary font-medium">
-                        {qualifyingLogAlerts.length}건
-                      </span>
-                      의 알림 패턴을 변경합니다.
-                      {parts.length > 0 && (
-                        <span className="ml-2">
-                          (
-                          {parts.map((s, i) => (
-                            <span key={s}>
-                              {i > 0 && ' · '}
-                              <span className={SEV_COLOR[s]}>{SEV_LABEL[s]} {sevCount[s]}건</span>
+              {/* 현재 심각도 분포 */}
+              {(() => {
+                const sevCount = { info: 0, warning: 0, critical: 0 } as Record<string, number>
+                qualifyingLogAlerts.forEach((a) => {
+                  sevCount[a.severity] = (sevCount[a.severity] ?? 0) + 1
+                })
+                const SEV_LABEL: Record<string, string> = {
+                  info: '정보',
+                  warning: '경고',
+                  critical: '위험',
+                }
+                const SEV_COLOR: Record<string, string> = {
+                  info: 'text-text-secondary',
+                  warning: 'text-warning',
+                  critical: 'text-critical',
+                }
+                const parts = (['info', 'warning', 'critical'] as const).filter(
+                  (s) => sevCount[s] > 0,
+                )
+                return (
+                  <p className="text-text-secondary mb-3 text-sm">
+                    선택된{' '}
+                    <span className="text-text-primary font-medium">
+                      {qualifyingLogAlerts.length}건
+                    </span>
+                    의 알림 패턴을 변경합니다.
+                    {parts.length > 0 && (
+                      <span className="ml-2">
+                        (
+                        {parts.map((s, i) => (
+                          <span key={s}>
+                            {i > 0 && ' · '}
+                            <span className={SEV_COLOR[s]}>
+                              {SEV_LABEL[s]} {sevCount[s]}건
                             </span>
-                          ))}
-                          )
-                        </span>
-                      )}
-                    </p>
-                  )
-                })()}
-                <p className="text-text-secondary mb-4 text-xs">
-                  · 정보 선택 시 이후 유사 로그가 알림 없이 자동 건너뜁니다.
-                  <br />· 경고/위험 선택 시 이후 유사 로그부터 Teams 알림이 발송됩니다.
-                  <br />· 동일 심각도 항목은 건너뜁니다.
-                </p>
-                <div className="flex flex-wrap gap-2">
-                  <NeuButton
-                    size="sm"
-                    variant="secondary"
-                    onClick={() => handleBulkLogSeverityChange('info')}
-                    loading={isChangingLogSeverity}
-                    disabled={isChangingLogSeverity || qualifyingLogAlerts.length === 0}
-                  >
-                    정보 (알림 제외)
-                  </NeuButton>
-                  <NeuButton
-                    size="sm"
-                    variant="secondary"
-                    className="border-warning/40 text-warning hover:bg-warning/10"
-                    onClick={() => handleBulkLogSeverityChange('warning')}
-                    loading={isChangingLogSeverity}
-                    disabled={isChangingLogSeverity || qualifyingLogAlerts.length === 0}
-                  >
-                    경고로 변경
-                  </NeuButton>
-                  <NeuButton
-                    size="sm"
-                    variant="danger"
-                    onClick={() => handleBulkLogSeverityChange('critical')}
-                    loading={isChangingLogSeverity}
-                    disabled={isChangingLogSeverity || qualifyingLogAlerts.length === 0}
-                  >
-                    위험으로 변경
-                  </NeuButton>
-                  <NeuButton
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => setShowLogSeverityModal(false)}
-                    disabled={isChangingLogSeverity}
-                  >
-                    취소
-                  </NeuButton>
-                </div>
+                          </span>
+                        ))}
+                        )
+                      </span>
+                    )}
+                  </p>
+                )
+              })()}
+              <p className="text-text-secondary mb-4 text-xs">
+                · 정보 선택 시 이후 유사 로그가 알림 없이 자동 건너뜁니다.
+                <br />· 경고/위험 선택 시 이후 유사 로그부터 Teams 알림이 발송됩니다.
+                <br />· 동일 심각도 항목은 건너뜁니다.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <NeuButton
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => handleBulkLogSeverityChange('info')}
+                  loading={isChangingLogSeverity}
+                  disabled={isChangingLogSeverity || qualifyingLogAlerts.length === 0}
+                >
+                  정보 (알림 제외)
+                </NeuButton>
+                <NeuButton
+                  size="sm"
+                  variant="secondary"
+                  className="border-warning/40 text-warning hover:bg-warning/10"
+                  onClick={() => handleBulkLogSeverityChange('warning')}
+                  loading={isChangingLogSeverity}
+                  disabled={isChangingLogSeverity || qualifyingLogAlerts.length === 0}
+                >
+                  경고로 변경
+                </NeuButton>
+                <NeuButton
+                  size="sm"
+                  variant="danger"
+                  onClick={() => handleBulkLogSeverityChange('critical')}
+                  loading={isChangingLogSeverity}
+                  disabled={isChangingLogSeverity || qualifyingLogAlerts.length === 0}
+                >
+                  위험으로 변경
+                </NeuButton>
+                <NeuButton
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setShowLogSeverityModal(false)}
+                  disabled={isChangingLogSeverity}
+                >
+                  취소
+                </NeuButton>
+              </div>
             </>
           </div>
         </div>
@@ -796,9 +807,7 @@ export function AlertHistoryPage() {
                 <div className="mb-1.5 flex items-center justify-between">
                   <span className="text-text-secondary text-xs font-medium">
                     메트릭 선택{' '}
-                    <span className="text-text-disabled">
-                      ({selectedMetricKeys.size}개 체크됨)
-                    </span>
+                    <span className="text-text-disabled">({selectedMetricKeys.size}개 체크됨)</span>
                   </span>
                 </div>
                 <div className="bg-bg-base shadow-neu-inset max-h-44 overflow-y-auto rounded-sm p-2">

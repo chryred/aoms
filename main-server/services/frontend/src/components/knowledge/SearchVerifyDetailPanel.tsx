@@ -251,8 +251,13 @@ export function SearchResultDetailPanel({
   const metaFields = getMetaFields(result.collection)
 
   const _SCORE_DECOMP_KEYS = [
-    'dense_score', 'dense_rank', 'sparse_score', 'sparse_rank',
-    'rerank_score', 'original_rank', 'rerank_rank',
+    'dense_score',
+    'dense_rank',
+    'sparse_score',
+    'sparse_rank',
+    'rerank_score',
+    'original_rank',
+    'rerank_rank',
   ] as const
 
   const hasScoreDecomp = _SCORE_DECOMP_KEYS.some(
@@ -390,17 +395,18 @@ export function SearchResultDetailPanel({
                     </span>
                   </div>
                 )}
-                {result.original_rank !== undefined && result.original_rank !== null &&
-                  result.rerank_rank !== undefined && result.rerank_rank !== null && (
-                  <div className="flex items-center justify-between text-xs">
-                    <span className="text-text-disabled">순위 변화</span>
-                    <span className="text-text-primary font-mono">
-                      #{result.original_rank + 1}
-                      <span className="text-text-disabled mx-1">→</span>
-                      #{result.rerank_rank + 1}
-                    </span>
-                  </div>
-                )}
+                {result.original_rank !== undefined &&
+                  result.original_rank !== null &&
+                  result.rerank_rank !== undefined &&
+                  result.rerank_rank !== null && (
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-text-disabled">순위 변화</span>
+                      <span className="text-text-primary font-mono">
+                        #{result.original_rank + 1}
+                        <span className="text-text-disabled mx-1">→</span>#{result.rerank_rank + 1}
+                      </span>
+                    </div>
+                  )}
               </div>
             </div>
           )}

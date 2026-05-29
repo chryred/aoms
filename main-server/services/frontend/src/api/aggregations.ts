@@ -82,7 +82,7 @@ export interface ProcessSummary {
   sys_total_bytes?: number
   sys_cached_bytes?: number
   sys_free_bytes?: number
-  sys_anon_bytes?: number          // AnonPages — JVM heap/JIT 등 익명 메모리
-  sys_buffers_bytes?: number       // Buffers — 커널 I/O 버퍼
+  sys_anon_bytes?: number // AnonPages — JVM heap/JIT 등 익명 메모리
+  sys_buffers_bytes?: number // Buffers — 커널 I/O 버퍼
   sys_slab_unreclaim_bytes?: number // SUnreclaim — 커널 비회수 Slab
 }

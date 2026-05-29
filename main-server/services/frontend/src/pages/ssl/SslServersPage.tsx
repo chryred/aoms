@@ -123,7 +123,7 @@ function ServerDetailDrawer({
         {server && (
           <div className="flex-1 overflow-y-auto px-4 py-3">
             {/* 섹션: 기본 정보 */}
-            <p className="text-text-disabled mb-2 text-[10px] font-medium tracking-widest uppercase">
+            <p className="text-text-disabled mb-2 text-xs font-medium tracking-widest uppercase">
               기본 정보
             </p>
             <dl className="border-border divide-border divide-y border-y">
@@ -136,7 +136,7 @@ function ServerDetailDrawer({
             </dl>
 
             {/* 섹션: 인증서 설정 */}
-            <p className="text-text-disabled mt-5 mb-2 text-[10px] font-medium tracking-widest uppercase">
+            <p className="text-text-disabled mt-5 mb-2 text-xs font-medium tracking-widest uppercase">
               인증서 설정
             </p>
             <dl className="border-border divide-border divide-y border-y">
@@ -157,7 +157,7 @@ function ServerDetailDrawer({
             </dl>
 
             {/* 섹션: 네트워크 / 상태 */}
-            <p className="text-text-disabled mt-5 mb-2 text-[10px] font-medium tracking-widest uppercase">
+            <p className="text-text-disabled mt-5 mb-2 text-xs font-medium tracking-widest uppercase">
               네트워크 / 상태
             </p>
             <dl className="border-border divide-border divide-y border-y">
@@ -170,7 +170,7 @@ function ServerDetailDrawer({
                       'rounded-sm px-2 py-0.5 text-xs font-medium',
                       server.status === 'active'
                         ? 'bg-normal/10 text-normal'
-                        : 'bg-text-disabled/10 text-text-disabled',
+                        : 'bg-muted-bg text-text-disabled',
                     )}
                   >
                     {server.status}
@@ -205,39 +205,46 @@ function ServerRow({
 }) {
   return (
     <tr
-      className="border-border hover:bg-glass-bg cursor-pointer border-b transition-colors last:border-0"
+      className="border-border hover:bg-glass-bg cursor-pointer border-b transition-colors last:border-0 focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent"
+      tabIndex={0}
       onClick={() => onSelect(server)}
+      onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && onSelect(server)}
     >
-      <td className="py-3 pr-4">
+      <td className="px-4 py-3">
         <p className="text-text-primary font-medium">{server.host}</p>
         <p className="text-text-secondary text-xs">
           {server.system_name} {server.instance_role ? `(${server.instance_role})` : ''}
         </p>
       </td>
-      <td className="py-3 pr-4 text-sm">
+      <td className="px-4 py-3">
         <ZoneBadge zone={server.network_zone} />
       </td>
-      <td className="py-3 pr-4 text-sm">
+      <td className="px-4 py-3 text-sm">
         <span className="text-text-secondary">{server.web_type}</span>
       </td>
-      <td className="py-3 pr-4 text-sm">
+      <td className="px-4 py-3 text-sm">
         <span className="text-text-secondary">
           {server.cert_type === 'wildcard' ? '와일드카드' : server.domain}
         </span>
       </td>
-      <td className="py-3 text-right">
+      <td className="px-4 py-3 text-right">
         <div className="flex justify-end gap-1" onClick={(e) => e.stopPropagation()}>
           <NeuButton
             size="sm"
             variant="ghost"
             onClick={() => onTestSsh(server.id)}
             disabled={testingId === server.id}
-            title="SSH 테스트"
+            aria-label="SSH 연결 테스트"
           >
-            <Wifi className="h-4 w-4" />
+            <Wifi className="h-4 w-4" aria-hidden="true" />
           </NeuButton>
-          <NeuButton size="sm" variant="ghost" onClick={() => onDelete(server.id)} title="삭제">
-            <Trash2 className="text-critical h-4 w-4" />
+          <NeuButton
+            size="sm"
+            variant="ghost"
+            onClick={() => onDelete(server.id)}
+            aria-label="서버 삭제"
+          >
+            <Trash2 className="text-critical h-4 w-4" aria-hidden="true" />
           </NeuButton>
         </div>
       </td>
@@ -284,6 +291,7 @@ function ServerFormModal({
           <div className="grid grid-cols-2 gap-3">
             <NeuInput
               label="시스템 코드"
+              autoFocus
               {...register('system_code')}
               error={errors.system_code?.message}
             />
@@ -322,7 +330,7 @@ function ServerFormModal({
               <label className="text-text-secondary mb-1 block text-xs">웹서버 종류</label>
               <select
                 {...register('web_type')}
-                className="bg-bg-base border-border text-text-primary focus:ring-accent focus:ring-offset-bg-base w-full rounded-sm border px-3 py-2 text-sm focus:ring-1 focus:ring-offset-2 focus:outline-none"
+                className="bg-bg-base border-border text-text-primary focus-visible:ring-accent focus-visible:ring-offset-bg-base w-full rounded-sm border px-3 py-2 text-sm focus-visible:ring-1 focus-visible:ring-offset-2 focus-visible:outline-none"
               >
                 <option value="nginx">nginx</option>
                 <option value="apache">apache</option>
@@ -337,7 +345,7 @@ function ServerFormModal({
               <label className="text-text-secondary mb-1 block text-xs">인증서 타입</label>
               <select
                 {...register('cert_type')}
-                className="bg-bg-base border-border text-text-primary focus:ring-accent focus:ring-offset-bg-base w-full rounded-sm border px-3 py-2 text-sm focus:ring-1 focus:ring-offset-2 focus:outline-none"
+                className="bg-bg-base border-border text-text-primary focus-visible:ring-accent focus-visible:ring-offset-bg-base w-full rounded-sm border px-3 py-2 text-sm focus-visible:ring-1 focus-visible:ring-offset-2 focus-visible:outline-none"
               >
                 <option value="wildcard">와일드카드 (*.shinsegae.com)</option>
                 <option value="individual">개별 도메인</option>
@@ -372,7 +380,7 @@ function ServerFormModal({
               <label className="text-text-secondary mb-1 block text-xs">네트워크 존</label>
               <select
                 {...register('network_zone')}
-                className="bg-bg-base border-border text-text-primary focus:ring-accent focus:ring-offset-bg-base w-full rounded-sm border px-3 py-2 text-sm focus:ring-1 focus:ring-offset-2 focus:outline-none"
+                className="bg-bg-base border-border text-text-primary focus-visible:ring-accent focus-visible:ring-offset-bg-base w-full rounded-sm border px-3 py-2 text-sm focus-visible:ring-1 focus-visible:ring-offset-2 focus-visible:outline-none"
               >
                 <option value="internal">내부망</option>
                 <option value="dmz">DMZ</option>
@@ -435,11 +443,11 @@ export function SslServersPage() {
         action={
           <div className="flex gap-2">
             <NeuButton size="sm" variant="ghost" onClick={() => navigate(ROUTES.SSL_DASHBOARD)}>
-              <ChevronLeft className="mr-1 h-4 w-4" />
+              <ChevronLeft className="h-4 w-4" aria-hidden="true" />
               현황
             </NeuButton>
             <NeuButton size="sm" onClick={() => setShowModal(true)}>
-              <Plus className="mr-1 h-4 w-4" />
+              <Plus className="h-4 w-4" aria-hidden="true" />
               서버 등록
             </NeuButton>
           </div>
@@ -490,7 +498,7 @@ export function SslServersPage() {
                 <th className="px-4 py-3" />
               </tr>
             </thead>
-            <tbody className="px-4">
+            <tbody>
               {servers.map((server) => (
                 <ServerRow
                   key={server.id}

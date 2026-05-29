@@ -12,13 +12,13 @@ function MemoryStackBar({
   const total = others.sys_total_bytes ?? 0
   if (!total) return null
 
-  const cached        = others.sys_cached_bytes ?? 0
-  const free          = others.sys_free_bytes ?? 0
-  const anon          = others.sys_anon_bytes ?? 0
-  const buffers       = others.sys_buffers_bytes ?? 0
+  const cached = others.sys_cached_bytes ?? 0
+  const free = others.sys_free_bytes ?? 0
+  const anon = others.sys_anon_bytes ?? 0
+  const buffers = others.sys_buffers_bytes ?? 0
   const slabUnreclaim = others.sys_slab_unreclaim_bytes ?? 0
-  const jvmAnon       = Math.max(anon - trackedBytes, 0)
-  const othersRem     = Math.max(others.mem_bytes - jvmAnon - buffers - slabUnreclaim, 0)
+  const jvmAnon = Math.max(anon - trackedBytes, 0)
+  const othersRem = Math.max(others.mem_bytes - jvmAnon - buffers - slabUnreclaim, 0)
 
   const widthPct = (v: number) => `${Math.max((v / total) * 100, 0).toFixed(2)}%`
   const fmt = (b: number) =>
@@ -27,16 +27,58 @@ function MemoryStackBar({
 
   // 사용 중 세그먼트 — 포화색으로 명확히 구분
   const usedSegs = [
-    { label: '추적 프로세스', bytes: trackedBytes, bar: 'bg-accent',        dot: 'bg-accent',        tip: 'RSS 기반 추적 프로세스' },
-    { label: 'JVM/익명',      bytes: jvmAnon,      bar: 'bg-warning',       dot: 'bg-warning',       tip: 'JVM Heap·JIT·mmap-private' },
-    { label: '커널 버퍼',     bytes: buffers,      bar: 'bg-warning/50',    dot: 'bg-warning/50',    tip: '커널 I/O 버퍼 (필요시 해제)' },
-    { label: '커널 Slab',     bytes: slabUnreclaim,bar: 'bg-critical/70',   dot: 'bg-critical/70',   tip: '커널 비회수 구조체 (고정)' },
-    { label: '기타',          bytes: othersRem,    bar: 'bg-text-disabled', dot: 'bg-text-disabled', tip: 'PageTable, KernelStack 등' },
+    {
+      label: '추적 프로세스',
+      bytes: trackedBytes,
+      bar: 'bg-accent',
+      dot: 'bg-accent',
+      tip: 'RSS 기반 추적 프로세스',
+    },
+    {
+      label: 'JVM/익명',
+      bytes: jvmAnon,
+      bar: 'bg-warning',
+      dot: 'bg-warning',
+      tip: 'JVM Heap·JIT·mmap-private',
+    },
+    {
+      label: '커널 버퍼',
+      bytes: buffers,
+      bar: 'bg-warning/50',
+      dot: 'bg-warning/50',
+      tip: '커널 I/O 버퍼 (필요시 해제)',
+    },
+    {
+      label: '커널 Slab',
+      bytes: slabUnreclaim,
+      bar: 'bg-critical/70',
+      dot: 'bg-critical/70',
+      tip: '커널 비회수 구조체 (고정)',
+    },
+    {
+      label: '기타',
+      bytes: othersRem,
+      bar: 'bg-text-disabled',
+      dot: 'bg-text-disabled',
+      tip: 'PageTable, KernelStack 등',
+    },
   ]
   // 시스템 관리 세그먼트 — 흰색 반투명으로 어두운 배경과 구분
   const sysSegs = [
-    { label: '페이지 캐시', bytes: cached, bar: 'bg-white/15', dot: 'bg-white/40', tip: 'OS 파일 캐시 (자동 해제 가능)' },
-    { label: '여유',         bytes: free,   bar: 'bg-white/5',  dot: 'bg-white/20', tip: '즉시 사용 가능한 빈 공간' },
+    {
+      label: '페이지 캐시',
+      bytes: cached,
+      bar: 'bg-white/15',
+      dot: 'bg-white/40',
+      tip: 'OS 파일 캐시 (자동 해제 가능)',
+    },
+    {
+      label: '여유',
+      bytes: free,
+      bar: 'bg-white/5',
+      dot: 'bg-white/20',
+      tip: '즉시 사용 가능한 빈 공간',
+    },
   ]
   const allSegs = [...usedSegs, ...sysSegs]
 
@@ -64,9 +106,7 @@ function MemoryStackBar({
             .map(({ label, bytes, dot, tip }) => (
               <div key={label} className="flex items-center gap-1" title={tip}>
                 <div className={cn('h-2 w-2 shrink-0 rounded-sm', dot)} />
-                <span className="text-text-primary text-[10px] font-medium">
-                  {label}
-                </span>
+                <span className="text-text-primary text-[10px] font-medium">{label}</span>
                 <span className="text-text-secondary text-[10px]">
                   {fmt(bytes)} ({pctLabel(bytes)})
                 </span>
@@ -192,17 +232,30 @@ export function ProcessTreemap({ data }: ProcessTreemapProps) {
                 return (
                   <div
                     key={`${proc.instance_role}-${proc.name}`}
-                    className={cn('rounded-sm border p-2.5 transition-colors', getTileColor(pct, isOthers))}
+                    className={cn(
+                      'rounded-sm border p-2.5 transition-colors',
+                      getTileColor(pct, isOthers),
+                    )}
                     style={{
                       flexBasis: `calc(${widthPct}% - 6px)`,
                       minWidth: '80px',
                       flexGrow: 1,
                     }}
                   >
-                    <div className={cn('truncate text-xs font-medium', isOthers ? 'text-text-secondary' : 'text-text-primary')}>
+                    <div
+                      className={cn(
+                        'truncate text-xs font-medium',
+                        isOthers ? 'text-text-secondary' : 'text-text-primary',
+                      )}
+                    >
                       {proc.name}
                     </div>
-                    <div className={cn('mt-1 text-lg font-bold tabular-nums', getTextColor(pct, isOthers))}>
+                    <div
+                      className={cn(
+                        'mt-1 text-lg font-bold tabular-nums',
+                        getTextColor(pct, isOthers),
+                      )}
+                    >
                       {pct.toFixed(1)}%
                     </div>
                     <div className="text-text-secondary mt-0.5 text-[10px]">
@@ -215,7 +268,6 @@ export function ProcessTreemap({ data }: ProcessTreemapProps) {
           </div>
         )
       })}
-
     </div>
   )
 }

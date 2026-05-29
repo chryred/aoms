@@ -1,6 +1,12 @@
 export type AlertType = 'metric' | 'log_analysis'
 export type Severity = 'info' | 'warning' | 'critical'
-export type AnomalyType = 'new' | 'related' | 'recurring' | 'duplicate' | 'notification' | 'reclassified'
+export type AnomalyType =
+  | 'new'
+  | 'related'
+  | 'recurring'
+  | 'duplicate'
+  | 'notification'
+  | 'reclassified'
 
 export interface AlertHistory {
   id: number

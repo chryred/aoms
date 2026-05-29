@@ -8,7 +8,7 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
     mpsc, Arc,
 };
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tracing::{debug, info, warn};
 
 /// Start tailing a log file. Runs in a blocking loop on a dedicated OS thread.
@@ -84,6 +84,9 @@ pub fn start_tailer(
     // Multiline pending buffer — persists across Modify events
     let mut pending: Vec<String> = Vec::new();
     let mut pending_level: String = String::new();
+    // Tracks when the first line of the current pending was added.
+    // Used to flush stale pending when no new lines arrive (e.g. zombie process).
+    let mut pending_since: Option<Instant> = None;
 
     loop {
         if stop.load(Ordering::Relaxed) {
@@ -93,7 +96,18 @@ pub fn start_tailer(
 
         let event = match rx.recv_timeout(Duration::from_secs(1)) {
             Ok(ev) => ev,
-            Err(mpsc::RecvTimeoutError::Timeout) => continue,
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                // Flush stale pending if no new lines have arrived for 5 s.
+                // Covers the zombie-process case: service dies mid-stack-trace,
+                // no more Modify events arrive, pending would never be flushed otherwise.
+                if pending_since.map(|t| t.elapsed() >= Duration::from_secs(5)).unwrap_or(false) {
+                    flush_pending(&pending, &pending_level, &log_type, &services, &counter);
+                    pending.clear();
+                    pending_level.clear();
+                    pending_since = None;
+                }
+                continue;
+            }
             Err(mpsc::RecvTimeoutError::Disconnected) => {
                 warn!("Watcher channel disconnected for {}", path);
                 return;
@@ -120,7 +134,7 @@ pub fn start_tailer(
                 if let Some(ref mut f) = file {
                     read_new_lines(
                         f, &path, &log_type, &matcher, &services, &counter,
-                        multiline, &mut pending, &mut pending_level,
+                        multiline, &mut pending, &mut pending_level, &mut pending_since,
                     );
                 }
             }
@@ -133,6 +147,7 @@ pub fn start_tailer(
                 flush_pending(&pending, &pending_level, &log_type, &services, &counter);
                 pending.clear();
                 pending_level.clear();
+                pending_since = None;
                 match File::open(&path_buf) {
                     Ok(f) => {
                         let mut br = BufReader::new(f);
@@ -141,7 +156,7 @@ pub fn start_tailer(
                         info!("Log rotation detected, re-opened: {}", path);
                         read_new_lines(
                             &mut br, &path, &log_type, &matcher, &services, &counter,
-                            multiline, &mut pending, &mut pending_level,
+                            multiline, &mut pending, &mut pending_level, &mut pending_since,
                         );
                         file = Some(br);
                     }
@@ -155,6 +170,7 @@ pub fn start_tailer(
                 flush_pending(&pending, &pending_level, &log_type, &services, &counter);
                 pending.clear();
                 pending_level.clear();
+                pending_since = None;
                 info!("Log file removed (rotation?): {} — waiting for recreate", path);
                 file = None;
             }
@@ -165,7 +181,7 @@ pub fn start_tailer(
 }
 
 /// Read all available new lines from `file` and count keyword matches.
-/// In multiline mode, pending/pending_level persist across calls (across Modify events).
+/// In multiline mode, pending/pending_level/pending_since persist across calls (across Modify events).
 fn read_new_lines(
     file: &mut BufReader<File>,
     path: &str,
@@ -176,6 +192,7 @@ fn read_new_lines(
     multiline: bool,
     pending: &mut Vec<String>,
     pending_level: &mut String,
+    pending_since: &mut Option<Instant>,
 ) {
     let mut line = String::new();
     loop {
@@ -194,9 +211,11 @@ fn read_new_lines(
                         flush_pending(pending, pending_level, log_type, services, counter);
                         pending.clear();
                         pending_level.clear();
+                        *pending_since = None;
                         if let Some(level) = matcher.find_level(trimmed) {
                             pending.push(trimmed.to_string());
                             *pending_level = level.to_string();
+                            *pending_since = Some(Instant::now());
                         }
                     }
                 } else {

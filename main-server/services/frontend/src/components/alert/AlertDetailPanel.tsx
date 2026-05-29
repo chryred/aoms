@@ -1,6 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { X, CheckCircle, Lightbulb, Siren, ChevronDown, Tag, Pencil, Check, ExternalLink } from 'lucide-react'
+import {
+  X,
+  CheckCircle,
+  Lightbulb,
+  Siren,
+  ChevronDown,
+  Tag,
+  Pencil,
+  Check,
+  ExternalLink,
+} from 'lucide-react'
 import toast from 'react-hot-toast'
 import { ROUTES } from '@/constants/routes'
 import { NeuButton } from '@/components/neumorphic/NeuButton'
@@ -150,7 +160,10 @@ export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
       >
         원본 로그
         <ChevronDown
-          className={cn('h-3.5 w-3.5 transition-transform duration-200', isLogExpanded && 'rotate-180')}
+          className={cn(
+            'h-3.5 w-3.5 transition-transform duration-200',
+            isLogExpanded && 'rotate-180',
+          )}
         />
       </button>
       {isLogExpanded && (
@@ -411,8 +424,8 @@ export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
               {/* 원본 로그 + 분석 결과 */}
               {displayAlert.error_message ? (
                 <>
-                  {logAccordion ?? (
-                    displayAlert.description && (
+                  {logAccordion ??
+                    (displayAlert.description && (
                       <div>
                         <p className="type-label mb-1.5">상세 내용</p>
                         <div className="bg-bg-base shadow-neu-inset rounded-sm p-4">
@@ -421,8 +434,7 @@ export function AlertDetailPanel({ alert, onClose }: AlertDetailPanelProps) {
                           </p>
                         </div>
                       </div>
-                    )
-                  )}
+                    ))}
                   <div>
                     <p className="type-label mb-1">분석 실패 사유</p>
                     <p className="text-text-secondary font-mono text-xs break-all">

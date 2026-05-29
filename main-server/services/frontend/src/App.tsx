@@ -98,6 +98,20 @@ const OAuthLoginPage = lazy(() =>
 const OAuthClientsPage = lazy(() =>
   import('@/pages/admin/OAuthClientsPage').then((m) => ({ default: m.OAuthClientsPage })),
 )
+const SslDashboardPage = lazy(() =>
+  import('@/pages/ssl/SslDashboardPage').then((m) => ({ default: m.SslDashboardPage })),
+)
+const SslServersPage = lazy(() =>
+  import('@/pages/ssl/SslServersPage').then((m) => ({ default: m.SslServersPage })),
+)
+const SslDeploymentHistoryPage = lazy(() =>
+  import('@/pages/ssl/SslDeploymentHistoryPage').then((m) => ({
+    default: m.SslDeploymentHistoryPage,
+  })),
+)
+const RootCaGuidePage = lazy(() =>
+  import('@/pages/ssl/RootCaGuidePage').then((m) => ({ default: m.RootCaGuidePage })),
+)
 export function App() {
   return (
     <BrowserRouter>
@@ -131,6 +145,16 @@ export function App() {
           element={
             <Suspense fallback={<LoadingSkeleton shape="card" />}>
               <OAuthLoginPage />
+            </Suspense>
+          }
+        />
+
+        {/* Root CA 가이드 — 인증 불필요 (사내 브라우저 인증서 설치) */}
+        <Route
+          path={ROUTES.SSL_CA_GUIDE}
+          element={
+            <Suspense fallback={<LoadingSkeleton shape="card" />}>
+              <RootCaGuidePage />
             </Suspense>
           }
         />
@@ -382,6 +406,30 @@ export function App() {
               element={
                 <Suspense fallback={<LoadingSkeleton shape="card" count={4} />}>
                   <VectorHealthPage />
+                </Suspense>
+              }
+            />
+            <Route
+              path={ROUTES.SSL_DASHBOARD}
+              element={
+                <Suspense fallback={<LoadingSkeleton shape="card" count={3} />}>
+                  <SslDashboardPage />
+                </Suspense>
+              }
+            />
+            <Route
+              path={ROUTES.SSL_SERVERS}
+              element={
+                <Suspense fallback={<LoadingSkeleton shape="table" />}>
+                  <SslServersPage />
+                </Suspense>
+              }
+            />
+            <Route
+              path={ROUTES.SSL_DEPLOYMENTS}
+              element={
+                <Suspense fallback={<LoadingSkeleton shape="table" />}>
+                  <SslDeploymentHistoryPage />
                 </Suspense>
               }
             />

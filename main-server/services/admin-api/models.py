@@ -1,8 +1,8 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, date
 from sqlalchemy import (
-    Boolean, Column, DateTime, Float, ForeignKey, Index, Integer,
-    String, Text, UniqueConstraint, func
+    Boolean, Column, Date, DateTime, Float, ForeignKey, Index, Integer,
+    Numeric, String, Text, UniqueConstraint, func
 )
 from sqlalchemy import JSON as JSONB
 from sqlalchemy.dialects.postgresql import ARRAY, UUID as PG_UUID
@@ -771,4 +771,95 @@ class OAuthRefreshToken(Base):
     __table_args__ = (
         Index("idx_oauth_rt_user_client", "user_id", "client_id"),
         Index("idx_oauth_rt_expires", "expires_at"),
+    )
+
+
+# ── SSL 인증서 자동화 관리 ─────────────────────────────────────────────────────
+
+class SslHaGroup(Base):
+    """SSL HA 그룹 — 복수 서버를 순차(serial) 배포하는 묶음"""
+    __tablename__ = "ssl_ha_groups"
+
+    id          = Column(Integer, primary_key=True)
+    group_name  = Column(String(50), unique=True, nullable=False)
+    system_code = Column(String(20))
+    serial_size = Column(Integer, default=1)
+    created_at  = Column(DateTime, nullable=False, default=func.now())
+
+    servers = relationship("SslServer", back_populates="ha_group")
+
+
+class SslServer(Base):
+    """SSL 대상 서버 등록 — 배포/모니터링 단위"""
+    __tablename__ = "ssl_servers"
+
+    id            = Column(Integer, primary_key=True)
+    system_code   = Column(String(20),  nullable=False)
+    system_name   = Column(String(100), nullable=False)
+    host          = Column(String(100), nullable=False)
+    account       = Column(String(50),  nullable=False)
+    instance_role = Column(String(50))
+    web_type      = Column(String(30),  nullable=False)     # webtob|nginx|apache|lets_encrypt_http01
+    cert_type     = Column(String(20),  nullable=False, default="wildcard")  # wildcard|individual
+    domain        = Column(String(200))                     # cert_type=individual 일 때만 사용
+    config_file   = Column(String(200))
+    cert_dir      = Column(String(200))
+    webtob_home   = Column(String(200))
+    ssh_port      = Column(Integer,     nullable=False, default=22)
+    ha_group_id   = Column(Integer, ForeignKey("ssl_ha_groups.id", ondelete="SET NULL"))
+    serial_order  = Column(Integer, default=1)
+    network_zone  = Column(String(10),  nullable=False, default="internal")  # internal|dmz
+    status        = Column(String(20),  nullable=False, default="active")
+    created_at    = Column(DateTime,    nullable=False, default=func.now())
+    updated_at    = Column(DateTime,    nullable=False, default=func.now(), onupdate=func.now())
+
+    ha_group    = relationship("SslHaGroup", back_populates="servers")
+    deployments = relationship("SslDeployment", back_populates="server")
+    snapshots   = relationship("SslCertSnapshot", back_populates="server", cascade="all, delete-orphan")
+
+    __table_args__ = (
+        Index("idx_ssl_servers_ha_group", "ha_group_id"),
+        Index("idx_ssl_servers_zone", "network_zone", "status"),
+    )
+
+
+class SslDeployment(Base):
+    """SSL 인증서 배포 이력"""
+    __tablename__ = "ssl_deployments"
+
+    id            = Column(Integer, primary_key=True)
+    server_id     = Column(Integer, ForeignKey("ssl_servers.id", ondelete="SET NULL"))
+    trigger_type  = Column(String(20),  nullable=False)   # manual|auto_batch
+    cert_type     = Column(String(20))
+    cert_expiry   = Column(Date)
+    status        = Column(String(20),  nullable=False)   # success|failed|partial
+    duration_sec  = Column(Numeric(6, 2))
+    deploy_log    = Column(Text)
+    steps_result  = Column(Text)
+    rule_analysis = Column(Text)
+    llm_analysis  = Column(Text)
+    deployed_at   = Column(DateTime, nullable=False, default=func.now())
+
+    server = relationship("SslServer", back_populates="deployments")
+
+    __table_args__ = (
+        Index("idx_ssl_deployments_server", "server_id", "deployed_at"),
+    )
+
+
+class SslCertSnapshot(Base):
+    """SSL 인증서 현황 스냅샷 — openssl 폴링 결과"""
+    __tablename__ = "ssl_cert_snapshots"
+
+    id          = Column(Integer, primary_key=True)
+    server_id   = Column(Integer, ForeignKey("ssl_servers.id", ondelete="CASCADE"))
+    expiry_date = Column(Date)
+    days_left   = Column(Integer)
+    is_valid    = Column(Boolean)
+    checked_at  = Column(DateTime, nullable=False, default=func.now())
+
+    server = relationship("SslServer", back_populates="snapshots")
+
+    __table_args__ = (
+        Index("idx_ssl_cert_snapshots_server", "server_id", "checked_at"),
     )

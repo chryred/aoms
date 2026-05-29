@@ -35,6 +35,13 @@ docker compose -f docker-compose.dev.yml up -d n8n
 | `FASTEMBED_CACHE_PATH` / `HF_HUB_OFFLINE` | log-analyzer | 폐쇄망 ONNX 사전 스테이징 경로 + 오프라인 모드 (ADR-011) |
 | `QDRANT_URL` | log-analyzer | 벡터 DB. 컬렉션 차원 1024 (ADR-011) |
 | `LLM_TYPE` | admin-api, log-analyzer | `devx`/`claude`/`openai` — `llm_client.py` Strategy가 라우팅 (ADR-001). ADR-012: ollama 폐지 |
+| `STEPPATH` | admin-api | Step-CA 데이터 경로 (`/app/step`) — acme.sh ACME 요청용 |
+| `STEP_CA_ACME_URL` | admin-api | Step-CA ACME 디렉터리 URL (`http://172.17.0.1:8443/acme/acme/directory`) |
+| `STEP_CA_ROOT_CA` | admin-api | Root CA 인증서 경로 (`/app/secrets/ssl/root_ca.crt`) |
+| `STEP_CA_CERT_DIR` | admin-api | acme.sh --install-cert 결과 저장 경로 (`/app/ssl/certs`) |
+| `ACMESH_PATH` | admin-api | acme.sh 실행 파일 경로 (`/app/acme.sh/acme.sh`) |
+| `SSL_DEPLOY_KEY_PATH` | admin-api | 배포용 SSH private key 경로 (`/app/secrets/ssl/deploy_key`) |
+| `SSL_DEPLOY_PUBKEY_PATH` | admin-api | 배포용 SSH public key 경로 (`/app/secrets/ssl/deploy_key.pub`) |
 
 ---
 

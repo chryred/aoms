@@ -95,14 +95,17 @@ function ScoreDecomposition({ result }: ScoreDecompositionProps) {
                 <dt className="text-text-disabled">rerank logit</dt>
                 <dd>{(result.rerank_score as number).toFixed(4)}</dd>
               </div>
-              {originalRank !== undefined && originalRank !== null && rerankRank !== undefined && rerankRank !== null && (
-                <div>
-                  <dt className="text-text-disabled">rank 변화</dt>
-                  <dd>
-                    #{originalRank + 1} → #{rerankRank + 1}
-                  </dd>
-                </div>
-              )}
+              {originalRank !== undefined &&
+                originalRank !== null &&
+                rerankRank !== undefined &&
+                rerankRank !== null && (
+                  <div>
+                    <dt className="text-text-disabled">rank 변화</dt>
+                    <dd>
+                      #{originalRank + 1} → #{rerankRank + 1}
+                    </dd>
+                  </div>
+                )}
             </>
           )}
         </dl>

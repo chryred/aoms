@@ -23,11 +23,18 @@ from routes import knowledge_verify as knowledge_verify_router
 from routes import help as help_router
 from routes import oauth as oauth_router
 from routes import guides as guides_router
+from routes import ssl_servers as ssl_servers_router
+from routes import ssl_deployments as ssl_deployments_router
+from routes import ssl_certs as ssl_certs_router
+from routes import ssl_websocket as ssl_websocket_router
+from routes import ssl_root_ca as ssl_root_ca_router
+from routes import ssl_dmz as ssl_dmz_router
 from services.ssh_session import run_cleanup_loop
 # knowledge_guides 컬렉션 초기화는 ADR-011 Hybrid 통일 이후 log-analyzer가 담당.
 # admin-api 측 qdrant_guides.ensure_collection 은 호환을 위해 noop으로 유지된다.
 from services.prometheus_analyzer import run_prometheus_analyzer_loop
 from services.db_collector import db_collection_loop
+from services.ssl_scheduler import run_ssl_scheduler_loop
 from services.chat_tools.executors.ems import aclose_client as ems_aclose
 
 
@@ -48,9 +55,12 @@ async def lifespan(app: FastAPI):
     db_task = None
     if os.getenv("ENCRYPTION_KEY"):
         db_task = asyncio.create_task(db_collection_loop(AsyncSessionLocal))
+    # SSL 인증서 자동 갱신 배치 (매일 02:00 KST)
+    ssl_task = asyncio.create_task(run_ssl_scheduler_loop())
     yield
     cleanup_task.cancel()
     analyzer_task.cancel()
+    ssl_task.cancel()
     if db_task:
         db_task.cancel()
     # EMS 싱글톤 httpx 클라이언트 정리
@@ -110,6 +120,12 @@ app.include_router(knowledge_verify_router.router, prefix="/api/v1/knowledge")
 app.include_router(help_router.router)
 app.include_router(oauth_router.router)  # OIDC IdP (ADR-014): /.well-known, /oauth/*, /api/v1/oauth/*
 app.include_router(guides_router.router)
+app.include_router(ssl_servers_router.router)
+app.include_router(ssl_deployments_router.router)
+app.include_router(ssl_certs_router.router)
+app.include_router(ssl_websocket_router.router)
+app.include_router(ssl_root_ca_router.router)
+app.include_router(ssl_dmz_router.router)
 
 
 @app.get("/health")

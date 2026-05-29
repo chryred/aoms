@@ -111,6 +111,10 @@ admin-api/
 | `knowledge_sync_status` | 외부 지식 소스(Jira/Confluence/Documents) 동기화 현황. source가 PK (V1 RAG) |
 | `knowledge_sync_jobs` | Jira/Confluence 단건 강제 재동기화 비동기 Job (P2-C). UUID PK, source/ref_id/status/progress/result_json/error_message/triggered_by |
 | `scheduler_run_history` | log-analyzer 스케줄러 실행 이력. `scheduler_type`(analysis/hourly/daily/weekly/monthly/longperiod/trend), `status`(ok/error), `error_count`, `analyzed_count`, `summary_json`, `error_message` |
+| `ssl_ha_groups` | SSL HA 그룹 — 복수 서버를 serial_order 순 순차 배포하는 묶음 |
+| `ssl_servers` | SSL 대상 서버. `web_type`: webtob/nginx/apache/lets_encrypt_http01. `cert_type`: wildcard/individual. `network_zone`: internal/dmz. password 저장 안 함 |
+| `ssl_deployments` | SSL 인증서 배포 이력. `trigger_type`: manual/auto_batch. `status`: pending/running/success/failed/partial |
+| `ssl_cert_snapshots` | openssl s_client 폴링으로 수집한 인증서 만료 현황. `days_left`로 D-day 계산 |
 
 ## API 엔드포인트
 
@@ -412,6 +416,38 @@ class InstanceStatusOut(BaseModel):
 | `knowledge_jira` / `knowledge_confluence` | **필터 미적용** — 전체 지식베이스 조회 (Subagent A federated_search 정책) |
 
 모든 엔드포인트 `Depends(get_current_user)` 인증 필요.
+
+### SSL 인증서 자동화 관리 `/api/v1/ssl`
+
+**서버 관리** (`routes/ssl_servers.py`):
+- `POST /api/v1/ssl/servers` — 서버 등록. password로 1회 SSH → authorized_keys 자동 등록. password는 DB 저장 안 함
+- `GET /api/v1/ssl/servers` — 목록 (`?network_zone=internal|dmz`, `?status=active`)
+- `PATCH /api/v1/ssl/servers/{id}` — 수정 (password 제외 필드)
+- `DELETE /api/v1/ssl/servers/{id}` — soft delete (`status=deleted`)
+- `POST /api/v1/ssl/servers/{id}/test-ssh` — SSH 키 인증 테스트
+- `GET /api/v1/ssl/ha-groups` — HA 그룹 목록
+- `POST /api/v1/ssl/ha-groups` — HA 그룹 생성
+- `DELETE /api/v1/ssl/ha-groups/{id}` — HA 그룹 삭제
+
+**배포** (`routes/ssl_deployments.py`):
+- `POST /api/v1/ssl/servers/{id}/deploy` — 단일 서버 즉시 배포 (202, 백그라운드)
+- `POST /api/v1/ssl/ha-groups/{id}/deploy` — HA 그룹 serial 순차 배포
+- `GET /api/v1/ssl/deployments` — 이력 목록 (`?server_id=`, `?limit=`)
+- `GET /api/v1/ssl/deployments/{id}` — 상세 + 로그
+
+**인증서 현황** (`routes/ssl_certs.py`):
+- `GET /api/v1/ssl/certs/status` — 전체 D-day 대시보드 (days_left 오름차순)
+- `GET /api/v1/ssl/certs/{server_id}` — 서버별 최신 스냅샷
+
+**배포 로그 스트리밍** (`routes/ssl_websocket.py`):
+- `WS /ws/ssl-deploy/{deploy_id}` — 배포 진행 로그 실시간 스트리밍
+
+**DMZ 번들** (`routes/ssl_dmz.py`):
+- `GET /api/v1/ssl/dmz/bundle/{server_id}` — DMZ 설치 번들 zip 다운로드. `web_type=lets_encrypt_http01` 서버만 허용. zip 내용: install.sh(acme.sh 설치+발급+cron), reload.sh(nginx reload), README.md
+
+**Root CA 공개 엔드포인트** (`routes/ssl_root_ca.py`, **인증 불필요**):
+- `GET /api/v1/ssl/root-ca/download` — `shinsegae-root-ca.crt` 파일 다운로드 (application/x-x509-ca-cert). 파일 경로: `STEP_CA_ROOT_CA` env (기본 `/app/secrets/ssl/root_ca.crt`)
+- `GET /api/v1/ssl/root-ca/info` — CA 이름, 만료일, SHA256 지문 반환. openssl subprocess 파싱. 파일 없으면 `{ "available": false }`
 
 ### 게스트 채팅 `/api/v1/help` (V2)
 인증 없이 현업 담당자가 RAG 챗봇을 사용할 수 있는 공개 엔드포인트.

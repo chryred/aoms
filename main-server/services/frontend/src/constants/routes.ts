@@ -35,4 +35,8 @@ export const ROUTES = {
   incidentDetail: (id: number | string) => `/incidents/${id}`,
   feedbackReview: (id: number | string) => `/feedback/review/${id}`,
   feedbackRevise: (id: number | string) => `/feedback/revise/${id}`,
+  SSL_DASHBOARD: '/ssl',
+  SSL_SERVERS: '/ssl/servers',
+  SSL_DEPLOYMENTS: '/ssl/deployments',
+  SSL_CA_GUIDE: '/ssl/ca-guide',
 }

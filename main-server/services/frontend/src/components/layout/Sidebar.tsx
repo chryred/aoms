@@ -232,6 +232,13 @@ export function Sidebar() {
 
         <NavGroup label="관리" collapsed={collapsed}>
           <NavItem
+            to={ROUTES.SSL_DASHBOARD}
+            icon={<ShieldCheck className="h-4 w-4" />}
+            label="SSL 인증서"
+            collapsed={collapsed}
+            onNavigate={closeMobileSidebar}
+          />
+          <NavItem
             to={ROUTES.KNOWLEDGE}
             icon={<BookOpen className="h-4 w-4" />}
             label="지식 관리"

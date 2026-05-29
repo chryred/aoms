@@ -64,7 +64,9 @@ export function AlertReclassifyPanel({ alert, onClose, onSuccess }: AlertReclass
   const { user } = useAuthStore()
   const queryClient = useQueryClient()
 
-  const [severityMap, setSeverityMap] = useState<Record<string, 'info' | 'warning' | 'critical'>>({})
+  const [severityMap, setSeverityMap] = useState<Record<string, 'info' | 'warning' | 'critical'>>(
+    {},
+  )
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -84,11 +86,16 @@ export function AlertReclassifyPanel({ alert, onClose, onSuccess }: AlertReclass
     if (analysisRec.template_classifications_json) {
       try {
         return JSON.parse(analysisRec.template_classifications_json) as TemplateClassification[]
-      } catch { /* fall through */ }
+      } catch {
+        /* fall through */
+      }
     }
     if (analysisRec.templates_json) {
       const isNotification = analysisRec.anomaly_type === 'notification'
-      return analysisRec.templates_json.map((t) => ({ template: t, is_notification: isNotification }))
+      return analysisRec.templates_json.map((t) => ({
+        template: t,
+        is_notification: isNotification,
+      }))
     }
     return []
   })()
@@ -226,7 +233,9 @@ export function AlertReclassifyPanel({ alert, onClose, onSuccess }: AlertReclass
           )}
         >
           {open && isLoading && (
-            <div className="text-text-secondary py-8 text-center text-sm">분석 데이터 로딩 중...</div>
+            <div className="text-text-secondary py-8 text-center text-sm">
+              분석 데이터 로딩 중...
+            </div>
           )}
 
           {open && !isLoading && classifications.length === 0 && (
@@ -244,7 +253,9 @@ export function AlertReclassifyPanel({ alert, onClose, onSuccess }: AlertReclass
                 <input
                   type="checkbox"
                   checked={allChecked}
-                  ref={(el) => { if (el) el.indeterminate = someChecked }}
+                  ref={(el) => {
+                    if (el) el.indeterminate = someChecked
+                  }}
                   onChange={toggleAll}
                   className="accent-accent h-4 w-4 cursor-pointer rounded-sm"
                 />
@@ -277,7 +288,7 @@ export function AlertReclassifyPanel({ alert, onClose, onSuccess }: AlertReclass
                         className="accent-accent mt-0.5 h-4 w-4 flex-shrink-0 cursor-pointer rounded-sm"
                       />
                       <div className="min-w-0 flex-1">
-                        <p className="text-text-primary break-all font-mono text-xs leading-relaxed">
+                        <p className="text-text-primary font-mono text-xs leading-relaxed break-all">
                           {c.template}
                         </p>
                         {c.reason && (

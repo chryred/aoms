@@ -21,22 +21,22 @@ export const NeuButton = forwardRef<HTMLButtonElement, NeuButtonProps>(function 
       className={cn(
         'inline-flex items-center justify-center gap-2 rounded-sm font-medium',
         'transition-[box-shadow,background-color,opacity] duration-150',
-        'focus:ring-accent focus:ring-offset-bg-base focus:ring-1 focus:ring-offset-2 focus:outline-none',
+        'focus-visible:ring-accent focus-visible:ring-offset-bg-base focus-visible:ring-1 focus-visible:ring-offset-2 focus-visible:outline-none',
         'disabled:cursor-not-allowed disabled:opacity-40',
-        size === 'sm' && 'min-h-[32px] px-3 py-1.5 text-sm',
-        size === 'md' && 'min-h-[40px] px-4 py-2 text-sm',
+        size === 'sm' && 'min-h-[40px] px-3 py-1.5 text-sm',
+        size === 'md' && 'min-h-[44px] px-4 py-2 text-sm',
         size === 'lg' && 'min-h-[48px] px-6 py-3 text-base',
         variant === 'primary' && [
           'bg-accent text-accent-contrast font-semibold',
           'shadow-neu-flat',
           'hover:bg-accent-hover',
-          'active:bg-accent-hover active:shadow-[inset_2px_2px_6px_rgba(0,0,0,0.3)]',
+          'active:bg-accent-hover active:shadow-neu-pressed',
         ],
         variant === 'secondary' && [
           'bg-btn-secondary text-text-primary',
           'shadow-neu-flat',
           'hover:bg-btn-secondary hover:text-text-primary',
-          'active:bg-btn-secondary active:shadow-[inset_1px_1px_4px_rgba(0,0,0,0.2)]',
+          'active:bg-btn-secondary active:shadow-neu-pressed',
         ],
         variant === 'glass' && [
           'bg-glass-bg text-accent',
@@ -52,7 +52,7 @@ export const NeuButton = forwardRef<HTMLButtonElement, NeuButtonProps>(function 
           'bg-critical text-accent-contrast',
           'shadow-neu-flat',
           'hover:bg-critical',
-          'active:shadow-[inset_2px_2px_6px_rgba(0,0,0,0.3)]',
+          'active:shadow-neu-pressed',
         ],
         className,
       )}

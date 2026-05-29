@@ -70,4 +70,13 @@ export const qk = {
     list: (params?: GuideListParams) => ['guides', 'list', params] as const,
     detail: (id: string) => ['guides', id] as const,
   },
+
+  ssl: {
+    haGroups: () => ['ssl', 'ha-groups'] as const,
+    servers: (params?: Record<string, string>) => ['ssl', 'servers', params] as const,
+    deployments: (params?: Record<string, unknown>) => ['ssl', 'deployments', params] as const,
+    deployment: (id: number) => ['ssl', 'deployments', id] as const,
+    certStatus: () => ['ssl', 'certs', 'status'] as const,
+    certByServer: (serverId: number) => ['ssl', 'certs', serverId] as const,
+  },
 }

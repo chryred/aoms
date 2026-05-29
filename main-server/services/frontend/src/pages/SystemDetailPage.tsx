@@ -31,7 +31,11 @@ function parseAlertDescription(desc: string | null | undefined): ParsedAlertDesc
     if (
       obj &&
       typeof obj === 'object' &&
-      ('root_cause' in obj || 'recommendation' in obj || 'anomaly_type' in obj || 'severity' in obj || 'log_content' in obj)
+      ('root_cause' in obj ||
+        'recommendation' in obj ||
+        'anomaly_type' in obj ||
+        'severity' in obj ||
+        'log_content' in obj)
     ) {
       return obj as ParsedAlertDesc
     }
