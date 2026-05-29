@@ -285,6 +285,25 @@ def build_prometheus_llm_prompt(
         lines.append(f"  {label}: {' | '.join(status_parts)}")
     lines.append("")
 
+    # 프로세스 현황 (CPU 상위 + 좀비)
+    proc_section_lines = []
+    for sn, sm in hc.systems.items():
+        dn = sm.display_name or sn
+        if sm.zombie_count > 0:
+            proc_section_lines.append(
+                f"  ⚠️ 좀비 프로세스 {sm.zombie_count}개 감지 ({dn}) — 응답 없는 defunct 상태"
+            )
+        for p in sm.top_processes:
+            name = p["name"]
+            cpu  = p["cpu_pct"]
+            pid_str = f" [PID {p['pid']}]" if p.get("pid") else ""
+            flag = " ⚠️" if cpu > _CPU_THRESHOLD else ""
+            proc_section_lines.append(f"  {name}{pid_str}: CPU {cpu:.1f}%{flag} ({dn})")
+    if proc_section_lines:
+        lines.append("[프로세스 현황 (CPU 상위 / 좀비)]")
+        lines.extend(proc_section_lines)
+        lines.append("")
+
     # 분석 요청
     anomalous_systems = [
         f"{sm.display_name or sn} ({sn})"
@@ -303,8 +322,8 @@ def build_prometheus_llm_prompt(
         '위 현황을 종합하여 다음 JSON 형식으로만 응답하세요:\n'
         '{\n'
         '  "anomaly_item": "임계치를 초과한 메트릭과 수치 (한국어, 1줄)",\n'
-        '  "root_cause": "자원과 로그 에러의 연관성 및 원인 추정 (한국어, 2문장)",\n'
-        '  "immediate_action": "운영팀이 즉시 취해야 할 조치 (한국어, 1~2문장)"\n'
+        '  "root_cause": "자원·프로세스·로그 에러의 연관성 및 원인 추정 (한국어, 2문장 — 좀비 프로세스나 CPU 상위 프로세스가 있으면 반드시 언급)",\n'
+        '  "immediate_action": "운영팀이 즉시 취해야 할 조치 (한국어, 1~2문장 — 특정 프로세스 확인·재시작이 필요하면 구체적으로 명시)"\n'
         '}'
     )
     return "\n".join(lines)

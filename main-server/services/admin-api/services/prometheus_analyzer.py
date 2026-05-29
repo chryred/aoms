@@ -112,6 +112,10 @@ class SystemMetrics:
     anomalies: list = field(default_factory=list)
     # 이 이상에 묶인 메트릭 종류 (AlertHistory.metric_types 컬럼 저장용, MetricType enum value)
     matched_metric_types: list = field(default_factory=list)
+    # 프로세스 CPU 상위 목록 — [{"name": str, "pid": str, "cpu_pct": float}]
+    top_processes: list = field(default_factory=list)
+    # 좀비 프로세스 수 (state=Z)
+    zombie_count: int = 0
 
 
 @dataclass
@@ -509,6 +513,46 @@ async def _build_host_contexts(
         sm = _get_host(host).get_or_create(sn)
         sm.display_name = sm.display_name or dn
         sm.http_req_rate = val
+
+    # 9. 프로세스 CPU 상위 목록 (서비스 매핑 포함, 상위 5개 / system 기준)
+    proc_cpu_results = await _query_prometheus(
+        'max by (host, system_name, process, pid, service_display)'
+        ' (process_cpu_percent)'
+    )
+    proc_by_host_sys: dict[tuple, list] = {}
+    for r in proc_cpu_results:
+        host = r["metric"].get("host", "")
+        sn   = r["metric"].get("system_name", "unknown")
+        val  = float(r["value"][1])
+        if not host or val < 1.0:
+            continue
+        key = (host, sn)
+        if key not in proc_by_host_sys:
+            proc_by_host_sys[key] = []
+        proc_by_host_sys[key].append({
+            "name":    r["metric"].get("service_display") or r["metric"].get("process", "?"),
+            "pid":     r["metric"].get("pid", ""),
+            "cpu_pct": val,
+        })
+    for (host, sn), procs in proc_by_host_sys.items():
+        if host not in hosts or sn not in hosts[host].systems:
+            continue
+        hosts[host].systems[sn].top_processes = sorted(
+            procs, key=lambda x: x["cpu_pct"], reverse=True
+        )[:5]
+
+    # 10. 좀비 프로세스 수 (state=Z)
+    zombie_results = await _query_prometheus(
+        'process_zombie_count > 0'
+    )
+    for r in zombie_results:
+        host = r["metric"].get("host", "")
+        sn   = r["metric"].get("system_name", "unknown")
+        val  = int(float(r["value"][1]))
+        if not host:
+            continue
+        if host in hosts and sn in hosts[host].systems:
+            hosts[host].systems[sn].zombie_count = val
 
     return hosts
 

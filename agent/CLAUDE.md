@@ -136,6 +136,7 @@ tcp_connections{..., port, state}        # ESTABLISHED|TIME_WAIT|CLOSE_WAIT
 # 프로세스 → 서비스 상관관계
 process_cpu_percent{..., process, service_name, service_display}
 process_memory_bytes{..., process, service_name, service_display}
+process_zombie_count{...,}                       # 좀비(defunct) 프로세스 수 (state=Z, 매 수집마다 emit)
 
 # 로그 에러 (log_monitor)
 log_error_total{..., log_type, level, service_name, template}
