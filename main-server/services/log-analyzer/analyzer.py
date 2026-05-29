@@ -17,6 +17,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 from datetime import datetime, timezone
 
 import httpx
@@ -225,7 +226,26 @@ async def fetch_logs_for_system(system_name: str) -> dict[str, list[dict]]:
     return by_role
 
 
-_NOTIFICATION_SKIP_THRESHOLD = 0.025  # Qdrant RRF 임계값 — notification auto-skip 판정 기준
+_NOTIFICATION_SKIP_THRESHOLD  = 0.025  # Qdrant RRF 임계값 — 비FQCN 로그용
+_FQCN_NOTIFICATION_THRESHOLD = 0.9    # FQCN 예외 포함 로그용 (cross-log false positive 방지)
+#   RRF 1위(자기 notification point): ~1.0 → 통과
+#   RRF 2위(다른 로그 false positive): ~0.67-0.7 → 차단 → LLM 분석
+
+# Java FQCN 예외/에러 클래스명 패턴 (예: java.nio.channels.OverlappingFileLockException)
+_JAVA_FQCN_RE = re.compile(
+    r'[a-z][a-z0-9]+(?:\.[a-z][a-z0-9]+)+\.[A-Z][a-zA-Z]*(Exception|Error)\b'
+)
+
+
+def _has_definite_real_error(logs: list[dict]) -> bool:
+    """템플릿에 Java FQCN 예외/에러 클래스명이 있으면 True (notification_auto 우회 판정)."""
+    for log in logs:
+        tmpl = log.get("template", "")
+        if _JAVA_FQCN_RE.search(tmpl):
+            return True
+        if tmpl.startswith("Caused by:"):
+            return True
+    return False
 
 
 async def analyze_with_vector_context(
@@ -295,11 +315,18 @@ async def analyze_with_vector_context(
             )
 
     # notification auto-skip
+    # FQCN 예외가 있으면 더 엄격한 임계값 적용 — cross-log false positive 방지
+    # (동일 패턴 자기 포인트: ~1.0, 다른 로그 false positive: ~0.7 → 0.9로 분리)
+    _notif_threshold = (
+        _FQCN_NOTIFICATION_THRESHOLD
+        if _has_definite_real_error(logs)
+        else _NOTIFICATION_SKIP_THRESHOLD
+    )
     # 1단계: similar_all(상위 5건)에서 빠르게 확인
     _notif_candidate = next(
         (c for c in similar_all
          if c["payload"].get("is_notification") is True
-         and c["score"] >= _NOTIFICATION_SKIP_THRESHOLD),
+         and c["score"] >= _notif_threshold),
         None,
     )
     # 2단계: 없으면 is_notification=True 전용 쿼리 — score_threshold로 Qdrant가 직접 필터링
@@ -307,7 +334,7 @@ async def analyze_with_vector_context(
         try:
             _notif_hits = await search_notification_incidents(
                 dense_vec, sparse_vec, system_name,
-                score_threshold=_NOTIFICATION_SKIP_THRESHOLD,
+                score_threshold=_notif_threshold,
             )
             _notif_candidate = _notif_hits[0] if _notif_hits else None
         except Exception as e:
@@ -316,7 +343,7 @@ async def analyze_with_vector_context(
     if _notif_candidate is not None:
         logger.info(
             f"{system_name}/{instance_role}: notification auto-skip "
-            f"(score={_notif_candidate['score']:.3f})"
+            f"(score={_notif_candidate['score']:.3f}, threshold={_notif_threshold})"
         )
         return {
             "anomaly_type":     "notification_auto",
