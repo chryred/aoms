@@ -61,7 +61,6 @@ pub fn collect(cfg: &AgentConfig, services: &[ServiceConfig]) -> Vec<MetricSampl
 
     // 좀비 프로세스 카운트 (state == 'Z') — CPU/메모리 계산과 무관하게 집계
     let zombie_count = active.iter().filter(|(_, _, _, _, _, s)| *s == 'Z').count() as f64;
-    samples.push(MetricSample::new("process_zombie_count", base.clone(), zombie_count));
 
     let mut pid_cpu: HashMap<u32, f64> = HashMap::new();
     for (pid, _name, _cmd, curr_ticks, _rss, _state) in &active {
@@ -119,6 +118,9 @@ pub fn collect(cfg: &AgentConfig, services: &[ServiceConfig]) -> Vec<MetricSampl
     }
 
     let mut samples = Vec::new();
+
+    // 좀비 프로세스 카운트 emit (samples 선언 이후)
+    samples.push(MetricSample::new("process_zombie_count", base.clone(), zombie_count));
 
     // Emit service-mapped metrics
     for (svc_name, (svc_display, cpu_percent, rss_kb)) in &service_stats {
