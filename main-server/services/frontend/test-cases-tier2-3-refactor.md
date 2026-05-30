@@ -8,7 +8,7 @@
 
 - **URL**: http://localhost:3001
 - **API**: http://localhost:8080 (proxied)
-- **로그인**: `jeongwonchoi@shinsegae.com` / `admin1234`
+- **로그인**: `jeongwonchoi@shinsegae.com` / `1`
 - **브라우저**: Playwright Chromium
 
 ## 공통 검증 항목 (모든 케이스 마지막에 체크)
@@ -27,7 +27,7 @@
 **스텝**:
 1. http://localhost:3001 접속 → 자동으로 `/login` 리다이렉트 확인
 2. email 필드에 `jeongwonchoi@shinsegae.com` 입력
-3. password 필드에 `admin1234` 입력
+3. password 필드에 `1` 입력
 4. "로그인" 버튼 클릭
 5. URL이 `/` (대시보드)로 변경 확인
 
