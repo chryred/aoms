@@ -256,40 +256,69 @@ log-analyzer/
     → admin-api POST /api/v1/analysis 로 결과 전송
 ```
 
-### 메트릭 유사도 분류 (ADR-011 Hybrid RRF)
+### 메트릭 유사도 분류 (ADR-011 Hybrid RRF) — k=2 스케일 기준
 ```
 POST /metric/similarity
   → 메트릭 상태를 자연어 텍스트로 변환 → FastEmbed Dense+Sparse 임베딩
   → metric_baselines Hybrid 검색 (prefetch dense>=0.5, sparse, RRF fusion)
-    RRF score ≥ 0.030 → duplicate  (Teams 알림 생략)
-    RRF score ≥ 0.022 → recurring  ("반복 이상" 강조)
-    RRF score ≥ 0.014 → related    ("유사 이상")
+    RRF score ≥ 0.8  → duplicate  (Teams 알림 생략)
+    RRF score ≥ 0.5  → recurring  ("반복 이상" 강조)
+    RRF score ≥ 0.3  → related    ("유사 이상")
     그 외             → new        ("신규 이상") → Qdrant에 저장
 ```
-> RRF 점수는 순위 기반(상대 스케일)이라 기존 cosine 임계값과 다르다. 운영 데이터 축적 후 재튜닝.
+> **Qdrant RRF k=2 스케일**: `score = Σ 1/(rank+2)`, rank 0-based, 최대 1.0.
+> 주요 점수: 둘 다 1위=1.0 / 1위+2위=0.833 / 둘 다 2위=0.667 / dense 1위 단독=0.5 / 둘 다 5위=0.333.
+> 기존 0.032/0.025/0.015는 k=60 스케일 잔재로 2026-05-31 보정됨. 운영 데이터 축적 후 세부 재튜닝 가능.
 
-### 알림성 로그 자동 분류 흐름 (notification classification)
+### 알림성 로그 자동 분류 흐름 (notification classification) — **template 단위 (2026-05 재설계)**
+
+> 과거: 배치 전체를 합친 임베딩 1개로 skip 판정 → 알림성+신규에러 혼합 배치에서 신규 에러까지 같이 over-skip.
+> FQCN 0.9 임계값 분기로 땜질했으나 멱등성 깨짐(uuid4 증식·LLM 매주기 재판단으로 동일 의도 로그가 랜덤 분리).
+> → **batch 단위 → template 단위 인식**으로 재설계. FQCN regex/0.9 분기 제거.
 
 ```
-5분 주기 analyze_with_vector_context():
-  1. Qdrant log_incidents 유사 검색
-  2. 상위 결과 payload.is_notification=true AND RRF ≥ 0.025?
-     → force_real 미등록: notification_auto 반환 (DB/Teams 없음, 완전 skip)
-     → force_real 등록됨: LLM 정상 분석 진행
-  3. LLM 분석 (is_notification 판단 포함)
-     → is_notification=true: Qdrant 저장(is_notification=True) + admin-api Teams 1회
-     → is_notification=false: 기존 warning/critical 흐름
+5분 주기 _analyze_one_role():
+  1. distinct template 단위 그룹화
+  2. _recognize_templates() — template마다:
+     tier-1 (exact): 결정적 point_id(retrieve_point) 직접 조회 → 있으면 저장된 결정(is_notification/severity) 승계 (임베딩 0회)
+     tier-2 (fuzzy): 미존재 시 dense 임베딩 후 search_notification_incidents(dense 단독, cosine ≥ 0.9) → 알림성 변형으로 인식
+     그 외: 미인식(신규) → LLM 대상
+  3. recognized 알림성: bump_occurrence / (tier-2 변형은 결정적 id로 신규 저장) + 경량 notification_auto 레코드 1건 (Teams 없음)
+  4. 전부 알림성 인식 → 배치 skip (LLM 호출 없음)
+  5. need_llm(신규/recognized 실에러) → analyze_with_vector_context(LLM) → template 단위:
+     - stored-wins: recognized면 저장된 결정, 아니면 LLM template_classifications
+     - store_incident_vector(point_key=normalized_template) — template 단위 결정적 id upsert(멱등)
+     - submit_analysis도 template마다 1회 (1 row = 1 point):
+       · 신규 알림성: anomaly_type="notification" (Teams 최초 1회) → 다음 주기 tier-1 인식 → notification_auto
+       · 실에러: anomaly_type=분석값, Teams + 인시던트 (기존 흐름)
 ```
+
+**핵심 불변식**:
+- **point_id = `template_point_id(system, role, normalized_template)`** (UUID5, 결정적). 같은 패턴 = 1 포인트 upsert → uuid4 증식·Teams 스팸 제거. `vector_client.store_incident_vector(point_key=...)`.
+- **stored-wins**: 인식된 template은 LLM 재판단보다 저장된 결정 우선 → 동일 의도 로그 랜덤 분리 방지.
+- **혼합 배치 안전**: 신규 template(OverlapException 등)은 단독 질의 시 어떤 notification 포인트와도 매칭 안 됨 → 임계값 무관 미인식 → 정상 신규 알림.
+- **재분류 승계**: admin-api 재분류는 `/log-incidents/submit-group`이 template 단위 결정적 id로 재기록 → 이후 주기 tier-1이 새 결정(info→warning 등) 승계.
 
 **anomaly_type 값 정리**:
 | 값 | 의미 | Teams |
 |---|---|---|
-| `notification` | LLM이 최초 알림성 분류 | 알림성 카드 1회 |
-| `notification_auto` | Qdrant 유사도 자동 skip | 없음 (DB 저장도 없음) |
+| `notification` | 신규 알림성 최초 분류 | 알림성 카드 1회 |
+| `notification_auto` | template 단위 인식 → 자동 skip | 없음 (경량 DB 레코드만) |
 | `new` / `recurring` / `related` / `duplicate` | 기존 이상 분류 | 기존 흐름 |
 
-`_NOTIFICATION_SKIP_THRESHOLD = 0.025` (상수 — `analyzer.py` 모듈 상단).
-**regex guard** (`_has_definite_real_error`): 스택트레이스 등 명확한 실에러 패턴 감지 시 notification_auto skip 비활성화.
+**임계값 정리 (2026-05-31 기준)**:
+
+| 상수 | 값 | 용도 | 비고 |
+|---|---|---|---|
+| `_NOTIF_RECOGNIZE_THRESHOLD` | **0.9** (cosine) | tier-2 fuzzy 알림성 인식 | `search_notification_incidents`가 **dense 단독** 검색으로 교체됨. RRF 스케일 아님. |
+| `classify_anomaly` duplicate | **0.8** (RRF k=2) | 배치 중복 판정 | dense·sparse 양쪽 최상위권 |
+| `classify_anomaly` recurring | **0.5** (RRF k=2) | 반복 이상 | 최소 한 모달리티 1위 (dense rank 0 = 0.5) |
+| `classify_anomaly` related | **0.3** (RRF k=2) | 유사 이상 | 한 쪽 중간 순위 이상 |
+
+> **왜 두 개의 스케일이 섞이나**: tier-2(`_NOTIF_RECOGNIZE_THRESHOLD`)는 단일 template의 의미적 동치 탐색 → BM25 IDF 왜곡으로 dense 단독 cosine이 적합(0.9).
+> `classify_anomaly`는 5분 배치 전체의 패턴 중복 여부 탐색 → dense+sparse RRF가 적합(키워드+의미 복합), k=2 스케일(0.8/0.5/0.3).
+>
+> **재분류 시 자동 일괄 업데이트**: admin-api 재분류 저장 → `find_similar_incidents(dense 단독, cosine ≥ 0.9, limit=500)` → 유사 패턴 전부 Qdrant + DB 동기화. limit=500은 Qdrant 필수 파라미터의 실용적 상한 (cosine 0.9+ 결과가 500개 이상 나오는 경우는 없음).
 
 ### 집계 처리 흐름 (Phase 5 — 내부 스케줄러)
 

@@ -17,13 +17,14 @@ describe('PeriodToggle', () => {
   it('선택된 항목에 활성 클래스', () => {
     render(<PeriodToggle value="monthly" onChange={vi.fn()} />)
     const monthBtn = screen.getByText('월별')
-    expect(monthBtn.className).toContain('border-b-2')
+    // 슬라이딩 filled 인디케이터 패턴 — 활성 버튼은 accent 대비 텍스트
+    expect(monthBtn.className).toContain('text-accent-contrast')
   })
 
   it('비활성 항목에 활성 클래스 없음', () => {
     render(<PeriodToggle value="daily" onChange={vi.fn()} />)
     const weekBtn = screen.getByText('주별')
-    expect(weekBtn.className).not.toContain('border-b-2')
+    expect(weekBtn.className).not.toContain('text-accent-contrast')
   })
 
   it('버튼 클릭 시 onChange 호출', async () => {

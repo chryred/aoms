@@ -18,13 +18,13 @@ describe('CriticalBanner', () => {
 
   it('criticalCount=0일 때 미렌더링', () => {
     renderWithRouter()
-    expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.queryByRole('region')).toBeNull()
   })
 
   it('criticalCount>0일 때 렌더링', () => {
     useUiStore.setState({ criticalCount: 3 })
     renderWithRouter()
-    expect(screen.getByRole('alert')).toBeInTheDocument()
+    expect(screen.getByRole('region')).toBeInTheDocument()
   })
 
   it('건수 표시', () => {
@@ -36,6 +36,6 @@ describe('CriticalBanner', () => {
   it('fixed 위치 클래스', () => {
     useUiStore.setState({ criticalCount: 1 })
     renderWithRouter()
-    expect(screen.getByRole('alert').className).toContain('fixed')
+    expect(screen.getByRole('region').className).toContain('fixed')
   })
 })

@@ -122,7 +122,7 @@ describe('DashboardPage', () => {
       isConnecting: false,
     } as never)
     renderPage()
-    expect(screen.getByText(/실시간 알림 수신 중/)).toBeInTheDocument()
+    expect(screen.getByText(/실시간 연결됨/)).toBeInTheDocument()
   })
 
   it('새로고침 버튼', async () => {

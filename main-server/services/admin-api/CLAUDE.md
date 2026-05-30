@@ -162,7 +162,9 @@ docker exec -it aoms-admin-api \
   - `warning`/`critical`이면 Teams 발송 후 `alert_sent=True`
 - `GET /` — 이력 조회 (필터: `system_id`, `severity`, `limit`)
 - `GET /{id}` — 단건 조회
-- `PATCH /reclassify/{alert_history_id}` — 알림성/실에러 수동 재분류. 기존 Qdrant 포인트 삭제 + `anomaly_type='reclassified'` 마킹 + 그룹별 신규 포인트/row/인시던트 생성. body: `{template_changes: [{template, new_severity}]}`
+- `PATCH /reclassify/{alert_history_id}` — 알림성/실에러 수동 재분류. 기존 Qdrant 포인트 삭제 + `anomaly_type='reclassified'` 마킹 + 그룹별 신규 포인트/row/인시던트 생성. body: `{template_changes: [{template, new_severity}]}`. 응답에 `info_alert_history_id`(정보로 바뀐 새 알림 — goal #3 미리보기 기준점) 포함
+- `GET /{alert_history_id}/similar-real-errors?score_threshold=0.6` — goal #3 미리보기. 이 정보 알림과 유사한 실에러(is_notification=False) 후보 반환(log-analyzer `/log-incidents/similar-real-errors` 프록시 + alert_history 조인). 보수적 임계값(실에러 오정보화=알림 은폐 위험)
+- `POST /bulk-relabel-notification` — goal #3 적용. body `{point_ids: [...]}`. 선택 포인트를 Qdrant `is_notification=True/info` 전환 + alert_history/log_analysis_history → info/notification 동기화. **template 단위 인식 재설계(2026-05-30, log-analyzer)와 한 쌍** — 이미 갈라진 형제 케이스를 사용자 확인 후 일괄 정보화
 
 ### 메트릭 알림 예외 처리 `/api/v1/metric-exclusions`
 prometheus_analyzer 메트릭 알림 전용. 로그 알림용 `/api/v1/alert-exclusions` 와 대칭이지만 매칭 모델 다름.

@@ -70,8 +70,8 @@ describe('RegisterPage', () => {
 
     await userEvent.type(screen.getByLabelText('이름'), '홍길동')
     await userEvent.type(screen.getByLabelText('이메일'), 'test@test.com')
-    await userEvent.type(screen.getByLabelText('비밀번호'), 'Passw0rd!')
-    await userEvent.type(screen.getByLabelText('비밀번호 확인'), 'Passw0rd!')
+    await userEvent.type(screen.getByLabelText('비밀번호'), 'Password1234')
+    await userEvent.type(screen.getByLabelText('비밀번호 확인'), 'Password1234')
     await userEvent.click(screen.getByRole('button', { name: '등록 신청' }))
 
     expect(await screen.findByText('등록 신청이 완료되었습니다')).toBeInTheDocument()
@@ -80,6 +80,6 @@ describe('RegisterPage', () => {
   it('빈 폼 제출 — 유효성 검사', async () => {
     renderRegisterPage()
     await userEvent.click(screen.getByRole('button', { name: '등록 신청' }))
-    expect(await screen.findByText(/2자 이상/)).toBeInTheDocument()
+    expect(await screen.findByText(/이름은 2자 이상/)).toBeInTheDocument()
   })
 })

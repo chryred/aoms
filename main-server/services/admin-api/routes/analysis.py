@@ -427,9 +427,9 @@ async def reclassify_alert_history(
     _SEV_KR = {"critical": "위험", "warning": "경고", "info": "정보"}
     new_alert_ids: list[int] = []
 
-    async def _create_group(templates: list[str], is_notification: bool, severity: str) -> None:
+    async def _create_group(templates: list[str], is_notification: bool, severity: str):
         if not templates:
-            return
+            return None, None
 
         # 선택된 템플릿의 log_content: 원본과 동일한 [Nx][LEVEL][log_type] 포맷
         tmpl_set = set(templates)
@@ -549,12 +549,79 @@ async def reclassify_alert_history(
             ))
 
         new_alert_ids.append(new_alert.id)
+        return new_alert.id, new_point_id  # (alert_history_id, qdrant_point_id)
 
-    await _create_group(notif_templates, is_notification=True, severity="info")
-    await _create_group(real_templates, is_notification=False, severity=real_severity)
+    info_alert_history_id, info_point_id = await _create_group(notif_templates, is_notification=True, severity="info")
+    real_error_alert_history_id, real_point_id = await _create_group(real_templates, is_notification=False, severity=real_severity)
 
     await db.commit()
-    return {"reclassified_from": alert_history_id, "new_alert_history_ids": new_alert_ids}
+
+    # ── 자동 일괄 유사 패턴 업데이트 (Phase 2 없음, limit 없음) ─────────────────
+    # 재분류 후 유사 패턴(cosine 0.9+)을 전부 동일한 분류로 Qdrant + DB 갱신.
+    # 사용자 확인 없이 자동 처리 — "1건이라도 정보성이면 skip" 원칙과 일관성 확보.
+    auto_notif_count = 0   # 정보화된 유사 패턴 수
+    auto_real_count  = 0   # 실에러화된 유사 패턴 수
+
+    async def _auto_bulk(ref_point_id: str | None, find_is_notification: bool, target_severity: str) -> int:
+        """ref_point_id 벡터와 cosine 0.9+ 유사한 패턴을 전부 target으로 갱신. 갱신 건수 반환."""
+        if not ref_point_id:
+            return 0
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as hc:
+                sr = await hc.post(
+                    f"{LOG_ANALYZER_URL}/log-incidents/similar-incidents",
+                    json={"point_id": ref_point_id, "system_name": system.system_name,
+                          "is_notification": find_is_notification,
+                          "score_threshold": 0.9},
+                )
+                if sr.status_code != 200:
+                    return 0
+                candidates = sr.json().get("candidates", [])
+                if not candidates:
+                    return 0
+                pids = [c["point_id"] for c in candidates]
+
+                # Qdrant 갱신
+                await hc.post(
+                    f"{LOG_ANALYZER_URL}/log-incidents/bulk-relabel",
+                    json={"point_ids": pids, "severity": target_severity},
+                )
+        except Exception as exc:
+            logger.warning("자동 bulk 업데이트 실패 (계속): %s", exc)
+            return 0
+
+        # DB 갱신 (alert_history + log_analysis_history)
+        new_anomaly = "notification" if target_severity == "info" else "reclassified"
+        new_is_notif = target_severity == "info"
+        res = await db.execute(select(AlertHistory).where(AlertHistory.qdrant_point_id.in_(pids)))
+        for ah in res.scalars().all():
+            ah.severity = target_severity
+            ah.anomaly_type = new_anomaly
+            if ah.log_analysis_id:
+                lr = await db.get(LogAnalysisHistory, ah.log_analysis_id)
+                if lr:
+                    total = (lr.real_error_count or 0) + (lr.notification_count or 0)
+                    lr.severity = target_severity
+                    lr.anomaly_type = new_anomaly
+                    lr.real_error_count = 0 if new_is_notif else total
+                    lr.notification_count = total if new_is_notif else 0
+        await db.commit()
+        return len(pids)
+
+    # 정보 방향: 새 정보 포인트 기준 → 유사 실에러(is_notification=False) → 전부 정보화
+    if notif_templates:
+        auto_notif_count = await _auto_bulk(info_point_id, find_is_notification=False, target_severity="info")
+
+    # 실에러 방향: 새 실에러 포인트 기준 → 유사 알림성(is_notification=True) → 전부 실에러화
+    if real_templates:
+        auto_real_count = await _auto_bulk(real_point_id, find_is_notification=True, target_severity=real_severity)
+
+    return {
+        "reclassified_from": alert_history_id,
+        "new_alert_history_ids": new_alert_ids,
+        "auto_updated_notification_count": auto_notif_count,
+        "auto_updated_real_error_count":   auto_real_count,
+    }
 
 
 # ── 단순 재분류 (Simple Reclassify) ────────────────────────────────────────
@@ -817,3 +884,246 @@ async def change_notification_severity(
 
     await db.commit()
     return {"updated": True, "new_severity": new_severity}
+
+
+# ── goal #3: 유사 케이스 일괄 정보화 (warning→info 전파) ─────────────────────────
+
+async def _preview_similar(
+    alert_history_id: int,
+    is_notification: bool,
+    score_threshold: float,
+    db: AsyncSession,
+) -> dict:
+    """유사 후보 미리보기 공통 헬퍼 (실에러/알림성 방향 공유).
+
+    is_notification=False → 실에러 후보 (goal #3: warning→info 방향)
+    is_notification=True  → 알림성 후보 (역방향: info→warning/critical)
+    """
+    alert = await db.get(AlertHistory, alert_history_id)
+    if not alert or alert.alert_type != "log_analysis":
+        raise HTTPException(status_code=404, detail="로그분석 알림을 찾을 수 없습니다")
+    if not alert.qdrant_point_id:
+        raise HTTPException(status_code=400, detail="Qdrant 포인트가 없는 항목입니다")
+    system = await db.get(System, alert.system_id)
+    if not system:
+        raise HTTPException(status_code=404, detail="System not found")
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as hc:
+            resp = await hc.post(
+                f"{LOG_ANALYZER_URL}/log-incidents/similar-incidents",
+                json={"point_id": alert.qdrant_point_id, "system_name": system.system_name,
+                      "is_notification": is_notification, "score_threshold": score_threshold},
+            )
+            resp.raise_for_status()
+            candidates = resp.json().get("candidates", [])
+    except Exception as exc:
+        logger.warning("유사 후보 조회 실패 (is_notification=%s): %s", is_notification, exc)
+        raise HTTPException(status_code=502, detail="유사 후보 조회에 실패했습니다")
+
+    pids = [c["point_id"] for c in candidates]
+    rows_by_pid: dict[str, AlertHistory] = {}
+    if pids:
+        res = await db.execute(
+            select(AlertHistory).where(AlertHistory.qdrant_point_id.in_(pids))
+        )
+        for r in res.scalars().all():
+            rows_by_pid[r.qdrant_point_id] = r
+
+    return {"candidates": [
+        {
+            "point_id": c["point_id"],
+            "score": c["score"],
+            "log_pattern": c["log_pattern"],
+            "severity": c["severity"],
+            "alert_history_id": (row := rows_by_pid.get(c["point_id"])) and row.id or None,
+            "title": row.title if row else None,
+            "created_at": row.created_at.isoformat() if row and row.created_at else None,
+        }
+        for c in candidates
+    ]}
+
+
+@router.get("/{alert_history_id}/similar-real-errors")
+async def preview_similar_real_errors(
+    alert_history_id: int,
+    score_threshold: float = Query(0.9, ge=0.0, le=1.0),
+    db: AsyncSession = Depends(get_db),
+):
+    """goal #3 미리보기 — 유사한 실에러(is_notification=False) 후보."""
+    return await _preview_similar(alert_history_id, is_notification=False,
+                                  score_threshold=score_threshold, db=db)
+
+
+@router.get("/{alert_history_id}/similar-notifications")
+async def preview_similar_notifications(
+    alert_history_id: int,
+    score_threshold: float = Query(0.9, ge=0.0, le=1.0),
+    db: AsyncSession = Depends(get_db),
+):
+    """역방향 미리보기 — 유사한 알림성(is_notification=True) 후보."""
+    return await _preview_similar(alert_history_id, is_notification=True,
+                                  score_threshold=score_threshold, db=db)
+
+
+class BulkRelabelNotificationRequest(BaseModel):
+    point_ids: list[str]
+    reclassified_by: Optional[str] = "system"
+
+
+@router.post("/bulk-relabel-notification")
+async def bulk_relabel_notification(
+    payload: BulkRelabelNotificationRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """goal #3 적용 — 선택된 유사 실에러 포인트들을 정보(알림성)로 일괄 전환.
+
+    Qdrant(is_notification=True/info) + alert_history/log_analysis_history 동기화.
+    """
+    if not payload.point_ids:
+        raise HTTPException(status_code=422, detail="point_ids가 비었습니다")
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as hc:
+            resp = await hc.post(
+                f"{LOG_ANALYZER_URL}/log-incidents/bulk-relabel",
+                json={"point_ids": payload.point_ids, "severity": "info"},
+            )
+            resp.raise_for_status()
+            updated_pids = resp.json().get("updated", [])
+    except Exception as exc:
+        logger.warning("Qdrant 일괄 relabel 실패: %s", exc)
+        raise HTTPException(status_code=502, detail="Qdrant 일괄 전환에 실패했습니다")
+
+    # DB 동기화: 전환된 포인트의 alert_history + log_analysis_history → info/notification
+    updated_alert_ids: list[int] = []
+    if updated_pids:
+        res = await db.execute(
+            select(AlertHistory).where(AlertHistory.qdrant_point_id.in_(updated_pids))
+        )
+        for alert in res.scalars().all():
+            alert.severity = "info"
+            alert.anomaly_type = "notification"
+            updated_alert_ids.append(alert.id)
+            if alert.log_analysis_id:
+                log_rec = await db.get(LogAnalysisHistory, alert.log_analysis_id)
+                if log_rec:
+                    total = (log_rec.real_error_count or 0) + (log_rec.notification_count or 0)
+                    log_rec.severity = "info"
+                    log_rec.anomaly_type = "notification"
+                    log_rec.real_error_count = 0
+                    log_rec.notification_count = total
+        await db.commit()
+
+    return {"updated_point_ids": updated_pids, "updated_alert_history_ids": updated_alert_ids}
+
+
+# ── 역방향: 유사 알림성 케이스 실에러화 (info → warning/critical 전파) ────────────
+
+@router.get("/{alert_history_id}/similar-notifications")
+async def preview_similar_notifications(
+    alert_history_id: int,
+    score_threshold: float = Query(0.9, ge=0.0, le=1.0),
+    db: AsyncSession = Depends(get_db),
+):
+    """역방향 미리보기 — 이 실에러 알림과 유사한 알림성(is_notification=True) 후보 반환.
+
+    info→warning/critical 재분류 후 같은 패턴의 알림성 포인트를 찾아 함께 실에러로 전환하기 위한 후보.
+    알림성을 잘못 실에러로 바꾸면 Teams 스팸이 발생하므로 사용자 확인 후 적용.
+    """
+    alert = await db.get(AlertHistory, alert_history_id)
+    if not alert or alert.alert_type != "log_analysis":
+        raise HTTPException(status_code=404, detail="로그분석 알림을 찾을 수 없습니다")
+    if not alert.qdrant_point_id:
+        raise HTTPException(status_code=400, detail="Qdrant 포인트가 없는 항목입니다")
+    system = await db.get(System, alert.system_id)
+    if not system:
+        raise HTTPException(status_code=404, detail="System not found")
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as hc:
+            resp = await hc.post(
+                f"{LOG_ANALYZER_URL}/log-incidents/similar-notifications",
+                json={"point_id": alert.qdrant_point_id, "system_name": system.system_name,
+                      "score_threshold": score_threshold},
+            )
+            resp.raise_for_status()
+            candidates = resp.json().get("candidates", [])
+    except Exception as exc:
+        logger.warning("유사 알림성 조회 실패: %s", exc)
+        raise HTTPException(status_code=502, detail="유사 후보 조회에 실패했습니다")
+
+    pids = [c["point_id"] for c in candidates]
+    rows_by_pid: dict[str, AlertHistory] = {}
+    if pids:
+        res = await db.execute(
+            select(AlertHistory).where(AlertHistory.qdrant_point_id.in_(pids))
+        )
+        for r in res.scalars().all():
+            rows_by_pid[r.qdrant_point_id] = r
+
+    items = []
+    for c in candidates:
+        row = rows_by_pid.get(c["point_id"])
+        items.append({
+            "point_id": c["point_id"],
+            "score": c["score"],
+            "log_pattern": c["log_pattern"],
+            "severity": c["severity"],
+            "alert_history_id": row.id if row else None,
+            "title": row.title if row else None,
+            "created_at": row.created_at.isoformat() if row and row.created_at else None,
+        })
+    return {"candidates": items}
+
+
+class BulkRelabelRealErrorRequest(BaseModel):
+    point_ids: list[str]
+    target_severity: Literal["warning", "critical"]
+    reclassified_by: Optional[str] = "system"
+
+
+@router.post("/bulk-relabel-real-error")
+async def bulk_relabel_real_error(
+    payload: BulkRelabelRealErrorRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """역방향 적용 — 선택된 유사 알림성 포인트들을 실에러(warning/critical)로 일괄 전환.
+
+    Qdrant(is_notification=False/target_severity) + alert_history/log_analysis_history 동기화.
+    """
+    if not payload.point_ids:
+        raise HTTPException(status_code=422, detail="point_ids가 비었습니다")
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as hc:
+            resp = await hc.post(
+                f"{LOG_ANALYZER_URL}/log-incidents/bulk-relabel",
+                json={"point_ids": payload.point_ids, "severity": payload.target_severity},
+            )
+            resp.raise_for_status()
+            updated_pids = resp.json().get("updated", [])
+    except Exception as exc:
+        logger.warning("Qdrant 역방향 bulk relabel 실패: %s", exc)
+        raise HTTPException(status_code=502, detail="Qdrant 일괄 전환에 실패했습니다")
+
+    updated_alert_ids: list[int] = []
+    if updated_pids:
+        res = await db.execute(
+            select(AlertHistory).where(AlertHistory.qdrant_point_id.in_(updated_pids))
+        )
+        for alert in res.scalars().all():
+            alert.severity = payload.target_severity
+            alert.anomaly_type = "reclassified"
+            updated_alert_ids.append(alert.id)
+            if alert.log_analysis_id:
+                log_rec = await db.get(LogAnalysisHistory, alert.log_analysis_id)
+                if log_rec:
+                    total = (log_rec.real_error_count or 0) + (log_rec.notification_count or 0)
+                    log_rec.severity = payload.target_severity
+                    log_rec.anomaly_type = "reclassified"
+                    log_rec.real_error_count = total
+                    log_rec.notification_count = 0
+        await db.commit()
+
+    return {"updated_point_ids": updated_pids, "updated_alert_history_ids": updated_alert_ids}

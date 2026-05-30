@@ -1207,30 +1207,34 @@ class SubmitGroupRequest(BaseModel):
 
 @app.post("/log-incidents/submit-group")
 async def submit_log_incident_group(req: SubmitGroupRequest):
-    """템플릿 그룹 임베딩 → Qdrant log_incidents upsert → qdrant_point_id 반환.
+    """템플릿마다 결정적 id로 Qdrant log_incidents upsert → qdrant_point_id(들) 반환.
 
-    재분류(reclassify) UI가 admin-api PATCH /api/v1/analysis/{id}/reclassify를
-    통해 호출. 알림성/실에러 그룹별로 1회씩 호출되어 각각 새 Qdrant 포인트를 생성한다.
+    재분류(reclassify) UI가 admin-api PATCH /api/v1/analysis/{id}/reclassify를 통해 호출.
+    **template 단위 결정적 id**(분석 파이프라인과 동일 normalize + point_key)로 저장해야,
+    재분류된 결정을 이후 분석 주기의 tier-1 인식이 그대로 승계한다(info→warning 승계 등).
+    각 template = 1 포인트. 응답 qdrant_point_id는 대표(첫) id, qdrant_point_ids는 전체.
     """
-    text_parts = []
+    point_ids: list[str] = []
     for tmpl in req.templates:
-        count = req.template_counts.get(tmpl, 1)
-        text_parts.append(f"[N={count}] {tmpl}")
-    embed_text = f"[{req.instance_role}] " + " | ".join(text_parts)
-
-    dense, sparse = await asyncio.gather(
-        vector_client.get_embedding(embed_text),
-        vector_client.get_sparse_vector(embed_text),
-    )
-    point_id = await vector_client.store_incident_vector(
-        dense, sparse,
-        system_name=req.system_name,
-        instance_role=req.instance_role,
-        severity=req.severity,
-        log_pattern=embed_text[:500],
-        is_notification=req.is_notification,
-    )
-    return {"qdrant_point_id": point_id}
+        norm = vector_client.normalize_log_for_embedding(tmpl)
+        dense, sparse = await asyncio.gather(
+            vector_client.get_embedding(norm),
+            vector_client.get_sparse_vector(norm),
+        )
+        pid = await vector_client.store_incident_vector(
+            dense, sparse,
+            system_name=req.system_name,
+            instance_role=req.instance_role,
+            severity=req.severity,
+            log_pattern=norm[:500],
+            is_notification=req.is_notification,
+            point_key=norm,
+        )
+        point_ids.append(pid)
+    return {
+        "qdrant_point_id": point_ids[0] if point_ids else None,
+        "qdrant_point_ids": point_ids,
+    }
 
 
 class DeletePointRequest(BaseModel):
@@ -1265,3 +1269,38 @@ async def delete_log_incident_point(req: DeletePointRequest):
         logger.warning("Qdrant 포인트 삭제 실패 (무시): %s", e)
         return {"deleted": False}
     return {"deleted": True}
+
+
+class SimilarIncidentsRequest(BaseModel):
+    point_id: str
+    system_name: str
+    is_notification: bool        # False=실에러 검색(goal#3), True=알림성 검색(역방향)
+    score_threshold: float = 0.9
+    # limit 제거 — 내부에서 PAGE_SIZE(500) 단위 페이지네이션으로 전체 수집
+
+
+@app.post("/log-incidents/similar-incidents")
+async def similar_incidents(req: SimilarIncidentsRequest):
+    """일괄 relabel — is_notification 방향에 따라 실에러/알림성 포인트 전체 조회 (페이지네이션)."""
+    candidates = await vector_client.find_similar_incidents(
+        req.point_id, req.system_name, req.is_notification,
+        score_threshold=req.score_threshold,
+    )
+    return {"candidates": [
+        {"point_id": str(c["id"]), "score": c["score"],
+         "log_pattern": c["payload"].get("log_pattern", ""),
+         "severity": c["payload"].get("severity", "")}
+        for c in candidates
+    ]}
+
+
+class BulkRelabelRequest(BaseModel):
+    point_ids: list[str]
+    severity: str = "info"
+
+
+@app.post("/log-incidents/bulk-relabel")
+async def bulk_relabel(req: BulkRelabelRequest):
+    """goal #3 적용 — 여러 포인트를 is_notification=True/severity 로 일괄 전환."""
+    updated = await vector_client.bulk_relabel_notification(req.point_ids, severity=req.severity)
+    return {"updated": [str(p) for p in updated]}

@@ -69,12 +69,7 @@ describe('LoginPage', () => {
     expect(await screen.findByText(/유효한 이메일/)).toBeInTheDocument()
   })
 
-  it('비밀번호 입력 시 강도 표시기', async () => {
-    renderLoginPage()
-    await userEvent.type(screen.getByLabelText('비밀번호'), 'test')
-    // 강도 표시 텍스트가 나타남 (취약/보통/강함)
-    expect(screen.getByText(/취약|보통|강함/)).toBeInTheDocument()
-  })
+  // 비밀번호 강도 표시기는 로그인 화면에서 제거됨(회원가입 정책으로 이동) — 관련 테스트 삭제
 
   it('로그인 성공 → 네비게이션', async () => {
     const { authApi } = await import('@/api/auth')

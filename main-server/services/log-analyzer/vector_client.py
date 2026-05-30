@@ -27,7 +27,7 @@ import logging
 import os
 import re
 from datetime import datetime, timezone
-from uuid import uuid4
+from uuid import UUID, uuid4, uuid5
 
 import httpx
 
@@ -171,6 +171,41 @@ def normalize_log_for_embedding(raw_log: str) -> str:
 def compute_fingerprint(text: str) -> str:
     """완전 동일 패턴 중복 방지용 SHA-256 해시 (앞 16자리)"""
     return hashlib.sha256(text.encode()).hexdigest()[:16]
+
+
+# template 단위 결정적 point_id 구분자 (system/role/template 경계 — 일반 텍스트에 안 나오는 제어문자)
+_PID_SEP = "\x1f"
+# template 단위 결정적 point_id 네임스페이스 (uuid5 — 고정 상수, 변경 시 기존 id 전부 바뀜)
+_TEMPLATE_PID_NS = UUID("a1b2c3d4-e5f6-4a5b-8c7d-000000000001")
+
+
+def template_point_id(system_name: str, instance_role: str, normalized_template: str) -> str:
+    """template 단위 Qdrant point의 결정적 id (UUID 문자열).
+
+    같은 (system, role, 정규화 template)은 항상 같은 id → upsert 멱등.
+    uuid4 무한 증식·#1 순위 분산을 제거한다. UUID 문자열로 통일해 store/retrieve/delete/DB
+    전 구간 타입 일관성 유지(Qdrant는 정수 또는 UUID id 허용 — 정수 문자열은 불가).
+    """
+    key = f"{system_name}{_PID_SEP}{instance_role}{_PID_SEP}{normalized_template}"
+    return str(uuid5(_TEMPLATE_PID_NS, key))
+
+
+async def retrieve_point(point_id) -> dict | None:
+    """log_incidents 에서 단일 포인트 조회 (payload 포함). 미존재 시 None.
+
+    template 단위 인식 tier-1(exact): 임베딩·검색 없이 결정적 id 직접 조회.
+    """
+    try:
+        resp = await _qdrant_http.post(
+            f"{QDRANT_URL}/collections/{COLLECTION}/points",
+            json={"ids": [point_id], "with_payload": True, "with_vector": False},
+        )
+        resp.raise_for_status()
+    except Exception as e:
+        logger.warning("Qdrant 포인트 조회 실패 (None 처리): %s", e)
+        return None
+    pts = resp.json().get("result", [])
+    return pts[0] if pts else None
 
 
 # ── 임베딩 (ONNX 인프로세스, async wrapper) ─────────────────────────────────
@@ -502,25 +537,35 @@ async def search_notification_incidents(
     dense: list[float],
     sparse: dict,
     system_name: str,
-    score_threshold: float = 0.025,
+    score_threshold: float = 0.9,
 ) -> list[dict]:
-    """is_notification=True 포인트 중 score_threshold 이상인 건만 검색 (존재 여부 확인용).
+    """is_notification=True 포인트 중 score_threshold 이상인 건만 검색 (알림성 인식용).
 
-    warning 포인트가 상위권을 점유해 similar_all(limit=5)에서 notification 포인트가
-    누락될 때 사용. Qdrant가 threshold 미만을 반환하지 않으므로 결과 비어 있으면
-    notification_auto 트리거 안 함. limit=1로 존재 여부만 확인.
+    dense 단독 cosine 검색 사용 — RRF rank 경쟁으로 동일 에러 변형이 rank 37+ 로 밀려
+    0.026 점수를 받는 문제 해결. cosine 0.9+ = 같은 에러 패턴 변형.
+    `sparse` 파라미터는 하위 호환 시그니처 유지용 (내부에서 미사용).
+    limit=1: 1건이라도 알림성 패턴이 있으면 skip 판정으로 충분.
     """
-    return await _hybrid_search(
-        collection=COLLECTION,
-        dense=dense,
-        sparse=sparse,
-        filter_must=[
-            {"key": "system_name", "match": {"value": system_name}},
-            {"key": "is_notification", "match": {"value": True}},
-        ],
-        limit=1,
-        score_threshold=score_threshold,
+    resp = await _qdrant_http.post(
+        f"{QDRANT_URL}/collections/{COLLECTION}/points/query",
+        json={
+            "query":           dense,
+            "using":           "dense",
+            "filter":          {"must": [
+                {"key": "system_name",   "match": {"value": system_name}},
+                {"key": "is_notification", "match": {"value": True}},
+            ]},
+            "limit":           1,
+            "score_threshold": score_threshold,
+            "with_payload":    True,
+        },
     )
+    resp.raise_for_status()
+    return [
+        {"id": p["id"], "score": p["score"], "payload": p.get("payload", {})}
+        for p in resp.json().get("result", {}).get("points", [])
+    ]
+
 
 
 async def store_incident_vector(
@@ -534,9 +579,18 @@ async def store_incident_vector(
     root_cause: str | None = None,
     recommendation: str | None = None,
     is_notification: bool = False,
+    point_key: str | None = None,
+    occurrence_count: int = 1,
 ) -> str:
-    """분석된 로그 패턴을 Qdrant에 Dense+Sparse로 저장. point_id 반환."""
-    point_id = str(uuid4())
+    """분석된 로그 패턴을 Qdrant에 Dense+Sparse로 저장. point_id 반환.
+
+    point_key 지정 시 template 단위 결정적 id로 upsert(멱등) — 같은 패턴은 제자리 갱신.
+    미지정 시 uuid4 (하위 호환).
+    """
+    if point_key is not None:
+        point_id = template_point_id(system_name, instance_role, point_key)
+    else:
+        point_id = str(uuid4())
     payload = {
         "system_name":      system_name,
         "instance_role":    instance_role,
@@ -546,7 +600,7 @@ async def store_incident_vector(
         "root_cause":       root_cause,
         "recommendation":   recommendation,
         "timestamp":        datetime.now(timezone.utc).isoformat(),
-        "occurrence_count": 1,
+        "occurrence_count": occurrence_count,
         "resolved":         False,
         "is_notification":  is_notification,
     }
@@ -570,6 +624,104 @@ async def store_incident_vector(
     )
     resp.raise_for_status()
     return point_id
+
+
+async def bump_occurrence(point_id, occurrence_count: int) -> None:
+    """recognized 포인트의 occurrence_count + last_seen 갱신 (벡터 재전송 없이 payload만)."""
+    try:
+        resp = await _qdrant_http.post(
+            f"{QDRANT_URL}/collections/{COLLECTION}/points/payload",
+            json={
+                "payload": {
+                    "occurrence_count": occurrence_count,
+                    "last_seen": datetime.now(timezone.utc).isoformat(),
+                },
+                "points": [point_id],
+            },
+        )
+        resp.raise_for_status()
+    except Exception as e:
+        logger.warning("occurrence 갱신 실패 (무시): %s", e)
+
+
+_SIMILAR_PAGE_SIZE = 500  # 페이지당 조회 건수. 정확히 500이면 다음 페이지 존재 가능 → 반복.
+
+
+async def find_similar_incidents(
+    point_id,
+    system_name: str,
+    is_notification: bool,
+    score_threshold: float = 0.9,
+) -> list[dict]:
+    """주어진 포인트와 유사한 포인트 검색 (일괄 relabel 전체 수집).
+
+    is_notification=False → 실에러 검색 (warning→info 방향, goal #3)
+    is_notification=True  → 알림성 검색 (info→warning/critical 역방향)
+    자기 자신은 제외.
+
+    dense 단독 cosine 검색 — RRF rank 경쟁 문제 해결(동일 에러 변형이 많을 때 rank 37+ → 0.026).
+    cosine 0.9+ = 같은 에러 패턴.
+
+    페이지네이션: 한 페이지가 정확히 PAGE_SIZE건이면 다음 페이지 존재 가능 → offset 증가 후 반복.
+    500건 미만이면 마지막 페이지로 종료. 모든 point_id를 모아 반환 (bulk update 호출부에서 1회 처리).
+    """
+    resp = await _qdrant_http.post(
+        f"{QDRANT_URL}/collections/{COLLECTION}/points",
+        json={"ids": [point_id], "with_payload": False, "with_vector": True},
+    )
+    resp.raise_for_status()
+    pts = resp.json().get("result", [])
+    if not pts:
+        return []
+    dense = (pts[0].get("vector") or {}).get("dense")
+    if not dense:
+        return []
+
+    filter_must = [
+        {"key": "system_name",    "match": {"value": system_name}},
+        {"key": "is_notification", "match": {"value": is_notification}},
+    ]
+
+    all_hits: list[dict] = []
+    offset = 0
+    while True:
+        r = await _qdrant_http.post(
+            f"{QDRANT_URL}/collections/{COLLECTION}/points/query",
+            json={
+                "query":           dense,
+                "using":           "dense",
+                "filter":          {"must": filter_must},
+                "limit":           _SIMILAR_PAGE_SIZE,
+                "offset":          offset,
+                "score_threshold": score_threshold,
+                "with_payload":    True,
+            },
+        )
+        r.raise_for_status()
+        page = [
+            {"id": p["id"], "score": p["score"], "payload": p.get("payload", {})}
+            for p in r.json().get("result", {}).get("points", [])
+        ]
+        all_hits.extend(page)
+
+        if len(page) < _SIMILAR_PAGE_SIZE:
+            break  # 마지막 페이지 — 다음 건 없음
+        offset += _SIMILAR_PAGE_SIZE
+        logger.debug("find_similar_incidents: page offset=%d, 누적=%d건", offset, len(all_hits))
+
+    return [h for h in all_hits if str(h["id"]) != str(point_id)]
+
+
+async def bulk_relabel_notification(point_ids: list, severity: str = "info") -> list:
+    """여러 포인트를 is_notification=True/severity 로 일괄 전환 (goal #3 적용). 갱신 성공 id 반환."""
+    updated: list = []
+    for pid in point_ids:
+        try:
+            await update_notification_severity(pid, severity)
+            updated.append(pid)
+        except Exception as e:
+            logger.warning("bulk relabel 실패 (계속) %s: %s", pid, e)
+    return updated
 
 
 async def update_resolution(point_id: str, resolution: str, resolver: str) -> None:
@@ -637,13 +789,18 @@ async def update_metric_incident_ids(point_ids: list[str], incident_id: int) -> 
 
 def classify_anomaly(similar_results: list[dict]) -> dict:
     """
-    Hybrid 검색 결과로 이상 유형 분류.
+    Hybrid 검색 결과로 이상 유형 분류 (Qdrant k=2 RRF 스케일 기준).
 
-    분류 기준 (RRF 점수 기반, 운영 튜닝 필요):
-      - duplicate  (top RRF ≥ 0.032): 2개 이상 검색기 모두 최상위 (1위+1위에 가까움)
-      - recurring  (top RRF ≥ 0.025): 둘 중 하나는 최상위
-      - related    (top RRF ≥ 0.015): 둘 중 하나는 유사
-      - new        (결과 없음 또는 그 미만)
+    Qdrant DEFAULT_RRF_K=2, score = Σ 1/(rank+2), rank 0-based, 최대 1.0.
+    두 prefetch(dense+sparse) 기준 주요 점수:
+      dense·sparse 둘 다 1위 = 1.0   /  1위+2위 = 0.833  /  둘 다 2위 = 0.667
+      dense 1위 단독            = 0.5   /  둘 다 5위 = 0.333 /  둘 다 10위 = 0.208
+
+    분류 기준 (k=2 보정):
+      - duplicate  (top RRF ≥ 0.8): dense·sparse 양쪽 최상위권 — 사실상 동일 패턴
+      - recurring  (top RRF ≥ 0.5): 최소 한 쪽 1위 — 명확히 본 적 있음
+      - related    (top RRF ≥ 0.3): 한 쪽에서 중간 순위 — 유사 패턴 존재
+      - new        (그 미만 또는 결과 없음)
     """
     if not similar_results:
         return {"type": "new", "score": 0.0, "has_solution": False, "top_results": []}
@@ -651,11 +808,11 @@ def classify_anomaly(similar_results: list[dict]) -> dict:
     top   = similar_results[0]
     score = top["score"]
 
-    if score >= 0.032:
+    if score >= 0.8:
         anomaly_type = "duplicate"
-    elif score >= 0.025:
+    elif score >= 0.5:
         anomaly_type = "recurring"
-    elif score >= 0.015:
+    elif score >= 0.3:
         anomaly_type = "related"
     else:
         anomaly_type = "new"
@@ -674,10 +831,10 @@ def classify_anomaly(similar_results: list[dict]) -> dict:
 
 # ── 메트릭 벡터 유사도 분석 (metric_baselines) ──────────────────────────────
 
-# 메트릭 RRF 임계치 (로그와 동일 기준, 운영 튜닝 필요)
-_METRIC_DUPLICATE  = 0.030
-_METRIC_RECURRING  = 0.022
-_METRIC_RELATED    = 0.014
+# 메트릭 RRF 임계치 — 로그 classify_anomaly와 동일 k=2 스케일
+_METRIC_DUPLICATE  = 0.8
+_METRIC_RECURRING  = 0.5
+_METRIC_RELATED    = 0.3
 
 
 def build_metric_description(

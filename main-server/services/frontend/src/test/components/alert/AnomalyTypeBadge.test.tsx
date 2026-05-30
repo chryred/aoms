@@ -45,11 +45,11 @@ describe('AnomalyTypeBadge', () => {
 
   it('recurring — 빨간 텍스트 클래스', () => {
     render(<AnomalyTypeBadge type="recurring" />)
-    expect(screen.getByText('반복').className).toContain('text-[#F87171]')
+    expect(screen.getByText('반복').className).toContain('text-critical-text')
   })
 
   it('duplicate — muted 텍스트 클래스', () => {
     render(<AnomalyTypeBadge type="duplicate" />)
-    expect(screen.getByText('중복').className).toContain('text-[#8B97AD]')
+    expect(screen.getByText('중복').className).toContain('text-text-secondary')
   })
 })

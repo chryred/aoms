@@ -87,7 +87,7 @@ describe('AlertHistoryPage', () => {
       refetch: vi.fn(),
     } as never)
     renderPage()
-    await userEvent.click(screen.getByRole('button', { name: '메트릭' }))
+    await userEvent.click(screen.getByRole('tab', { name: '메트릭' }))
     expect(useAlerts).toHaveBeenLastCalledWith(expect.objectContaining({ alert_type: 'metric' }))
   })
 

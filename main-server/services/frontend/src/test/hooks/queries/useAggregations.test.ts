@@ -28,10 +28,12 @@ vi.mock('@/api/aggregations', () => ({
 describe('useHourlyAggregations', () => {
   beforeEach(() => vi.clearAllMocks())
 
-  it('system_id 없으면 disabled', () => {
+  it('항상 enabled (hourly는 무조건 조회)', () => {
+    // useHourlyAggregations는 enabled:true 고정 → 렌더 즉시 fetch 시작 (idle 아님)
+    mockGetHourly.mockResolvedValueOnce([])
     const { Wrapper } = createWrapper()
     const { result } = renderHook(() => useHourlyAggregations({}), { wrapper: Wrapper })
-    expect(result.current.fetchStatus).toBe('idle')
+    expect(result.current.fetchStatus).toBe('fetching')
   })
 
   it('system_id 있으면 API 호출', async () => {

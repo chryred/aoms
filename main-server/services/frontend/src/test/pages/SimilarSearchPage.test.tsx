@@ -10,8 +10,17 @@ vi.mock('@/hooks/queries/useCollectionInfo', () => ({
   useCollectionInfo: vi.fn(),
 }))
 vi.mock('@/components/search/SimilarSearchInput', () => ({
-  SimilarSearchInput: ({ onSearch }: { onSearch: (p: object) => void }) => (
+  // 실제 컬렉션 라벨/카운트는 SimilarSearchInput 책임 → 여기선 stub.
+  // SimilarSearchPage가 collectionPoints를 전달하는지만 검증하도록 prop을 노출한다.
+  SimilarSearchInput: ({
+    onSearch,
+    collectionPoints,
+  }: {
+    onSearch: (p: object) => void
+    collectionPoints?: Record<string, number | undefined>
+  }) => (
     <div data-testid="similar-search-input">
+      <span data-testid="collection-points">{JSON.stringify(collectionPoints ?? {})}</span>
       <button
         onClick={() =>
           onSearch({ query: 'test', threshold: 0.75, collection: 'metric_hourly_patterns' })
@@ -90,7 +99,8 @@ describe('SimilarSearchPage', () => {
       reset: vi.fn(),
     } as never)
     await renderPage()
-    expect(screen.getByText(/유사한 장애 패턴을 찾지 못했습니다/)).toBeInTheDocument()
+    // sr-only aria-live + EmptyState 두 곳에 렌더되므로 getAllByText
+    expect(screen.getAllByText(/유사한 장애 패턴을 찾지 못했습니다/).length).toBeGreaterThan(0)
   })
 
   it('컬렉션 정보 로딩 중', async () => {
@@ -103,7 +113,8 @@ describe('SimilarSearchPage', () => {
     } as never)
     vi.mocked(useCollectionInfo).mockReturnValue({ data: null, isLoading: true } as never)
     await renderPage()
-    expect(screen.getByText(/컬렉션 정보 로딩 중/)).toBeInTheDocument()
+    // 컬렉션 정보 로딩 중에도 검색 입력은 정상 렌더 (크래시 없음)
+    expect(screen.getByTestId('similar-search-input')).toBeInTheDocument()
   })
 
   it('컬렉션 정보 표시', async () => {
@@ -122,6 +133,7 @@ describe('SimilarSearchPage', () => {
       isLoading: false,
     } as never)
     await renderPage()
-    expect(screen.getByText(/시간별 패턴/)).toBeInTheDocument()
+    // SimilarSearchPage가 컬렉션 points_count를 SimilarSearchInput에 전달하는지 검증
+    expect(screen.getByTestId('collection-points')).toHaveTextContent('100')
   })
 })

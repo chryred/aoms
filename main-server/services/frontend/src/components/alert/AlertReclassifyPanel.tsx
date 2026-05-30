@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { X, AlertTriangle, RefreshCw } from 'lucide-react'
+import toast from 'react-hot-toast'
 import { adminApi } from '@/lib/ky-client'
 import { NeuButton } from '@/components/neumorphic/NeuButton'
 import { SeverityBadge } from '@/components/charts/SeverityBadge'
@@ -159,19 +160,33 @@ export function AlertReclassifyPanel({ alert, onClose, onSuccess }: AlertReclass
     setSubmitting(true)
     setError(null)
     try {
-      await reclassifyApi.reclassify(alert.id, {
+      const result = await reclassifyApi.reclassify(alert.id, {
         template_changes: changes,
         reclassified_by: user?.name ?? 'operator',
       })
-      setDone(true)
+
+      // 자동 일괄 업데이트 완료 후 건수 toast — 백엔드에서 처리 완료된 결과
+      const notifCount = result.auto_updated_notification_count ?? 0
+      const realCount  = result.auto_updated_real_error_count  ?? 0
+      if (notifCount > 0 && realCount > 0) {
+        toast.success(`재분류 완료. 유사 패턴 ${notifCount}건 정보화 · ${realCount}건 실에러화`)
+      } else if (notifCount > 0) {
+        toast.success(`재분류 완료. 유사 패턴 ${notifCount}건 자동 정보화됐습니다`)
+      } else if (realCount > 0) {
+        toast.success(`재분류 완료. 유사 패턴 ${realCount}건 자동 실에러화됐습니다`)
+      } else {
+        toast.success('재분류가 완료됐습니다')
+      }
+
       await queryClient.invalidateQueries({ queryKey: ['alerts'] })
       onSuccess?.()
+      setDone(true)
       setTimeout(() => {
         setDone(false)
         setSeverityMap({})
         setSelected(new Set())
         onClose()
-      }, 1500)
+      }, 1200)
     } catch (e) {
       setError(e instanceof Error ? e.message : '재분류 요청 실패')
     } finally {
@@ -200,7 +215,7 @@ export function AlertReclassifyPanel({ alert, onClose, onSuccess }: AlertReclass
       <div
         role="dialog"
         aria-modal="true"
-        aria-label="로그 분류 수정"
+        aria-labelledby="reclassify-panel-title"
         className={cn(
           'border-border bg-bg-base fixed right-0 bottom-0 z-50 flex w-full max-w-[480px] flex-col border-l transition-[translate,top] duration-200',
           bannerVisible ? 'top-12' : 'top-0',
@@ -210,14 +225,17 @@ export function AlertReclassifyPanel({ alert, onClose, onSuccess }: AlertReclass
         {/* 헤더 */}
         <div className="border-border flex flex-shrink-0 items-center justify-between border-b px-4 py-3">
           <div>
-            <h2 className="text-text-primary font-semibold">로그 분류 수정</h2>
+            <h2 id="reclassify-panel-title" className="text-text-primary font-semibold">
+              로그 분류 수정
+            </h2>
             <p className="text-text-secondary mt-0.5 text-xs">
               템플릿을 선택한 뒤 하단에서 심각도를 일괄 지정하세요
             </p>
           </div>
           <button
             onClick={handleClose}
-            className="text-text-secondary hover:bg-hover-subtle hover:text-text-primary rounded-sm p-1 transition-colors"
+            aria-label="패널 닫기"
+            className="text-text-secondary hover:bg-hover-subtle hover:text-text-primary focus:ring-accent rounded-sm p-1.5 transition-colors focus:ring-1 focus:outline-none"
           >
             <X className="h-5 w-5" />
           </button>
@@ -234,7 +252,7 @@ export function AlertReclassifyPanel({ alert, onClose, onSuccess }: AlertReclass
         >
           {open && isLoading && (
             <div className="text-text-secondary py-8 text-center text-sm">
-              분석 데이터 로딩 중...
+              분析 데이터 로딩 중...
             </div>
           )}
 

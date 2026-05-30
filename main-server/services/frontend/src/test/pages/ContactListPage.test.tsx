@@ -7,6 +7,8 @@ import { ContactListPage } from '@/pages/ContactListPage'
 
 vi.mock('@/hooks/queries/useContacts', () => ({
   useContacts: vi.fn(),
+  // ContactFormDrawer가 useContact를 import하므로 mock에 포함 (없으면 렌더 시 throw)
+  useContact: vi.fn(() => ({ data: undefined, isLoading: false })),
 }))
 vi.mock('@/hooks/mutations/useDeleteContact', () => ({
   useDeleteContact: vi.fn(),
@@ -50,7 +52,7 @@ function renderPage() {
 describe('ContactListPage', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    vi.mocked(useDeleteContact).mockReturnValue({ mutate: vi.fn(), isPending: false } as never)
+    vi.mocked(useDeleteContact).mockReturnValue({ mutate: vi.fn(), isPending: false, reset: vi.fn() } as never)
   })
 
   it('로딩 중 스켈레톤', () => {
@@ -99,7 +101,7 @@ describe('ContactListPage', () => {
 
   it('confirm 삭제 실행', async () => {
     const mockMutate = vi.fn()
-    vi.mocked(useDeleteContact).mockReturnValue({ mutate: mockMutate, isPending: false } as never)
+    vi.mocked(useDeleteContact).mockReturnValue({ mutate: mockMutate, isPending: false, reset: vi.fn() } as never)
     vi.mocked(useContacts).mockReturnValue({ data: mockContacts, isLoading: false } as never)
     renderPage()
     const deleteButtons = screen.getAllByLabelText('삭제')

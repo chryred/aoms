@@ -76,10 +76,14 @@ describe('formatRelative', () => {
     expect(formatRelative('2024-01-01T10:00:00Z')).toBe('2시간 전')
   })
 
-  it('1일 이상 — KST 날짜 반환', () => {
+  it('1~6일 — N일 전', () => {
     vi.setSystemTime(new Date('2024-01-03T10:00:00Z'))
-    const result = formatRelative('2024-01-01T10:00:00Z')
-    expect(result).toBe('2024-01-01')
+    expect(formatRelative('2024-01-01T10:00:00Z')).toBe('2일 전')
+  })
+
+  it('7일 이상 — KST 날짜 반환', () => {
+    vi.setSystemTime(new Date('2024-01-10T10:00:00Z'))
+    expect(formatRelative('2024-01-01T10:00:00Z')).toBe('2024-01-01')
   })
 })
 

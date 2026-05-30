@@ -37,7 +37,7 @@ describe('SimilarResultCard — hourly pattern', () => {
         <SimilarResultCard result={hourlyResult} collection="metric_hourly_patterns" />
       </MemoryRouter>,
     )
-    expect(screen.getByText(/92\.0%/)).toBeInTheDocument()
+    expect(screen.getByText(/92%/)).toBeInTheDocument()
   })
 
   it('시스템명 표시', () => {
@@ -82,7 +82,7 @@ describe('SimilarResultCard — hourly pattern', () => {
         <SimilarResultCard result={hourlyResult} collection="metric_hourly_patterns" />
       </MemoryRouter>,
     )
-    const link = screen.getByRole('link', { name: '관련 알림 이력' })
+    const link = screen.getByRole('link', { name: /관련 알림 이력/ })
     expect(link.getAttribute('href')).toContain('/alerts')
   })
 })
@@ -94,7 +94,7 @@ describe('SimilarResultCard — aggregation summary', () => {
         <SimilarResultCard result={aggResult} collection="aggregation_summaries" />
       </MemoryRouter>,
     )
-    expect(screen.getByText(/78\.0%/)).toBeInTheDocument()
+    expect(screen.getByText(/78%/)).toBeInTheDocument()
   })
 
   it('시스템명 표시', () => {

@@ -17,21 +17,24 @@ import asyncio
 import json
 import logging
 import os
-import re
 from datetime import datetime, timezone
 
 import httpx
 
 from vector_client import (
     build_enhanced_prompt,
+    bump_occurrence,
     classify_anomaly,
     get_embedding,
+    get_embedding_batch,
     get_postmortem_by_incident,
     get_sparse_vector,
     normalize_log_for_embedding,
+    retrieve_point,
     search_notification_incidents,
     search_similar_incidents,
     store_incident_vector,
+    template_point_id,
 )
 
 from llm_client import call_llm_structured, LLM_AGENT_CODE, LLM_TYPE
@@ -226,26 +229,10 @@ async def fetch_logs_for_system(system_name: str) -> dict[str, list[dict]]:
     return by_role
 
 
-_NOTIFICATION_SKIP_THRESHOLD  = 0.025  # Qdrant RRF 임계값 — 비FQCN 로그용
-_FQCN_NOTIFICATION_THRESHOLD = 0.9    # FQCN 예외 포함 로그용 (cross-log false positive 방지)
-#   RRF 1위(자기 notification point): ~1.0 → 통과
-#   RRF 2위(다른 로그 false positive): ~0.67-0.7 → 차단 → LLM 분석
-
-# Java FQCN 예외/에러 클래스명 패턴 (예: java.nio.channels.OverlappingFileLockException)
-_JAVA_FQCN_RE = re.compile(
-    r'[a-z][a-z0-9]+(?:\.[a-z][a-z0-9]+)+\.[A-Z][a-zA-Z]*(Exception|Error)\b'
-)
-
-
-def _has_definite_real_error(logs: list[dict]) -> bool:
-    """템플릿에 Java FQCN 예외/에러 클래스명이 있으면 True (notification_auto 우회 판정)."""
-    for log in logs:
-        tmpl = log.get("template", "")
-        if _JAVA_FQCN_RE.search(tmpl):
-            return True
-        if tmpl.startswith("Caused by:"):
-            return True
-    return False
+# template 단위 notification 인식(fuzzy tier-2) RRF 임계값 — Qdrant k=2 스케일(상한 1.0).
+# 단일 template 질의 시: 동일/근접 변형은 #1(~1.0)~#1+#2(0.833)로 고득점, 신규 패턴은 훨씬 아래.
+# 보수적으로 잡아 "잘못 skip(신규 오류 은폐)"보다 "skip 놓침(LLM 1회)"을 택한다. 운영 로그로 보정.
+_NOTIF_RECOGNIZE_THRESHOLD = 0.9  # cosine scale (dense 단독, RRF→dense 전환 후)
 
 
 async def analyze_with_vector_context(
@@ -314,46 +301,8 @@ async def analyze_with_vector_context(
                 f"Qdrant 검색 실패: {type(e).__name__}: {e!r} → 신규 이상으로 처리"
             )
 
-    # notification auto-skip
-    # FQCN 예외가 있으면 더 엄격한 임계값 적용 — cross-log false positive 방지
-    # (동일 패턴 자기 포인트: ~1.0, 다른 로그 false positive: ~0.7 → 0.9로 분리)
-    _notif_threshold = (
-        _FQCN_NOTIFICATION_THRESHOLD
-        if _has_definite_real_error(logs)
-        else _NOTIFICATION_SKIP_THRESHOLD
-    )
-    # 1단계: similar_all(상위 5건)에서 빠르게 확인
-    _notif_candidate = next(
-        (c for c in similar_all
-         if c["payload"].get("is_notification") is True
-         and c["score"] >= _notif_threshold),
-        None,
-    )
-    # 2단계: 없으면 is_notification=True 전용 쿼리 — score_threshold로 Qdrant가 직접 필터링
-    if _notif_candidate is None and dense_vec and sparse_vec:
-        try:
-            _notif_hits = await search_notification_incidents(
-                dense_vec, sparse_vec, system_name,
-                score_threshold=_notif_threshold,
-            )
-            _notif_candidate = _notif_hits[0] if _notif_hits else None
-        except Exception as e:
-            logger.warning("notification 전용 검색 실패 (계속): %s", e)
-
-    if _notif_candidate is not None:
-        logger.info(
-            f"{system_name}/{instance_role}: notification auto-skip "
-            f"(score={_notif_candidate['score']:.3f}, threshold={_notif_threshold})"
-        )
-        return {
-            "anomaly_type":     "notification_auto",
-            "severity":         "info",
-            "is_notification":  True,
-            "similarity_score": _notif_candidate["score"],
-            "qdrant_point_id":  str(_notif_candidate["id"]),
-            "root_cause":       "",
-            "recommendation":   "",
-        }
+    # notification auto-skip 은 _analyze_one_role 의 template 단위 인식(recognize_templates)으로
+    # 상향 이동됨. 여기서는 배치 전체 임베딩으로 skip 판정하지 않는다 (혼합 배치 over-skip 방지).
 
     if anomaly_info["type"] == "duplicate":
         # 중복 패턴이어도 LLM 분석은 매번 수행한다 (재분석 비용 < 빈 root_cause 로 인한
@@ -509,6 +458,76 @@ async def submit_analysis(
     return resp.json()
 
 
+async def _recognize_templates(
+    system_name: str,
+    instance_role: str,
+    templates: list[str],
+) -> dict[str, dict]:
+    """template 단위 notification 인식 (LLM 이전, batch 단위 over-skip 방지의 핵심).
+
+    각 distinct template에 대해:
+      - tier-1 (exact): 결정적 point_id 직접 조회 → 있으면 저장된 결정 승계 (임베딩/검색 0회).
+      - tier-2 (fuzzy): 미존재 시 임베딩 후 notification 포인트 검색 → 임계값 이상이면 알림성 변형으로 인식.
+      - 그 외: 미인식(신규) → LLM 분석 대상.
+
+    반환 {template: {recognized, is_notification, severity, point_exists, occurrence,
+                     norm, point_id, dense, sparse}}.
+    tier-1 hit은 dense/sparse=None(임베딩 불필요), tier-1 miss는 dense/sparse 계산본 동봉(저장 재사용).
+    """
+    result: dict[str, dict] = {}
+    misses: list[str] = []
+    for t in templates:
+        norm = normalize_log_for_embedding(t)
+        pid = template_point_id(system_name, instance_role, norm)
+        info = {
+            "recognized": False, "is_notification": False, "severity": "info",
+            "point_exists": False, "occurrence": 0, "norm": norm, "point_id": pid,
+            "dense": None, "sparse": None,
+        }
+        pt = await retrieve_point(pid)
+        if pt:
+            pl = pt.get("payload", {}) or {}
+            info["recognized"] = True
+            info["point_exists"] = True
+            info["is_notification"] = bool(pl.get("is_notification"))
+            info["severity"] = pl.get("severity") or "info"
+            info["occurrence"] = int(pl.get("occurrence_count", 1) or 1)
+        else:
+            misses.append(t)
+        result[t] = info
+
+    # tier-2 fuzzy: tier-1 미스만 임베딩 후 notification 검색 (배치 임베딩으로 분할상환)
+    if misses:
+        norm_texts = [result[t]["norm"] for t in misses]
+        try:
+            dense_list = await get_embedding_batch(norm_texts)
+        except Exception as e:
+            logger.warning("template 인식 임베딩 실패 (fuzzy 생략): %s", e)
+            dense_list = [None] * len(misses)
+        for t, dvec in zip(misses, dense_list):
+            if dvec is None:
+                continue
+            try:
+                svec = await get_sparse_vector(result[t]["norm"])
+            except Exception:
+                continue
+            result[t]["dense"] = dvec
+            result[t]["sparse"] = svec
+            try:
+                hits = await search_notification_incidents(
+                    dvec, svec, system_name, score_threshold=_NOTIF_RECOGNIZE_THRESHOLD,
+                )
+            except Exception as e:
+                logger.warning("template notification 검색 실패 (계속): %s", e)
+                hits = []
+            if hits:
+                # 알림성 변형으로 인식 (stored-wins). point_exists=False → 자기 포인트는 신규 저장 대상.
+                result[t]["recognized"] = True
+                result[t]["is_notification"] = True
+                result[t]["severity"] = "info"
+    return result
+
+
 async def _analyze_one_role(
     sem: asyncio.Semaphore,
     system_id: int,
@@ -538,148 +557,150 @@ async def _analyze_one_role(
 
     async with sem:
         try:
-            # LLM 分析 + Qdrant 검색 (벡터 저장은 그룹 분리 후 별도 처리)
-            analysis = await analyze_with_vector_context(
-                system_name, instance_role, logs, agent_code,
-                trace_context=trace_ctx,
-                trace_tier="5min",
-                skip_vector_store=True,
-            )
+            # ── 1. distinct template 단위 그룹화 ──────────────────────────────
+            by_tmpl: dict[str, dict] = {}
+            for lg in logs:
+                t = lg.get("template", "")
+                if not t:
+                    continue
+                d = by_tmpl.setdefault(t, {
+                    "count": 0, "level": lg.get("level", "ERROR"),
+                    "log_type": lg.get("log_type", "app"), "logs": [],
+                })
+                d["count"] += int(lg.get("count", 0))
+                d["logs"].append(lg)
+            distinct = list(by_tmpl.keys())
+            if not distinct:
+                return {"status": "no_logs", "label": label}
 
-            # notification_auto: Qdrant 유사도 자동 skip — Teams/incident 없이 DB만 기록
-            if analysis.get("anomaly_type") == "notification_auto":
-                logger.info(
-                    f"[{label}] notification_auto skip (score={analysis.get('similarity_score', 0):.3f})"
-                )
+            # ── 2. template 단위 notification 인식 (LLM 이전 — 혼합 배치 over-skip 방지) ──
+            recog = await _recognize_templates(system_name, instance_role, distinct)
+            recognized_notif = [t for t in distinct
+                                if recog[t]["recognized"] and recog[t]["is_notification"]]
+            # 미인식 + recognized 실에러(recurring) → LLM 분석 대상
+            need_llm = [t for t in distinct if t not in recognized_notif]
+
+            # ── 3. recognized 알림성 영속화(점유 갱신/신규 변형 저장) + 경량 1 레코드(Teams 없음) ──
+            if recognized_notif:
+                for t in recognized_notif:
+                    rc = recog[t]
+                    if rc["point_exists"]:
+                        await bump_occurrence(rc["point_id"], rc["occurrence"] + 1)
+                    elif rc.get("dense") and rc.get("sparse"):
+                        # tier-2 fuzzy 인식 변형 → 자기 결정적 포인트 신규 저장(다음 주기 tier-1 hit)
+                        try:
+                            await store_incident_vector(
+                                rc["dense"], rc["sparse"], system_name, instance_role,
+                                "info", rc["norm"][:500],
+                                is_notification=True, point_key=rc["norm"],
+                            )
+                        except Exception as e_v:
+                            logger.warning(f"[{label}] 알림성 변형 저장 실패 ({t[:40]}): {e_v}")
                 await submit_analysis(
                     system_id=system_id,
                     instance_role=instance_role,
-                    log_content=full_log,
+                    log_content=mask_sensitive_data(_format_logs_by_type(
+                        [lg for t in recognized_notif for lg in by_tmpl[t]["logs"]])),
                     analysis_result={},
                     severity="info",
                     root_cause="",
                     recommendation="",
                     anomaly_type="notification_auto",
-                    similarity_score=analysis.get("similarity_score"),
-                    qdrant_point_id=analysis.get("qdrant_point_id"),
-                    templates=analysis_templates or None,
-                    notification_count=sum(int(l.get("count", 0)) for l in logs),
+                    qdrant_point_id=recog[recognized_notif[0]]["point_id"],
+                    templates=recognized_notif or None,
+                    notification_count=sum(by_tmpl[t]["count"] for t in recognized_notif),
                 )
+
+            # 전부 알림성 인식 → 배치 skip (LLM 호출 없음)
+            if not need_llm:
+                logger.info(f"[{label}] notification_auto skip (templates={len(recognized_notif)})")
                 return {"status": "notification_auto", "label": label}
 
-            # ── template_classifications 기반 그룹 분리 ────────────────────────
-            tc_list = analysis.get("template_classifications", [])
-            notification_templates_set = {
-                tc["template"] for tc in tc_list if tc.get("is_notification")
-            }
-            # 폴백: LLM이 template_classifications 없이 is_notification만 반환한 경우
-            if not notification_templates_set and analysis.get("is_notification"):
-                notification_templates_set = {log.get("template", "") for log in logs}
-            # is_notification fallback 사용 시 tc_list 합성 (template_classifications_json 확보)
-            if not tc_list and notification_templates_set:
-                tc_list = [{"template": t, "is_notification": True} for t in notification_templates_set]
-
-            notif_logs = [log for log in logs if log.get("template", "") in notification_templates_set]
-            real_error_logs = [log for log in logs if log.get("template", "") not in notification_templates_set]
-
+            # ── 4. LLM 분석 (배치 컨텍스트) — 미인식 template 분류 ─────────────
+            analysis = await analyze_with_vector_context(
+                system_name, instance_role, logs, agent_code,
+                trace_context=trace_ctx, trace_tier="5min", skip_vector_store=True,
+            )
+            tc_list = analysis.get("template_classifications", []) or []
+            llm_notif = {tc["template"] for tc in tc_list if tc.get("is_notification")}
+            if not tc_list and analysis.get("is_notification"):
+                llm_notif = set(need_llm)  # 폴백: 전체 알림성
             severity = analysis.get("severity", "info")
             root_cause = analysis.get("root_cause", "")
             recommendation = analysis.get("recommendation", "")
             tc_json = json.dumps(tc_list, ensure_ascii=False) if tc_list else None
             llm_err = analysis.get("llm_error") or analysis.get("qdrant_store_error")
 
-            # ── 알림성 그룹 제출 ────────────────────────────────────────────────
-            if notif_logs:
-                notif_text = mask_sensitive_data(_format_logs_by_type(notif_logs))
-                notif_count = sum(int(l.get("count", 0)) for l in notif_logs)
-                notif_tmpls = list({l.get("template", "") for l in notif_logs if l.get("template")})
-                notif_tcounts = {
-                    t: sum(int(l.get("count", 0)) for l in notif_logs if l.get("template") == t)
-                    for t in notif_tmpls
-                }
-                notif_point_id = None
+            # ── 5. need_llm template 단위 처리 (stored-wins → LLM, 포인트·알림 모두 template 단위) ──
+            n_notif_new = n_real = 0
+            for t in need_llm:
+                rc = recog[t]
+                if rc["recognized"]:          # recognized 실에러(recurring) → 저장된 결정 승계
+                    is_notif = rc["is_notification"]   # False (알림성은 recognized_notif에서 이미 처리)
+                    tmpl_sev = rc["severity"]
+                else:                          # 신규 → LLM 분류
+                    is_notif = t in llm_notif
+                    tmpl_sev = "info" if is_notif else severity
+
+                t_norm = rc["norm"]
+                t_text = mask_sensitive_data(_format_logs_by_type(by_tmpl[t]["logs"]))
+                t_count = by_tmpl[t]["count"]
+
+                dvec, svec = rc.get("dense"), rc.get("sparse")  # tier-2에서 계산했으면 재사용
+                point_id = None
                 try:
-                    notif_normalized = normalize_log_for_embedding(notif_text)
-                    n_dense = await get_embedding(notif_normalized)
-                    n_sparse = await get_sparse_vector(notif_normalized)
-                    notif_point_id = await store_incident_vector(
-                        n_dense, n_sparse, system_name, instance_role,
-                        "info", notif_normalized[:500],
-                        root_cause=root_cause,
-                        is_notification=True,
+                    if dvec is None or svec is None:
+                        dvec = await get_embedding(t_norm)
+                        svec = await get_sparse_vector(t_norm)
+                    point_id = await store_incident_vector(
+                        dvec, svec, system_name, instance_role,
+                        tmpl_sev, t_norm[:500],
+                        root_cause=("" if is_notif else root_cause),
+                        recommendation=("" if is_notif else recommendation),
+                        is_notification=is_notif,
+                        point_key=t_norm,
+                        occurrence_count=(rc["occurrence"] + 1 if rc["point_exists"] else 1),
                     )
-                except Exception as e_n:
-                    logger.warning(f"[{label}] 알림성 그룹 벡터 저장 실패: {e_n}")
+                except Exception as e_s:
+                    logger.warning(f"[{label}] template 벡터 저장 실패 ({t[:40]}): {e_s}")
 
-                await submit_analysis(
-                    system_id=system_id,
-                    instance_role=instance_role,
-                    log_content=notif_text,
-                    analysis_result={"is_notification": True, "severity": "info"},
-                    severity="info",
-                    root_cause=root_cause,
-                    recommendation="",
-                    anomaly_type="notification",
-                    qdrant_point_id=notif_point_id,
-                    templates=notif_tmpls or None,
-                    template_counts=notif_tcounts or None,
-                    real_error_count=0,
-                    notification_count=notif_count,
-                    template_classifications_json=tc_json,
-                )
-
-            # ── 실에러 그룹 제출 ────────────────────────────────────────────────
-            if real_error_logs:
-                real_text = mask_sensitive_data(_format_logs_by_type(real_error_logs))
-                real_count = sum(int(l.get("count", 0)) for l in real_error_logs)
-                real_tmpls = list({l.get("template", "") for l in real_error_logs if l.get("template")})
-                real_tcounts = {
-                    t: sum(int(l.get("count", 0)) for l in real_error_logs if l.get("template") == t)
-                    for t in real_tmpls
-                }
-                real_point_id = None
-                try:
-                    real_normalized = normalize_log_for_embedding(real_text)
-                    r_dense = await get_embedding(real_normalized)
-                    r_sparse = await get_sparse_vector(real_normalized)
-                    real_point_id = await store_incident_vector(
-                        r_dense, r_sparse, system_name, instance_role,
-                        severity, real_normalized[:500],
-                        root_cause=root_cause,
-                        recommendation=recommendation,
-                        is_notification=False,
+                if is_notif:
+                    # 신규 알림성 최초 1회 → Teams (다음 주기부터 tier-1 인식 → notification_auto)
+                    n_notif_new += 1
+                    await submit_analysis(
+                        system_id=system_id, instance_role=instance_role,
+                        log_content=t_text,
+                        analysis_result={"is_notification": True, "severity": "info"},
+                        severity="info", root_cause=root_cause, recommendation="",
+                        anomaly_type="notification",
+                        qdrant_point_id=point_id,
+                        templates=[t], template_counts={t: t_count},
+                        real_error_count=0, notification_count=t_count,
+                        template_classifications_json=tc_json,
                     )
-                except Exception as e_r:
-                    logger.warning(f"[{label}] 실에러 그룹 벡터 저장 실패: {e_r}")
+                else:
+                    n_real += 1
+                    await submit_analysis(
+                        system_id=system_id, instance_role=instance_role,
+                        log_content=t_text, analysis_result=analysis,
+                        severity=tmpl_sev, root_cause=root_cause, recommendation=recommendation,
+                        anomaly_type=analysis.get("anomaly_type"),
+                        similarity_score=analysis.get("similarity_score"),
+                        qdrant_point_id=point_id,
+                        has_solution=analysis.get("has_solution"),
+                        similar_incidents=analysis.get("similar_incidents"),
+                        error_message=llm_err,
+                        referenced_trace_ids=trace_ref_ids or None,
+                        trace_summary_text=trace_ctx or None,
+                        templates=[t], template_counts={t: t_count},
+                        real_error_count=t_count, notification_count=0,
+                        template_classifications_json=tc_json,
+                    )
 
-                await submit_analysis(
-                    system_id=system_id,
-                    instance_role=instance_role,
-                    log_content=real_text,
-                    analysis_result=analysis,
-                    severity=severity,
-                    root_cause=root_cause,
-                    recommendation=recommendation,
-                    anomaly_type=analysis.get("anomaly_type"),
-                    similarity_score=analysis.get("similarity_score"),
-                    qdrant_point_id=real_point_id,
-                    has_solution=analysis.get("has_solution"),
-                    similar_incidents=analysis.get("similar_incidents"),
-                    error_message=llm_err,
-                    referenced_trace_ids=trace_ref_ids or None,
-                    trace_summary_text=trace_ctx or None,
-                    templates=real_tmpls or None,
-                    template_counts=real_tcounts or None,
-                    real_error_count=real_count,
-                    notification_count=0,
-                    template_classifications_json=tc_json,
-                )
-
-            if real_error_logs or notif_logs:
-                logger.info(
-                    f"[{label}] 분析 완료: {severity} [{analysis.get('anomaly_type', 'unknown')}]"
-                    f" 실에러={len(real_error_logs)}템플릿 알림성={len(notif_logs)}템플릿"
-                )
+            logger.info(
+                f"[{label}] 분析 완료: {severity} [{analysis.get('anomaly_type', 'unknown')}] "
+                f"신규실에러={n_real} 신규알림성={n_notif_new} 인식알림성={len(recognized_notif)}"
+            )
             return {"status": "analyzed", "label": label}
 
         except Exception as e:
