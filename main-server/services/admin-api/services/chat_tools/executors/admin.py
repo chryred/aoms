@@ -6,7 +6,7 @@ import re
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from sqlalchemy import select, and_
+from sqlalchemy import select, and_, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models import (
@@ -817,6 +817,56 @@ async def _create_feedback(db: AsyncSession, args: dict[str, Any]) -> dict[str, 
     }
 
 
+async def _get_log_error_stats(db: AsyncSession, args: dict[str, Any]) -> dict[str, Any]:
+    """log_analysis_history 기반 실에러 / 알림성 건수 조회.
+
+    Prometheus log_error_total은 알림성(notification)을 포함한 원시 카운터라
+    '실에러만' 집계하려면 이 도구를 사용해야 한다.
+    """
+    system_name = args.get("system_name")
+    hours = int(args.get("hours", 24))
+    if not system_name:
+        return {"error": "system_name이 필요합니다."}
+
+    # system 조회
+    sys_row = await db.execute(
+        select(System).where(System.system_name == system_name)
+    )
+    system = sys_row.scalar_one_or_none()
+    if not system:
+        # display_name으로도 시도
+        sys_row2 = await db.execute(
+            select(System).where(System.display_name.ilike(f"%{system_name}%"))
+        )
+        system = sys_row2.scalar_one_or_none()
+    if not system:
+        return {"error": f"시스템을 찾을 수 없습니다: {system_name}"}
+
+    cutoff = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=hours)
+    rows_res = await db.execute(
+        select(LogAnalysisHistory).where(
+            and_(
+                LogAnalysisHistory.system_id == system.id,
+                LogAnalysisHistory.created_at >= cutoff,
+            )
+        ).order_by(LogAnalysisHistory.created_at.desc())
+    )
+    rows = rows_res.scalars().all()
+
+    real_error_total = sum(r.real_error_count or 0 for r in rows)
+    notification_total = sum(r.notification_count or 0 for r in rows)
+
+    return {
+        "system_name": system.system_name,
+        "system_display_name": system.display_name,
+        "period_hours": hours,
+        "real_error_total": real_error_total,       # 실제 오류 건수 (알림성 제외)
+        "notification_total": notification_total,    # 알림성 로그 건수 (Teams 미발송)
+        "total": real_error_total + notification_total,
+        "note": "Prometheus log_error_total은 알림성 포함 원시값입니다. 이 도구는 DB 기반으로 알림성을 제외한 실에러만 집계합니다.",
+    }
+
+
 async def execute(db: AsyncSession, name: str, args: dict[str, Any]) -> dict[str, Any]:
     try:
         if name == "admin_list_systems":
@@ -835,6 +885,8 @@ async def execute(db: AsyncSession, name: str, args: dict[str, Any]) -> dict[str
             return await _get_incident_context(db, args)
         if name == "admin_create_feedback":
             return await _create_feedback(db, args)
+        if name == "admin_get_log_error_stats":
+            return await _get_log_error_stats(db, args)
         return {"error": f"unknown admin tool: {name}"}
     except Exception as e:  # noqa: BLE001
         return {"error": f"admin 도구 실패: {str(e)[:200]}"}

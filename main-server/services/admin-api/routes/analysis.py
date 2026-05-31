@@ -593,6 +593,8 @@ async def reclassify_alert_history(
         # DB 갱신 (alert_history + log_analysis_history)
         new_anomaly = "notification" if target_severity == "info" else "reclassified"
         new_is_notif = target_severity == "info"
+
+        # ① alert_history 경로 (alert_history 있는 일반/재분류 레코드)
         res = await db.execute(select(AlertHistory).where(AlertHistory.qdrant_point_id.in_(pids)))
         for ah in res.scalars().all():
             ah.severity = target_severity
@@ -605,6 +607,20 @@ async def reclassify_alert_history(
                     lr.anomaly_type = new_anomaly
                     lr.real_error_count = 0 if new_is_notif else total
                     lr.notification_count = total if new_is_notif else 0
+
+        # ② log_analysis_history 직접 경로 (notification_auto 레코드 — alert_history 없음)
+        # notification_auto는 should_log_alert=False라 alert_history가 없어서 ①에서 누락됨.
+        # qdrant_point_id로 직접 조회해 real_error_count / notification_count 보정.
+        lr_res = await db.execute(
+            select(LogAnalysisHistory).where(LogAnalysisHistory.qdrant_point_id.in_(pids))
+        )
+        for lr in lr_res.scalars().all():
+            total = (lr.real_error_count or 0) + (lr.notification_count or 0)
+            lr.severity = target_severity
+            lr.anomaly_type = new_anomaly
+            lr.real_error_count = 0 if new_is_notif else total
+            lr.notification_count = total if new_is_notif else 0
+
         await db.commit()
         return len(pids)
 
