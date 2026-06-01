@@ -397,14 +397,11 @@ async def reclassify_alert_history(
         alert.qdrant_point_id = new_remaining_point_id
         # alert_history는 유지 (anomaly_type 변경 안 함)
     else:
-        # 모든 템플릿이 재분류됨 → 원본 alert + log_rec 클리어
+        # 모든 템플릿이 재분류됨 → 원본 alert 마킹 + log_rec 삭제
         alert.anomaly_type = "reclassified"
+        alert.log_analysis_id = None
         if log_rec:
-            log_rec.templates_json = []
-            log_rec.template_classifications_json = None
-            log_rec.real_error_count = 0
-            log_rec.notification_count = 0
-            db.add(log_rec)
+            await db.delete(log_rec)
 
     db.add(alert)
 
@@ -724,16 +721,13 @@ async def simple_reclassify_alert_history(
         except Exception as exc:
             logger.warning("기존 Qdrant 포인트 삭제 실패 (계속): %s", exc)
 
-    # 기존 alert_history 마킹 + 원본 log_rec 클리어 (전체 재분류)
+    # 기존 alert_history 마킹 + 원본 log_rec 삭제 (전체 재분류)
     alert.anomaly_type = "reclassified"
     alert.qdrant_point_id = None
+    alert.log_analysis_id = None
     db.add(alert)
     if log_rec:
-        log_rec.templates_json = []
-        log_rec.template_classifications_json = None
-        log_rec.real_error_count = 0
-        log_rec.notification_count = 0
-        db.add(log_rec)
+        await db.delete(log_rec)
 
     # 새 Qdrant 포인트 생성 (best-effort, 실제 count 전달)
     new_point_id: str | None = None
