@@ -311,7 +311,7 @@
    - `metric_hourly_patterns`는 Dense 전용 (LLM 자연어 요약이라 키워드 매칭 불필요)
    - 검색은 Qdrant Query API `/points/query` + `prefetch + fusion: rrf` 사용
    - prefetch 단계: dense cosine threshold=0.5 느슨하게 적용(완전 무관 결과 차단), sparse는 threshold 없음
-   - 기존 `score_threshold` 파라미터는 받되 RRF에는 미적용 (점수 스케일 다름). classify_anomaly 임계값은 RRF 점수 기반(0.032/0.025/0.015)으로 재설정, 운영 후 튜닝 필요
+   - 기존 `score_threshold` 파라미터는 받되 RRF에는 미적용 (점수 스케일 다름). classify_anomaly 임계값은 RRF 점수 기반(0.032/0.025/0.015)으로 재설정, 운영 후 튜닝 필요. **(2026-05-31 후속 보정: Qdrant RRF k=2 스케일(상한 1.0)에 맞춰 0.8/0.5/0.3으로 확정 — 커밋 7679f5e, `vector_client.py:classify_anomaly`. 알림성 인식 tier-2는 RRF rank 경쟁 문제로 dense 단독 cosine ≥ 0.9로 분리됨.)**
 
 4. **RAG 챗봇 연동**
    - admin-api에 `qdrant` executor 신설 (`services/chat_tools/executors/qdrant.py`)
@@ -678,3 +678,34 @@ Synapse는 이미 자체 username/password DB(`users` 테이블)를 보유하고
 - 1회용 스크립트: `scripts/migrate_guides_to_hybrid.py`
 - 테스트: 기존 277 passed 유지
 
+
+
+---
+
+## ADR-019: SSL 내부망 발급을 ACME → 직접 서명(cryptography)으로 전환
+
+**상태**: 채택 (2026-05-31)
+
+**맥락**:
+- 기존 `ssl_issuer.py`는 acme.sh ACME(http-01, `--standalone --httpport 8080`)로 내부망 인증서를 발급했으나, 운영기에서도 동작 불가였다:
+  - acme.sh 챌린지 서버 8080이 admin-api(uvicorn 8080)와 같은 네임스페이스에서 포트 충돌
+  - 와일드카드(`*.shinsegae.com`)는 ACME 규약상 http-01 불가(DNS-01 필요)인데 코드는 http-01 사용
+  - 운영 `docker-compose.yml`에 SSL env/볼륨·acme.sh 번들이 없어 배포 결선도 미완성
+- 이 시스템은 **중앙(admin-api) 발급 → paramiko push 배포** 모델이라 각 타겟 서버의 80 검증이 불필요하다.
+- step-ca는 우리가 통제하는 **사설 CA**이므로 ACME 챌린지 없이 직접 서명이 가능하다.
+
+**결정**:
+- **내부망**: intermediate CA 키로 leaf 인증서를 **직접 서명**(`cryptography`). 챌린지 없음, 와일드카드 SAN(`*.shinsegae.com` + `shinsegae.com`) 포함. acme.sh/socat/포트(8080) 의존 제거.
+  - 구현은 `cryptography`(이미 `requirements/base.txt`, OIDC RS256용)로 통일 → 외부 바이너리·bind mount·OS 호환·uid 이슈 전부 회피(admin-api 이미지 `python:3.11-slim` + 비루트 `1036:510`).
+  - CA 생성도 `cryptography`로 통일(`scripts/ssl_ca_gen.py`) — smallstep/step-ca 이미지는 intermediate 키를 비밀번호로 암호화 저장해 무암호 PEM 로드와 비호환.
+  - leaf 서명은 단일 헬퍼 `ssl_issuer.sign_leaf()` — 부트스트랩(샌드박스 와일드카드)과 `issue_or_renew`가 공유.
+- **DMZ(외부망)**: 기존 http-01 acme.sh 번들(`ssl_dmz.py`) 유지 — DMZ 서버가 자체 발급(중앙 acme.sh 아님). 변경 없음.
+- 새 env: `STEP_CA_INTERMEDIATE_CERT`, `STEP_CA_INTERMEDIATE_KEY` (intermediate CA 경로).
+- `issue_or_renew()` 시그니처/반환(`{domain, install_dir, rc, output}`)·결과물 경로(`{CERT_BASE}/wildcard/{fullchain.cer,cert.key,ca.cer}`) 유지 → `ssl_scheduler`·`ssl_deployer`·`ssl_monitor` 무변경.
+
+**결과**:
+- 8080 충돌·와일드카드 http-01 모순·acme.sh 번들 문제 원천 해소.
+- 폐쇄망 배포 시 외부 바이너리 0 (cryptography만).
+- 로컬 Mac 샌드박스(`make ssl-sandbox-*`)로 발급·배포·모니터링 end-to-end 테스트 가능(호스트 무오염).
+
+**검증 전략**: 1차 로컬 Mac 샌드박스(직접 서명은 순수 파이썬이라 OS 차이 무관) → 2차 운영기/스테이징 실환경(테스트 전용 도메인·타겟 한정, 운영 서비스 미접촉).

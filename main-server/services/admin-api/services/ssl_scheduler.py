@@ -1,9 +1,10 @@
 """
-SSL 인증서 자동 갱신 배치 — 매일 02:00 KST
+SSL 인증서 자동 갱신 배치 — 매일 02:00 KST (ADR-019)
 1. 전체 서버 openssl 폴링 → cert_snapshots 갱신
-2. days_left < 30 서버의 유니크 도메인에 대해 acme.sh 갱신
-3. 갱신된 도메인 사용 서버 전체 paramiko 배포
-4. 이상 감지 + Teams 알림
+2. days_left < 30 서버의 유니크 도메인 추출
+3. intermediate CA 키로 직접 서명 재발급 (ssl_issuer.issue_or_renew)
+4. 갱신된 도메인 사용 서버 전체 paramiko 배포
+5. 이상 감지 + Teams 알림
 """
 import asyncio
 import logging
@@ -99,13 +100,13 @@ async def run_ssl_daily_batch() -> None:
 
     logger.info("갱신 대상 도메인: %s", domains_to_renew)
 
-    # 3. 도메인별 acme.sh 1회 실행
+    # 3. 도메인별 직접 서명 발급 (ADR-019: intermediate CA 키로 직접 서명)
     for domain in domains_to_renew:
         res = await ssl_issuer.issue_or_renew(domain)
         if res["rc"] != 0:
-            logger.error("acme.sh 갱신 실패 (domain=%s): %s", domain, res["output"][-300:])
+            logger.error("직접 서명 갱신 실패 (domain=%s): %s", domain, res["output"][-300:])
         else:
-            logger.info("acme.sh 갱신 성공: %s", domain)
+            logger.info("직접 서명 갱신 성공: %s", domain)
 
     # 4. 갱신된 도메인 사용 서버 전체 배포
     for domain in domains_to_renew:

@@ -35,9 +35,13 @@ def _parse_expiry(output: str) -> Optional[date]:
 
 async def check_server(server: SslServer) -> dict:
     """단일 서버 openssl 폴링 결과 반환"""
+    # 주의: -brief 는 PEM 인증서 블록을 억제하므로 절대 사용하지 말 것.
+    # 억제되면 뒤의 `openssl x509`가 빈 입력을 받아 days_left 가 조용히 null 이 된다
+    # (OpenSSL 3.x / LibreSSL 공통). 기본 출력은 leaf 인증서 PEM 을 포함한다.
+    # -servername: SNI 기반 vhost 에서 와일드카드/대상 인증서를 정확히 받기 위함.
     cmd = (
         f"echo | openssl s_client -connect {server.host}:443 "
-        f"-brief 2>/dev/null | openssl x509 -noout -enddate 2>/dev/null"
+        f"-servername {server.host} 2>/dev/null | openssl x509 -noout -enddate 2>/dev/null"
     )
     try:
         proc = await asyncio.create_subprocess_shell(

@@ -12,6 +12,8 @@ UVICORN       := $(VENV)/bin/uvicorn
 
 ENV_FILE      := $(MAIN_SERVER)/.env.local
 
+COMPOSE_SSL_SANDBOX := docker-compose.ssl-sandbox.yml
+
 .DEFAULT_GOAL := help
 
 # ── 도움말 ──────────────────────────────────────────────────────────────────
@@ -27,6 +29,13 @@ help:
 	@echo "    make dev-clean      인프라 중지 + 볼륨 삭제 (DB 초기화)"
 	@echo "    make dev-logs       인프라 로그 스트리밍"
 	@echo "    make dev-ps         실행 중인 컨테이너 상태 확인"
+	@echo ""
+	@echo "  SSL 자동화 샌드박스 (로컬 테스트)"
+	@echo "    make ssl-sandbox-up    타겟 컨테이너 시작 (빌드 포함)"
+	@echo "    make ssl-sandbox-init  CA·deploy키·와일드카드 인증서 생성"
+	@echo "    make ssl-sandbox-down  타겟 컨테이너 중지"
+	@echo "    make ssl-sandbox-clean 컨테이너 + secrets 삭제"
+	@echo "    make ssl-sandbox-logs  타겟 컨테이너 로그"
 	@echo ""
 	@echo "  앱 실행 (hot-reload)"
 	@echo "    make run-api        admin-api 실행 (포트 8080)"
@@ -110,6 +119,33 @@ dev-logs:
 .PHONY: dev-ps
 dev-ps:
 	cd $(MAIN_SERVER) && docker compose -f docker-compose.dev.yml ps
+
+# ── SSL 자동화 샌드박스 (로컬 테스트) ─────────────────────────────────────────
+.PHONY: ssl-sandbox-up
+ssl-sandbox-up:
+	@echo "→ SSL 샌드박스 타겟 컨테이너 시작..."
+	cd $(MAIN_SERVER) && docker compose -f $(COMPOSE_SSL_SANDBOX) up -d --build
+	@echo "✓ ssl-target: SSH 127.0.0.1:2222, HTTPS 127.0.0.1:443 (account=root, pw=sandbox-root-pw)"
+	@echo "  다음: make ssl-sandbox-init"
+
+.PHONY: ssl-sandbox-init
+ssl-sandbox-init:
+	@bash $(ROOT_DIR)/scripts/ssl-sandbox-init.sh
+
+.PHONY: ssl-sandbox-down
+ssl-sandbox-down:
+	cd $(MAIN_SERVER) && docker compose -f $(COMPOSE_SSL_SANDBOX) down
+
+.PHONY: ssl-sandbox-logs
+ssl-sandbox-logs:
+	cd $(MAIN_SERVER) && docker compose -f $(COMPOSE_SSL_SANDBOX) logs -f
+
+.PHONY: ssl-sandbox-clean
+ssl-sandbox-clean:
+	@echo "⚠ 샌드박스 컨테이너 + main-server/secrets/ 삭제"
+	cd $(MAIN_SERVER) && docker compose -f $(COMPOSE_SSL_SANDBOX) down -v
+	rm -rf $(MAIN_SERVER)/secrets
+	@echo "✓ 정리 완료"
 
 # ── 의존성 설치 ──────────────────────────────────────────────────────────────
 .PHONY: install

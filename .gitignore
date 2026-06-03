@@ -35,3 +35,6 @@ design_handoff_synap_sig/
 **/.design-review/
 design-audit-*/
 design-audit-screenshots/
+
+# SSL 샌드박스 secrets — CA/deploy 개인키(확장자 없음) 포함
+main-server/secrets/

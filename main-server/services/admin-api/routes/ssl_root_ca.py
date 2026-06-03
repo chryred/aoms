@@ -1,6 +1,6 @@
 """
 Root CA 공개 엔드포인트 (인증 불필요)
-GET /api/v1/ssl/root-ca/download  → shinsegae-root-ca.crt 다운로드
+GET /api/v1/ssl/root-ca/download  → shinsegae-inc-root-ca.crt 다운로드
 GET /api/v1/ssl/root-ca/info      → CA 이름, 만료일, fingerprint
 """
 import asyncio
@@ -23,7 +23,7 @@ async def download_root_ca():
     return FileResponse(
         path=str(path),
         media_type="application/x-x509-ca-cert",
-        filename="shinsegae-root-ca.crt",
+        filename="shinsegae-inc-root-ca.crt",
     )
 
 

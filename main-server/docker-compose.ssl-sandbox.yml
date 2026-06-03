@@ -1,0 +1,26 @@
+# SSL 자동화 로컬 샌드박스 — 배포 타겟 (Mac 호스트 무오염)
+#
+# CA는 scripts/ssl-sandbox-init.sh가 cryptography로 생성(상시 데몬 불필요).
+# admin-api는 호스트(make run-api)에서 intermediate 키로 직접 서명 발급 →
+# 이 ssl-target 컨테이너에 paramiko로 배포한다.
+#
+# 사용: make ssl-sandbox-up / ssl-sandbox-init / ssl-sandbox-down / ssl-sandbox-clean
+# 주의: 테스트 전용. root 약한 비밀번호 사용. 운영 사용 금지.
+
+services:
+  ssl-target:
+    build:
+      context: ./configs/ssl-sandbox/target
+      dockerfile: Dockerfile
+    image: synapse-ssl-target:sandbox
+    container_name: synapse-ssl-target
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:2222:22"     # paramiko SSH/SFTP (ssl_servers/ssl_deployer, ssh_port=2222)
+      - "127.0.0.1:443:443"     # ssl_monitor 호스트측 openssl :443 폴링 대상
+    networks:
+      - ssl-sandbox
+
+networks:
+  ssl-sandbox:
+    name: synapse-ssl-sandbox

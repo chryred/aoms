@@ -421,6 +421,8 @@ class InstanceStatusOut(BaseModel):
 
 ### SSL 인증서 자동화 관리 `/api/v1/ssl`
 
+> **발급 방식 (ADR-019)**: 내부망 인증서는 acme.sh/ACME http-01 대신 **사설 CA intermediate 키로 직접 서명** (`services/ssl_issuer.py` `sign_leaf`). `STEP_CA_INTERMEDIATE_CERT`/`STEP_CA_INTERMEDIATE_KEY` env가 필요. `issue_or_renew()` 반환 시그니처(`{domain, install_dir, rc, output}`)와 결과물 경로(`{CERT_BASE}/wildcard/fullchain.cer|cert.key|ca.cer`)는 기존과 동일 → `ssl_scheduler`/`ssl_deployer`/`ssl_monitor` 무변경. DMZ(`ssl_dmz.py`)만 acme.sh http-01 번들 유지. 상세: `docs/ssl-automation.md`.
+
 **서버 관리** (`routes/ssl_servers.py`):
 - `POST /api/v1/ssl/servers` — 서버 등록. password로 1회 SSH → authorized_keys 자동 등록. password는 DB 저장 안 함
 - `GET /api/v1/ssl/servers` — 목록 (`?network_zone=internal|dmz`, `?status=active`)
@@ -503,7 +505,7 @@ DB 변경: `chat_sessions.user_id` nullable, `visitor_employee_id/email/system_i
     - 공통 헬퍼: `services/incident_status_meta.py` — `INCIDENT_STATUS_KO`/`INCIDENT_PROGRESS`/`INCIDENT_NEXT_ACTION` + `status_meta()`. `_get_incident_context` 와 `routes/incidents.py GET /{id}` 응답이 동시 사용 (DRY)
   - `log_analyzer`: 최근 LLM 로그 분석 조회 + log-analyzer HTTP 프록시
   - `qdrant` (ADR-011 RAG): 검색(Search) 6종 + 청크 조회(Get-Chunks) 1종.
-    - 검색: `qdrant_search_incident_knowledge` (log_incidents + metric_baselines Hybrid) / `qdrant_search_aggregation_summary` (aggregation_summaries Hybrid) / `qdrant_search_hourly_patterns` (metric_hourly_patterns Hybrid) / `qdrant_search_incident_postmortem` (incident_postmortems Hybrid) / `qdrant_search_knowledge` (V1 knowledge federated — log-analyzer `/knowledge/search`) / `qdrant_search_guide` (knowledge_guides Hybrid — log-analyzer `/guides/search`, group_by_guide=True 고정, 가이드 단위 결과 반환. payload에 matched_chunk_indexes / matched_chunks_count 포함. system_id 필터 + NULL 공용 가이드 OR)
+    - 검색: `qdrant_search_incident_knowledge` (log_incidents + metric_baselines Hybrid, **rerank=True 기본** — RRF 후보 limit*4 → bge-reranker-v2-m3 재정렬) / `qdrant_search_aggregation_summary` (aggregation_summaries Hybrid, **rerank=True 기본**) / `qdrant_search_hourly_patterns` (metric_hourly_patterns Hybrid) / `qdrant_search_incident_postmortem` (incident_postmortems Hybrid) / `qdrant_search_knowledge` (V1 knowledge federated — log-analyzer `/knowledge/search`) / `qdrant_search_guide` (knowledge_guides Hybrid — log-analyzer `/guides/search`, group_by_guide=True 고정, 가이드 단위 결과 반환. payload에 matched_chunk_indexes / matched_chunks_count 포함. system_id 필터 + NULL 공용 가이드 OR)
     - 청크 조회 (검색에서 부족한 청크만 보강, 통합 도구): `qdrant_get_chunks(source, id, chunk_indexes?, max_chunks?)`. source='guide'(id=guide_id) | 'document'(id=file_hash) | 'confluence'(id=page_id). **chunk_indexes 명시 시 surgical fetch (1-3개 청크만 — 컨텍스트 절약)**, 생략 시 전체 (max_chunks 상한). 각각 청킹된 컬렉션(`knowledge_guides`, `knowledge_documents`, `knowledge_confluence_pages`)에서 chunk_index 순서로 반환. log-analyzer `GET /guides/{id}/chunks?chunk_indexes=2&chunk_indexes=4`, `GET /knowledge/documents/{hash}/chunks`, `GET /knowledge/confluence/{id}/chunks` 프록시
     - 구현은 `services/chat_tools/executors/qdrant.py`. `services/prompts.py._decision_prompt()` 에 사용 트리거 + 전문 조회 가이드 포함. `_HELP_ALLOWED_TOOLS`에는 게스트도 사용 가능한 search 3종 + `qdrant_get_chunks` 1종 포함
   - `prometheus`: `prometheus_query` / `prometheus_range_query` — 보관 기간(운영 15d / 개발 3d) 이내 raw 메트릭 조회. 구현: `services/chat_tools/executors/prometheus.py`. 환경변수: `PROMETHEUS_URL`, `PROMETHEUS_RETENTION_DAYS`(기본 15)

@@ -35,13 +35,14 @@ docker compose -f docker-compose.dev.yml up -d n8n
 | `FASTEMBED_CACHE_PATH` / `HF_HUB_OFFLINE` | log-analyzer | 폐쇄망 ONNX 사전 스테이징 경로 + 오프라인 모드 (ADR-011) |
 | `QDRANT_URL` | log-analyzer | 벡터 DB. 컬렉션 차원 1024 (ADR-011) |
 | `LLM_TYPE` | admin-api, log-analyzer | `devx`/`claude`/`openai` — `llm_client.py` Strategy가 라우팅 (ADR-001). ADR-012: ollama 폐지 |
-| `STEPPATH` | admin-api | Step-CA 데이터 경로 (`/app/step`) — acme.sh ACME 요청용 |
-| `STEP_CA_ACME_URL` | admin-api | Step-CA ACME 디렉터리 URL (`http://172.17.0.1:8443/acme/acme/directory`) |
-| `STEP_CA_ROOT_CA` | admin-api | Root CA 인증서 경로 (`/app/secrets/ssl/root_ca.crt`) |
-| `STEP_CA_CERT_DIR` | admin-api | acme.sh --install-cert 결과 저장 경로 (`/app/ssl/certs`) |
-| `ACMESH_PATH` | admin-api | acme.sh 실행 파일 경로 (`/app/acme.sh/acme.sh`) |
+| `STEP_CA_INTERMEDIATE_CERT` | admin-api | 사설 CA intermediate 인증서 경로 (`/app/secrets/ssl/intermediate_ca.crt`) — leaf 직접 서명 (ADR-019) |
+| `STEP_CA_INTERMEDIATE_KEY` | admin-api | 사설 CA intermediate 개인키(무암호 PEM) 경로 (`/app/secrets/ssl/intermediate_ca_key`) — `ssl_issuer.sign_leaf`가 로드 |
+| `STEP_CA_CERT_DIR` | admin-api | 발급 결과 저장 루트 (`/app/ssl/certs`, `CERT_BASE`). `wildcard/`·`{domain}/` 하위에 fullchain.cer/cert.key/ca.cer |
+| `STEP_CA_ROOT_CA` | admin-api | Root CA 인증서 경로 (`/app/secrets/ssl/root_ca.crt`) — Root CA 다운로드 엔드포인트(`/ssl/root-ca/*`)용 |
 | `SSL_DEPLOY_KEY_PATH` | admin-api | 배포용 SSH private key 경로 (`/app/secrets/ssl/deploy_key`) |
 | `SSL_DEPLOY_PUBKEY_PATH` | admin-api | 배포용 SSH public key 경로 (`/app/secrets/ssl/deploy_key.pub`) |
+
+> SSL 발급은 ADR-019로 acme.sh/Step-CA(ACME http-01) → intermediate 키 `cryptography` 직접 서명으로 전환됨. `STEPPATH`/`STEP_CA_ACME_URL`/`ACMESH_PATH` 및 `secrets/step`·`secrets/.acme.sh` 마운트는 내부망 경로에서 제거. DMZ(`ssl_dmz.py`)만 acme.sh http-01 번들 유지. 상세: `docs/ssl-automation.md`.
 
 ---
 

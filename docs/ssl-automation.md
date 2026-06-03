@@ -1,6 +1,6 @@
 # SSL 인증서 자동화 관리 — 설계 및 운영 가이드
 
-> 작성일: 2026-05-27 | 대상 환경: 폐쇄망 RedHat 8.9 + Docker Compose
+> 최초 작성: 2026-05-27 | 직접 서명 전환(ADR-019) 반영: 2026-05-31 | 대상 환경: 폐쇄망 RedHat 8.9 + Docker Compose
 
 ---
 
@@ -11,10 +11,12 @@ Synapse-V 모니터링 시스템에 통합된 SSL 인증서 자동 갱신·배�
 
 ### 핵심 특징
 
-- **내부망 서버**: Step-CA(사설 CA) + acme.sh로 와일드카드(`*.shinsegae.com`) 자동 발급/갱신
-- **DMZ 서버**: Let's Encrypt HTTP-01로 개별 도메인 독립 갱신 (콜백 없음, 포털이 폴링)
+- **내부망 서버**: 사설 CA(intermediate) 키로 leaf 인증서를 **직접 서명**(`cryptography`)하여 와일드카드(`*.shinsegae.com`) 발급/갱신. ACME 챌린지·acme.sh·Step-CA 데몬·8080 포트 의존 없음 (ADR-019).
+- **DMZ 서버**: Let's Encrypt HTTP-01로 개별 도메인 독립 갱신 (콜백 없음, 포털이 폴링). DMZ는 acme.sh 번들 유지.
 - **배포 엔진**: paramiko SSH/SFTP (추가 의존성 없음, 이미 설치됨)
 - **자동 갱신**: 매일 02:00 KST Python 배치 — 만료 30일 전 자동 갱신 및 배포
+
+> **왜 직접 서명인가 (ADR-019 요약)**: 이 시스템은 *중앙(admin-api) 발급 → paramiko push 배포* 모델이라 각 타겟 서버의 80/443 챌린지 검증이 불필요하다. 사설 CA는 우리가 통제하므로 ACME 없이 intermediate 키로 직접 서명할 수 있고, 이로써 ① acme.sh 챌린지 서버(8080)와 admin-api(uvicorn 8080) 포트 충돌, ② 와일드카드의 http-01 불가(DNS-01 필요) 모순, ③ acme.sh/socat/step-ca 번들 의존을 모두 제거했다. 서명 구현은 admin-api가 이미 OIDC RS256용으로 사용하는 `cryptography` 라이브러리로 통일 — 외부 바이너리 0개.
 
 ---
 
@@ -22,7 +24,7 @@ Synapse-V 모니터링 시스템에 통합된 SSL 인증서 자동 갱신·배�
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  admin-api 서버 (Step-CA 겸용)                               │
+│  admin-api 서버                                              │
 │                                                             │
 │  ┌─────────────┐    ┌──────────────────┐                   │
 │  │  React UI   │ ↔  │  admin-api :8080  │                   │
@@ -31,15 +33,14 @@ Synapse-V 모니터링 시스템에 통합된 SSL 인증서 자동 갱신·배�
 │                              │                             │
 │              ┌───────────────┼──────────────┐              │
 │              ↓               ↓              ↓              │
-│          Step-CA          acme.sh       ssl_scheduler      │
-│          :8443            subprocess    (매일 02:00)        │
-│          (systemd)        (인증서 발급)  (갱신+배포+알림)    │
+│       ssl_issuer.sign_leaf  ssl_deployer  ssl_scheduler    │
+│       (cryptography 직접서명) (paramiko)   (매일 02:00)      │
+│       와일드카드 SAN 발급                  (갱신+배포+알림)   │
 │                                                             │
 │  secrets/                                                   │
-│    step/      ← Step-CA STEPPATH (CA 키 포함)               │
-│    ssl/       ← deploy_key, root_ca.crt                     │
-│    certs/     ← 발급된 인증서 (wildcard/, domain/)           │
-│    .acme.sh/  ← acme.sh 설치                                │
+│    ssl/       ← intermediate_ca.{crt,key}(무암호 PEM),      │
+│               root_ca.{crt,key}, deploy_key(.pub)          │
+│    certs/     ← 발급된 인증서 (wildcard/, {domain}/)         │
 └──────────────────────────┬──────────────────────────────────┘
                            │ paramiko SSH/SFTP
           ┌────────────────┼────────────────────┐
@@ -58,43 +59,50 @@ Synapse-V 모니터링 시스템에 통합된 SSL 인증서 자동 갱신·배�
 └──────────────────────────────────────┘
 ```
 
+> 내부망 경로에는 더 이상 Step-CA 데몬(:8443)도, admin-api 컨테이너 내 acme.sh subprocess도 없다. CA는 설치 시 1회 생성된 정적 키 파일이고, 발급은 그 키로 in-process 서명한다.
+
 ---
 
 ## 3. 인증서 유형
 
-| 구분 | cert_type | 도메인 | CA | 대상 |
+| 구분 | cert_type | 도메인 | CA / 발급 방식 | 대상 |
 |------|-----------|--------|-----|------|
-| 와일드카드 | `wildcard` | `*.shinsegae.com` | Step-CA | 내부망 서버 기본 |
-| 개별 도메인 | `individual` | `crm.shinsegae.com` 등 | Step-CA | 특정 시스템 전용 |
-| DMZ | `lets_encrypt_http01` | 개별 도메인 | Let's Encrypt | DMZ 서버 전용 |
+| 와일드카드 | `wildcard` | `*.shinsegae.com` (+ apex `shinsegae.com`) | 사설 CA intermediate 직접 서명 | 내부망 서버 기본 |
+| 개별 도메인 | `individual` | `crm.shinsegae.com` 등 | 사설 CA intermediate 직접 서명 | 특정 시스템 전용 |
+| DMZ | `lets_encrypt_http01` | 개별 도메인 | Let's Encrypt HTTP-01 (DMZ 자체 acme.sh) | DMZ 서버 전용 |
 
-> Let's Encrypt HTTP-01은 와일드카드 발급 불가 (DNS-01 필요). DMZ 서버는 개별 도메인만 사용.
+- 와일드카드 leaf의 SAN에는 `*.shinsegae.com` 와 apex `shinsegae.com` 이 함께 포함된다 (`ssl_issuer._sans_for`).
+- 개별 도메인은 apex 미포함 — 해당 도메인만 SAN에 들어간다.
+- leaf 유효기간은 825일(`_LEAF_VALID_DAYS`, 브라우저 상한 근사).
+- Let's Encrypt HTTP-01은 와일드카드 발급 불가 (DNS-01 필요). DMZ 서버는 개별 도메인만 사용.
 
 ---
 
 ## 4. 배치 갱신 흐름
 
-**원칙: acme.sh는 도메인 기준, paramiko 배포는 서버 기준**
+**원칙: 발급은 도메인 기준, paramiko 배포는 서버 기준**
 
 ```
-[매일 02:00 KST]
+[매일 02:00 KST]  (ssl_scheduler)
   Step 1. 전체 서버 openssl 폴링 → cert_snapshots 갱신 (내부 + DMZ 동일)
 
   Step 2. 유니크 도메인 추출 (days_left < 30, 중복 제거)
           예) {"*.shinsegae.com", "crm.shinsegae.com"}
 
-  Step 3. 도메인별 acme.sh 1회 실행
-          *.shinsegae.com   → acme.sh 1회 → secrets/certs/wildcard/ 갱신
-          crm.shinsegae.com → acme.sh 1회 → secrets/certs/crm.shinsegae.com/ 갱신
+  Step 3. 도메인별 직접 서명 1회 (ssl_issuer.issue_or_renew)
+          *.shinsegae.com   → sign_leaf → secrets/certs/wildcard/ 갱신
+          crm.shinsegae.com → sign_leaf → secrets/certs/crm.shinsegae.com/ 갱신
 
   Step 4. 도메인을 사용하는 전체 서버에 paramiko 배포
-          wildcard 사용 4대 → 각각 SFTP + reload
-          crm.shinsegae.com 사용 2대 → 각각 SFTP + reload
+          wildcard 사용 N대 → 각각 SFTP + reload
+          crm.shinsegae.com 사용 M대 → 각각 SFTP + reload
 
   Step 5. 이상 감지 + Teams 알림
 ```
 
-**서버 수가 늘어도 acme.sh 실행 횟수는 유니크 도메인 수와 동일.**
+**서버 수가 늘어도 서명 횟수는 유니크 도메인 수와 동일.**
+
+> `issue_or_renew()`의 시그니처/반환(`{domain, install_dir, rc, output}`)과 결과물 경로(`{CERT_BASE}/wildcard/{fullchain.cer,cert.key,ca.cer}`)는 acme.sh 시절과 동일하게 유지된다. 따라서 `ssl_scheduler`·`ssl_deployer`·`ssl_monitor`는 변경 없이 그대로 동작한다.
 
 ---
 
@@ -103,186 +111,100 @@ Synapse-V 모니터링 시스템에 통합된 SSL 인증서 자동 갱신·배�
 ```
 main-server/
   secrets/                          ← .gitignore 전체 추가 (절대 커밋 금지)
-    step/                           ← Step-CA 데이터 (STEPPATH=/app/step)
-      certs/
-        root_ca.crt                 ← 클라이언트 Root CA 배포용
-        intermediate_ca.crt
-      secrets/
-        root_ca_key                 ← ⚠️ 최중요 파일 (분실 시 PKI 전체 재구축)
-        intermediate_ca_key         ← 분실 시 root_ca_key로 재생성 가능
-        password                    ← 키 암호화 비밀번호 (키와 별도 매체에 보관)
-      config/
-        ca.json
     ssl/
+      root_ca.crt                   ← 클라이언트 신뢰 앵커 (배포용)
+      root_ca_key                   ← ⚠️ 최중요. 분실 시 PKI 전체 재구축
+      intermediate_ca.crt           ← leaf 서명 체인에 포함됨
+      intermediate_ca_key           ← ⚠️ ssl_issuer가 로드하는 서명 키 (무암호 PEM)
       deploy_key                    ← admin-api SSH 배포 private key (RSA 4096)
       deploy_key.pub                ← 타겟 서버 authorized_keys에 등록되는 키
-      root_ca.crt                   ← step/certs/root_ca.crt 복사본 (컨테이너 접근용)
     certs/
       wildcard/                     ← *.shinsegae.com
-        fullchain.cer               ← 배포에 사용하는 인증서 체인
-        cert.key                    ← 개인키
-        ca.cer                      ← Step-CA CA 인증서
+        fullchain.cer               ← leaf + intermediate 체인 (배포에 사용)
+        cert.key                    ← leaf 개인키 (무암호 PEM)
+        ca.cer                      ← intermediate CA 인증서
       crm.shinsegae.com/            ← 개별 도메인 발급 시
         fullchain.cer
         cert.key
-    .acme.sh/                       ← acme.sh 설치 디렉터리
-      acme.sh
-      account.conf
+        ca.cer
   docker-compose.yml
 ```
 
+> ⚠️ intermediate 키는 **무암호 PEM**이다. `cryptography`의 in-process 서명이 비밀번호 없이 키를 로드해야 하기 때문이며, 그래서 CA 생성도 `scripts/ssl_ca_gen.py`(cryptography)로 통일했다 — smallstep/step-ca 이미지는 intermediate 키를 비밀번호로 암호화 저장해 무암호 로드와 비호환. secrets/ 디렉터리 자체를 OS 권한으로 강하게 보호할 것.
+
 ---
 
-## 6. docker-compose.yml 설정
+## 6. docker-compose.yml 설정 (운영)
 
 ```yaml
 admin-api:
   volumes:
-    - ./secrets/step:/app/step              # Step-CA STEPPATH
-    - ./secrets/ssl:/app/secrets/ssl        # deploy key + root CA
+    - ./secrets/ssl:/app/secrets/ssl        # CA 키/인증서 + deploy key
     - ./secrets/certs:/app/ssl/certs        # 최종 인증서
-    - ./secrets/.acme.sh:/app/acme.sh       # acme.sh (바인딩 — 컨테이너 내 설치 불필요)
   environment:
-    STEPPATH:               /app/step
-    STEP_CA_ACME_URL:       http://172.17.0.1:8443/acme/acme/directory
-    STEP_CA_ROOT_CA:        /app/secrets/ssl/root_ca.crt
-    STEP_CA_CERT_DIR:       /app/ssl/certs
-    ACMESH_PATH:            /app/acme.sh/acme.sh
-    SSL_DEPLOY_KEY_PATH:    /app/secrets/ssl/deploy_key
-    SSL_DEPLOY_PUBKEY_PATH: /app/secrets/ssl/deploy_key.pub
+    STEP_CA_INTERMEDIATE_CERT: /app/secrets/ssl/intermediate_ca.crt
+    STEP_CA_INTERMEDIATE_KEY:  /app/secrets/ssl/intermediate_ca_key
+    STEP_CA_CERT_DIR:          /app/ssl/certs      # 발급 결과 저장 루트 (CERT_BASE)
+    STEP_CA_ROOT_CA:           /app/secrets/ssl/root_ca.crt   # Root CA 다운로드 엔드포인트용
+    SSL_DEPLOY_KEY_PATH:       /app/secrets/ssl/deploy_key
+    SSL_DEPLOY_PUBKEY_PATH:    /app/secrets/ssl/deploy_key.pub
 ```
 
-> `172.17.0.1`은 Docker bridge 게이트웨이 (컨테이너 → 호스트 접근). 환경에 따라 `host.docker.internal`로 대체 가능.
+> 직접 서명 전환으로 `STEPPATH` / `STEP_CA_ACME_URL` / `ACMESH_PATH` 및 `secrets/step`·`secrets/.acme.sh` 바인드 마운트는 **내부망 경로에서 불필요**하다. (env 이름의 `STEP_CA_` 접두사는 기존 코드 호환을 위해 유지되나 의미는 "사설 CA 경로"다.)
+> DMZ 번들(`ssl_dmz.py`)은 타겟 DMZ 서버에서 자체 acme.sh를 실행하므로 admin-api 컨테이너에 acme.sh가 없어도 된다.
 
 ---
 
-## 7. 초기 설치 가이드 (폐쇄망 수기 설치)
+## 7. 초기 설치 가이드 (폐쇄망)
 
-### 7-1. 파일 다운로드 (외부 PC에서 실행)
+직접 서명 전환 이후 초기 설치는 **CA 키 파일 생성 + deploy 키 + 최초 와일드카드 발급** 3단계로 단순화되었다. Step-CA RPM 설치·systemd 서비스·acme.sh 설치가 모두 사라졌다.
+
+### 7-1. 사설 CA 생성 (1회, cryptography)
 
 ```bash
-# Step-CA CLI
-# https://github.com/smallstep/cli/releases/tag/v0.29.0
-wget https://github.com/smallstep/cli/releases/download/v0.29.0/step_linux_0.29.0_amd64.rpm
-
-# Step-CA 서버
-# https://github.com/smallstep/certificates/releases/download/v0.29.0
-wget https://github.com/smallstep/certificates/releases/download/v0.29.0/step-ca_linux_0.29.0_amd64.rpm
-
-# acme.sh (오프라인 설치용 zip)
-# https://github.com/acmesh-official/acme.sh/releases/tag/3.1.1
-wget https://github.com/acmesh-official/acme.sh/archive/refs/tags/3.1.1.zip -O acme.sh-3.1.1.zip
+# root + intermediate CA (무암호 PEM) 생성
+./venv/bin/python scripts/ssl_ca_gen.py main-server/secrets/ssl
+# 결과: main-server/secrets/ssl/{root_ca.crt, root_ca_key, intermediate_ca.crt, intermediate_ca_key}
 ```
 
-USB 또는 내부 파일서버로 서버에 전달.
+- root CA: self-signed, 4096-bit, 10년(`_ROOT_DAYS=3650`), `BasicConstraints(ca=True, path_length=1)`
+- intermediate CA: root 서명, 4096-bit, 5년(`_INT_DAYS=1825`), `path_length=0`
+- 두 키 모두 무암호 PEM (`NoEncryption`).
 
-### 7-2. Step-CA 설치 (root 계정)
+### 7-2. deploy 키쌍 생성 (1회)
 
 ```bash
-# RPM 설치 — 바이너리(/usr/bin/step, /usr/bin/step-ca)만 설치됨
-rpm -ivh step_linux_0.29.0_amd64.rpm
-rpm -ivh step-ca_linux_0.29.0_amd64.rpm
-
-# 데이터 디렉터리 권한 설정
-mkdir -p /app/step
-chown synapse:synapse /app/step   # 운영 계정으로 변경
+ssh-keygen -t rsa -b 4096 -N "" -C "synapse-ssl-deploy" \
+  -f main-server/secrets/ssl/deploy_key
 ```
 
-### 7-3. CA 초기화 (일반 계정 synapse)
+### 7-3. 와일드카드 인증서 최초 발급
+
+CA가 준비되면 admin-api가 첫 배치/수동 배포 시 자동 발급하지만, 사전 발급도 가능하다 (단일 헬퍼 `sign_leaf` 재사용):
 
 ```bash
-su - synapse
-export STEPPATH=/app/step
-
-step ca init \
-  --name        "Shinsegae Internal CA" \
-  --dns         "localhost,ca.shinsegae.com" \
-  --address     ":8443" \
-  --provisioner "acme" \
-  --path        /app/step
-
-# root CA를 ssl/ 에 복사
-cp /app/step/certs/root_ca.crt main-server/secrets/ssl/root_ca.crt
+cd main-server/services/admin-api
+STEP_CA_INTERMEDIATE_CERT=../../secrets/ssl/intermediate_ca.crt \
+STEP_CA_INTERMEDIATE_KEY=../../secrets/ssl/intermediate_ca_key \
+STEP_CA_CERT_DIR=../../secrets/certs \
+  ../../../venv/bin/python -c \
+  "from services.ssl_issuer import sign_leaf; sign_leaf('*.shinsegae.com', '../../secrets/certs/wildcard')"
 ```
 
-### 7-4. Step-CA systemd 서비스 (root 계정)
-
-> Step-CA가 `:8443`에 상시 대기해야 acme.sh의 ACME 프로토콜 요청(인증서 발급/갱신)을 처리할 수 있다.
+### 7-4. CA 키 백업 (설치 직후 필수)
 
 ```bash
-cat > /etc/systemd/system/step-ca.service << 'EOF'
-[Unit]
-Description=Shinsegae Internal CA
-After=network.target
+BACKUP_DIR="/backup/synapse-ca/$(date +%Y%m%d)"
+mkdir -p "$BACKUP_DIR"
+cp main-server/secrets/ssl/root_ca_key          "$BACKUP_DIR/"
+cp main-server/secrets/ssl/intermediate_ca_key  "$BACKUP_DIR/"
+cp main-server/secrets/ssl/root_ca.crt          "$BACKUP_DIR/"
+cp main-server/secrets/ssl/intermediate_ca.crt  "$BACKUP_DIR/"
 
-[Service]
-User=synapse
-Environment=STEPPATH=/app/step
-ExecStart=/usr/bin/step-ca /app/step/config/ca.json
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-systemctl enable --now step-ca
-systemctl status step-ca
-```
-
-### 7-5. root CA 키 백업 (설치 직후 필수)
-
-```bash
-BACKUP_DIR="/backup/step-ca/$(date +%Y%m%d)"
-mkdir -p $BACKUP_DIR
-
-cp /app/step/secrets/root_ca_key         $BACKUP_DIR/
-cp /app/step/secrets/intermediate_ca_key $BACKUP_DIR/
-cp /app/step/secrets/password            $BACKUP_DIR/
-cp /app/step/certs/root_ca.crt          $BACKUP_DIR/
-cp /app/step/config/ca.json             $BACKUP_DIR/
-
-# 암호화 압축 (오프라인 매체에 보관)
-tar czf - $BACKUP_DIR | openssl enc -aes-256-cbc -pbkdf2 \
-  -out /backup/step-ca-$(date +%Y%m%d).enc
-
-# ⚠️ root_ca_key와 password는 반드시 별도 매체에 분리 보관
-```
-
-### 7-6. acme.sh 설치 (일반 계정 synapse)
-
-```bash
-su - synapse
-unzip acme.sh-3.1.1.zip
-cd acme.sh-3.1.1
-./acme.sh --install --nocron --home $(pwd)/../main-server/secrets/.acme.sh
-```
-
-### 7-7. 와일드카드 인증서 최초 발급
-
-```bash
-ACMESH=main-server/secrets/.acme.sh/acme.sh
-
-$ACMESH --issue \
-  -d "*.shinsegae.com" \
-  --server https://localhost:8443/acme/acme/directory \
-  --ca-bundle main-server/secrets/ssl/root_ca.crt \
-  --standalone --httpport 8080
-
-mkdir -p main-server/secrets/certs/wildcard
-$ACMESH --install-cert -d "*.shinsegae.com" \
-  --fullchain-file main-server/secrets/certs/wildcard/fullchain.cer \
-  --key-file       main-server/secrets/certs/wildcard/cert.key \
-  --ca-file        main-server/secrets/certs/wildcard/ca.cer
-```
-
-### 7-8. deploy 키쌍 생성 (1회)
-
-```bash
-mkdir -p main-server/secrets/ssl
-ssh-keygen -t rsa -b 4096 \
-  -f main-server/secrets/ssl/deploy_key \
-  -N "" -C "synapse-ssl-deploy"
+# 암호화 압축 (오프라인 매체에 분리 보관)
+tar czf - "$BACKUP_DIR" | openssl enc -aes-256-cbc -pbkdf2 \
+  -out /backup/synapse-ca-$(date +%Y%m%d).enc
+# ⚠️ root_ca_key 는 반드시 오프라인 매체에 분리 보관
 ```
 
 ---
@@ -321,7 +243,7 @@ Synapse-V UI → 관리 → SSL 인증서 → 서버 등록
 도메인         crm.shinsegae.com
 ```
 
-Step-CA가 `crm.shinsegae.com` 전용 인증서를 발급하고 `secrets/certs/crm.shinsegae.com/`에 저장.
+intermediate CA가 `crm.shinsegae.com` 전용 leaf를 직접 서명하고 `secrets/certs/crm.shinsegae.com/`에 저장.
 
 ### 8-3. DMZ 서버 등록
 
@@ -335,7 +257,7 @@ Step-CA가 `crm.shinsegae.com` 전용 인증서를 발급하고 `secrets/certs/c
 
 ---
 
-## 9. DMZ 서버 설치 번들
+## 9. DMZ 서버 설치 번들 (변경 없음 — acme.sh HTTP-01 유지)
 
 ### 번들 구성
 
@@ -371,6 +293,8 @@ cd acme.sh-3.1.1
 
 이후 갱신은 DMZ 서버 자체 cron이 처리. 포털은 내부→DMZ 443포트 폴링으로만 현황 확인.
 
+> DMZ만 acme.sh를 사용하는 이유: DMZ는 외부에서 신뢰하는 공인 인증서(Let's Encrypt)가 필요하고, DMZ→내부 통신이 차단되어 중앙 직접 서명 결과를 push 받을 수 없기 때문이다. 내부망은 사설 CA로 충분하다.
+
 ---
 
 ## 10. Root CA 배포 가이드
@@ -380,7 +304,9 @@ cd acme.sh-3.1.1
 **다운로드 URL (인증 불필요):**
 ```
 GET https://synapse.internal:8080/api/v1/ssl/root-ca/download
-→ shinsegae-root-ca.crt 다운로드
+→ shinsegae-root-ca.crt 다운로드   (파일 경로: STEP_CA_ROOT_CA env)
+GET https://synapse.internal:8080/api/v1/ssl/root-ca/info
+→ CA 이름 / 만료일 / SHA256 지문
 ```
 
 ### OS별 설치 방법
@@ -455,54 +381,41 @@ certutil -d sql:$HOME/.pki/nssdb -A \
 
 이상 감지 후 기존 TeamsNotifier로 알림 발송. LLM 분석(llm_client.py)으로 요약문 추가 (실패 시 룰 결과만 발송).
 
+> **만료 폴링 주의 (ssl_monitor)**: `openssl s_client`로 443 만료일을 수집할 때 `-brief` 플래그를 **절대 쓰지 말 것**. `-brief`는 PEM 인증서 블록 출력을 억제하므로 뒤의 `openssl x509 -noout -enddate`가 빈 입력을 받아 `days_left`가 조용히 null이 된다(OpenSSL 3.x / LibreSSL 공통, 실측 확인). 현재 코드는 `echo | openssl s_client -connect {host}:443 -servername {host} | openssl x509 -noout -enddate` 형태로 `-servername`(SNI vhost에서 대상 인증서 정확 반환)만 사용한다.
+
 ---
 
-## 13. Step-CA 키 분실 대응
+## 13. 사설 CA 키 분실 대응
 
 ### root_ca_key 분실 시
 
 ```
-영향: 신규/갱신 인증서 발급 불가. 기존 인증서는 만료일까지 유효.
+영향: 신규 intermediate 발급 불가. 기존 intermediate/leaf는 만료일까지 유효.
 대응:
   1. 백업에서 복구 시도
   2. 백업 없으면 → CA 전체 재구축
-     step ca init (새 이름/키로)
+     ./venv/bin/python scripts/ssl_ca_gen.py <새 경로>
      → 새 root_ca.crt 클라이언트 전체 재배포
-     → 전체 서버 인증서 재발급 및 배포
+     → 전체 서버 인증서 재발급(직접 서명) 및 배포
 소요 시간: 수 시간 ~ 수일 (클라이언트 배포 범위에 따라)
 ```
 
 ### intermediate_ca_key 분실 시 (root_ca_key 보유)
 
-```bash
-# root_ca_key로 새 intermediate 생성
-step certificate create "Shinsegae Intermediate CA" \
-  /app/step/certs/intermediate_ca.crt \
-  /app/step/secrets/intermediate_ca_key \
-  --profile intermediate-ca \
-  --ca /app/step/certs/root_ca.crt \
-  --ca-key /app/step/secrets/root_ca_key
+`ssl_ca_gen.py`는 root+intermediate를 한 번에 만든다. intermediate만 재생성하려면 동일 root 키로 새 intermediate를 서명하는 소규모 스크립트가 필요하다. 가장 단순한 운영 대응은 `ssl_ca_gen.py`를 **새 디렉터리**에 재실행해 새 PKI를 만들고 root CA를 재배포하는 것이다(기존 leaf는 만료까지 유효).
 
-systemctl restart step-ca
-```
+> 운영상 root_ca_key만 안전하게 백업돼 있으면, intermediate 손실은 새 PKI 재구축으로 복구 가능하며 서비스 중단 없이 점진 전환할 수 있다.
 
-기존 발급 인증서는 계속 유효. 다음 갱신부터 새 intermediate로 서명됨.
+### 발급 실패 디버깅
 
-### Step-CA 서비스 다운 시
+직접 서명은 데몬이 없으므로 "CA 서비스 다운" 상태가 존재하지 않는다. 발급이 실패하면 원인은 거의 항상 **키 파일 경로/권한**이다:
 
 ```bash
-# 상태 확인
-systemctl status step-ca
-journalctl -u step-ca -n 50
-
-# 재시작
-systemctl restart step-ca
-
-# 포트 확인
-curl -k https://localhost:8443/health
+# admin-api 컨테이너에서 키가 보이는지 확인
+docker compose exec admin-api ls -l /app/secrets/ssl/intermediate_ca_key
+# issue_or_renew 는 실패 시 {rc:1, output:<예외 메시지>} 를 반환하고 경고 로그를 남긴다
+docker compose logs admin-api | grep "직접 서명 발급"
 ```
-
-Step-CA가 다운되면 매일 배치의 acme.sh 갱신이 실패한다. 만료일이 충분히 남은 경우 서비스 복구 후 배치 수동 실행.
 
 ---
 
@@ -510,15 +423,14 @@ Step-CA가 다운되면 매일 배치의 acme.sh 갱신이 실패한다. 만료�
 
 ```bash
 # 관리 UI에서: SSL 인증서 → 서버 목록 → 배포 버튼
-# 또는 API 직접 호출:
+# 또는 API 직접 호출 (해당 서버에 대해 발급→배포):
 curl -X POST https://synapse.internal:8080/api/v1/ssl/servers/{id}/deploy \
   -H "Authorization: Bearer {token}"
 
-# 전체 도메인 강제 갱신 (컨테이너 내부에서):
-docker compose exec admin-api \
-  /app/acme.sh/acme.sh --renew -d "*.shinsegae.com" --force \
-  --server http://172.17.0.1:8443/acme/acme/directory \
-  --ca-bundle /app/secrets/ssl/root_ca.crt
+# 인증서만 강제 재발급 (컨테이너 내부, 배포 제외):
+docker compose exec admin-api python -c \
+  "import asyncio; from services.ssl_issuer import issue_or_renew; \
+   print(asyncio.run(issue_or_renew('*.shinsegae.com')))"
 ```
 
 ---
@@ -529,6 +441,33 @@ docker compose exec admin-api \
 |------|------|
 | 매일 자동 | cert_snapshots 만료일 업데이트 |
 | 매일 자동 | 30일 미만 서버 자동 갱신·배포 |
-| 월 1회 수동 | Step-CA 키 백업 상태 확인 |
+| 월 1회 수동 | 사설 CA 키 백업 상태 확인 (root_ca_key / intermediate_ca_key) |
 | 분기 1회 수동 | 백업 복구 테스트 (별도 환경) |
 | 연 1회 수동 | deploy_key 교체 (선택사항) |
+| intermediate 만료 1년 전 | intermediate CA 갱신 계획 수립 (`_INT_DAYS=1825`) |
+
+---
+
+## 16. 로컬 Mac 샌드박스 (개발 테스트)
+
+직접 서명은 순수 파이썬이라 OS 차이가 없으므로, 발급→배포→모니터링 전 과정을 Mac 호스트 오염 없이 로컬에서 검증할 수 있다.
+
+```bash
+make ssl-sandbox-up      # rockylinux9 타겟 컨테이너 빌드/기동 (sshd 2222, nginx 443)
+make ssl-sandbox-init    # 사설 CA + deploy 키 + 와일드카드 인증서 생성 (호스트 secrets/)
+# admin-api 를 호스트에서 실행 (make run-api) 후 UI/API로 서버 등록·배포 테스트
+make ssl-sandbox-logs    # 타겟 컨테이너 로그
+make ssl-sandbox-down    # 컨테이너 중지
+make ssl-sandbox-clean   # 컨테이너 + main-server/secrets/ 삭제
+```
+
+**구성 (`main-server/docker-compose.ssl-sandbox.yml` + `configs/ssl-sandbox/target/`)**:
+- 타겟 컨테이너: `rockylinux:9` + openssh-server + nginx + openssl
+- 포트: `127.0.0.1:2222→22` (paramiko SSH/SFTP), `127.0.0.1:443→443` (ssl_monitor 폴링 대상)
+- root 비밀번호 로그인 허용(`sandbox-root-pw`) — **테스트 전용, 운영 금지**
+- systemd 미존재 → `systemctl-shim.sh`가 `systemctl reload/restart nginx`를 `nginx -s` 시그널로 변환
+- entrypoint가 부팅 시 self-signed 인증서를 깔아 nginx가 즉시 443 리슨, 이후 ssl_deployer가 CA 서명 인증서로 덮어쓴다
+
+**서버 등록 파라미터 (UI/API)**: host=`127.0.0.1`, ssh_port=`2222`, account=`root`, password=`sandbox-root-pw`, web_type=`nginx`, cert_dir=`/etc/nginx/ssl`, cert_type=`wildcard`, network_zone=`internal`.
+
+**검증 전략 (ADR-019)**: 1차 로컬 Mac 샌드박스(직접 서명은 OS 무관) → 2차 운영기/스테이징 실환경(테스트 전용 도메인·타겟 한정, 운영 서비스 미접촉).
