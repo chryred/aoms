@@ -1,6 +1,6 @@
 # SSL 인증서 자동화 관리 — 설계 및 운영 가이드
 
-> 최초 작성: 2026-05-27 | 직접 서명 전환(ADR-019) 반영: 2026-05-31 | 대상 환경: 폐쇄망 RedHat 8.9 + Docker Compose
+> 최초 작성: 2026-05-27 | 직접 서명 전환(ADR-019) 반영: 2026-05-31 | SKI/AKI·CA명칭·운영 배포절차 현행화: 2026-06-03 | 대상 환경: 폐쇄망 RedHat 8.9 + Docker Compose
 
 ---
 
@@ -167,8 +167,9 @@ admin-api:
 # 결과: main-server/secrets/ssl/{root_ca.crt, root_ca_key, intermediate_ca.crt, intermediate_ca_key}
 ```
 
-- root CA: self-signed, 4096-bit, 10년(`_ROOT_DAYS=3650`), `BasicConstraints(ca=True, path_length=1)`
-- intermediate CA: root 서명, 4096-bit, 5년(`_INT_DAYS=1825`), `path_length=0`
+- root CA: self-signed, 4096-bit, 10년(`_ROOT_DAYS=3650`), `BasicConstraints(ca=True, path_length=1)`, `SubjectKeyIdentifier`
+- intermediate CA: root 서명, 4096-bit, 5년(`_INT_DAYS=1825`), `path_length=0`, `SubjectKeyIdentifier` + `AuthorityKeyIdentifier`
+- leaf 인증서: `SubjectKeyIdentifier` + `AuthorityKeyIdentifier` 포함 → Chrome 체인 검증 호환 필수
 - 두 키 모두 무암호 PEM (`NoEncryption`).
 
 ### 7-2. deploy 키쌍 생성 (1회)
@@ -304,26 +305,46 @@ cd acme.sh-3.1.1
 **다운로드 URL (인증 불필요):**
 ```
 GET https://synapse.internal:8080/api/v1/ssl/root-ca/download
-→ shinsegae-root-ca.crt 다운로드   (파일 경로: STEP_CA_ROOT_CA env)
+→ shinsegae-inc-root-ca.crt 다운로드   (파일 경로: STEP_CA_ROOT_CA env)
 GET https://synapse.internal:8080/api/v1/ssl/root-ca/info
 → CA 이름 / 만료일 / SHA256 지문
 ```
+
+> Synapse SSL 관리 페이지 → **Root CA 가이드** 버튼에서 다운로드 링크와 OS별 설치 안내를 제공한다.
 
 ### OS별 설치 방법
 
 **Windows**
 ```
-1. shinsegae-root-ca.crt 다운로드
+1. shinsegae-inc-root-ca.crt 다운로드
 2. 파일 더블클릭 → [인증서 설치]
 3. [로컬 컴퓨터] → [신뢰할 수 있는 루트 인증 기관] → [다음] → [마침]
-4. 브라우저 재시작
+4. 브라우저 재시작 (IE·Edge·Chrome 모두 Windows 인증서 저장소 공유)
 ```
 
-**macOS**
+**macOS — GUI (권장)**
+```
+1. shinsegae-inc-root-ca.crt 다운로드 후 더블클릭
+2. 키체인 접근 → "시스템" 키체인에 추가 → 비밀번호 입력
+3. 추가된 "Shinsegae-inc Root CA" 더블클릭
+4. 신뢰 → "이 인증서 사용 시" → 항상 신뢰 → 비밀번호 입력
+5. Chrome 완전 종료(Cmd+Q) 후 재시작
+```
+
+**macOS — 터미널 (System keychain)**
 ```bash
+# System keychain에 등록 (sudo 필수 — login keychain은 Chrome이 인식 못함)
 sudo security add-trusted-cert -d -r trustRoot \
-  -k /Library/Keychains/System.keychain shinsegae-root-ca.crt
-# 브라우저 재시작
+  -k /Library/Keychains/System.keychain shinsegae-inc-root-ca.crt
+# Chrome 완전 종료 후 재시작
+```
+
+**삭제 방법 (테스트 후)**
+```bash
+# GUI: 키체인 접근 → Shinsegae-inc Root CA 우클릭 → 삭제
+# 터미널:
+sudo security delete-certificate -c "Shinsegae-inc Root CA" \
+  /Library/Keychains/System.keychain
 ```
 
 **Linux (Chrome/Chromium)**
@@ -421,17 +442,22 @@ docker compose logs admin-api | grep "직접 서명 발급"
 
 ## 14. 수동 갱신 (긴급 시)
 
-```bash
-# 관리 UI에서: SSL 인증서 → 서버 목록 → 배포 버튼
-# 또는 API 직접 호출 (해당 서버에 대해 발급→배포):
-curl -X POST https://synapse.internal:8080/api/v1/ssl/servers/{id}/deploy \
-  -H "Authorization: Bearer {token}"
+> **주의**: `/api/v1/ssl/servers/{id}/deploy` API는 `CERT_BASE`의 **기존 파일을 SFTP 복사**하는 작업만 수행한다 — 인증서 재서명(`issue_or_renew`)을 포함하지 않는다. 인증서를 새로 발급하려면 아래 재발급 → 배포 2단계가 필요하다.
 
-# 인증서만 강제 재발급 (컨테이너 내부, 배포 제외):
+```bash
+# ① 인증서 재발급 (컨테이너 내부에서 직접 서명)
 docker compose exec admin-api python -c \
   "import asyncio; from services.ssl_issuer import issue_or_renew; \
    print(asyncio.run(issue_or_renew('*.shinsegae.com')))"
+# → rc:0 확인
+
+# ② 재발급된 인증서 서버에 배포 (UI 또는 API)
+# 관리 UI: SSL 인증서 → 서버 목록 → 배포 버튼
+curl -X POST https://synapse.internal:8080/api/v1/ssl/servers/{id}/deploy \
+  -H "Authorization: Bearer {token}"
 ```
+
+> 배치(`run_ssl_daily_batch`)는 `days_left < 30` 조건일 때 재발급 + 배포를 자동 처리한다. 조건 충족 전 긴급 갱신이 필요한 경우만 위 2단계 수동 절차를 사용한다.
 
 ---
 
@@ -471,3 +497,205 @@ make ssl-sandbox-clean   # 컨테이너 + main-server/secrets/ 삭제
 **서버 등록 파라미터 (UI/API)**: host=`127.0.0.1`, ssh_port=`2222`, account=`root`, password=`sandbox-root-pw`, web_type=`nginx`, cert_dir=`/etc/nginx/ssl`, cert_type=`wildcard`, network_zone=`internal`.
 
 **검증 전략 (ADR-019)**: 1차 로컬 Mac 샌드박스(직접 서명은 OS 무관) → 2차 운영기/스테이징 실환경(테스트 전용 도메인·타겟 한정, 운영 서비스 미접촉).
+
+---
+
+## 17. 운영기 최초 반영 절차
+
+> 이 섹션 하나로 운영 배포가 가능하도록 전 단계를 기록한다. 전제: CA 파일은 Mac(빌드 환경)에서 이미 생성 완료(`main-server/secrets/ssl/`).
+
+---
+
+### Phase 1 — Mac(빌드 환경): 사전 준비
+
+**1-1. CA 파일 확인**
+
+```bash
+ls main-server/secrets/ssl/
+# 필수 파일 6개 확인
+# root_ca.crt  root_ca_key
+# intermediate_ca.crt  intermediate_ca_key
+# deploy_key   deploy_key.pub
+```
+
+아직 생성되지 않았다면:
+
+```bash
+# CA 생성 (최초 1회)
+./venv/bin/python scripts/ssl_ca_gen.py main-server/secrets/ssl
+
+# deploy 키쌍 생성 (최초 1회)
+ssh-keygen -t rsa -b 4096 -N "" -C "synapse-ssl-deploy" \
+  -f main-server/secrets/ssl/deploy_key
+```
+
+**1-2. admin-api 이미지 빌드**
+
+```bash
+./build-images.sh
+# → main-server/synapse-admin-api-1.0.tar.gz 생성
+```
+
+---
+
+### Phase 2 — Mac → Server A: 파일 전송
+
+**2-1. CA 파일 전송** (키는 절대 이미지에 넣지 않음, scp 경유)
+
+```bash
+ssh user@server-a "mkdir -p /opt/synapse/secrets/ssl /opt/synapse/ssl/certs"
+
+scp main-server/secrets/ssl/root_ca.crt         user@server-a:/opt/synapse/secrets/ssl/
+scp main-server/secrets/ssl/root_ca_key         user@server-a:/opt/synapse/secrets/ssl/
+scp main-server/secrets/ssl/intermediate_ca.crt user@server-a:/opt/synapse/secrets/ssl/
+scp main-server/secrets/ssl/intermediate_ca_key user@server-a:/opt/synapse/secrets/ssl/
+scp main-server/secrets/ssl/deploy_key          user@server-a:/opt/synapse/secrets/ssl/
+scp main-server/secrets/ssl/deploy_key.pub      user@server-a:/opt/synapse/secrets/ssl/
+
+# 키 파일 권한 제한 (필수)
+ssh user@server-a "chmod 600 /opt/synapse/secrets/ssl/*_key /opt/synapse/secrets/ssl/deploy_key"
+```
+
+**2-2. Docker 이미지 전송**
+
+```bash
+scp main-server/synapse-admin-api-1.0.tar.gz user@server-a:/tmp/
+```
+
+---
+
+### Phase 3 — Server A: Docker 설정 및 배포
+
+**3-1. 이미지 로드**
+
+```bash
+ssh user@server-a "pigz -d -c /tmp/synapse-admin-api-1.0.tar.gz | docker load"
+```
+
+**3-2. docker-compose.yml에 SSL 설정 추가**
+
+`admin-api` 서비스에 아래 `volumes`와 `environment` 항목을 추가한다:
+
+```yaml
+services:
+  admin-api:
+    volumes:
+      - /opt/synapse/secrets/ssl:/app/secrets/ssl:ro  # CA 키 마운트 (읽기 전용)
+      - /opt/synapse/ssl/certs:/app/ssl/certs          # 발급 인증서 저장소
+    environment:
+      STEP_CA_ROOT_CA:           /app/secrets/ssl/root_ca.crt
+      STEP_CA_INTERMEDIATE_CERT: /app/secrets/ssl/intermediate_ca.crt
+      STEP_CA_INTERMEDIATE_KEY:  /app/secrets/ssl/intermediate_ca_key
+      STEP_CA_CERT_DIR:          /app/ssl/certs
+      SSL_DEPLOY_KEY_PATH:       /app/secrets/ssl/deploy_key
+      SSL_DEPLOY_PUBKEY_PATH:    /app/secrets/ssl/deploy_key.pub
+```
+
+**3-3. admin-api 재시작**
+
+```bash
+ssh user@server-a "cd /opt/synapse && docker compose up -d admin-api"
+```
+
+**3-4. 정상 확인**
+
+```bash
+# SSL 스케줄러 기동 로그 확인
+ssh user@server-a "docker compose logs admin-api --tail=30 | grep -i ssl"
+# → "SSL 스케줄러 시작 (매일 02:00 KST)"
+
+# Root CA 엔드포인트 확인
+curl http://server-a:8080/api/v1/ssl/root-ca/info
+# → {"available": true, "subject": "CN=Shinsegae-inc Root CA", ...}
+```
+
+---
+
+### Phase 4 — Synapse UI: 서버 등록 및 첫 배포
+
+**4-1. 대상 서버 등록** (관리 → SSL 인증서 → 서버 관리)
+
+| 항목 | 값 |
+|---|---|
+| 호스트 | 대상 서버 IP 또는 hostname |
+| SSH 포트 | 22 |
+| 계정 | root 또는 운영 계정 |
+| 비밀번호 | 최초 1회만 사용 (deploy_key.pub 등록 후 즉시 폐기) |
+| 웹 유형 | nginx / apache / webtob |
+| 인증서 디렉터리 | `/etc/nginx/ssl` 등 웹서버 설정에 맞는 경로 |
+| 인증서 타입 | wildcard (내부망 기본) |
+| 네트워크 존 | internal |
+
+등록 시 admin-api가 `deploy_key.pub`을 대상 서버 `~/.ssh/authorized_keys`에 자동 등록하고, 키 기반 접속을 검증한다.
+
+**4-2. 첫 인증서 배포**
+
+등록 후 UI에서 **배포** 버튼 클릭 또는:
+
+```bash
+TOKEN=$(curl -s -X POST http://server-a:8080/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"...","password":"..."}' | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
+
+curl -X POST http://server-a:8080/api/v1/ssl/servers/{id}/deploy \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+> `/deploy` API는 기존 `CERT_BASE` 파일을 복사한다. 첫 배포 전 인증서가 없다면 먼저 재발급이 필요하다 (§14 참고).
+
+**4-3. 배포 검증**
+
+```bash
+echo | openssl s_client -connect {대상서버IP}:443 \
+  -servername {도메인} 2>/dev/null | openssl x509 -noout -subject -issuer -dates
+# subject=CN=*.shinsegae.com
+# issuer=CN=Shinsegae-inc Intermediate CA
+# notAfter=... (825일 후)
+```
+
+---
+
+### Phase 5 — 클라이언트: Root CA 배포
+
+**5-1. Root CA 다운로드 URL 공지**
+
+```
+http://server-a:8080/api/v1/ssl/root-ca/download
+→ shinsegae-inc-root-ca.crt 다운로드
+```
+
+**5-2. OS별 설치** (§10 상세 참고)
+
+- **Windows**: 더블클릭 → 인증서 설치 마법사 → 신뢰할 수 있는 루트 인증 기관
+- **macOS**: 더블클릭 → 키체인 접근 시스템 키체인 → 항상 신뢰 → Chrome 재시작
+- **Linux Chrome**: `certutil -d sql:$HOME/.pki/nssdb -A -n "Shinsegae Internal CA" -t "CT,," -i shinsegae-inc-root-ca.crt`
+
+---
+
+### Phase 6 — CA 키 백업 (배포 직후 필수)
+
+```bash
+BACKUP_DIR="/backup/synapse-ca/$(date +%Y%m%d)"
+mkdir -p "$BACKUP_DIR"
+cp /opt/synapse/secrets/ssl/root_ca_key         "$BACKUP_DIR/"
+cp /opt/synapse/secrets/ssl/intermediate_ca_key "$BACKUP_DIR/"
+cp /opt/synapse/secrets/ssl/root_ca.crt         "$BACKUP_DIR/"
+cp /opt/synapse/secrets/ssl/intermediate_ca.crt "$BACKUP_DIR/"
+
+# 암호화 압축 후 오프라인 매체에 분리 보관
+tar czf - "$BACKUP_DIR" | openssl enc -aes-256-cbc -pbkdf2 \
+  -out /backup/synapse-ca-$(date +%Y%m%d).enc
+# ⚠️ root_ca_key는 반드시 오프라인 매체에 별도 보관
+```
+
+---
+
+### 이후 운영 — 자동화 확인
+
+| 항목 | 확인 방법 |
+|---|---|
+| 매일 02:00 KST 배치 실행 여부 | `docker compose logs admin-api \| grep "SSL 배치"` |
+| 인증서 만료 D-day 모니터링 | Synapse UI → SSL 인증서 페이지 |
+| 만료 임박 알림 | Teams 채널 (ssl_analyzer 발송) |
+| 수동 긴급 갱신 | UI 배포 버튼 또는 §14 절차 |
+| CA 갱신 필요 시 | `scripts/ssl_ca_gen.py --force` → scp 재전송 → admin-api 재시작 → 전체 서버 재배포 |
