@@ -40,6 +40,8 @@ async def _search_incident_knowledge(
     """
     과거 장애 이력·해결책 Hybrid 검색.
     log-analyzer POST /incident/search 호출.
+    rerank=True(기본)으로 _search_guides / federated_search와 동일한 reranker 정책 적용
+    (RRF 후보 limit*4 → bge-reranker-v2-m3 cross-encoder 재정렬 → top limit).
     """
     query = (args.get("query") or "").strip()
     if not query:
@@ -50,7 +52,7 @@ async def _search_incident_knowledge(
     limit       = min(int(args.get("limit", 5)), 10)
     base        = await _base_url(db)
 
-    payload: dict[str, Any] = {"query": query, "limit": limit}
+    payload: dict[str, Any] = {"query": query, "limit": limit, "rerank": True}
     if system_name:
         payload["system_name"] = system_name
     if system_ids:
@@ -114,6 +116,8 @@ async def _search_aggregation_summary(
     """
     기간별 집계 요약 Hybrid 검색.
     log-analyzer POST /aggregation/search (collection=aggregation_summaries) 호출.
+    rerank=True(기본)으로 _search_guides / federated_search와 동일한 reranker 정책 적용
+    (RRF 후보 limit*4 → bge-reranker-v2-m3 cross-encoder 재정렬 → top limit).
     """
     query = (args.get("query") or "").strip()
     if not query:
@@ -128,6 +132,8 @@ async def _search_aggregation_summary(
         "query_text": query,
         "collection": "aggregation_summaries",
         "limit":      limit,
+        "rerank":     True,
+        "rerank_top_k": limit,
     }
     if system_id is not None:
         payload["system_id"] = int(system_id)
