@@ -211,3 +211,87 @@ async def test_create_monthly_various_period_types(authed_client: AsyncClient):
         })
         assert resp.status_code == 201
         assert resp.json()["period_type"] == period_type
+
+
+# ── 대시보드 트렌드 합산 range query ──────────────────────────────────────────
+
+async def test_metrics_range_batch_no_prometheus_url(authed_client: AsyncClient):
+    """PROMETHEUS_URL 미설정 시 빈 dict 반환"""
+    resp = await authed_client.get(
+        "/api/v1/systems/metrics/range-batch",
+        params={
+            "metric_group": "cpu",
+            "start_dt": "2026-06-09T00:00:00Z",
+            "end_dt": "2026-06-09T01:00:00Z",
+            "step": 60,
+        },
+    )
+    assert resp.status_code == 200
+    assert resp.json() == {}
+
+
+async def test_metrics_range_batch_unknown_metric_group(authed_client: AsyncClient, monkeypatch):
+    """정의되지 않은 metric_group은 빈 dict 반환"""
+    monkeypatch.setattr("routes.aggregations._PROMETHEUS_URL", "http://prometheus:9090")
+    resp = await authed_client.get(
+        "/api/v1/systems/metrics/range-batch",
+        params={
+            "metric_group": "unknown",
+            "start_dt": "2026-06-09T00:00:00Z",
+            "end_dt": "2026-06-09T01:00:00Z",
+            "step": 60,
+        },
+    )
+    assert resp.status_code == 200
+    assert resp.json() == {}
+
+
+async def test_metrics_range_batch_groups_by_system_name(authed_client: AsyncClient, monkeypatch):
+    """Prometheus 응답을 system_name 기준으로 묶어 반환"""
+    import httpx
+    from unittest.mock import AsyncMock, patch
+
+    monkeypatch.setattr("routes.aggregations._PROMETHEUS_URL", "http://prometheus:9090")
+
+    fake_response_json = {
+        "data": {
+            "result": [
+                {
+                    "metric": {"system_name": "sys-a"},
+                    "values": [[1749427200, "12.5"], [1749427260, "13.0"]],
+                },
+                {
+                    "metric": {"system_name": "sys-b"},
+                    "values": [[1749427200, "20.0"]],
+                },
+            ]
+        }
+    }
+    fake_resp = httpx.Response(
+        200, json=fake_response_json, request=httpx.Request("GET", "http://prometheus:9090")
+    )
+
+    fake_client = AsyncMock()
+    fake_client.get = AsyncMock(return_value=fake_resp)
+    fake_client.__aenter__ = AsyncMock(return_value=fake_client)
+    fake_client.__aexit__ = AsyncMock(return_value=None)
+
+    with patch("httpx.AsyncClient", return_value=fake_client):
+        resp = await authed_client.get(
+            "/api/v1/systems/metrics/range-batch",
+            params={
+                "metric_group": "cpu",
+                "start_dt": "2026-06-09T00:00:00Z",
+                "end_dt": "2026-06-09T01:00:00Z",
+                "step": 60,
+            },
+        )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert set(body.keys()) == {"sys-a", "sys-b"}
+    assert body["sys-a"] == [
+        {"hour_bucket": "2025-06-09T00:00:00", "value": 12.5},
+        {"hour_bucket": "2025-06-09T00:01:00", "value": 13.0},
+    ]
+    assert body["sys-b"] == [{"hour_bucket": "2025-06-09T00:00:00", "value": 20.0}]

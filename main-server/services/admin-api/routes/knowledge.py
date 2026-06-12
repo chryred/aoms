@@ -440,9 +440,8 @@ class SyncStatusUpdate(BaseModel):
 async def get_sync_status(
     source: str | None = None,
     db: AsyncSession = Depends(get_db),
-    _user: User = Depends(get_current_user),
 ) -> list[dict[str, Any]]:
-    """knowledge_sync_status 조회."""
+    """knowledge_sync_status 조회. log-analyzer 스케줄러가 인증 없이 호출 — POST와 동일하게 무인증."""
     stmt = select(KnowledgeSyncStatus)
     if source:
         stmt = stmt.where(KnowledgeSyncStatus.source == source)

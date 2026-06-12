@@ -48,12 +48,6 @@ async def test_knowledge_requires_auth_feedback(client: AsyncClient):
     assert resp.status_code in (401, 403)
 
 
-@pytest.mark.asyncio
-async def test_knowledge_requires_auth_sync_status(client: AsyncClient):
-    resp = await client.get("/api/v1/knowledge/sync-status")
-    assert resp.status_code in (401, 403)
-
-
 # ── 파일 업로드 ──────────────────────────────────────────────────────────────
 
 @pytest.mark.asyncio

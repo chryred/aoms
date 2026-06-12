@@ -709,3 +709,27 @@ Synapse는 이미 자체 username/password DB(`users` 테이블)를 보유하고
 - 로컬 Mac 샌드박스(`make ssl-sandbox-*`)로 발급·배포·모니터링 end-to-end 테스트 가능(호스트 무오염).
 
 **검증 전략**: 1차 로컬 Mac 샌드박스(직접 서명은 순수 파이썬이라 OS 차이 무관) → 2차 운영기/스테이징 실환경(테스트 전용 도메인·타겟 한정, 운영 서비스 미접촉).
+
+---
+
+## ADR-020: 대시보드 트렌드 차트 — 시스템별 fan-out 쿼리를 system_name 합산쿼리로 전환 (2026-06-10)
+
+**상태**: 채택 (2026-06-10)
+
+**맥락**:
+- 운영서버(4-core, 확장 불가)에서 대시보드 로드 시 `GET /api/v1/systems/{id}/metrics/range` 요청이 타임아웃.
+- `TrendMonitorSection.tsx`가 `useQueries`로 (선택 시스템 N개) × (TREND_CHARTS 4종: cpu/memory/log/web) = 4N개 요청을 병렬 발사하고, 각 요청이 admin-api에서 다시 `asyncio.gather`로 2~3개 PromQL `query_range`(15s timeout, 커넥션 풀 없는 `httpx.AsyncClient` per-request)를 호출 → 시스템 수가 늘수록 최대 ~9N개 Prometheus 쿼리가 동시에 발생.
+- 인프라 확장이 불가하므로 쿼리 수 자체를 줄여야 함.
+
+**결정**:
+- admin-api에 신규 엔드포인트 `GET /api/v1/systems/metrics/range-batch?metric_group=...` 추가 (`routes/aggregations.py` `_metrics_router`).
+  - `TREND_BATCH_PROMQL`: 차트별 PromQL에서 `system_name="{sn}"` 필터 대신 `by (system_name)` 그룹화 사용 (예: `max by (system_name) (cpu_usage_percent{core="total"})`).
+  - 차트당 PromQL **1회**로 전체 시스템을 동시에 조회 → 응답을 `{ "<system_name>": [{hour_bucket, value}, ...] }`로 변환.
+- 프론트엔드 `TrendMonitorSection.tsx`: 기존 N×4 `useQueries` fan-out을 차트당 1개(총 4개) 쿼리로 교체. `system_name → display_name` 매핑(`displayNameBySystemName`)으로 결과를 화면 표시명에 매핑하고, 선택된 시스템(`targetSystemNames`)만 필터링.
+- 시스템 상세 페이지용 `GET /{system_id}/metrics/range`(인스턴스별 `_by_inst` 변형 포함)는 변경 없음 — 대시보드 전용 경량 엔드포인트만 신설.
+
+**결과**:
+- 대시보드 로드 시 Prometheus 쿼리 수가 시스템 수 N에 무관하게 **차트당 1회(총 4회)**로 고정됨.
+- `TREND_CHARTS`에서 더 이상 쓰이지 않는 `collectorType`/`metricKey` 필드 제거.
+
+**관련**: 동일 세션에서 log-analyzer Jira/Confluence 동기화의 `GET /api/v1/knowledge/sync-status` 인증 불일치(매일 401 → `last_sync_at=None` → 전체 재동기화) 버그도 함께 수정 — `GET /sync-status`에서 `Depends(get_current_user)` 제거 (POST와 동일하게 무인증, 내부 신뢰 호출 전제).

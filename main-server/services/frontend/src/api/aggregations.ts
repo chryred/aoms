@@ -8,6 +8,11 @@ import type {
   PeriodType,
 } from '@/types/aggregation'
 
+export interface MetricsRangePoint {
+  hour_bucket: string
+  value: number
+}
+
 export interface HourlyParams {
   system_id?: number
   collector_type?: string
@@ -59,6 +64,23 @@ export const aggregationsApi = {
         }),
       })
       .json<HourlyAggregation[]>(),
+
+  getMetricsRangeBatch: (params: {
+    metric_group: string
+    start_dt: string
+    end_dt: string
+    step?: number
+  }) =>
+    adminApi
+      .get('api/v1/systems/metrics/range-batch', {
+        searchParams: fp({
+          metric_group: params.metric_group,
+          start_dt: params.start_dt,
+          end_dt: params.end_dt,
+          step: params.step ?? 60,
+        }),
+      })
+      .json<Record<string, MetricsRangePoint[]>>(),
 
   getMetricsLiveSummary: (systemId: number, collectorType: string) =>
     adminApi

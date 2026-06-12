@@ -537,6 +537,78 @@ async def get_metrics_range(
     ]
 
 
+# ── 대시보드 트렌드 차트용 합산 range query (4-core 인프라 최적화) ─────────────
+# 시스템별 fan-out(N개 시스템 × 4차트 × 2~3 PromQL) 대신 system_name으로 묶어
+# 차트당 PromQL 1회로 전체 시스템을 한 번에 조회한다.
+TREND_BATCH_PROMQL: dict[str, str] = {
+    "cpu": 'max by (system_name) (cpu_usage_percent{core="total"})',
+    "memory": '(max by (system_name) (memory_used_bytes{type="used"})) / ignoring(type) (max by (system_name) (memory_used_bytes{type="total"})) * 100',
+    "log": 'count by (system_name) (log_error_total)',
+    "web": 'avg by (system_name) (http_request_duration_ms)',
+}
+
+
+@_metrics_router.get("/metrics/range-batch")
+async def get_metrics_range_batch(
+    metric_group: str,
+    start_dt: str,
+    end_dt: str,
+    step: int = 60,
+):
+    """
+    대시보드 TrendMonitorSection 전용 — 전체 시스템을 system_name으로 그룹화하여
+    1회 query_range로 조회. 반환: { "<system_name>": [{hour_bucket, value}, ...], ... }
+    """
+    import httpx
+    from datetime import timezone
+
+    prom_url = _PROMETHEUS_URL or os.getenv("PROMETHEUS_URL", "").rstrip("/")
+    if not prom_url:
+        logger.warning("metrics/range-batch: PROMETHEUS_URL 미설정 — 빈 결과 반환")
+        return {}
+
+    promql = TREND_BATCH_PROMQL.get(metric_group)
+    if not promql:
+        logger.warning("metrics/range-batch: metric_group=%r 에 대한 PromQL 없음", metric_group)
+        return {}
+
+    def _to_unix(s: str) -> float:
+        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+        return dt.timestamp()
+
+    start_ts = _to_unix(start_dt)
+    end_ts = _to_unix(end_dt)
+
+    async with httpx.AsyncClient() as client:
+        try:
+            resp = await client.get(
+                f"{prom_url}/api/v1/query_range",
+                params={"query": promql, "start": start_ts, "end": end_ts, "step": step},
+                timeout=30.0,
+            )
+            resp.raise_for_status()
+            results = resp.json().get("data", {}).get("result", [])
+        except Exception as exc:
+            logger.warning("metrics/range-batch: metric_group=%r promql 실패: %s", metric_group, exc)
+            return {}
+
+    out: dict[str, list[dict[str, Any]]] = {}
+    for series in results:
+        sn = series.get("metric", {}).get("system_name")
+        if not sn:
+            continue
+        points = []
+        for ts_raw, val_raw in series.get("values", []):
+            ts_iso = datetime.fromtimestamp(float(ts_raw), tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+            try:
+                points.append({"hour_bucket": ts_iso, "value": round(float(val_raw), 4)})
+            except (ValueError, TypeError):
+                pass
+        out[sn] = points
+
+    return out
+
+
 # ── /systems/{system_id}/metrics/live-summary ───────────────────────────────
 
 @_metrics_router.get("/{system_id}/metrics/live-summary")

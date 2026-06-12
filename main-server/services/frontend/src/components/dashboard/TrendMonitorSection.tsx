@@ -19,7 +19,6 @@ import { LoadingSkeleton } from '@/components/common/LoadingSkeleton'
 import { useUiStore } from '@/store/uiStore'
 import { formatKST, cn } from '@/lib/utils'
 import type { SystemHealthData } from '@/hooks/queries/useDashboardHealth'
-import type { HourlyAggregation } from '@/types/aggregation'
 
 interface TrendMonitorSectionProps {
   systems: SystemHealthData[]
@@ -29,33 +28,25 @@ const TREND_CHARTS = [
   {
     title: 'CPU 사용률',
     aggLabel: 'MAX',
-    collectorType: 'synapse_agent',
     metricGroup: 'cpu',
-    metricKey: 'cpu_max',
     unit: '%',
   },
   {
     title: '메모리 사용률',
     aggLabel: 'MAX',
-    collectorType: 'synapse_agent',
     metricGroup: 'memory',
-    metricKey: 'mem_max',
     unit: '%',
   },
   {
     title: '로그 에러 추이',
     aggLabel: '합계',
-    collectorType: 'synapse_agent',
     metricGroup: 'log',
-    metricKey: 'log_errors',
     unit: '건',
   },
   {
     title: '웹 응답시간',
     aggLabel: 'AVG',
-    collectorType: 'synapse_agent',
     metricGroup: 'web',
-    metricKey: 'resp_avg_ms',
     unit: 'ms',
   },
 ] as const
@@ -557,16 +548,20 @@ export function TrendMonitorSection({ systems }: TrendMonitorSectionProps) {
 
   const isAllSelected = selectedSystems.length === 0
 
-  const targetSystemIds = useMemo(() => {
-    if (isAllSelected) return systems.map((s) => Number(s.system_id))
-    return selectedSystems.map(Number)
-  }, [isAllSelected, selectedSystems, systems])
-
-  const systemNameMap = useMemo(() => {
-    const map = new Map<number, string>()
-    for (const s of systems) map.set(Number(s.system_id), s.display_name)
+  // Prometheus system_name → display_name 매핑 (배치 응답은 system_name 기준)
+  const displayNameBySystemName = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const s of systems) map.set(s.system_name, s.display_name)
     return map
   }, [systems])
+
+  const targetSystemNames = useMemo(() => {
+    if (isAllSelected) return new Set(systems.map((s) => s.system_name))
+    const idSet = new Set(selectedSystems.map(String))
+    return new Set(
+      systems.filter((s) => idSet.has(String(s.system_id))).map((s) => s.system_name),
+    )
+  }, [isAllSelected, selectedSystems, systems])
 
   // displayName → status 매핑 (상태 기반 opacity 계산에 사용)
   const systemStatusMap = useMemo(() => {
@@ -583,70 +578,48 @@ export function TrendMonitorSection({ systems }: TrendMonitorSectionProps) {
     }
   }, [])
 
+  // 차트당 1회 — 전체 시스템을 system_name으로 묶어 합산 조회 (4-core 인프라 최적화)
   const queries = useQueries({
-    queries: targetSystemIds.flatMap((sysId) =>
-      TREND_CHARTS.map((chart) => ({
-        queryKey: ['metrics-range-trend', sysId, chart.metricGroup, startDt],
-        queryFn: () =>
-          aggregationsApi.getMetricsRange({
-            system_id: sysId,
-            collector_type: chart.collectorType,
-            metric_group: chart.metricGroup,
-            start_dt: startDt,
-            end_dt: endDt,
-            step: STEP,
-          }),
-        staleTime: 300_000,
-        gcTime: 600_000,
-      })),
-    ),
+    queries: TREND_CHARTS.map((chart) => ({
+      queryKey: ['metrics-range-batch', chart.metricGroup, startDt],
+      queryFn: () =>
+        aggregationsApi.getMetricsRangeBatch({
+          metric_group: chart.metricGroup,
+          start_dt: startDt,
+          end_dt: endDt,
+          step: STEP,
+        }),
+      staleTime: 300_000,
+      gcTime: 600_000,
+    })),
   })
 
   const isLoading = queries.some((q) => q.isLoading)
 
-  const perSystemData = useMemo(() => {
-    const result = new Map<string, Map<number, HourlyAggregation[]>>()
-    for (const chart of TREND_CHARTS) {
-      result.set(chart.metricGroup, new Map())
-    }
-    for (let i = 0; i < targetSystemIds.length; i++) {
-      for (let j = 0; j < TREND_CHARTS.length; j++) {
-        const queryIdx = i * TREND_CHARTS.length + j
-        const data = queries[queryIdx]?.data
-        if (data?.length) {
-          result.get(TREND_CHARTS[j].metricGroup)!.set(targetSystemIds[i], data)
-        }
-      }
-    }
-    return result
-  }, [queries, targetSystemIds])
-
   const buildChartData = (
     metricGroup: string,
-    metricKey: string,
   ): { data: TrendDataPoint[]; systemNames: string[]; systemStatuses: Record<string, string> } => {
-    const groupData = perSystemData.get(metricGroup)
-    if (!groupData || groupData.size === 0) return { data: [], systemNames: [], systemStatuses: {} }
+    const chartIdx = TREND_CHARTS.findIndex((c) => c.metricGroup === metricGroup)
+    const bySystemName = queries[chartIdx]?.data
+    if (!bySystemName) return { data: [], systemNames: [], systemStatuses: {} }
 
     const systemNames: string[] = []
     const systemStatuses: Record<string, string> = {}
     const timeMap = new Map<string, TrendDataPoint>()
 
-    for (const [sysId, aggs] of groupData) {
-      const name = systemNameMap.get(sysId) ?? `시스템 ${sysId}`
+    for (const [sysName, points] of Object.entries(bySystemName)) {
+      if (!targetSystemNames.has(sysName)) continue
+      const name = displayNameBySystemName.get(sysName) ?? sysName
       systemNames.push(name)
       systemStatuses[name] = systemStatusMap.get(name) ?? 'normal'
-      for (const agg of aggs) {
-        const ts = formatKST(agg.hour_bucket, 'HH:mm')
+      for (const p of points) {
+        const ts = formatKST(p.hour_bucket, 'HH:mm')
         let point = timeMap.get(ts)
         if (!point) {
           point = { timestamp: ts }
           timeMap.set(ts, point)
         }
-        const parsed = JSON.parse(agg.metrics_json) as Record<string, number>
-        if (typeof parsed[metricKey] === 'number') {
-          point[name] = parsed[metricKey]
-        }
+        point[name] = p.value
       }
     }
 
@@ -703,10 +676,7 @@ export function TrendMonitorSection({ systems }: TrendMonitorSectionProps) {
       ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           {TREND_CHARTS.map((chart) => {
-            const { data, systemNames, systemStatuses } = buildChartData(
-              chart.metricGroup,
-              chart.metricKey,
-            )
+            const { data, systemNames, systemStatuses } = buildChartData(chart.metricGroup)
             return (
               <TrendChart
                 key={chart.metricGroup}

@@ -197,6 +197,11 @@ HTTP 지연은 Prometheus 쿼리 자체에 임계치가 박혀 있어 V1 은 완
 - `GET /trend-alert` — `llm_prediction` 있는 최근 집계 중 warning/critical 항목 조회 (log-analyzer `_trend_agg_scheduler` + UI 장애 예방)
 - 집계 저장은 모두 upsert (system_id + 기간 버킷 + collector_type + metric_group 기준 중복 방지)
 
+### Prometheus range query `/api/v1/systems` (별도 router, `_metrics_router`)
+- `GET /{system_id}/metrics/range` — 시스템 1건의 1분 단위 Prometheus query_range (collector_type+metric_group별 2~3개 PromQL `asyncio.gather`). 시스템 상세 페이지용
+- `GET /metrics/range-batch` — **대시보드 TrendMonitorSection 전용**. `metric_group`(cpu/memory/log/web)별로 `by (system_name)` 그룹화된 PromQL 1회만 호출해 전체 시스템을 한 번에 조회 → `{ "<system_name>": [{hour_bucket, value}, ...] }` 반환. N개 시스템 × 4차트 × 2~3 PromQL(최대 ~9N회) fan-out을 차트당 1회(총 4회)로 축소 (4-core 인프라 최적화, ADR 후보)
+- `GET /{system_id}/metrics/live-summary`, `GET /{system_id}/metrics/process-summary` — 시스템 상세 실시간 요약
+
 ### 리포트 이력 `/api/v1/reports` (Phase 5)
 - `GET /` — 발송된 리포트 이력 조회 (필터: `report_type`)
 - `GET /{id}` — 단건 조회
@@ -354,8 +359,8 @@ class InstanceStatusOut(BaseModel):
 - `DELETE /operator-note/{point_id}` — 운영자 노트 삭제. path param `point_id`는 **문자열**
 - `POST /feedback` — 오답 교정 피드백 — `knowledge_corrections` INSERT + log-analyzer /knowledge/correction 호출 (best-effort)
 - `GET /questions/frequent` — 최근 N일 사용자 질문 집계·클러스터링 (cosine 유사도 0.80, 기간별 동적 캐시 TTL: 7일=60s / 14일=300s / 30일=900s, 대표 질문 = centroid 최근접)
-- `GET /sync-status` — knowledge_sync_status 조회 (source 필터 지원)
-- `POST /sync-status` — log-analyzer 스케줄러가 호출 (last_sync_at, total_synced UPSERT)
+- `GET /sync-status` — knowledge_sync_status 조회 (source 필터 지원). **무인증** — log-analyzer `_jira_sync_run`/`_confluence_sync_run`이 `last_sync_at` 조회 후 증분 JQL(`updated >= ...`) 산정에 사용 (POST와 동일하게 내부 신뢰 호출 전제, 인증 시 401로 항상 전체 재동기화되는 버그 있었음)
+- `POST /sync-status` — log-analyzer 스케줄러가 호출 (last_sync_at, total_synced UPSERT). 무인증
 - `POST /sync/{jira|confluence}` — 전체 소스 동기화 트리거 (background, log-analyzer 프록시)
 - `POST /sync/jira/{issue_key}/force` — Jira 단건 이슈 강제 재동기화 **202 즉시 반환 (비동기, P2-C)**. `{job_id, status: "pending"}` 반환. 같은 (source, ref_id)가 pending/processing이면 기존 job_id 재반환 (idempotent)
 - `POST /sync/confluence/{page_id}/force` — Confluence 단건 페이지 강제 재동기화 **202 즉시 반환 (비동기, P2-C)**. 동일 idempotent 정책
