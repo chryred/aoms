@@ -733,3 +733,7 @@ Synapse는 이미 자체 username/password DB(`users` 테이블)를 보유하고
 - `TREND_CHARTS`에서 더 이상 쓰이지 않는 `collectorType`/`metricKey` 필드 제거.
 
 **관련**: 동일 세션에서 log-analyzer Jira/Confluence 동기화의 `GET /api/v1/knowledge/sync-status` 인증 불일치(매일 401 → `last_sync_at=None` → 전체 재동기화) 버그도 함께 수정 — `GET /sync-status`에서 `Depends(get_current_user)` 제거 (POST와 동일하게 무인증, 내부 신뢰 호출 전제).
+
+**추가 수정 (2026-06-15)**: 위 401 fix 배포 후에도 매일 전체 재동기화가 재발. 근본 원인은 별개의 두 번째 버그 — `GET /sync-status`는 `list[dict]`를 반환하는데(`routes/knowledge.py` `-> list[dict[str, Any]]`), `scheduler_tasks.py`의 `_jira_sync_run`/`_confluence_sync_run`은 `resp.json().get("last_sync_at")`로 **dict처럼** 접근하여 `AttributeError` 발생 → `except` 블록에서 흡수되어 `last_sync_at=None` 유지 → `jql_date`/`cql_date`가 항상 빈 문자열 → 매일 전체(~31,164건) 재동기화.
+- 수정: `rows = resp.json(); last_sync_at = rows[0].get("last_sync_at") if rows else None` (양쪽 함수 동일 패턴).
+- 부수 관찰: `upsert_jira_issue`가 매 이슈마다 `ensure_collection()` GET을 호출(캐싱 없음) → 이슈당 Server B로 GET+PUT 2회 라운드트립(~2초/건). 증분 동기화로 정상화되면 일 ~100건 수준이라 당장은 허용 가능하나, 향후 컬렉션 존재 여부를 프로세스 내 캐싱하면 추가 개선 가능 (미적용).

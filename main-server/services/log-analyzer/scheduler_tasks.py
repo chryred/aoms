@@ -394,7 +394,9 @@ async def _jira_sync_run() -> dict:
                     params={"source": "jira"},
                 )
                 if resp.status_code == 200:
-                    last_sync_at = resp.json().get("last_sync_at")
+                    rows = resp.json()
+                    if rows:
+                        last_sync_at = rows[0].get("last_sync_at")
         except Exception as exc:
             logger.warning("Jira last_sync_at 조회 실패: %s → 전체 동기화 진행", exc)
 
@@ -506,7 +508,9 @@ async def _confluence_sync_run() -> dict:
                     params={"source": "confluence"},
                 )
                 if resp.status_code == 200:
-                    last_sync_at = resp.json().get("last_sync_at")
+                    rows = resp.json()
+                    if rows:
+                        last_sync_at = rows[0].get("last_sync_at")
         except Exception as exc:
             logger.warning("Confluence last_sync_at 조회 실패: %s → 전체 동기화 진행", exc)
 
