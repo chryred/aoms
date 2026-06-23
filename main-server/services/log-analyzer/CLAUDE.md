@@ -228,6 +228,8 @@ log-analyzer/
 | `HF_HUB_OFFLINE` | `1` (폐쇄망 필수) |
 | `QDRANT_URL` | `http://{server-b}:6333` |
 | `ANALYSIS_INTERVAL_SECONDS` | `300` (기본 5분) |
+| `ANALYSIS_RUN_TIMEOUT_SECONDS` | `240` — 한 분석 사이클 최대 실행 시간. 초과 시 `_run_analysis_task`가 강제 종료하고 `_running` 락을 리셋해 다음 주기에 재시도(특정 시스템이 사이클을 무한정 붙잡아 파이프라인 전체가 멈추는 것 방지) |
+| `MAX_TEMPLATES_PER_ROLE` | `50` — `_analyze_one_role`이 한 사이클에 처리하는 distinct template 상한. 초과 시 발생횟수 상위 N개만 처리, 나머지는 다음 주기로 보류(신규 고카디널리티 시스템의 수백 template 폭증 방어) |
 | `JIRA_URL` | Jira REST API 기본 URL (예: `https://jira.example.com`). 미설정 시 Jira 동기화 비활성 |
 | `JIRA_TOKEN` | Jira Bearer 토큰. 미설정 시 비활성 |
 | `JIRA_PROJECTS` | 동기화 대상 프로젝트 키 (콤마 구분, 예: `PROJ1,PROJ2`). 미설정 시 비활성 |
@@ -472,6 +474,13 @@ ocr_worker.py의 `extract_text_with_stats(file_path, mime_type, progress_cb=_NOO
 | `skipped` | 시스템 `status != "active"` (비활성) |
 | `no_logs` | 활성이지만 최근 5분 에러 로그 없음 |
 | `errors` | 분석 과정 예외 발생 (실패 레코드는 DB에 별도 저장됨) |
+
+### 파이프라인 정지 방어 (고카디널리티 시스템)
+신규 시스템이 단일 instance_role에 수백 개 distinct 에러 template을 쏟아내면, `_analyze_one_role`이 template당 임베딩+Qdrant+`submit_analysis`를 순차 처리하며 한 사이클을 수십 분간 붙잡는다. `_run_analysis_task`엔 타임아웃이 없고 `_running` 락이 있어, 한 번 멈추면 이후 모든 주기가 `if _running: return`으로 skip되어 **전 시스템 분석이 영구 정지**한다(2026-06 cxm 801 template 사례).
+2중 방어:
+1. **`MAX_TEMPLATES_PER_ROLE`**(기본 50) — role당 처리 template 수 상한, 발생횟수 상위 N개만. 초과분은 `logger.warning`으로 명시 후 다음 주기 보류(무음 절단 금지).
+2. **`ANALYSIS_RUN_TIMEOUT_SECONDS`**(기본 240) — `asyncio.wait_for(run_analysis(), ...)`로 사이클을 강제 종료하고 `_running` 리셋 → 어떤 시스템이 망가져도 파이프라인 자가복구. 타임아웃 시 `_last_run.result = {"error": "timeout after Ns"}`.
+> 회귀 테스트: `tests/test_analysis_resilience.py`
 
 ### aggregation_vector_client는 vector_client를 의존
 `aggregation_vector_client.py`는 `vector_client.py`의 `get_embedding`, `ensure_collection` 등을 import.
