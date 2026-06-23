@@ -32,6 +32,9 @@ import knowledge_vector_client
 logger = logging.getLogger(__name__)
 
 ANALYSIS_INTERVAL = int(os.getenv("ANALYSIS_INTERVAL_SECONDS", "300"))
+# 한 분석 사이클의 최대 실행 시간. 초과 시 강제 종료하고 _running을 리셋해 다음 주기에
+# 재시도한다. 특정 시스템이 사이클을 무한정 붙잡아 파이프라인 전체가 멈추는 것 방지.
+ANALYSIS_RUN_TIMEOUT = int(os.getenv("ANALYSIS_RUN_TIMEOUT_SECONDS", "240"))
 ADMIN_API_URL = os.getenv("ADMIN_API_URL", "http://admin-api:8080")
 
 # V1 Knowledge 동기화 환경변수 (미설정 시 스케줄러 비활성화)
@@ -106,8 +109,11 @@ async def _run_analysis_task() -> None:
     _last_run["started_at"] = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
     _last_run["finished_at"] = None
     try:
-        result = await analyzer.run_analysis()
+        result = await asyncio.wait_for(analyzer.run_analysis(), timeout=ANALYSIS_RUN_TIMEOUT)
         _last_run["result"] = result
+    except asyncio.TimeoutError:
+        logger.error(f"분석 실행 타임아웃 ({ANALYSIS_RUN_TIMEOUT}s 초과) — 강제 종료, 다음 주기 재시도")
+        _last_run["result"] = {"error": f"timeout after {ANALYSIS_RUN_TIMEOUT}s"}
     except Exception as e:
         logger.error(f"분석 실행 중 예외: {e}")
         _last_run["result"] = {"error": str(e)}
@@ -394,7 +400,9 @@ async def _jira_sync_run() -> dict:
                     params={"source": "jira"},
                 )
                 if resp.status_code == 200:
-                    last_sync_at = resp.json().get("last_sync_at")
+                    rows = resp.json()
+                    if rows:
+                        last_sync_at = rows[0].get("last_sync_at")
         except Exception as exc:
             logger.warning("Jira last_sync_at 조회 실패: %s → 전체 동기화 진행", exc)
 
@@ -506,7 +514,9 @@ async def _confluence_sync_run() -> dict:
                     params={"source": "confluence"},
                 )
                 if resp.status_code == 200:
-                    last_sync_at = resp.json().get("last_sync_at")
+                    rows = resp.json()
+                    if rows:
+                        last_sync_at = rows[0].get("last_sync_at")
         except Exception as exc:
             logger.warning("Confluence last_sync_at 조회 실패: %s → 전체 동기화 진행", exc)
 

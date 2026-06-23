@@ -46,6 +46,11 @@ logger = logging.getLogger(__name__)
 PROMETHEUS_URL = os.getenv("PROMETHEUS_URL", "http://prometheus:9090")
 ADMIN_API_URL  = os.getenv("ADMIN_API_URL",  "http://admin-api:8080")
 
+# role(instance_role) 한 개가 한 사이클에 처리하는 distinct template 수 상한.
+# 신규 고카디널리티 시스템이 수백 개 template을 한꺼번에 쏟아내 한 태스크가
+# 사이클 전체를 붙잡는 것을 방지한다(발생횟수 상위 N개만 처리, 나머지는 다음 주기로).
+_MAX_TEMPLATES_PER_ROLE = int(os.getenv("MAX_TEMPLATES_PER_ROLE", "50"))
+
 # 모듈 레벨 공유 클라이언트 — lifespan에서 aclose() 호출
 _admin_http = httpx.AsyncClient(timeout=10.0)    # admin-api 호출
 _prom_http  = httpx.AsyncClient(timeout=30.0)    # Prometheus 쿼리
@@ -572,6 +577,19 @@ async def _analyze_one_role(
             distinct = list(by_tmpl.keys())
             if not distinct:
                 return {"status": "no_logs", "label": label}
+
+            # role당 처리 상한 — 초과 시 발생횟수 상위 N개만 이번 주기 처리, 나머지 보류.
+            # (한 태스크가 수백 template을 순차 처리하며 사이클 전체를 멈춰 세우는 것 방지)
+            if len(distinct) > _MAX_TEMPLATES_PER_ROLE:
+                total = len(distinct)
+                distinct = sorted(
+                    distinct, key=lambda t: by_tmpl[t]["count"], reverse=True
+                )[:_MAX_TEMPLATES_PER_ROLE]
+                logger.warning(
+                    f"[{label}] distinct template {total}개가 상한({_MAX_TEMPLATES_PER_ROLE}) 초과 "
+                    f"→ 발생횟수 상위 {_MAX_TEMPLATES_PER_ROLE}개만 이번 주기 처리, "
+                    f"{total - _MAX_TEMPLATES_PER_ROLE}개 보류"
+                )
 
             # ── 2. template 단위 notification 인식 (LLM 이전 — 혼합 배치 over-skip 방지) ──
             recog = await _recognize_templates(system_name, instance_role, distinct)
