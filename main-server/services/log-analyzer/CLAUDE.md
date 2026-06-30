@@ -461,6 +461,14 @@ ocr_worker.py의 `extract_text_with_stats(file_path, mime_type, progress_cb=_NOO
 - `log_incidents` / `metric_baselines`: **log-analyzer `lifespan`이 부팅 시 자동 `ensure_collection`** (ADR-004)
 - `metric_hourly_patterns` / `aggregation_summaries`: `POST /aggregation/collections/setup` — 수동 1회
 
+### normalize_log_for_embedding 변경 시 log_incidents 리셋 필수
+
+`vector_client.normalize_log_for_embedding`은 template의 결정적 `template_point_id` 산출 입력이다. 정규화 규칙을 바꾸면 **동일 template의 point_id가 전부 바뀌어** 기존 Qdrant `log_incidents` 포인트가 orphan(tier-1 retrieve miss)이 된다.
+- 규칙 변경 배포 시 **`log_incidents` 컬렉션 리셋** 후 재학습(`POST /collections/log/reset` 또는 런북). 리셋 직후 콜드스타트(전 template 신규 취급)는 `MAX_TEMPLATES_PER_ROLE` cap + 백로그 로테이션이 무손실로 흡수.
+- 현행 규칙: 타임스탬프/IP/UUID + **URL 토큰(`https?://…`→`<URL>`)·소스 라인번호(`:NNN]`)·할당값(`=NNN`)·5자리+숫자** 정규화. URL 쿼리스트링·라인번호 차이로 같은 에러가 수백 template으로 갈리는 고카디널리티를 완화(실측 cxm 745→584, SSO 단일 에러 159변형→1).
+- 과병합 금지: 공백 분리 단독 에러코드(`code 404`)는 묶지 않음. 규칙 추가 시 실데이터로 distinct 감소·비병합 동시 검증(`tests/test_normalize.py`).
+- `normalize_log_for_embedding`은 log-analyzer 단일 출처(admin-api 복제본 없음) — 재분류는 log-analyzer `/log-incidents/submit-group`으로 프록시되어 동일 규칙 적용.
+
 ### 분석 실패 이력 기록 (ADR-002)
 `analyzer.run_analysis()` 내 `except` 경로에서도 `submit_analysis(..., error_message=...)` 호출.
 - admin-api가 `error_message IS NOT NULL`이면 Teams 발송 차단

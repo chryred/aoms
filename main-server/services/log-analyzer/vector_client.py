@@ -153,17 +153,30 @@ def _get_sparse_model():
 
 def normalize_log_for_embedding(raw_log: str) -> str:
     """
-    로그에서 변수 요소(타임스탬프, IP, UUID, 큰 숫자)를 제거하여 패턴만 남김.
+    로그에서 변수 요소(타임스탬프, IP, UUID, URL, 라인번호, 할당값, 큰 숫자)를
+    제거하여 패턴만 남김. 같은 논리 에러가 URL 쿼리스트링·소스 라인번호·가변 ID
+    차이로 여러 template으로 갈리는 것을 방지한다(고카디널리티 완화).
 
     예: "2026-03-15T10:00:00 ORA-00060 from 10.0.1.5"
         → "<TS> ORA-00060 from <IP>"
+        "[Foo.bar:248] referer = https://x/y?id=633"
+        → "[Foo.bar:<N>] referer = <URL>"
+
+    주의(과병합 금지): 공백으로 분리된 단독 에러코드/상태코드(예: "code 404")는
+    묶지 않는다. 치환은 URL 토큰·`:NNN]` 라인번호·`=NNN` 할당값 등 가변 요소로 한정.
     """
     text = re.sub(r'\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}[.\d]*', '<TS>', raw_log)
+    # URL 토큰 통째 치환 (쿼리스트링·경로·스킴 차이 흡수) — =NNN 치환보다 먼저
+    text = re.sub(r'https?://\S+', '<URL>', text)
     text = re.sub(r'\b\d{1,3}(?:\.\d{1,3}){3}\b', '<IP>', text)
     text = re.sub(
         r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}',
         '<UUID>', text, flags=re.IGNORECASE,
     )
+    # 소스 라인번호 [Class.method:248] → [Class.method:<N>]
+    text = re.sub(r':\d+\]', ':<N>]', text)
+    # 할당/쿼리 값 (가변 ID·카운트) key=123 → key=<N>
+    text = re.sub(r'=\d+', '=<N>', text)
     text = re.sub(r'\b\d{5,}\b', '<NUM>', text)
     return text.strip()
 
