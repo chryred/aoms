@@ -37,7 +37,7 @@ async def create_analysis(payload: LogAnalysisCreate, db: AsyncSession = Depends
     # similar_incidents, templates(→templates_json으로 매핑), template_counts(로컬 사용만)는 model_dump에서 제외
     record = LogAnalysisHistory(
         **payload.model_dump(
-            exclude={"similar_incidents", "templates", "template_counts"}
+            exclude={"similar_incidents", "templates", "template_counts", "suppress_teams"}
         )
     )
     if payload.templates:
@@ -48,14 +48,16 @@ async def create_analysis(payload: LogAnalysisCreate, db: AsyncSession = Depends
     is_failure = bool(payload.error_message)
     is_notification_first = (payload.anomaly_type == "notification")
     # 분析 실패(severity="warning")도 포함 — LLM 연결 장애를 Teams로 알림
-    will_send_teams = (
+    is_real_error = (
         payload.anomaly_type == "duplicate" or payload.severity in ("warning", "critical")
     )
     # alert_history에도 기록 (피드백 관리 "로그분析" 탭 + Teams 피드백 버튼 연동)
     # 알림성 그룹도 1:1 Qdrant point 대응을 위해 alert_history row 필요
-    should_log_alert = will_send_teams or is_notification_first
-    # 인시던트 자동 생성은 실에러 그룹(warning/critical)만
-    should_create_incident = will_send_teams and not is_notification_first
+    should_log_alert = is_real_error or is_notification_first
+    # 인시던트 자동 생성은 실에러 그룹(warning/critical)만 — suppress_teams와 무관(row/point/인시던트 유지)
+    should_create_incident = is_real_error and not is_notification_first
+    # Phase C: 실에러 Teams 발송. suppress_teams면 억제(role 단위 통합 발송이 대신 1장 발송)
+    send_teams = is_real_error and not payload.suppress_teams
 
     # 성공 케이스 description: 재분류와 동일한 5-field 표준 포맷 + recommendation
     if not is_failure:
@@ -131,7 +133,7 @@ async def create_analysis(payload: LogAnalysisCreate, db: AsyncSession = Depends
             except Exception as exc:
                 logger.warning("알림성 로그 Teams 카드 발송 실패: %s", exc)
 
-    if will_send_teams:
+    if send_teams:
         _, contacts = await get_system_and_contacts(db, system.system_name)
         contacts_data = [{"name": c["name"], "teams_upn": c["teams_upn"]} for c in contacts]
 
@@ -166,8 +168,9 @@ async def create_analysis(payload: LogAnalysisCreate, db: AsyncSession = Depends
     await db.commit()
     await db.refresh(record)
 
-    # WebSocket 브로드캐스트 — warning/critical 실시간 전파 (분析 실패 포함)
-    if payload.severity in ("warning", "critical"):
+    # WebSocket 브로드캐스트 — warning/critical 실시간 전파 (분析 실패 포함).
+    # suppress_teams면 per-template 브로드캐스트 억제(role 통합 발송이 1회 처리)
+    if payload.severity in ("warning", "critical") and not payload.suppress_teams:
         await notify_log_analysis({
             "system_id": str(system.id),
             "system_name": system.system_name,
@@ -179,6 +182,71 @@ async def create_analysis(payload: LogAnalysisCreate, db: AsyncSession = Depends
         })
 
     return record
+
+
+class RoleNotifyPayload(BaseModel):
+    """Phase C: role 단위 실에러 통합 알림 페이로드."""
+    system_id: int
+    instance_role: Optional[str] = None
+    severity: str = "warning"
+    root_cause: Optional[str] = None
+    recommendation: Optional[str] = None
+    templates: list[dict] = []          # [{"template": str, "count": int}]
+    real_error_count: int = 0
+
+
+@router.post("/notify-role")
+async def notify_role(payload: RoleNotifyPayload, db: AsyncSession = Depends(get_db)):
+    """한 role의 실에러 template들을 1장의 통합 Teams 카드로 발송 (Phase C).
+
+    per-template의 row/point/인시던트는 create_analysis(suppress_teams=True)가 이미 생성한
+    상태. 여기서는 같은-윈도우 인시던트에 연결해 카드 1장 + WebSocket 1회만 처리한다.
+    """
+    system = await db.get(System, payload.system_id)
+    if not system:
+        raise HTTPException(status_code=404, detail="System not found")
+
+    title = (payload.root_cause or "").strip() or f"로그 이상 감지 - {system.display_name}"
+    incident = await get_or_create_incident(db, system.id, title=title, severity=payload.severity)
+    await db.commit()
+
+    sent = False
+    _, contacts = await get_system_and_contacts(db, system.system_name)
+    contacts_data = [{"name": c["name"], "teams_upn": c["teams_upn"]} for c in contacts]
+    webhook_url = system.teams_webhook_url or DEFAULT_WEBHOOK_URL
+    if webhook_url:
+        try:
+            sent = await notifier.send_log_analysis_alert(
+                webhook_url=webhook_url,
+                system_display_name=system.display_name,
+                system_name=system.system_name,
+                instance_role=payload.instance_role or "",
+                analysis={
+                    "severity":       payload.severity,
+                    "summary":        f"로그 이상 감지 - {system.display_name}",
+                    "root_cause":     payload.root_cause,
+                    "recommendation": payload.recommendation,
+                },
+                log_sample="",
+                contacts=contacts_data,
+                templates=payload.templates,
+                incident_id=incident.id,
+            )
+        except Exception as exc:
+            logger.warning("role 통합 Teams 발송 실패: %s", exc)
+
+    if payload.severity in ("warning", "critical"):
+        await notify_log_analysis({
+            "system_id": str(system.id),
+            "system_name": system.system_name,
+            "display_name": system.display_name,
+            "severity": payload.severity,
+            "anomaly_type": "batch",
+            "similarity_score": None,
+            "analysis_id": None,
+        })
+
+    return {"sent": sent, "incident_id": incident.id, "template_count": len(payload.templates)}
 
 
 @router.get("", response_model=list[LogAnalysisOut])

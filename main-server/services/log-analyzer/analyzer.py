@@ -431,12 +431,14 @@ async def submit_analysis(
     real_error_count: int = 0,
     notification_count: int = 0,
     template_classifications_json: str | None = None,
+    suppress_teams: bool = False,
 ) -> dict:
     """Admin API에 LLM 분석 결과 제출 (Teams 알림은 Admin API가 처리)
 
     real_error_count: 실에러 로그 건수 (알림성 제외).
     notification_count: 알림성 로그 건수.
     template_classifications_json: LLM per-template 분류 JSON (디버깅용).
+    suppress_teams: True면 row/point/인시던트는 생성하되 Teams 발송만 억제(Phase C, role 통합 발송용).
     """
     payload: dict = {
         "system_id":          system_id,
@@ -449,6 +451,7 @@ async def submit_analysis(
         "model_used":         model_used or LLM_TYPE,
         "real_error_count":   real_error_count,
         "notification_count": notification_count,
+        "suppress_teams":     suppress_teams,
     }
     # Phase 4b: 벡터 필드 (값이 있을 때만 포함)
     if anomaly_type      is not None: payload["anomaly_type"]      = anomaly_type
@@ -467,6 +470,42 @@ async def submit_analysis(
     resp = await _admin_http.post(f"{ADMIN_API_URL}/api/v1/analysis", json=payload)
     resp.raise_for_status()
     return resp.json()
+
+
+_SEVERITY_RANK = {"info": 0, "warning": 1, "critical": 2}
+
+
+async def notify_role_batch(
+    system_id: int,
+    instance_role: str,
+    severity: str,
+    root_cause: str,
+    recommendation: str,
+    templates: list[dict],
+) -> None:
+    """한 role의 실에러 template들을 admin-api로 보내 통합 Teams 카드 1장 발송 (Phase C).
+
+    per-template submit_analysis(suppress_teams=True)가 row/point/인시던트를 이미 생성한 뒤
+    호출된다. 실패해도 분석 흐름에 영향 없음(best-effort).
+    """
+    if not templates:
+        return
+    try:
+        resp = await _admin_http.post(
+            f"{ADMIN_API_URL}/api/v1/analysis/notify-role",
+            json={
+                "system_id": system_id,
+                "instance_role": instance_role,
+                "severity": severity,
+                "root_cause": root_cause,
+                "recommendation": recommendation,
+                "templates": templates,
+                "real_error_count": sum(int(t.get("count", 0)) for t in templates),
+            },
+        )
+        resp.raise_for_status()
+    except Exception as exc:
+        logger.warning("role 통합 알림 발송 실패 (무시): %s", exc)
 
 
 async def _recognize_templates(
@@ -668,7 +707,11 @@ async def _analyze_one_role(
             llm_err = analysis.get("llm_error") or analysis.get("qdrant_store_error")
 
             # ── 5. need_llm template 단위 처리 (stored-wins → LLM, 포인트·알림 모두 template 단위) ──
+            # Phase C: 실에러는 per-template Teams를 억제(suppress_teams=True)하고 row/point만 만든 뒤,
+            # 루프 종료 후 role 단위 통합 카드 1장으로 발송한다.
             n_notif_new = n_real = 0
+            real_templates: list[dict] = []
+            real_max_sev = "info"
             for t in need_llm:
                 rc = recog[t]
                 if rc["recognized"]:          # recognized 실에러(recurring) → 저장된 결정 승계
@@ -716,6 +759,7 @@ async def _analyze_one_role(
                     )
                 else:
                     n_real += 1
+                    # Teams는 억제(suppress_teams) — row/point/인시던트는 생성, 발송은 통합 1장으로
                     await submit_analysis(
                         system_id=system_id, instance_role=instance_role,
                         log_content=t_text, analysis_result=analysis,
@@ -731,7 +775,18 @@ async def _analyze_one_role(
                         templates=[t], template_counts={t: t_count},
                         real_error_count=t_count, notification_count=0,
                         template_classifications_json=tc_json,
+                        suppress_teams=True,
                     )
+                    real_templates.append({"template": t, "count": t_count})
+                    if _SEVERITY_RANK.get(tmpl_sev, 0) > _SEVERITY_RANK.get(real_max_sev, 0):
+                        real_max_sev = tmpl_sev
+
+            # Phase C: 실에러 있으면 role 단위 통합 Teams 카드 1장 발송 (per-template은 위에서 억제됨)
+            if real_templates:
+                await notify_role_batch(
+                    system_id, instance_role, real_max_sev,
+                    root_cause, recommendation, real_templates,
+                )
 
             logger.info(
                 f"[{label}] 분析 완료: {severity} [{analysis.get('anomaly_type', 'unknown')}] "

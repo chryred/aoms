@@ -55,6 +55,7 @@ def _patch_common(monkeypatch, recog_fn):
     monkeypatch.setattr(analyzer, "get_sparse_vector", AsyncMock(return_value={"indices": [1], "values": [0.5]}))
     monkeypatch.setattr(analyzer, "store_incident_vector", AsyncMock(return_value="pid"))
     monkeypatch.setattr(analyzer, "bump_occurrence", AsyncMock())
+    monkeypatch.setattr(analyzer, "notify_role_batch", AsyncMock())  # Phase C 통합 발송 (HTTP 차단)
     submit = AsyncMock()
     monkeypatch.setattr(analyzer, "submit_analysis", submit)
     return submit
@@ -173,6 +174,34 @@ async def test_deferred_templates_processed_first_next_cycle(monkeypatch):
     submit.reset_mock()
     await analyzer._analyze_one_role(asyncio.Semaphore(5), 5, "cxm", "was1", logs, "agent", "", [])
     assert _real_templates_submitted(submit) == {"E3", "E2"}
+
+
+# ── Phase C: 실에러는 per-template Teams 억제 + role 통합 발송 1회 ────────────
+
+@pytest.mark.asyncio
+async def test_real_errors_suppress_teams_and_notify_role_once(monkeypatch):
+    """실에러 submit은 suppress_teams=True, 루프 후 notify_role_batch 1회(영향 template 동봉)."""
+    analyzer._backlog.clear()
+    logs = _mk_logs([("REAL_A", 5), ("REAL_B", 3)])
+
+    async def recog(system_name, instance_role, templates):
+        return {t: _novel(t) for t in templates}
+
+    submit = _patch_common(monkeypatch, recog)
+    notify = AsyncMock()
+    monkeypatch.setattr(analyzer, "notify_role_batch", notify)
+    monkeypatch.setattr(analyzer, "_MAX_TEMPLATES_PER_ROLE", 50)
+
+    await analyzer._analyze_one_role(asyncio.Semaphore(5), 5, "cxm", "was1", logs, "agent", "", [])
+
+    # 실에러 per-template submit은 모두 suppress_teams=True
+    real_calls = [c for c in submit.call_args_list
+                  if c.kwargs.get("anomaly_type") not in ("notification_auto", "notification")]
+    assert real_calls and all(c.kwargs.get("suppress_teams") is True for c in real_calls)
+    # role 통합 발송은 정확히 1회, 영향 template 2종 동봉
+    notify.assert_called_once()
+    sent_templates = notify.call_args.args[5] if len(notify.call_args.args) > 5 else notify.call_args.kwargs.get("templates")
+    assert len(sent_templates) == 2
 
 
 # ── 기존: 분석 사이클 타임아웃 (파이프라인 자가복구) ──────────────────────────

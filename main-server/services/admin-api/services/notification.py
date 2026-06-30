@@ -98,8 +98,12 @@ class TeamsNotifier:
         point_id: Optional[str] = None,
         alert_history_id: Optional[int] = None,
         incident_id: Optional[int] = None,
+        templates: Optional[list[dict]] = None,
     ) -> bool:
-        """LLM 분석 결과 알림 발송 (Phase 4b: 이상 분류 배지 + 유사 이력 포함)"""
+        """LLM 분석 결과 알림 발송 (Phase 4b: 이상 분류 배지 + 유사 이력 포함).
+
+        templates 지정 시(Phase C, role 단위 통합): 영향 template 목록을 카드에 렌더.
+        """
         body = build_log_analysis_card(
             system_display_name=system_display_name,
             system_name=system_name,
@@ -114,6 +118,7 @@ class TeamsNotifier:
             point_id=point_id,
             alert_history_id=alert_history_id,
             incident_id=incident_id,
+            templates=templates,
         )
         return await _post_webhook(webhook_url, body)
 

@@ -209,8 +209,12 @@ def build_log_analysis_card(
     point_id: Optional[str] = None,
     alert_history_id: Optional[int] = None,
     incident_id: Optional[int] = None,
+    templates: Optional[list[dict]] = None,
 ) -> dict:
-    """LLM 로그 분석 알림 Adaptive Card body dict 생성"""
+    """LLM 로그 분석 알림 Adaptive Card body dict 생성.
+
+    templates 지정 시(Phase C, role 단위 통합): "영향 template (N종)" 목록을 본문에 렌더.
+    """
     severity = analysis.get("severity", "warning")
     icon = "🔴" if severity == "critical" else ("🟡" if severity == "warning" else "🔵")
     mention_text = build_mention_text(contacts)
@@ -229,14 +233,26 @@ def build_log_analysis_card(
         {"title": "분석 시각", "value": datetime.now(_KST).strftime("%Y-%m-%d %H:%M:%S")},
     ])
 
-    body_extra: list[dict] = [
-        {
+    body_extra: list[dict] = []
+    # Phase C: role 단위 통합 — 영향 template 목록(건수 포함)
+    if templates:
+        lines = "\n".join(
+            f"- ({int(t.get('count', 0))}건) {str(t.get('template', ''))[:160]}"
+            for t in templates[:20]
+        )
+        more = f"\n… 외 {len(templates) - 20}종" if len(templates) > 20 else ""
+        body_extra.append({
+            "type": "TextBlock",
+            "text": f"**영향 template ({len(templates)}종):**\n{lines}{more}",
+            "wrap": True,
+        })
+    if log_sample:
+        body_extra.append({
             "type": "TextBlock",
             "text": f"**원본 로그 샘플:**\n```\n{log_sample[:400]}\n```",
             "wrap": True,
             "fontType": "Monospace",
-        },
-    ]
+        })
     if anomaly_type and similarity_score is not None:
         body_extra.append(build_vector_context_block(
             anomaly_type=anomaly_type,

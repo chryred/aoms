@@ -262,3 +262,50 @@ async def test_alert_title_falls_back_to_system_name_when_all_blank(authed_clien
 
     alert = await _get_log_analysis_alert(authed_client)
     assert alert["title"] == f"로그 이상 감지 - {SYSTEM_PAYLOAD['display_name']}"
+
+
+# ── Phase C: Teams 알림 통합 (suppress_teams + notify-role) ───────────────────
+
+async def test_create_analysis_suppress_teams_creates_row_without_send(authed_client: AsyncClient):
+    """suppress_teams=True: row/alert_history는 생성하되 Teams는 발송하지 않는다."""
+    system = await create_system(authed_client)
+    payload = {**ANALYSIS_PAYLOAD, "system_id": system["id"], "suppress_teams": True}
+
+    send_mock = AsyncMock(return_value=True)
+    with patch("routes.analysis.DEFAULT_WEBHOOK_URL", "https://teams.example.com/webhook"), \
+         patch("routes.analysis.notifier.send_log_analysis_alert", send_mock):
+        resp = await authed_client.post("/api/v1/analysis", json=payload)
+
+    assert resp.status_code == 201
+    assert resp.json()["alert_sent"] is False
+    send_mock.assert_not_called()                    # Teams 미발송
+    # row(alert_history)는 그대로 생성됨 (피드백/재분류용 1:1 유지)
+    alert = await _get_log_analysis_alert(authed_client)
+    assert alert is not None
+
+
+async def test_notify_role_sends_single_card_with_templates(authed_client: AsyncClient):
+    """notify-role: 여러 template을 1장의 통합 카드로 발송."""
+    system = await create_system(authed_client)
+    payload = {
+        "system_id": system["id"],
+        "instance_role": "was1",
+        "severity": "critical",
+        "root_cause": "원인 요약",
+        "recommendation": "조치 요약",
+        "templates": [
+            {"template": "ERROR A", "count": 10},
+            {"template": "ERROR B", "count": 3},
+        ],
+        "real_error_count": 13,
+    }
+    send_mock = AsyncMock(return_value=True)
+    with patch("routes.analysis.DEFAULT_WEBHOOK_URL", "https://teams.example.com/webhook"), \
+         patch("routes.analysis.notifier.send_log_analysis_alert", send_mock):
+        resp = await authed_client.post("/api/v1/analysis/notify-role", json=payload)
+
+    assert resp.status_code == 200
+    send_mock.assert_called_once()                   # 카드 1장
+    sent_templates = send_mock.call_args.kwargs.get("templates")
+    assert sent_templates and len(sent_templates) == 2
+    assert resp.json().get("incident_id") is not None

@@ -543,6 +543,8 @@ class LogAnalysisCreate(BaseModel):
     real_error_count:              int = 0
     notification_count:            int = 0
     template_classifications_json: Optional[str] = None
+    # Phase C: True이면 row/point/인시던트는 생성하되 Teams 발송만 억제(role 단위 통합 발송용). DB 미저장.
+    suppress_teams:                bool = False
 
 
 class LogAnalysisOut(BaseModel):

@@ -160,6 +160,8 @@ docker exec -it aoms-admin-api \
 ### LLM 분석 결과 `/api/v1/analysis`
 - `POST /` — log-analyzer가 분석 결과 전달 시 수신
   - `warning`/`critical`이면 Teams 발송 후 `alert_sent=True`
+  - **`suppress_teams: bool = False`** (Phase C): True면 row/`alert_history`/인시던트는 그대로 생성하되 **Teams·WebSocket 발송만 억제**. log-analyzer가 실에러를 template 단위로 저장(1 row=1 point 유지)하면서 발송은 role 단위 통합 1장으로 보내기 위함. DB 미저장 필드(`model_dump` exclude).
+- `POST /notify-role` — **role 단위 실에러 통합 Teams 카드 1장 발송** (Phase C). body: `{system_id, instance_role, severity, root_cause, recommendation, templates: [{template, count}], real_error_count}`. 같은-윈도우 인시던트(`get_or_create_incident`)에 연결, `build_log_analysis_card(templates=...)`로 영향 template 목록 렌더. per-template `POST /`(suppress_teams=True)가 row/point를 만든 뒤 호출됨. 카드 1장 + WebSocket 1회.
 - `GET /` — 이력 조회 (필터: `system_id`, `severity`, `limit`)
 - `GET /{id}` — 단건 조회
 - `PATCH /reclassify/{alert_history_id}` — 알림성/실에러 수동 재분류. 기존 Qdrant 포인트 삭제 + `anomaly_type='reclassified'` 마킹 + 그룹별 신규 포인트/row/인시던트 생성. body: `{template_changes: [{template, new_severity}]}`. 응답에 `info_alert_history_id`(정보로 바뀐 새 알림 — goal #3 미리보기 기준점) 포함

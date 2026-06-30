@@ -292,7 +292,9 @@ POST /metric/similarity
      - store_incident_vector(point_key=normalized_template) — template 단위 결정적 id upsert(멱등)
      - submit_analysis도 template마다 1회 (1 row = 1 point):
        · 신규 알림성: anomaly_type="notification" (Teams 최초 1회) → 다음 주기 tier-1 인식 → notification_auto
-       · 실에러: anomaly_type=분석값, Teams + 인시던트 (기존 흐름)
+       · 실에러: anomaly_type=분석값, row/point/인시던트 생성 — **단, Teams는 suppress_teams=True로 억제**
+   6. (Phase C) 루프 종료 후 실에러가 있으면 `notify_role_batch` → admin-api `POST /api/v1/analysis/notify-role`로
+      **role 단위 통합 Teams 카드 1장** 발송(영향 template 목록 동봉). per-template row/point는 그대로라 피드백·재분류 1:1 유지.
 ```
 
 **핵심 불변식**:
