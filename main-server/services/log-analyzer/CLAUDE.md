@@ -229,7 +229,7 @@ log-analyzer/
 | `QDRANT_URL` | `http://{server-b}:6333` |
 | `ANALYSIS_INTERVAL_SECONDS` | `300` (기본 5분) |
 | `ANALYSIS_RUN_TIMEOUT_SECONDS` | `240` — 한 분석 사이클 최대 실행 시간. 초과 시 `_run_analysis_task`가 강제 종료하고 `_running` 락을 리셋해 다음 주기에 재시도(특정 시스템이 사이클을 무한정 붙잡아 파이프라인 전체가 멈추는 것 방지) |
-| `MAX_TEMPLATES_PER_ROLE` | `50` — `_analyze_one_role`이 한 사이클에 처리하는 distinct template 상한. 초과 시 발생횟수 상위 N개만 처리, 나머지는 다음 주기로 보류(신규 고카디널리티 시스템의 수백 template 폭증 방어) |
+| `MAX_TEMPLATES_PER_ROLE` | `50` — `_analyze_one_role`이 한 사이클에 처리하는 **실에러 후보(need_llm)** 상한. 알림성은 상한 무관 전량 처리. 초과분은 드롭이 아니라 in-memory 백로그(`_backlog`)로 이월되어 다음 주기 우선 처리(무손실). 상향 시 폭증 소진 가속 |
 | `JIRA_URL` | Jira REST API 기본 URL (예: `https://jira.example.com`). 미설정 시 Jira 동기화 비활성 |
 | `JIRA_TOKEN` | Jira Bearer 토큰. 미설정 시 비활성 |
 | `JIRA_PROJECTS` | 동기화 대상 프로젝트 키 (콤마 구분, 예: `PROJ1,PROJ2`). 미설정 시 비활성 |
@@ -483,12 +483,21 @@ ocr_worker.py의 `extract_text_with_stats(file_path, mime_type, progress_cb=_NOO
 | `no_logs` | 활성이지만 최근 5분 에러 로그 없음 |
 | `errors` | 분석 과정 예외 발생 (실패 레코드는 DB에 별도 저장됨) |
 
-### 파이프라인 정지 방어 (고카디널리티 시스템)
-신규 시스템이 단일 instance_role에 수백 개 distinct 에러 template을 쏟아내면, `_analyze_one_role`이 template당 임베딩+Qdrant+`submit_analysis`를 순차 처리하며 한 사이클을 수십 분간 붙잡는다. `_run_analysis_task`엔 타임아웃이 없고 `_running` 락이 있어, 한 번 멈추면 이후 모든 주기가 `if _running: return`으로 skip되어 **전 시스템 분석이 영구 정지**한다(2026-06 cxm 801 template 사례).
-2중 방어:
-1. **`MAX_TEMPLATES_PER_ROLE`**(기본 50) — role당 처리 template 수 상한, 발생횟수 상위 N개만. 초과분은 `logger.warning`으로 명시 후 다음 주기 보류(무음 절단 금지).
-2. **`ANALYSIS_RUN_TIMEOUT_SECONDS`**(기본 240) — `asyncio.wait_for(run_analysis(), ...)`로 사이클을 강제 종료하고 `_running` 리셋 → 어떤 시스템이 망가져도 파이프라인 자가복구. 타임아웃 시 `_last_run.result = {"error": "timeout after Ns"}`.
-> 회귀 테스트: `tests/test_analysis_resilience.py`
+### 파이프라인 정지 방어 + 고카디널리티 무손실 처리
+
+배경: 신규/리셋 직후 한 instance_role에 수백 종 distinct template이 한꺼번에 들어오면, 과거엔 `_analyze_one_role`이 template당 임베딩+Qdrant+`submit_analysis`를 순차 처리하며 사이클을 수십 분 점유 → `_running` 락이 영구 True가 되어 **전 시스템 분석 정지**(2026-06 cxm 801 template 사례).
+
+> **부하는 "종류(distinct template)"에 비례하고 "건수(occurrence)"와 무관**하다. `fetch_logs_for_system`이 `sum_over_time` 집계값을 template당 1건으로 가져오므로, 실제 장애(같은 에러 반복=건수 폭증, 종류는 적음)는 안전하다. 문제는 정규화 미흡·로깅 노이즈로 인한 "종류 폭증"뿐.
+
+**방어 구조 (4겹):**
+1. **정규화(Phase A)** — `normalize_log_for_embedding`이 URL/라인번호/할당값을 묶어 같은 논리 에러가 여러 template으로 갈리는 것을 줄임. `_analyze_one_role`은 **by_tmpl을 정규화 template으로 키잉** → 변형이 1개로 합쳐져 1 row=1 point 유지.
+2. **전량 배치 인식(B-1)** — `retrieve_points_batch`로 전체 distinct의 tier-1 인식을 **단일 Qdrant 호출**로. 인식엔 상한 없음.
+3. **알림성 제외 후 실에러에만 상한(B-2)** — recognized 알림성(`notification_auto`)은 싼 경로로 전량 처리(상한 무관). `MAX_TEMPLATES_PER_ROLE`(기본 50)은 **실에러 후보(need_llm)에만** 적용.
+4. **in-memory 백로그 로테이션(B-3)** — 상한 초과분은 **드롭이 아니라 `_backlog["{system}:{role}"]`로 이월**, 다음 주기에 **우선 처리**. 백로그는 단조 감소 → 여러 주기에 걸쳐 **영구 누락 0**(지연만). 재시작 시 비워지나 재수렴.
+5. **`ANALYSIS_RUN_TIMEOUT_SECONDS`**(기본 240) — `asyncio.wait_for`로 사이클 강제 종료 + `_running` 리셋 → 최종 백스톱.
+
+> 폭증 소진 속도를 높이려면 `MAX_TEMPLATES_PER_ROLE` 상향(env, 코드 변경 없음). 타임아웃 내에서 안전.
+> 회귀 테스트: `tests/test_analysis_resilience.py`(백로그 무손실·알림성 제외·정규화 키잉), `tests/test_retrieve_batch.py`, `tests/test_normalize.py`
 
 ### aggregation_vector_client는 vector_client를 의존
 `aggregation_vector_client.py`는 `vector_client.py`의 `get_embedding`, `ensure_collection` 등을 import.

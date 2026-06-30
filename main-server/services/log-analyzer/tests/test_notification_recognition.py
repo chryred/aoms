@@ -81,7 +81,8 @@ async def test_recognize_tier1_exact_inherits_stored_decision():
     """이미 저장된 포인트(tier-1 exact) → 저장된 is_notification/severity 승계, 임베딩 0회."""
     stored = {"payload": {"is_notification": True, "severity": "info", "occurrence_count": 3}}
     embed_batch = AsyncMock()
-    with patch.object(analyzer, "retrieve_point", AsyncMock(return_value=stored)), \
+    with patch.object(analyzer, "retrieve_points_batch",
+                      AsyncMock(side_effect=lambda ids: {pid: stored for pid in ids})), \
          patch.object(analyzer, "get_embedding_batch", embed_batch):
         recog = await analyzer._recognize_templates("cxm", "was1", ["IllegalAccessException: job"])
     info = recog["IllegalAccessException: job"]
@@ -94,7 +95,8 @@ async def test_recognize_tier1_exact_inherits_stored_decision():
 async def test_recognize_tier2_fuzzy_variant_recognized_as_notification():
     """tier-1 미스지만 기존 notification 포인트와 유사(fuzzy) → 알림성 변형으로 인식 (랜덤분리 방지)."""
     hit = [{"id": "p", "score": 0.95, "payload": {"is_notification": True}}]
-    with patch.object(analyzer, "retrieve_point", AsyncMock(return_value=None)), \
+    with patch.object(analyzer, "retrieve_points_batch",
+                      AsyncMock(side_effect=lambda ids: {pid: None for pid in ids})), \
          patch.object(analyzer, "get_embedding_batch", AsyncMock(return_value=[[0.1] * 4])), \
          patch.object(analyzer, "get_sparse_vector", AsyncMock(return_value={"indices": [1], "values": [0.5]})), \
          patch.object(analyzer, "search_notification_incidents", AsyncMock(return_value=hit)):
@@ -108,7 +110,8 @@ async def test_recognize_tier2_fuzzy_variant_recognized_as_notification():
 @pytest.mark.asyncio
 async def test_recognize_novel_error_not_recognized():
     """신규 실에러(OverlapException) → 어떤 notification 포인트와도 매칭 안 됨 → 미인식 (LLM 대상)."""
-    with patch.object(analyzer, "retrieve_point", AsyncMock(return_value=None)), \
+    with patch.object(analyzer, "retrieve_points_batch",
+                      AsyncMock(side_effect=lambda ids: {pid: None for pid in ids})), \
          patch.object(analyzer, "get_embedding_batch", AsyncMock(return_value=[[0.1] * 4])), \
          patch.object(analyzer, "get_sparse_vector", AsyncMock(return_value={"indices": [1], "values": [0.5]})), \
          patch.object(analyzer, "search_notification_incidents", AsyncMock(return_value=[])):

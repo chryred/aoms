@@ -221,6 +221,31 @@ async def retrieve_point(point_id) -> dict | None:
     return pts[0] if pts else None
 
 
+async def retrieve_points_batch(point_ids: list[str]) -> dict[str, dict | None]:
+    """여러 point_id를 단일 Qdrant 호출로 조회 (tier-1 배치 인식).
+
+    반환: {point_id: point_dict | None}. 미존재 id는 None. 조회 실패 시 전부 None.
+    전체 distinct template의 인식 여부를 N회 왕복 없이 1회로 판별하기 위함(Phase B).
+    """
+    result: dict[str, dict | None] = {pid: None for pid in point_ids}
+    if not point_ids:
+        return result
+    try:
+        resp = await _qdrant_http.post(
+            f"{QDRANT_URL}/collections/{COLLECTION}/points",
+            json={"ids": point_ids, "with_payload": True, "with_vector": False},
+        )
+        resp.raise_for_status()
+    except Exception as e:
+        logger.warning("Qdrant 배치 포인트 조회 실패 (전체 None 처리): %s", e)
+        return result
+    for pt in resp.json().get("result", []):
+        pid = pt.get("id")
+        if pid in result:
+            result[pid] = pt
+    return result
+
+
 # ── 임베딩 (ONNX 인프로세스, async wrapper) ─────────────────────────────────
 
 # bge-m3는 최대 8192 토큰 지원 → 한국어 서브워드 기준 안전 마진으로 3000자로 컷.

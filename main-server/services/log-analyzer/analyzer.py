@@ -31,6 +31,7 @@ from vector_client import (
     get_sparse_vector,
     normalize_log_for_embedding,
     retrieve_point,
+    retrieve_points_batch,
     search_notification_incidents,
     search_similar_incidents,
     store_incident_vector,
@@ -46,10 +47,15 @@ logger = logging.getLogger(__name__)
 PROMETHEUS_URL = os.getenv("PROMETHEUS_URL", "http://prometheus:9090")
 ADMIN_API_URL  = os.getenv("ADMIN_API_URL",  "http://admin-api:8080")
 
-# role(instance_role) 한 개가 한 사이클에 처리하는 distinct template 수 상한.
-# 신규 고카디널리티 시스템이 수백 개 template을 한꺼번에 쏟아내 한 태스크가
-# 사이클 전체를 붙잡는 것을 방지한다(발생횟수 상위 N개만 처리, 나머지는 다음 주기로).
+# role(instance_role) 한 개가 한 사이클에 처리하는 "실에러 후보(need_llm)" distinct
+# template 수 상한. 알림성(notification)은 싼 경로라 이 상한과 무관하게 전량 처리된다.
+# 초과분은 드롭이 아니라 _backlog로 이월되어 다음 주기에 우선 처리된다(영구 누락 0).
 _MAX_TEMPLATES_PER_ROLE = int(os.getenv("MAX_TEMPLATES_PER_ROLE", "50"))
+
+# in-memory 백로그: "{system_name}:{instance_role}" → 이번 주기에 상한 초과로 보류된
+# 실에러 template(정규화본) 리스트. 다음 주기에 우선 처리되어 단조 감소한다.
+# 컨테이너 재시작 시 비워지나 다음 주기부터 재수렴(영구 누락 없음).
+_backlog: dict[str, list[str]] = {}
 
 # 모듈 레벨 공유 클라이언트 — lifespan에서 aclose() 호출
 _admin_http = httpx.AsyncClient(timeout=10.0)    # admin-api 호출
@@ -480,26 +486,29 @@ async def _recognize_templates(
     tier-1 hit은 dense/sparse=None(임베딩 불필요), tier-1 miss는 dense/sparse 계산본 동봉(저장 재사용).
     """
     result: dict[str, dict] = {}
-    misses: list[str] = []
     for t in templates:
         norm = normalize_log_for_embedding(t)
-        pid = template_point_id(system_name, instance_role, norm)
-        info = {
+        result[t] = {
             "recognized": False, "is_notification": False, "severity": "info",
-            "point_exists": False, "occurrence": 0, "norm": norm, "point_id": pid,
+            "point_exists": False, "occurrence": 0,
+            "norm": norm, "point_id": template_point_id(system_name, instance_role, norm),
             "dense": None, "sparse": None,
         }
-        pt = await retrieve_point(pid)
+
+    # tier-1 (exact): 전체 distinct의 point를 단일 Qdrant 호출로 조회 (N회 왕복 → 1회)
+    pts = await retrieve_points_batch([result[t]["point_id"] for t in templates])
+    misses: list[str] = []
+    for t in templates:
+        pt = pts.get(result[t]["point_id"])
         if pt:
             pl = pt.get("payload", {}) or {}
-            info["recognized"] = True
-            info["point_exists"] = True
-            info["is_notification"] = bool(pl.get("is_notification"))
-            info["severity"] = pl.get("severity") or "info"
-            info["occurrence"] = int(pl.get("occurrence_count", 1) or 1)
+            result[t]["recognized"] = True
+            result[t]["point_exists"] = True
+            result[t]["is_notification"] = bool(pl.get("is_notification"))
+            result[t]["severity"] = pl.get("severity") or "info"
+            result[t]["occurrence"] = int(pl.get("occurrence_count", 1) or 1)
         else:
             misses.append(t)
-        result[t] = info
 
     # tier-2 fuzzy: tier-1 미스만 임베딩 후 notification 검색 (배치 임베딩으로 분할상환)
     if misses:
@@ -562,13 +571,14 @@ async def _analyze_one_role(
 
     async with sem:
         try:
-            # ── 1. distinct template 단위 그룹화 ──────────────────────────────
+            # ── 1. distinct template 단위 그룹화 (정규화 키 — URL/라인번호 변형을 1개로 합침) ──
             by_tmpl: dict[str, dict] = {}
             for lg in logs:
-                t = lg.get("template", "")
-                if not t:
+                raw = lg.get("template", "")
+                if not raw:
                     continue
-                d = by_tmpl.setdefault(t, {
+                nt = normalize_log_for_embedding(raw)
+                d = by_tmpl.setdefault(nt, {
                     "count": 0, "level": lg.get("level", "ERROR"),
                     "log_type": lg.get("log_type", "app"), "logs": [],
                 })
@@ -578,25 +588,10 @@ async def _analyze_one_role(
             if not distinct:
                 return {"status": "no_logs", "label": label}
 
-            # role당 처리 상한 — 초과 시 발생횟수 상위 N개만 이번 주기 처리, 나머지 보류.
-            # (한 태스크가 수백 template을 순차 처리하며 사이클 전체를 멈춰 세우는 것 방지)
-            if len(distinct) > _MAX_TEMPLATES_PER_ROLE:
-                total = len(distinct)
-                distinct = sorted(
-                    distinct, key=lambda t: by_tmpl[t]["count"], reverse=True
-                )[:_MAX_TEMPLATES_PER_ROLE]
-                logger.warning(
-                    f"[{label}] distinct template {total}개가 상한({_MAX_TEMPLATES_PER_ROLE}) 초과 "
-                    f"→ 발생횟수 상위 {_MAX_TEMPLATES_PER_ROLE}개만 이번 주기 처리, "
-                    f"{total - _MAX_TEMPLATES_PER_ROLE}개 보류"
-                )
-
-            # ── 2. template 단위 notification 인식 (LLM 이전 — 혼합 배치 over-skip 방지) ──
+            # ── 2. 전체 distinct 인식 (배치 tier-1) — 알림성/실에러 분리. 인식은 cap 없이 전량 ──
             recog = await _recognize_templates(system_name, instance_role, distinct)
             recognized_notif = [t for t in distinct
                                 if recog[t]["recognized"] and recog[t]["is_notification"]]
-            # 미인식 + recognized 실에러(recurring) → LLM 분석 대상
-            need_llm = [t for t in distinct if t not in recognized_notif]
 
             # ── 3. recognized 알림성 영속화(점유 갱신/신규 변형 저장) + 경량 1 레코드(Teams 없음) ──
             if recognized_notif:
@@ -628,6 +623,29 @@ async def _analyze_one_role(
                     templates=recognized_notif or None,
                     notification_count=sum(by_tmpl[t]["count"] for t in recognized_notif),
                 )
+
+            # ── 4. 실에러 후보(need_llm)에만 상한 + 백로그 로테이션 (알림성은 위에서 전량 처리됨) ──
+            #   - 지난 주기 보류분(여전히 윈도우에 present)을 우선 처리 → 단조 소진(영구 누락 0)
+            #   - 그다음 발생횟수 상위 순. 초과분은 드롭이 아니라 백로그로 이월.
+            need_llm_all = [t for t in distinct if t not in recognized_notif]
+            bkey = f"{system_name}:{instance_role}"
+            deferred_first = [t for t in _backlog.get(bkey, []) if t in by_tmpl and t in need_llm_all]
+            _seen = set(deferred_first)
+            rest = sorted(
+                [t for t in need_llm_all if t not in _seen],
+                key=lambda t: by_tmpl[t]["count"], reverse=True,
+            )
+            pending = deferred_first + rest
+            if len(pending) > _MAX_TEMPLATES_PER_ROLE:
+                need_llm = pending[:_MAX_TEMPLATES_PER_ROLE]
+                _backlog[bkey] = pending[_MAX_TEMPLATES_PER_ROLE:]
+                logger.warning(
+                    f"[{label}] 실에러 후보 {len(pending)}개가 상한({_MAX_TEMPLATES_PER_ROLE}) 초과 "
+                    f"→ {len(need_llm)}개 처리, {len(_backlog[bkey])}개 다음 주기 이월(백로그, 무손실)"
+                )
+            else:
+                need_llm = pending
+                _backlog.pop(bkey, None)
 
             # 전부 알림성 인식 → 배치 skip (LLM 호출 없음)
             if not need_llm:
