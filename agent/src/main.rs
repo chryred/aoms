@@ -238,11 +238,15 @@ async fn main() {
                     Ok(()) => {
                         info!("Sent {} samples ({} bytes)", batch.len(), compressed.len());
                     }
-                    Err(e) => {
-                        warn!("Remote write failed, buffering to WAL: {}", e);
+                    Err(e) if e.retryable => {
+                        warn!("Remote write failed (retryable), buffering to WAL: {}", e.detail);
                         if let Err(we) = wal.append(&compressed) {
                             error!("WAL append failed: {}", we);
                         }
+                    }
+                    Err(e) => {
+                        // 400 out-of-order 등 재시도 불가 — WAL 버퍼링하면 영영 재시도만 하므로 폐기
+                        warn!("Remote write rejected (non-retryable), dropping batch: {}", e.detail);
                     }
                 }
             }
@@ -306,17 +310,31 @@ async fn replay_wal(wal: &Arc<Wal>, sender: &Arc<RemoteWriteSender>) {
     match wal.drain_pending() {
         Ok((payloads, paths)) if !payloads.is_empty() => {
             info!("Replaying {} WAL entries...", payloads.len());
-            let mut all_sent = true;
+            // retryable 실패가 하나라도 있으면 세그먼트 유지(다음 주기 재시도).
+            // non-retryable(400 out-of-order 등)은 폐기하고 계속 진행 → 스택된 세그먼트가
+            // 무한 재시도로 남지 않고 GC 전에 정리됨.
+            let mut keep = false;
+            let mut dropped = 0u32;
             for payload in &payloads {
-                if let Err(e) = sender.send(payload.clone()).await {
-                    warn!("WAL replay send failed: {}", e);
-                    all_sent = false;
-                    break;
+                match sender.send(payload.clone()).await {
+                    Ok(()) => {}
+                    Err(e) if e.retryable => {
+                        warn!("WAL replay send failed (retryable): {}", e.detail);
+                        keep = true;
+                        break;
+                    }
+                    Err(e) => {
+                        warn!("WAL replay dropping non-retryable entry: {}", e.detail);
+                        dropped += 1;
+                    }
                 }
             }
-            if all_sent {
+            if !keep {
                 let _ = wal.confirm_sent(&paths);
-                info!("WAL replay complete, {} segment(s) cleared", paths.len());
+                info!(
+                    "WAL replay done, {} segment(s) cleared ({} entries dropped)",
+                    paths.len(), dropped
+                );
             } else {
                 warn!("WAL replay incomplete — will retry next cycle");
             }

@@ -76,7 +76,7 @@ agent/
     │   ├── mod.rs
     │   ├── encode.rs          # MetricSample → protobuf WriteRequest (수동 varint 인코딩, protoc 불필요)
     │   ├── compress.rs        # snappy 압축 (snap crate)
-    │   ├── sender.rs          # HTTP POST, 3회 retry (500ms/1000ms 지수 백오프)
+    │   ├── sender.rs          # HTTP POST. 5xx/429만 3회 retry(500ms/1000ms 백오프), 그 외 4xx(400 out-of-order 등)는 즉시 non-retryable 폐기. 실패 시 응답 본문 로깅. send()→Result<(),SendError{retryable,detail}>
     │   └── wal.rs             # WAL — append/drain_pending/confirm_sent/gc
     └── preprocessor/
         ├── mod.rs
@@ -200,6 +200,11 @@ GC      → 매 1h — wal_retention_hours 초과 세그먼트 삭제
 **중요**: `drain_pending()` 은 읽기만 한다. `confirm_sent()` 호출 후에만 삭제.
 전송 실패 시 세그먼트 유지 → 다음 retry 시 재전송.
 
+**재시도 가능/불가 구분 (out-of-order 400 대책)**: `sender.send()`는 `SendError{retryable}`를 반환한다.
+- **retryable(5xx/429/네트워크)**: 라이브 경로는 WAL append, replay는 세그먼트 유지 → 다음 주기 재시도.
+- **non-retryable(400 등 4xx)**: 라이브 경로는 **버퍼링 없이 폐기**, replay는 해당 엔트리 **폐기하고 계속 진행**(retryable 실패가 없으면 세그먼트 정리). 이유: WAL이 재전송하는 옛 샘플은 Prometheus에서 이미 최신이 수집돼 out-of-order 400으로 거부되는데, 재시도해도 영영 실패 → 무한 재시도·WARN 노이즈·GC 전까지 스택 방지.
+> Prometheus 측 보완: `prometheus.yml`의 `storage.tsdb.out_of_order_time_window: 1h`(CLI 플래그 아님 — configs/prometheus/prometheus.yml + configs/dev/prometheus.yml)로 최근 지연 샘플 backfill 허용. 미설정(기본 0) 시 과거 샘플은 무조건 400.
+
 ---
 
 ## 로그 로테이션
@@ -318,7 +323,13 @@ cargo build --release --target x86_64-unknown-linux-musl
 `docker-compose.yml`과 `docker-compose.dev.yml` 모두에 추가되어 있음:
 ```yaml
 command:
-  - '--web.enable-remote-write-receiver'   # agent Remote Write 수신 필수
+  - '--web.enable-remote-write-receiver'          # agent Remote Write 수신 필수
+```
+그리고 **`prometheus.yml`** 에 (CLI 플래그 아님):
+```yaml
+storage:
+  tsdb:
+    out_of_order_time_window: 1h                  # WAL replay(지연 재전송) backfill 허용 — out-of-order 400 방지
 ```
 
 ### admin-api 연동

@@ -4,6 +4,13 @@ global:
   # 느린 쿼리 추적 로그 (prometheus_data 볼륨 내 저장)
   query_log_file: /prometheus/query.log
 
+# agent WAL replay(지연 재전송)가 재전송하는 최근 지연 샘플의 backfill 허용.
+# 미설정(기본 0)이면 이미 수집한 시각보다 과거인 샘플은 out-of-order로 HTTP 400 거부됨.
+# ※ CLI 플래그(--storage.tsdb.out-of-order-time-window) 아님 — 반드시 config 파일에 둔다.
+storage:
+  tsdb:
+    out_of_order_time_window: 1h
+
 rule_files:
   - "/etc/prometheus/alert_rules.yml"
 

@@ -2,6 +2,11 @@ global:
   scrape_interval: 15s
   evaluation_interval: 15s
 
+# agent WAL replay backfill 허용 (out-of-order 400 방지). CLI 플래그 아님 — config 파일 항목.
+storage:
+  tsdb:
+    out_of_order_time_window: 1h
+
 rule_files:
   - "/etc/prometheus/alert_rules.yml"
 
