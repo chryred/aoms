@@ -329,6 +329,40 @@ async def test_recognize_caps_tier2_fuzzy_on_coldstart(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_tier2_recognition_stats_reported(monkeypatch):
+    """_analyze_one_role 반환에 tier1_hit/tier2_attempt/tier2_hit 카운터가 담긴다."""
+    analyzer._backlog.clear()
+    logs = _mk_logs([("T1_HIT", 5), ("T2_HIT", 4), ("T2_MISS", 3), ("NEW", 2)])
+
+    def _t2hit(norm):   # tier-2 fuzzy로 알림성 인식 (point 신규 저장 대상)
+        d = _novel(norm); d.update(recognized=True, is_notification=True,
+                                   dense=[0.1] * 4, sparse={"indices": [1], "values": [0.5]})
+        return d
+
+    def _t2miss(norm):  # tier-2 시도했으나 미인식 (dense 계산됨) → need_llm
+        d = _novel(norm); d.update(dense=[0.1] * 4, sparse={"indices": [1], "values": [0.5]})
+        return d
+
+    async def recog(system_name, instance_role, templates, max_fuzzy=None):
+        out = {}
+        for t in templates:
+            if t == "T1_HIT":   out[t] = _notif(t)      # tier-1 exact hit (point_exists=True)
+            elif t == "T2_HIT": out[t] = _t2hit(t)      # tier-2 fuzzy hit
+            elif t == "T2_MISS":out[t] = _t2miss(t)     # tier-2 attempt, miss
+            else:               out[t] = _novel(t)      # 미시도 신규
+        return out
+
+    _patch_common(monkeypatch, recog)
+    monkeypatch.setattr(analyzer, "_MAX_TEMPLATES_PER_ROLE", 50)
+
+    r = await analyzer._analyze_one_role(asyncio.Semaphore(5), 5, "cxm", "was1", logs, "agent", "", [])
+
+    assert r["tier1_hit"] == 1        # T1_HIT
+    assert r["tier2_attempt"] == 2    # T2_HIT + T2_MISS (dense 계산된 것)
+    assert r["tier2_hit"] == 1        # T2_HIT (recognized & not point_exists)
+
+
+@pytest.mark.asyncio
 async def test_recognize_no_cap_when_misses_under_limit(monkeypatch):
     """미스가 상한 이하면 전량 tier-2 (정상 운영 — 기존 동작 불변)."""
     templates = [f"E{i}" for i in range(20)]

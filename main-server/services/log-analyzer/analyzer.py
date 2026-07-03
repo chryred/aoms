@@ -662,6 +662,23 @@ async def _analyze_one_role(
             recognized_notif = [t for t in distinct
                                 if recog[t]["recognized"] and recog[t]["is_notification"]]
 
+            # tier-2 인식률 측정 카운터 (recog에서 파생 — 배치 최적화 실익 판단용)
+            #   tier1_hit     : 정확 매칭(결정적 id) 성공 = 이미 학습된 template (쌈)
+            #   tier2_attempt : tier-1 미스 중 fuzzy 시도(임베딩+검색)한 수 (max_fuzzy 상한 내)
+            #   tier2_hit     : fuzzy로 알림성 변형 인식 성공 = LLM 1회 절약한 수
+            #   → tier2_hit / tier2_attempt 가 높으면 fuzzy가 실효적 → 배치화로 상한↑ 이득
+            _stats = {
+                "tier1_hit":     sum(1 for t in distinct if recog[t]["point_exists"]),
+                "tier2_attempt": sum(1 for t in distinct if recog[t]["dense"] is not None),
+                "tier2_hit":     sum(1 for t in distinct if recog[t]["recognized"] and not recog[t]["point_exists"]),
+            }
+            if _stats["tier2_attempt"]:
+                logger.info(
+                    f"[{label}] 인식: tier1_hit={_stats['tier1_hit']} "
+                    f"tier2={_stats['tier2_hit']}/{_stats['tier2_attempt']} "
+                    f"(fuzzy 인식률 {_stats['tier2_hit']/_stats['tier2_attempt']*100:.0f}%)"
+                )
+
             # ── 3. recognized 알림성 영속화(점유 갱신/신규 변형 저장) + 경량 1 레코드(Teams 없음) ──
             if recognized_notif:
                 for t in recognized_notif:
@@ -719,7 +736,7 @@ async def _analyze_one_role(
             # 전부 알림성 인식 → 배치 skip (LLM 호출 없음)
             if not need_llm:
                 logger.info(f"[{label}] notification_auto skip (templates={len(recognized_notif)})")
-                return {"status": "notification_auto", "label": label}
+                return {"status": "notification_auto", "label": label, **_stats}
 
             # ── 4. LLM 분석 (배치 컨텍스트) — need_llm(미인식·실에러 후보) 로그만 전달 ──
             # 이미 인식된 알림성(recognized_notif)은 제외한다. 혼재 배치에서 알림성까지
@@ -826,7 +843,7 @@ async def _analyze_one_role(
                 f"[{label}] 분析 완료: {severity} [{analysis.get('anomaly_type', 'unknown')}] "
                 f"신규실에러={n_real} 신규알림성={n_notif_new} 인식알림성={len(recognized_notif)}"
             )
-            return {"status": "analyzed", "label": label}
+            return {"status": "analyzed", "label": label, **_stats}
 
         except Exception as e:
             logger.error(f"[{label}] 분析 실패: {e}")
@@ -892,7 +909,8 @@ async def run_analysis() -> dict:
       errors:    분석 과정 예외 발생 건 (실패 레코드는 DB에 별도 저장됨)
     """
     logger.info("로그 분석 시작")
-    results: dict = {"analyzed": 0, "skipped": 0, "no_logs": 0, "notification_auto": 0, "role_timeout": 0, "errors": 0, "systems": []}
+    results: dict = {"analyzed": 0, "skipped": 0, "no_logs": 0, "notification_auto": 0, "role_timeout": 0, "errors": 0,
+                     "tier1_hit": 0, "tier2_attempt": 0, "tier2_hit": 0, "systems": []}
 
     # 이번 분석 주기의 활성 예외 규칙 캐시 (300초 주기 1회 조회)
 
@@ -974,6 +992,9 @@ async def run_analysis() -> dict:
             else:
                 status = r.get("status", "error")
                 results[status] = results.get(status, 0) + 1
+                results["tier1_hit"]     += r.get("tier1_hit", 0)
+                results["tier2_attempt"] += r.get("tier2_attempt", 0)
+                results["tier2_hit"]     += r.get("tier2_hit", 0)
                 if status == "analyzed":
                     results["systems"].append(r["label"])
 
