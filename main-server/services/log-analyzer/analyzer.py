@@ -59,6 +59,12 @@ _MAX_TEMPLATES_PER_ROLE = int(os.getenv("MAX_TEMPLATES_PER_ROLE", "50"))
 # (ANALYSIS_RUN_TIMEOUT 백스톱보다 작게 유지할 것.)
 _ROLE_ANALYSIS_TIMEOUT = int(os.getenv("ROLE_ANALYSIS_TIMEOUT_SECONDS", "60"))
 
+# tier-2(fuzzy) 인식 사이클당 상한. tier-1(단일 배치, 쌈)은 전량이지만, 미스별 임베딩+검색인
+# tier-2는 컬렉션 리셋 직후 콜드스타트(전량 미스)에서 O(distinct)로 폭증해 저장 단계 도달 전
+# 역할 타임아웃 → 영구 정체를 유발한다. 이를 상한으로 막고 초과분은 need_llm(cap+백로그)로 이월.
+# 정상 운영에선 미스가 적어 미발동(기존 동작 불변).
+_MAX_FUZZY_RECOGNIZE = int(os.getenv("MAX_FUZZY_RECOGNIZE_PER_CYCLE", "100"))
+
 # in-memory 백로그: "{system_name}:{instance_role}" → 이번 주기에 상한 초과로 보류된
 # 실에러 template(정규화본) 리스트. 다음 주기에 우선 처리되어 단조 감소한다.
 # 컨테이너 재시작 시 비워지나 다음 주기부터 재수렴(영구 누락 없음).
@@ -519,6 +525,7 @@ async def _recognize_templates(
     system_name: str,
     instance_role: str,
     templates: list[str],
+    max_fuzzy: int | None = None,
 ) -> dict[str, dict]:
     """template 단위 notification 인식 (LLM 이전, batch 단위 over-skip 방지의 핵심).
 
@@ -530,6 +537,12 @@ async def _recognize_templates(
     반환 {template: {recognized, is_notification, severity, point_exists, occurrence,
                      norm, point_id, dense, sparse}}.
     tier-1 hit은 dense/sparse=None(임베딩 불필요), tier-1 miss는 dense/sparse 계산본 동봉(저장 재사용).
+
+    max_fuzzy: tier-2(미스별 임베딩+검색) 상한. tier-1(단일 배치 호출, 쌈)은 전량 유지하되,
+    비용이 큰 tier-2는 한 사이클에 max_fuzzy개까지만 수행한다(None이면 무제한 — BC).
+    컬렉션 리셋 직후 콜드스타트처럼 전 template이 tier-1 미스가 되면 tier-2가 O(distinct)로
+    폭증해 역할 타임아웃 전에 저장 단계에 도달 못 하고 영구 정체하는 것을 방지. 초과 미스는
+    미인식(신규) 처리 → need_llm 경로(cap+백로그)로 무손실 이월된다.
     """
     result: dict[str, dict] = {}
     for t in templates:
@@ -557,6 +570,14 @@ async def _recognize_templates(
             misses.append(t)
 
     # tier-2 fuzzy: tier-1 미스만 임베딩 후 notification 검색 (배치 임베딩으로 분할상환)
+    # 콜드스타트(전량 미스) 폭증 방지 — 사이클당 max_fuzzy개까지만. 초과분은 미인식(신규)로
+    # 남겨 need_llm(cap+백로그)이 무손실 처리하게 한다.
+    if max_fuzzy is not None and len(misses) > max_fuzzy:
+        logger.warning(
+            f"[{system_name}/{instance_role}] tier-2 인식 미스 {len(misses)}개가 상한({max_fuzzy}) 초과 "
+            f"→ {max_fuzzy}개만 fuzzy 인식, 나머지는 need_llm 경로로 이월"
+        )
+        misses = misses[:max_fuzzy]
     if misses:
         norm_texts = [result[t]["norm"] for t in misses]
         try:
@@ -635,7 +656,9 @@ async def _analyze_one_role(
                 return {"status": "no_logs", "label": label}
 
             # ── 2. 전체 distinct 인식 (배치 tier-1) — 알림성/실에러 분리. 인식은 cap 없이 전량 ──
-            recog = await _recognize_templates(system_name, instance_role, distinct)
+            recog = await _recognize_templates(
+                system_name, instance_role, distinct, max_fuzzy=_MAX_FUZZY_RECOGNIZE
+            )
             recognized_notif = [t for t in distinct
                                 if recog[t]["recognized"] and recog[t]["is_notification"]]
 

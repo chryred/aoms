@@ -232,6 +232,7 @@ log-analyzer/
 | `MAX_TEMPLATES_PER_ROLE` | `50` — `_analyze_one_role`이 한 사이클에 처리하는 **실에러 후보(need_llm)** 상한. 알림성은 상한 무관 전량 처리. 초과분은 드롭이 아니라 in-memory 백로그(`_backlog`)로 이월되어 다음 주기 우선 처리(무손실). 상향 시 폭증 소진 가속 |
 | `ROLE_ANALYSIS_TIMEOUT_SECONDS` | `60` — **역할(system/role) 단위 분석 타임아웃**. `_analyze_one_role_guarded`가 `asyncio.wait_for`로 감싸 초과 시 그 역할만 취소하고 `role_timeout` 반환(다음 주기 재시도). 매달린 DevX LLM 호출 하나가 사이클 전체를 `ANALYSIS_RUN_TIMEOUT`(240s)까지 붙잡아 통째 취소되며 취소 불가한 임베딩 executor 잡·대용량 할당을 스트랜딩(메모리 누증)시키는 것을 방지. **`ANALYSIS_RUN_TIMEOUT_SECONDS`보다 작게 유지할 것.** |
 | `EMBED_EXECUTOR_WORKERS` | `2` — 임베딩 전용 `ThreadPoolExecutor` 워커 수(`vector_client._embed_executor`). 기본(공유·무제한) executor 대신 워커 상한을 둬 타임아웃 취소 시 임베딩 스레드 폭증을 억제. cpus=1.0에서 ONNX는 사실상 직렬이라 2로 충분 |
+| `MAX_FUZZY_RECOGNIZE_PER_CYCLE` | `100` — `_recognize_templates`의 **tier-2(fuzzy) 인식 사이클당 상한**. tier-1(단일 배치 Qdrant 호출, 쌈)은 전량이지만, 미스별 임베딩+검색인 tier-2는 **컬렉션 리셋 직후 콜드스타트(전량 tier-1 미스)에서 O(distinct)로 폭증**해 저장 단계 도달 전 역할 타임아웃 → 영구 정체를 유발한다. 이 상한으로 tier-2를 묶고 초과 미스는 미인식(신규)→`need_llm`(cap+백로그)으로 무손실 이월. 정상 운영에선 미스가 적어 미발동(기존 동작 불변). **리셋 후 콜드스타트 수렴을 앞당기려면 `MAX_TEMPLATES_PER_ROLE`(저장 처리량)와 함께 조정** |
 | `JIRA_URL` | Jira REST API 기본 URL (예: `https://jira.example.com`). 미설정 시 Jira 동기화 비활성 |
 | `JIRA_TOKEN` | Jira Bearer 토큰. 미설정 시 비활성 |
 | `JIRA_PROJECTS` | 동기화 대상 프로젝트 키 (콤마 구분, 예: `PROJ1,PROJ2`). 미설정 시 비활성 |
@@ -489,6 +490,8 @@ curl -X POST http://localhost:8000/collections/log/reset
 docker logs -f synapse-log-analyzer | grep -E "분석 (시작|완료)|백로그|타임아웃"
 ```
 회복 검증: `scheduler_run_history`의 analysis 사이클이 `status='ok'` + `dur_s ≤ 30`으로 복귀하는지 확인(리셋 안 하면 다음 서지에 재발).
+
+> **콜드스타트 수렴 주의 (고카디널리티 시스템)**: 리셋 직후엔 해당 시스템의 전 template(cxm은 ~800개)이 tier-1 미스가 되어 재학습이 필요하다. tier-2 상한(`MAX_FUZZY_RECOGNIZE_PER_CYCLE`)이 폭증을 막아 **매 사이클 일부씩 저장→인식 축적으로 수렴**한다(저장 처리량은 `MAX_TEMPLATES_PER_ROLE`/사이클). 800 template ÷ 50 ≈ 16사이클 → 수렴에 수십 분~1시간+ 소요될 수 있다. **콜드스타트를 앞당기려면 리셋 후 일시적으로 `MAX_TEMPLATES_PER_ROLE`↑(예:100)·`ROLE_ANALYSIS_TIMEOUT_SECONDS`↑(예:120, <240 유지)로 재기동 → 수렴 후 원복.** 실측: `MAX_TEMPLATES_PER_ROLE=10`만으로는 tier-2가 안 잡혀(위 B-1 상한 없던 시절) 저장 0건으로 무한 정체했었음.
 - 현행 규칙: 타임스탬프/IP/UUID + **URL 토큰(`https?://…`→`<URL>`)·소스 라인번호(`:NNN]`)·할당값(`=NNN`)·5자리+숫자** 정규화. URL 쿼리스트링·라인번호 차이로 같은 에러가 수백 template으로 갈리는 고카디널리티를 완화(실측 cxm 745→584, SSO 단일 에러 159변형→1).
 - 과병합 금지: 공백 분리 단독 에러코드(`code 404`)는 묶지 않음. 규칙 추가 시 실데이터로 distinct 감소·비병합 동시 검증(`tests/test_normalize.py`).
 - `normalize_log_for_embedding`은 log-analyzer 단일 출처(admin-api 복제본 없음) — 재분류는 log-analyzer `/log-incidents/submit-group`으로 프록시되어 동일 규칙 적용.
@@ -515,7 +518,7 @@ docker logs -f synapse-log-analyzer | grep -E "분석 (시작|완료)|백로그|
 
 **방어 구조 (6겹):**
 1. **정규화(Phase A)** — `normalize_log_for_embedding`이 URL/라인번호/할당값을 묶어 같은 논리 에러가 여러 template으로 갈리는 것을 줄임. `_analyze_one_role`은 **by_tmpl을 정규화 template으로 키잉** → 변형이 1개로 합쳐져 1 row=1 point 유지.
-2. **전량 배치 인식(B-1)** — `retrieve_points_batch`로 전체 distinct의 tier-1 인식을 **단일 Qdrant 호출**로. 인식엔 상한 없음.
+2. **배치 인식 + tier-2 상한(B-1)** — `retrieve_points_batch`로 전체 distinct의 tier-1 인식을 **단일 Qdrant 호출**로(쌈, 전량). 단 미스별 임베딩+검색인 **tier-2(fuzzy)는 `MAX_FUZZY_RECOGNIZE_PER_CYCLE`(기본 100)로 상한**. **컬렉션 리셋 직후 콜드스타트(전량 tier-1 미스)에서 tier-2가 O(distinct=수백~수천)로 폭증해 저장 단계 도달 전 역할 타임아웃 → 영구 정체**하는 것을 방지(2026-07). 초과 미스는 미인식(신규)→need_llm(cap+백로그)으로 무손실 이월. **주의: cap(`MAX_TEMPLATES_PER_ROLE`)은 need_llm(LLM 경로)만 묶으므로 tier-2 폭증은 못 막는다 — 별도 상한 필수.**
 3. **알림성 제외 후 실에러에만 상한(B-2)** — recognized 알림성(`notification_auto`)은 싼 경로로 전량 처리(상한 무관). `MAX_TEMPLATES_PER_ROLE`(기본 50)은 **실에러 후보(need_llm)에만** 적용.
 4. **in-memory 백로그 로테이션(B-3)** — 상한 초과분은 **드롭이 아니라 `_backlog["{system}:{role}"]`로 이월**, 다음 주기에 **우선 처리**. 백로그는 단조 감소 → 여러 주기에 걸쳐 **영구 누락 0**(지연만). 재시작 시 비워지나 재수렴.
 5. **역할 단위 타임아웃(`ROLE_ANALYSIS_TIMEOUT_SECONDS`, 기본 60)** — `_analyze_one_role_guarded`가 `asyncio.wait_for`로 각 역할을 감싸 초과 시 그 역할만 취소하고 `role_timeout` 반환. 매달린 DevX 호출 하나가 사이클 전체를 240초까지 붙잡아 통째 취소되며 **취소 불가한 임베딩 executor 잡·대용량 할당을 스트랜딩(메모리 누증)**시키는 것을 방지 → 사이클을 정상 완료시켜 executor가 주기 사이 drain되게 함. 임베딩은 `EMBED_EXECUTOR_WORKERS`(기본 2) 경계 executor 사용.
