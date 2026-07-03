@@ -613,6 +613,41 @@ async def search_notification_incidents(
     ]
 
 
+async def search_notification_incidents_batch(
+    dense_vecs: list[list[float]],
+    system_name: str,
+    score_threshold: float = 0.9,
+) -> list[list[dict]]:
+    """search_notification_incidents의 배치판 — N개 dense 쿼리를 단일 요청으로.
+
+    Qdrant `points/query/batch`로 N회 HTTP 왕복을 1회로 줄인다(고카디널리티 tier-2
+    콜드스타트의 N회 순차 검색 비용 제거). 반환은 입력 순서대로 각 쿼리의 hit 리스트.
+    (dense 단독 cosine, is_notification=True 필터 — 단건판과 동일)
+    """
+    if not dense_vecs:
+        return []
+    flt = {"must": [
+        {"key": "system_name",     "match": {"value": system_name}},
+        {"key": "is_notification", "match": {"value": True}},
+    ]}
+    searches = [
+        {"query": dv, "using": "dense", "filter": flt,
+         "limit": 1, "score_threshold": score_threshold, "with_payload": True}
+        for dv in dense_vecs
+    ]
+    resp = await _qdrant_http.post(
+        f"{QDRANT_URL}/collections/{COLLECTION}/points/query/batch",
+        json={"searches": searches},
+    )
+    resp.raise_for_status()
+    out: list[list[dict]] = []
+    for res in resp.json().get("result", []):
+        out.append([
+            {"id": p["id"], "score": p["score"], "payload": p.get("payload", {})}
+            for p in res.get("points", [])
+        ])
+    return out
+
 
 async def store_incident_vector(
     dense: list[float],

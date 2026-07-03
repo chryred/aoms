@@ -313,16 +313,17 @@ async def test_recognize_caps_tier2_fuzzy_on_coldstart(monkeypatch):
     embed_batch = AsyncMock(side_effect=lambda texts: [[0.1] * 4 for _ in texts])
     monkeypatch.setattr(analyzer, "get_embedding_batch", embed_batch)
     monkeypatch.setattr(analyzer, "get_sparse_vector", AsyncMock(return_value={"indices": [1], "values": [0.5]}))
-    notif_search = AsyncMock(return_value=[])           # 알림성 매칭 없음 (빈 컬렉션)
-    monkeypatch.setattr(analyzer, "search_notification_incidents", notif_search)
+    notif_batch = AsyncMock(side_effect=lambda vecs, *a, **k: [[] for _ in vecs])  # 배치 검색, 매칭 없음
+    monkeypatch.setattr(analyzer, "search_notification_incidents_batch", notif_batch)
 
     recog = await analyzer._recognize_templates("cxm", "was1", templates, max_fuzzy=50)
 
     # tier-2 임베딩은 상한 50개까지만
     assert embed_batch.await_count == 1
     assert len(embed_batch.await_args.args[0]) == 50
-    # notification 검색도 50회 이하
-    assert notif_search.await_count == 50
+    # notification 검색은 단일 배치 1콜 (N회 왕복 아님), 50개 벡터
+    assert notif_batch.await_count == 1
+    assert len(notif_batch.await_args.args[0]) == 50
     # 초과 미스(150개)는 dense 미계산 = tier-2 미수행 (need_llm으로 이월)
     fuzzied = [t for t in templates if recog[t]["dense"] is not None]
     assert len(fuzzied) == 50
@@ -371,9 +372,12 @@ async def test_recognize_no_cap_when_misses_under_limit(monkeypatch):
     embed_batch = AsyncMock(side_effect=lambda texts: [[0.1] * 4 for _ in texts])
     monkeypatch.setattr(analyzer, "get_embedding_batch", embed_batch)
     monkeypatch.setattr(analyzer, "get_sparse_vector", AsyncMock(return_value={"indices": [1], "values": [0.5]}))
-    monkeypatch.setattr(analyzer, "search_notification_incidents", AsyncMock(return_value=[]))
+    notif_batch = AsyncMock(side_effect=lambda vecs, *a, **k: [[] for _ in vecs])
+    monkeypatch.setattr(analyzer, "search_notification_incidents_batch", notif_batch)
 
     recog = await analyzer._recognize_templates("cxm", "was1", templates, max_fuzzy=100)
 
     assert len(embed_batch.await_args.args[0]) == 20   # 전량 fuzzy
+    assert notif_batch.await_count == 1                # 단일 배치 검색
+    assert len(notif_batch.await_args.args[0]) == 20
     assert all(recog[t]["dense"] is not None for t in templates)

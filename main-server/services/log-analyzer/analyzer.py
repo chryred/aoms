@@ -33,6 +33,7 @@ from vector_client import (
     retrieve_point,
     retrieve_points_batch,
     search_notification_incidents,
+    search_notification_incidents_batch,
     search_similar_incidents,
     store_incident_vector,
     template_point_id,
@@ -585,22 +586,27 @@ async def _recognize_templates(
         except Exception as e:
             logger.warning("template 인식 임베딩 실패 (fuzzy 생략): %s", e)
             dense_list = [None] * len(misses)
+        # dense 성공분만 대상. sparse는 저장 재사용용(검색은 dense 단독). 검색은 배치 1콜.
+        fuzzy: list[str] = []
         for t, dvec in zip(misses, dense_list):
             if dvec is None:
                 continue
-            try:
-                svec = await get_sparse_vector(result[t]["norm"])
-            except Exception:
-                continue
             result[t]["dense"] = dvec
-            result[t]["sparse"] = svec
             try:
-                hits = await search_notification_incidents(
-                    dvec, svec, system_name, score_threshold=_NOTIF_RECOGNIZE_THRESHOLD,
-                )
-            except Exception as e:
-                logger.warning("template notification 검색 실패 (계속): %s", e)
-                hits = []
+                result[t]["sparse"] = await get_sparse_vector(result[t]["norm"])
+            except Exception:
+                result[t]["sparse"] = None
+            fuzzy.append(t)
+        # tier-2 유사도 검색을 단일 배치 요청으로 (N회 왕복 → 1회)
+        try:
+            hits_list = await search_notification_incidents_batch(
+                [result[t]["dense"] for t in fuzzy], system_name,
+                score_threshold=_NOTIF_RECOGNIZE_THRESHOLD,
+            )
+        except Exception as e:
+            logger.warning("template notification 배치 검색 실패 (계속): %s", e)
+            hits_list = [[] for _ in fuzzy]
+        for t, hits in zip(fuzzy, hits_list):
             if hits:
                 # 알림성 변형으로 인식 (stored-wins). point_exists=False → 자기 포인트는 신규 저장 대상.
                 result[t]["recognized"] = True

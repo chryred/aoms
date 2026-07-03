@@ -99,7 +99,7 @@ async def test_recognize_tier2_fuzzy_variant_recognized_as_notification():
                       AsyncMock(side_effect=lambda ids: {pid: None for pid in ids})), \
          patch.object(analyzer, "get_embedding_batch", AsyncMock(return_value=[[0.1] * 4])), \
          patch.object(analyzer, "get_sparse_vector", AsyncMock(return_value={"indices": [1], "values": [0.5]})), \
-         patch.object(analyzer, "search_notification_incidents", AsyncMock(return_value=hit)):
+         patch.object(analyzer, "search_notification_incidents_batch", AsyncMock(return_value=[hit])):
         recog = await analyzer._recognize_templates("cxm", "was1", ["IllegalAccessException: BatchJobBranMD"])
     info = recog["IllegalAccessException: BatchJobBranMD"]
     assert info["recognized"] and info["is_notification"]
@@ -114,7 +114,7 @@ async def test_recognize_novel_error_not_recognized():
                       AsyncMock(side_effect=lambda ids: {pid: None for pid in ids})), \
          patch.object(analyzer, "get_embedding_batch", AsyncMock(return_value=[[0.1] * 4])), \
          patch.object(analyzer, "get_sparse_vector", AsyncMock(return_value={"indices": [1], "values": [0.5]})), \
-         patch.object(analyzer, "search_notification_incidents", AsyncMock(return_value=[])):
+         patch.object(analyzer, "search_notification_incidents_batch", AsyncMock(return_value=[[]])):
         recog = await analyzer._recognize_templates("cxm", "was1", ["OverlapException at line <NUM>"])
     info = recog["OverlapException at line <NUM>"]
     assert info["recognized"] is False and info["is_notification"] is False
