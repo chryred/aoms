@@ -52,6 +52,13 @@ ADMIN_API_URL  = os.getenv("ADMIN_API_URL",  "http://admin-api:8080")
 # 초과분은 드롭이 아니라 _backlog로 이월되어 다음 주기에 우선 처리된다(영구 누락 0).
 _MAX_TEMPLATES_PER_ROLE = int(os.getenv("MAX_TEMPLATES_PER_ROLE", "50"))
 
+# role(system/role) 한 개의 분석 최대 실행 시간. 초과 시 그 역할만 스킵하고 다음 주기에
+# 재시도한다. DevX LLM 호출 하나가 매달려 사이클 전체(ANALYSIS_RUN_TIMEOUT)를 잡아먹고
+# 240초에 통째로 취소되면, 취소 불가한 임베딩 executor 잡·대용량 할당이 스트랜딩되어
+# 메모리가 누증한다. 역할 단위로 먼저 끊어 사이클을 정상 완료시켜 이를 방지.
+# (ANALYSIS_RUN_TIMEOUT 백스톱보다 작게 유지할 것.)
+_ROLE_ANALYSIS_TIMEOUT = int(os.getenv("ROLE_ANALYSIS_TIMEOUT_SECONDS", "60"))
+
 # in-memory 백로그: "{system_name}:{instance_role}" → 이번 주기에 상한 초과로 보류된
 # 실에러 template(정규화본) 리스트. 다음 주기에 우선 처리되어 단조 감소한다.
 # 컨테이너 재시작 시 비워지나 다음 주기부터 재수렴(영구 누락 없음).
@@ -691,9 +698,13 @@ async def _analyze_one_role(
                 logger.info(f"[{label}] notification_auto skip (templates={len(recognized_notif)})")
                 return {"status": "notification_auto", "label": label}
 
-            # ── 4. LLM 분석 (배치 컨텍스트) — 미인식 template 분류 ─────────────
+            # ── 4. LLM 분석 (배치 컨텍스트) — need_llm(미인식·실에러 후보) 로그만 전달 ──
+            # 이미 인식된 알림성(recognized_notif)은 제외한다. 혼재 배치에서 알림성까지
+            # LLM 서사(root_cause/severity)에 섞여 "전체가 경고/위험"으로 전달되는 것을 막고,
+            # 프롬프트 축소로 LLM 지연·메모리도 완화한다.
+            need_llm_logs = [lg for t in need_llm for lg in by_tmpl[t]["logs"]]
             analysis = await analyze_with_vector_context(
-                system_name, instance_role, logs, agent_code,
+                system_name, instance_role, need_llm_logs, agent_code,
                 trace_context=trace_ctx, trace_tier="5min", skip_vector_store=True,
             )
             tc_list = analysis.get("template_classifications", []) or []
@@ -814,6 +825,40 @@ async def _analyze_one_role(
             return {"status": "error", "label": label}
 
 
+async def _analyze_one_role_guarded(
+    sem: asyncio.Semaphore,
+    system_id: int,
+    system_name: str,
+    instance_role: str,
+    logs: list,
+    agent_code: str,
+    trace_ctx: str,
+    trace_ref_ids: list,
+) -> dict:
+    """_analyze_one_role를 역할 단위 타임아웃으로 감싼다.
+
+    한 역할(주로 매달린 DevX LLM 호출)이 _ROLE_ANALYSIS_TIMEOUT을 넘기면 그 역할만
+    취소하고 role_timeout으로 반환한다. 사이클 전체가 ANALYSIS_RUN_TIMEOUT(240s)에서
+    통째 취소되며 취소 불가한 임베딩 executor 잡·대용량 할당을 스트랜딩시키는 것을 방지.
+    취소된 역할의 template은 결정적 point_id·stored-wins라 다음 주기에 idempotent 재처리.
+    """
+    label = f"{system_name}/{instance_role}"
+    try:
+        return await asyncio.wait_for(
+            _analyze_one_role(
+                sem, system_id, system_name, instance_role, logs,
+                agent_code, trace_ctx, trace_ref_ids,
+            ),
+            timeout=_ROLE_ANALYSIS_TIMEOUT,
+        )
+    except asyncio.TimeoutError:
+        logger.error(
+            f"[{label}] 역할 분석 타임아웃 ({_ROLE_ANALYSIS_TIMEOUT}s 초과) "
+            f"— 스킵, 다음 주기 재시도"
+        )
+        return {"status": "role_timeout", "label": label}
+
+
 async def run_analysis() -> dict:
     """전체 활성 시스템 로그 분석 실행 (n8n 트리거 또는 내부 스케줄러 호출)
 
@@ -824,7 +869,7 @@ async def run_analysis() -> dict:
       errors:    분석 과정 예외 발생 건 (실패 레코드는 DB에 별도 저장됨)
     """
     logger.info("로그 분석 시작")
-    results: dict = {"analyzed": 0, "skipped": 0, "no_logs": 0, "notification_auto": 0, "errors": 0, "systems": []}
+    results: dict = {"analyzed": 0, "skipped": 0, "no_logs": 0, "notification_auto": 0, "role_timeout": 0, "errors": 0, "systems": []}
 
     # 이번 분석 주기의 활성 예외 규칙 캐시 (300초 주기 1회 조회)
 
@@ -886,7 +931,7 @@ async def run_analysis() -> dict:
 
             for instance_role, logs in logs_by_role.items():
                 role_tasks.append(
-                    _analyze_one_role(
+                    _analyze_one_role_guarded(
                         sem, system_id, system_name, instance_role, logs,
                         agent_code, trace_ctx, list(trace_ref_ids),
                     )

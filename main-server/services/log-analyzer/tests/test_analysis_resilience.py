@@ -222,3 +222,77 @@ async def test_run_analysis_task_times_out_and_resets_running(monkeypatch):
     assert scheduler_tasks._running is False
     assert scheduler_tasks._last_run["finished_at"] is not None
     assert "timeout" in str(scheduler_tasks._last_run["result"]).lower()
+
+
+# ── Task 3: LLM 입력은 인식된 알림성 제외 (경고/위험 후보만 분석) ─────────────
+
+@pytest.mark.asyncio
+async def test_llm_input_excludes_recognized_notifications(monkeypatch):
+    """analyze_with_vector_context에는 recognized 알림성 제외, need_llm 로그만 전달된다.
+
+    혼재 배치(알림성+실에러)에서 LLM 서사(root_cause/severity)가 알림성까지 반영해
+    '전체가 경고/위험'으로 전달되는 것을 방지. (프롬프트 축소로 지연·메모리도 완화.)
+    """
+    analyzer._backlog.clear()
+    logs = _mk_logs([("NOTIF_X", 100), ("REAL_A", 3)])
+
+    async def recog(system_name, instance_role, templates):
+        return {t: (_notif(t) if t.startswith("NOTIF") else _novel(t)) for t in templates}
+
+    submit = _patch_common(monkeypatch, recog)
+    avc = AsyncMock(return_value={
+        "severity": "warning", "template_classifications": [], "is_notification": False,
+    })
+    monkeypatch.setattr(analyzer, "analyze_with_vector_context", avc)
+    monkeypatch.setattr(analyzer, "_MAX_TEMPLATES_PER_ROLE", 50)
+
+    await analyzer._analyze_one_role(asyncio.Semaphore(5), 5, "cxm", "was1", logs, "agent", "", [])
+
+    assert avc.await_count == 1
+    passed_logs = avc.await_args.args[2]          # (system_name, instance_role, logs, agent_code, ...)
+    passed_templates = {lg["template"] for lg in passed_logs}
+    assert passed_templates == {"REAL_A"}         # 인식된 알림성 NOTIF_X 는 LLM 입력에서 제외
+
+
+# ── Task 2a: 역할 단위 타임아웃 (매달린 역할만 스킵, 사이클 통째 취소 방지) ────
+
+@pytest.mark.asyncio
+async def test_role_timeout_skips_hanging_role(monkeypatch):
+    """_analyze_one_role_guarded는 역할이 _ROLE_ANALYSIS_TIMEOUT 초과 시 role_timeout 반환."""
+    monkeypatch.setattr(analyzer, "_ROLE_ANALYSIS_TIMEOUT", 0.05)
+
+    async def hang(*a, **k):
+        await asyncio.sleep(5)
+
+    monkeypatch.setattr(analyzer, "_analyze_one_role", hang)
+
+    r = await analyzer._analyze_one_role_guarded(
+        asyncio.Semaphore(1), 1, "cxm", "was1", [], "agent", "", [])
+
+    assert r["status"] == "role_timeout"
+    assert r["label"] == "cxm/was1"
+
+
+@pytest.mark.asyncio
+async def test_role_guarded_passes_through_result(monkeypatch):
+    """타임아웃이 없으면 _analyze_one_role 결과를 그대로 전달."""
+    monkeypatch.setattr(analyzer, "_ROLE_ANALYSIS_TIMEOUT", 5)
+
+    async def ok(*a, **k):
+        return {"status": "analyzed", "label": "cxm/was1"}
+
+    monkeypatch.setattr(analyzer, "_analyze_one_role", ok)
+
+    r = await analyzer._analyze_one_role_guarded(
+        asyncio.Semaphore(1), 1, "cxm", "was1", [], "agent", "", [])
+
+    assert r == {"status": "analyzed", "label": "cxm/was1"}
+
+
+# ── Task 2b: 임베딩 executor 경계 (스레드 수 상한) ──────────────────────────
+
+def test_embed_executor_is_bounded():
+    """임베딩은 기본(공유·무제한) executor 대신 max_workers 제한 executor를 사용한다."""
+    import vector_client  # noqa: E402
+    assert vector_client._embed_executor._max_workers == vector_client._EMBED_WORKERS
+    assert vector_client._EMBED_WORKERS >= 1
