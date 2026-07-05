@@ -207,6 +207,9 @@ services:
       # 백로그로 무손실 이월. 리셋 직후 콜드스타트+서지로 단일 배치가 타임아웃되면
       # 일시적으로 낮춰(예: 10) 배치를 쪼개 수렴시킨 뒤 원복.
       - MAX_TEMPLATES_PER_ROLE=${MAX_TEMPLATES_PER_ROLE:-50}
+      # 한 LLM 콜의 per-template 분류 대상 수 상한(index별 배열 신뢰성). need_llm 유효 상한 =
+      # min(LLM_CLASSIFY_BATCH, MAX_TEMPLATES_PER_ROLE). 너무 크면 index 누락→보수적 실에러 오탐↑
+      - LLM_CLASSIFY_BATCH=${LLM_CLASSIFY_BATCH:-25}
       # tier-2(fuzzy) 인식 사이클당 상한. 리셋 콜드스타트에서 전량 tier-1 미스가 되어
       # tier-2가 O(distinct)로 폭증→저장 전 role_timeout→영구 정체하는 것 방지.
       # (cap은 need_llm만 묶으므로 tier-2 폭증은 못 막음 — 별도 상한 필수)

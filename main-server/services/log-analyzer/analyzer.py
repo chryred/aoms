@@ -66,6 +66,11 @@ _ROLE_ANALYSIS_TIMEOUT = int(os.getenv("ROLE_ANALYSIS_TIMEOUT_SECONDS", "60"))
 # 정상 운영에선 미스가 적어 미발동(기존 동작 불변).
 _MAX_FUZZY_RECOGNIZE = int(os.getenv("MAX_FUZZY_RECOGNIZE_PER_CYCLE", "100"))
 
+# 한 LLM 콜에 담는 per-template 분류 대상 수 상한. LLM(DevX)이 index별 배열을 안정적으로
+# 반환하도록 배치를 작게 유지한다(너무 크면 index 누락→보수적 실에러 오탐↑). 초과분은
+# 기존 need_llm cap+백로그로 다음 주기 이월(무손실). need_llm 유효 상한 = min(이 값, _MAX_TEMPLATES_PER_ROLE).
+_LLM_CLASSIFY_BATCH = int(os.getenv("LLM_CLASSIFY_BATCH", "25"))
+
 # in-memory 백로그: "{system_name}:{instance_role}" → 이번 주기에 상한 초과로 보류된
 # 실에러 template(정규화본) 리스트. 다음 주기에 우선 처리되어 단조 감소한다.
 # 컨테이너 재시작 시 비워지나 다음 주기부터 재수렴(영구 누락 없음).
@@ -268,6 +273,7 @@ async def analyze_with_vector_context(
     trace_context: str = "",
     trace_tier: str = "5min",
     skip_vector_store: bool = False,
+    classify_templates: list[str] | None = None,
 ) -> dict:
     """
     T4.14 — 벡터 유사도 검색 + LLM 분석 통합 파이프라인
@@ -371,6 +377,7 @@ async def analyze_with_vector_context(
         trace_tier=_trace_tier,
         postmortems=postmortems if postmortems else None,
         metric_snapshot=metric_snapshot if metric_snapshot else None,
+        templates=classify_templates,
     )
 
     # LLM 호출 — 실패해도 벡터 저장은 진행 (패턴 누적 목적)
@@ -381,6 +388,31 @@ async def analyze_with_vector_context(
     except Exception as e:
         llm_error = f"{type(e).__name__}: {str(e)[:300]}"
         logger.warning(f"[{system_name}/{instance_role}] LLM 분석 실패 — 벡터 저장은 계속: {llm_error}")
+
+    # per-template 분류 결과를 index → template 로 매핑 (소비 코드의 tc["template"] 계약).
+    # LLM이 index를 빠뜨리면 그 template은 tc에서 누락 → 소비 측에서 보수적으로 실에러 처리.
+    if classify_templates:
+        raw_tc = analysis.get("template_classifications")
+        remapped: list[dict] = []
+        if isinstance(raw_tc, list):
+            for item in raw_tc:
+                if not isinstance(item, dict):
+                    continue
+                idx = item.get("index")
+                if isinstance(idx, bool) or not isinstance(idx, int):
+                    continue
+                if 0 <= idx < len(classify_templates):
+                    remapped.append({
+                        "template":        classify_templates[idx],
+                        "is_notification": bool(item.get("is_notification")),
+                        "severity":        item.get("severity") or "info",
+                    })
+        analysis["template_classifications"] = remapped
+        if not remapped:
+            logger.warning(
+                f"[{system_name}/{instance_role}] LLM per-template 분류 없음/파싱실패 "
+                f"→ {len(classify_templates)}건 보수적 실에러 처리"
+            )
 
     # 5. 벡터 저장 (skip_vector_store=True이면 건너뜀 — _analyze_one_role에서 그룹별 저장)
     # LLM 실패 시 is_notification=False(기본값) → notification_auto_skip에 영향 없음
@@ -728,11 +760,14 @@ async def _analyze_one_role(
                 key=lambda t: by_tmpl[t]["count"], reverse=True,
             )
             pending = deferred_first + rest
-            if len(pending) > _MAX_TEMPLATES_PER_ROLE:
-                need_llm = pending[:_MAX_TEMPLATES_PER_ROLE]
-                _backlog[bkey] = pending[_MAX_TEMPLATES_PER_ROLE:]
+            # need_llm 유효 상한: LLM per-template 배열 신뢰성(_LLM_CLASSIFY_BATCH)과 사이클 부하
+            # 상한(_MAX_TEMPLATES_PER_ROLE) 중 작은 값. 초과분은 백로그로 무손실 이월.
+            _cap = min(_MAX_TEMPLATES_PER_ROLE, _LLM_CLASSIFY_BATCH)
+            if len(pending) > _cap:
+                need_llm = pending[:_cap]
+                _backlog[bkey] = pending[_cap:]
                 logger.warning(
-                    f"[{label}] 실에러 후보 {len(pending)}개가 상한({_MAX_TEMPLATES_PER_ROLE}) 초과 "
+                    f"[{label}] 실에러 후보 {len(pending)}개가 상한({_cap}) 초과 "
                     f"→ {len(need_llm)}개 처리, {len(_backlog[bkey])}개 다음 주기 이월(백로그, 무손실)"
                 )
             else:
@@ -752,12 +787,14 @@ async def _analyze_one_role(
             analysis = await analyze_with_vector_context(
                 system_name, instance_role, need_llm_logs, agent_code,
                 trace_context=trace_ctx, trace_tier="5min", skip_vector_store=True,
+                classify_templates=need_llm,   # per-template 분류 요청 (index→template 매핑)
             )
             tc_list = analysis.get("template_classifications", []) or []
             llm_notif = {tc["template"] for tc in tc_list if tc.get("is_notification")}
+            llm_sev = {tc["template"]: tc.get("severity") for tc in tc_list if tc.get("template")}
             if not tc_list and analysis.get("is_notification"):
                 llm_notif = set(need_llm)  # 폴백: 전체 알림성
-            severity = analysis.get("severity", "info")
+            severity = analysis.get("severity", "warning")
             root_cause = analysis.get("root_cause", "")
             recommendation = analysis.get("recommendation", "")
             tc_json = json.dumps(tc_list, ensure_ascii=False) if tc_list else None
@@ -774,9 +811,9 @@ async def _analyze_one_role(
                 if rc["recognized"]:          # recognized 실에러(recurring) → 저장된 결정 승계
                     is_notif = rc["is_notification"]   # False (알림성은 recognized_notif에서 이미 처리)
                     tmpl_sev = rc["severity"]
-                else:                          # 신규 → LLM 분류
+                else:                          # 신규 → LLM per-template 분류
                     is_notif = t in llm_notif
-                    tmpl_sev = "info" if is_notif else severity
+                    tmpl_sev = "info" if is_notif else (llm_sev.get(t) or severity)
 
                 t_norm = rc["norm"]
                 t_text = mask_sensitive_data(_format_logs_by_type(by_tmpl[t]["logs"]))

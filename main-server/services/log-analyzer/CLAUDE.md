@@ -232,6 +232,7 @@ log-analyzer/
 | `MAX_TEMPLATES_PER_ROLE` | `50` — `_analyze_one_role`이 한 사이클에 처리하는 **실에러 후보(need_llm)** 상한. 알림성은 상한 무관 전량 처리. 초과분은 드롭이 아니라 in-memory 백로그(`_backlog`)로 이월되어 다음 주기 우선 처리(무손실). 상향 시 폭증 소진 가속 |
 | `ROLE_ANALYSIS_TIMEOUT_SECONDS` | `60` — **역할(system/role) 단위 분석 타임아웃**. `_analyze_one_role_guarded`가 `asyncio.wait_for`로 감싸 초과 시 그 역할만 취소하고 `role_timeout` 반환(다음 주기 재시도). 매달린 DevX LLM 호출 하나가 사이클 전체를 `ANALYSIS_RUN_TIMEOUT`(240s)까지 붙잡아 통째 취소되며 취소 불가한 임베딩 executor 잡·대용량 할당을 스트랜딩(메모리 누증)시키는 것을 방지. **`ANALYSIS_RUN_TIMEOUT_SECONDS`보다 작게 유지할 것.** |
 | `EMBED_EXECUTOR_WORKERS` | `2` — 임베딩 전용 `ThreadPoolExecutor` 워커 수(`vector_client._embed_executor`). 기본(공유·무제한) executor 대신 워커 상한을 둬 타임아웃 취소 시 임베딩 스레드 폭증을 억제. cpus=1.0에서 ONNX는 사실상 직렬이라 2로 충분 |
+| `LLM_CLASSIFY_BATCH` | `25` — 한 LLM 콜에 담는 **per-template 분류 대상 수 상한**. LLM(DevX)이 index별 배열(`template_classifications`)을 안정적으로 반환하도록 배치를 작게 유지(너무 크면 index 누락→보수적 실에러 오탐↑). need_llm 유효 상한 = `min(LLM_CLASSIFY_BATCH, MAX_TEMPLATES_PER_ROLE)`, 초과분은 백로그로 무손실 이월. **콜드스타트를 빨리 소진하려면 이 값과 `MAX_TEMPLATES_PER_ROLE`를 함께 올리되, LLM 배열 신뢰성이 떨어지지 않는 선(≤~30 권장)** |
 | `MAX_FUZZY_RECOGNIZE_PER_CYCLE` | `100` — `_recognize_templates`의 **tier-2(fuzzy) 인식 사이클당 상한**. tier-1(단일 배치 Qdrant 호출, 쌈)은 전량이지만, 미스별 임베딩+검색인 tier-2는 **컬렉션 리셋 직후 콜드스타트(전량 tier-1 미스)에서 O(distinct)로 폭증**해 저장 단계 도달 전 역할 타임아웃 → 영구 정체를 유발한다. 이 상한으로 tier-2를 묶고 초과 미스는 미인식(신규)→`need_llm`(cap+백로그)으로 무손실 이월. 정상 운영에선 미스가 적어 미발동(기존 동작 불변). **리셋 후 콜드스타트 수렴을 앞당기려면 `MAX_TEMPLATES_PER_ROLE`(저장 처리량)와 함께 조정** |
 | `JIRA_URL` | Jira REST API 기본 URL (예: `https://jira.example.com`). 미설정 시 Jira 동기화 비활성 |
 | `JIRA_TOKEN` | Jira Bearer 토큰. 미설정 시 비활성 |
@@ -292,8 +293,15 @@ POST /metric/similarity
   4. 전부 알림성 인식 → 배치 skip (LLM 호출 없음)
   5. need_llm(신규/recognized 실에러) → analyze_with_vector_context(LLM) → template 단위:
      - **LLM 입력은 need_llm 로그만** — 인식된 알림성(recognized_notif)은 제외하고 전달한다.
-       혼재 배치(알림성+실에러)에서 LLM 서사(root_cause/severity)가 알림성까지 반영해
-       "전체가 경고/위험"으로 전달되는 것을 막고, 프롬프트 축소로 지연·메모리도 완화(2026-07).
+     - **per-template 분류(2026-07)**: 프롬프트가 need_llm distinct template을 `[index]` 목록으로
+       제시하고 LLM이 **template별 `template_classifications:[{index,is_notification,severity}]`** 배열을
+       반환한다(`prompts.py` `_PER_TEMPLATE_RESPONSE_RULES`, `classify_templates` 인자). `analyze_with_vector_context`가
+       index→template로 매핑해 소비 코드의 `tc["template"]` 계약으로 돌려준다.
+       → 혼재 배치에서 양성 덤프(ordInfo 등)는 is_notification=true로 개별 분류되어 `notification_auto`가 되고
+       (alert_history/incident 미생성), 실에러만 warning/incident/Teams. **배치 verdict 하나로 뭉개져
+       "전체가 경고"가 되던 버그 수정** — 이전엔 프롬프트가 배치 is_notification 하나만 요청해
+       `template_classifications_json`이 항상 NULL이었음. LLM이 index 누락 시 그 template은 tc에서 빠져
+       **보수적으로 실에러 처리**(알림 은폐 방지). 배치 크기는 `LLM_CLASSIFY_BATCH`로 제한(배열 신뢰성).
      - stored-wins: recognized면 저장된 결정, 아니면 LLM template_classifications
      - store_incident_vector(point_key=normalized_template) — template 단위 결정적 id upsert(멱등)
      - submit_analysis도 template마다 1회 (1 row = 1 point):
