@@ -17,6 +17,7 @@ import asyncio
 import json
 import logging
 import os
+import time
 from datetime import datetime, timezone
 
 import httpx
@@ -383,11 +384,17 @@ async def analyze_with_vector_context(
     # LLM 호출 — 실패해도 벡터 저장은 진행 (패턴 누적 목적)
     analysis: dict = {}
     llm_error: str | None = None
+    _tllm = time.monotonic()
     try:
         analysis = await call_llm_structured(prompt, agent_code=agent_code)
     except Exception as e:
         llm_error = f"{type(e).__name__}: {str(e)[:300]}"
         logger.warning(f"[{system_name}/{instance_role}] LLM 분석 실패 — 벡터 저장은 계속: {llm_error}")
+    # LLM 호출 자체 소요 (DevX 지연 진단 — 임베딩/검색 prep과 분리)
+    logger.info(
+        f"[{system_name}/{instance_role}] LLM호출 {(time.monotonic()-_tllm)*1000:.0f}ms "
+        f"(templates={len(classify_templates) if classify_templates else 0})"
+    )
 
     # per-template 분류 결과를 index → template 로 매핑 (소비 코드의 tc["template"] 계약).
     # LLM이 index를 빠뜨리면 그 template은 tc에서 누락 → 소비 측에서 보수적으로 실에러 처리.
@@ -588,7 +595,9 @@ async def _recognize_templates(
         }
 
     # tier-1 (exact): 전체 distinct의 point를 단일 Qdrant 호출로 조회 (N회 왕복 → 1회)
+    _t0 = time.monotonic()
     pts = await retrieve_points_batch([result[t]["point_id"] for t in templates])
+    _tier1_ms = (time.monotonic() - _t0) * 1000
     misses: list[str] = []
     for t in templates:
         pt = pts.get(result[t]["point_id"])
@@ -605,13 +614,17 @@ async def _recognize_templates(
     # tier-2 fuzzy: tier-1 미스만 임베딩 후 notification 검색 (배치 임베딩으로 분할상환)
     # 콜드스타트(전량 미스) 폭증 방지 — 사이클당 max_fuzzy개까지만. 초과분은 미인식(신규)로
     # 남겨 need_llm(cap+백로그)이 무손실 처리하게 한다.
+    _miss_total = len(misses)
+    _embed_ms = _search_ms = 0.0
     if max_fuzzy is not None and len(misses) > max_fuzzy:
         logger.warning(
             f"[{system_name}/{instance_role}] tier-2 인식 미스 {len(misses)}개가 상한({max_fuzzy}) 초과 "
             f"→ {max_fuzzy}개만 fuzzy 인식, 나머지는 need_llm 경로로 이월"
         )
         misses = misses[:max_fuzzy]
+    fuzzy: list[str] = []
     if misses:
+        _te = time.monotonic()
         norm_texts = [result[t]["norm"] for t in misses]
         try:
             dense_list = await get_embedding_batch(norm_texts)
@@ -619,7 +632,6 @@ async def _recognize_templates(
             logger.warning("template 인식 임베딩 실패 (fuzzy 생략): %s", e)
             dense_list = [None] * len(misses)
         # dense 성공분만 대상. sparse는 저장 재사용용(검색은 dense 단독). 검색은 배치 1콜.
-        fuzzy: list[str] = []
         for t, dvec in zip(misses, dense_list):
             if dvec is None:
                 continue
@@ -629,7 +641,9 @@ async def _recognize_templates(
             except Exception:
                 result[t]["sparse"] = None
             fuzzy.append(t)
+        _embed_ms = (time.monotonic() - _te) * 1000
         # tier-2 유사도 검색을 단일 배치 요청으로 (N회 왕복 → 1회)
+        _ts = time.monotonic()
         try:
             hits_list = await search_notification_incidents_batch(
                 [result[t]["dense"] for t in fuzzy], system_name,
@@ -638,12 +652,19 @@ async def _recognize_templates(
         except Exception as e:
             logger.warning("template notification 배치 검색 실패 (계속): %s", e)
             hits_list = [[] for _ in fuzzy]
+        _search_ms = (time.monotonic() - _ts) * 1000
         for t, hits in zip(fuzzy, hits_list):
             if hits:
                 # 알림성 변형으로 인식 (stored-wins). point_exists=False → 자기 포인트는 신규 저장 대상.
                 result[t]["recognized"] = True
                 result[t]["is_notification"] = True
                 result[t]["severity"] = "info"
+
+    # 구간 타이밍 (어느 인식 단계가 느린지 진단) — tier1(배치조회)/tier2 임베딩/tier2 검색
+    logger.info(
+        f"[{system_name}/{instance_role}] 인식타이밍 tier1={_tier1_ms:.0f}ms(distinct={len(templates)},miss={_miss_total}) "
+        f"tier2_embed={_embed_ms:.0f}ms tier2_search={_search_ms:.0f}ms(fuzzy={len(fuzzy)})"
+    )
     return result
 
 
@@ -694,9 +715,11 @@ async def _analyze_one_role(
                 return {"status": "no_logs", "label": label}
 
             # ── 2. 전체 distinct 인식 (배치 tier-1) — 알림성/실에러 분리. 인식은 cap 없이 전량 ──
+            _t_recog = time.monotonic()
             recog = await _recognize_templates(
                 system_name, instance_role, distinct, max_fuzzy=_MAX_FUZZY_RECOGNIZE
             )
+            _recog_s = time.monotonic() - _t_recog
             recognized_notif = [t for t in distinct
                                 if recog[t]["recognized"] and recog[t]["is_notification"]]
 
@@ -784,11 +807,16 @@ async def _analyze_one_role(
             # LLM 서사(root_cause/severity)에 섞여 "전체가 경고/위험"으로 전달되는 것을 막고,
             # 프롬프트 축소로 LLM 지연·메모리도 완화한다.
             need_llm_logs = [lg for t in need_llm for lg in by_tmpl[t]["logs"]]
+            # 시작 마커 — 타임아웃으로 잘릴 경우 "마지막 로그"로 어느 구간에서 멈췄는지 특정 가능.
+            #   (인식타이밍 로그 후 이 로그가 마지막이면 → LLM 구간에서 멈춤)
+            logger.info(f"[{label}] LLM 분류 호출 시작 (need_llm={len(need_llm)})")
+            _t_llm = time.monotonic()
             analysis = await analyze_with_vector_context(
                 system_name, instance_role, need_llm_logs, agent_code,
                 trace_context=trace_ctx, trace_tier="5min", skip_vector_store=True,
                 classify_templates=need_llm,   # per-template 분류 요청 (index→template 매핑)
             )
+            _llm_fn_s = time.monotonic() - _t_llm
             tc_list = analysis.get("template_classifications", []) or []
             llm_notif = {tc["template"] for tc in tc_list if tc.get("is_notification")}
             llm_sev = {tc["template"]: tc.get("severity") for tc in tc_list if tc.get("template")}
@@ -806,6 +834,8 @@ async def _analyze_one_role(
             n_notif_new = n_real = 0
             real_templates: list[dict] = []
             real_max_sev = "info"
+            _emb_ms = _stv_ms = _sub_ms = 0.0   # store 루프 세부 타이밍(임베딩/Qdrant/admin submit)
+            _t_store = time.monotonic()
             for t in need_llm:
                 rc = recog[t]
                 if rc["recognized"]:          # recognized 실에러(recurring) → 저장된 결정 승계
@@ -823,8 +853,11 @@ async def _analyze_one_role(
                 point_id = None
                 try:
                     if dvec is None or svec is None:
+                        _e = time.monotonic()
                         dvec = await get_embedding(t_norm)
                         svec = await get_sparse_vector(t_norm)
+                        _emb_ms += (time.monotonic() - _e) * 1000
+                    _sv = time.monotonic()
                     point_id = await store_incident_vector(
                         dvec, svec, system_name, instance_role,
                         tmpl_sev, t_norm[:500],
@@ -834,9 +867,11 @@ async def _analyze_one_role(
                         point_key=t_norm,
                         occurrence_count=(rc["occurrence"] + 1 if rc["point_exists"] else 1),
                     )
+                    _stv_ms += (time.monotonic() - _sv) * 1000
                 except Exception as e_s:
                     logger.warning(f"[{label}] template 벡터 저장 실패 ({t[:40]}): {e_s}")
 
+                _su = time.monotonic()
                 if is_notif:
                     # 신규 알림성 최초 1회 → Teams (다음 주기부터 tier-1 인식 → notification_auto)
                     n_notif_new += 1
@@ -851,6 +886,7 @@ async def _analyze_one_role(
                         real_error_count=0, notification_count=t_count,
                         template_classifications_json=tc_json,
                     )
+                    _sub_ms += (time.monotonic() - _su) * 1000
                 else:
                     n_real += 1
                     # Teams는 억제(suppress_teams) — row/point/인시던트는 생성, 발송은 통합 1장으로
@@ -871,9 +907,12 @@ async def _analyze_one_role(
                         template_classifications_json=tc_json,
                         suppress_teams=True,
                     )
+                    _sub_ms += (time.monotonic() - _su) * 1000
                     real_templates.append({"template": t, "count": t_count})
                     if _SEVERITY_RANK.get(tmpl_sev, 0) > _SEVERITY_RANK.get(real_max_sev, 0):
                         real_max_sev = tmpl_sev
+
+            _store_s = time.monotonic() - _t_store
 
             # Phase C: 실에러 있으면 role 단위 통합 Teams 카드 1장 발송 (per-template은 위에서 억제됨)
             if real_templates:
@@ -882,6 +921,14 @@ async def _analyze_one_role(
                     root_cause, recommendation, real_templates,
                 )
 
+            # ── 구간 타이밍 요약 (어느 단계가 느린지 진단) ──
+            # recog: tier-1/2 인식 / llm_fn: LLM 분류 호출(+prep) / store: per-template 저장 루프
+            #   store 세부: embed(임베딩) / qdrant(store_incident_vector) / submit(admin-api POST)
+            logger.info(
+                f"[{label}] 단계타이밍 recog={_recog_s:.1f}s llm_fn={_llm_fn_s:.1f}s "
+                f"store={_store_s:.1f}s(embed={_emb_ms:.0f}ms qdrant={_stv_ms:.0f}ms submit={_sub_ms:.0f}ms) "
+                f"need_llm={len(need_llm)} real={n_real} notif_new={n_notif_new}"
+            )
             logger.info(
                 f"[{label}] 분析 완료: {severity} [{analysis.get('anomaly_type', 'unknown')}] "
                 f"신규실에러={n_real} 신규알림성={n_notif_new} 인식알림성={len(recognized_notif)}"
