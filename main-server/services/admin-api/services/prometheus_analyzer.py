@@ -643,15 +643,18 @@ async def _notify_host(hc: HostContext, analysis: str, severity: str, db: AsyncS
         summary=title,
     )
 
-    try:
+    # 비동기 발송(fire-and-forget + 세마포어 상한) — 느린/죽은 웹훅이 메트릭 분석 루프를 막지 않게.
+    from services.notification import spawn_teams_send
+
+    async def _send_metric_card():
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.post(webhook_url, json=card)
             if not (200 <= resp.status_code < 300):   # 200(구커넥터)·202(Workflows) 모두 성공
                 logger.warning("Teams webhook responded %s for host %s", resp.status_code, hc.host)
             else:
                 logger.info("Teams 알림 발송 완료 — host=%s systems=%s severity=%s", hc.host, anomalous_systems, severity)
-    except Exception as e:
-        logger.warning("Teams send failed for host %s: %s", hc.host, e)
+
+    spawn_teams_send(_send_metric_card(), label=f"metric/{hc.host}")
 
 
 # ── 분석 사이클 ───────────────────────────────────────────────────────────────

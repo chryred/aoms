@@ -16,7 +16,7 @@ from services.alert_utils import get_system_and_contacts
 from services.incident_service import get_or_create_incident
 from routes.websocket import notify_log_analysis
 from schemas import LogAnalysisCreate, LogAnalysisOut
-from services.notification import TeamsNotifier
+from services.notification import TeamsNotifier, spawn_teams_send
 
 LOG_ANALYZER_URL = os.getenv("LOG_ANALYZER_URL", "http://log-analyzer:8000")
 
@@ -120,8 +120,9 @@ async def create_analysis(payload: LogAnalysisCreate, db: AsyncSession = Depends
         contacts_data = [{"name": c["name"], "teams_upn": c["teams_upn"]} for c in contacts]
         webhook_url = system.teams_webhook_url or DEFAULT_WEBHOOK_URL
         if webhook_url:
-            try:
-                await notifier.send_notification_alert(
+            # 비동기 발송 — 느린/죽은 웹훅이 분석 쓰기 응답을 막지 않도록(세마포어 상한).
+            spawn_teams_send(
+                notifier.send_notification_alert(
                     webhook_url=webhook_url,
                     system_display_name=system.display_name,
                     instance_role=payload.instance_role or "",
@@ -129,9 +130,9 @@ async def create_analysis(payload: LogAnalysisCreate, db: AsyncSession = Depends
                     notification_reason=payload.root_cause or "",
                     contacts=contacts_data,
                     force_real_url="",
-                )
-            except Exception as exc:
-                logger.warning("알림성 로그 Teams 카드 발송 실패: %s", exc)
+                ),
+                label=f"notification/{system.system_name}",
+            )
 
     if send_teams:
         _, contacts = await get_system_and_contacts(db, system.system_name)
@@ -139,8 +140,10 @@ async def create_analysis(payload: LogAnalysisCreate, db: AsyncSession = Depends
 
         webhook_url = system.teams_webhook_url or DEFAULT_WEBHOOK_URL
         if webhook_url:
-            try:
-                sent = await notifier.send_log_analysis_alert(
+            # 비동기 발송(fire-and-forget). alert_sent은 "발송 시도됨"으로 낙관 표기
+            # (동기 확인이 불가 — 웹훅 지연이 파이프라인을 막지 않게 하기 위함).
+            spawn_teams_send(
+                notifier.send_log_analysis_alert(
                     webhook_url=webhook_url,
                     system_display_name=system.display_name,
                     system_name=system.system_name,
@@ -160,10 +163,10 @@ async def create_analysis(payload: LogAnalysisCreate, db: AsyncSession = Depends
                     point_id=payload.qdrant_point_id,
                     alert_history_id=alert_record.id if alert_record else None,
                     incident_id=alert_record.incident_id if alert_record else None,
-                )
-                record.alert_sent = sent
-            except Exception as exc:
-                logger.warning("Teams 로그 분析 알림 발송 실패: %s", exc)
+                ),
+                label=f"log_analysis/{system.system_name}",
+            )
+            record.alert_sent = True
 
     await db.commit()
     await db.refresh(record)
@@ -215,8 +218,9 @@ async def notify_role(payload: RoleNotifyPayload, db: AsyncSession = Depends(get
     contacts_data = [{"name": c["name"], "teams_upn": c["teams_upn"]} for c in contacts]
     webhook_url = system.teams_webhook_url or DEFAULT_WEBHOOK_URL
     if webhook_url:
-        try:
-            sent = await notifier.send_log_analysis_alert(
+        # 비동기 발송 — 느린/죽은 웹훅이 /notify-role 응답(=log-analyzer submit)을 막지 않게.
+        spawn_teams_send(
+            notifier.send_log_analysis_alert(
                 webhook_url=webhook_url,
                 system_display_name=system.display_name,
                 system_name=system.system_name,
@@ -231,9 +235,10 @@ async def notify_role(payload: RoleNotifyPayload, db: AsyncSession = Depends(get
                 contacts=contacts_data,
                 templates=payload.templates,
                 incident_id=incident.id,
-            )
-        except Exception as exc:
-            logger.warning("role 통합 Teams 발송 실패: %s", exc)
+            ),
+            label=f"notify_role/{system.system_name}",
+        )
+        sent = True   # 발송 시도됨(dispatched) — 동기 확인 불가
 
     if payload.severity in ("warning", "critical"):
         await notify_log_analysis({

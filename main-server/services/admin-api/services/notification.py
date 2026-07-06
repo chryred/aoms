@@ -5,13 +5,49 @@ Adaptive Card JSON 빌드는 adaptive_card_builder.py에 분리되어 있다.
 이 모듈은 Webhook POST 전송 + SSL CA 처리만 담당한다.
 """
 
+import asyncio
 import logging
 import os
-from typing import Optional
+from typing import Awaitable, Optional
 
 logger = logging.getLogger(__name__)
 
 _FRONTEND_EXTERNAL_URL = os.getenv("FRONTEND_EXTERNAL_URL", "http://localhost:3001")
+
+# Teams 발송 동시성 상한 — 비동기(fire-and-forget) 발송이 웹훅 지연/장애 시 무한 누적되는 것 방지.
+_TEAMS_SEND_CONCURRENCY = int(os.getenv("TEAMS_SEND_CONCURRENCY", "5"))
+_teams_send_sem: "asyncio.Semaphore | None" = None
+_teams_pending = 0  # 현재 대기/진행 중인 발송 태스크 수 (관측용)
+
+
+def _get_teams_sem() -> asyncio.Semaphore:
+    # 세마포어는 실행 중인 이벤트 루프에 바인딩되도록 최초 사용 시 생성.
+    global _teams_send_sem
+    if _teams_send_sem is None:
+        _teams_send_sem = asyncio.Semaphore(_TEAMS_SEND_CONCURRENCY)
+    return _teams_send_sem
+
+
+def spawn_teams_send(coro: Awaitable, *, label: str = "") -> None:
+    """Teams 발송 코루틴을 백그라운드 태스크로 실행 (핸들러 비블로킹, best-effort).
+
+    - 동시성 세마포어로 상한 → 웹훅 지연·장애 시 태스크 무한 누적 방지.
+    - 예외는 삼켜 로깅만 → 발송 실패가 호출측(분석 쓰기 경로)에 영향 없음.
+    분석/알림 쓰기 경로에서 `await notifier.send_*()` 대신 이 함수로 감싸면
+    느린/죽은 웹훅이 파이프라인을 막지 않는다.
+    """
+    async def _run():
+        global _teams_pending
+        _teams_pending += 1
+        try:
+            async with _get_teams_sem():
+                await coro
+        except Exception as exc:
+            logger.warning("Teams 비동기 발송 실패 (무시) [%s]: %s", label, exc)
+        finally:
+            _teams_pending -= 1
+    asyncio.create_task(_run())
+
 
 import httpx
 
