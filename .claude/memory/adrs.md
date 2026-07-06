@@ -737,3 +737,31 @@ Synapse는 이미 자체 username/password DB(`users` 테이블)를 보유하고
 **추가 수정 (2026-06-15)**: 위 401 fix 배포 후에도 매일 전체 재동기화가 재발. 근본 원인은 별개의 두 번째 버그 — `GET /sync-status`는 `list[dict]`를 반환하는데(`routes/knowledge.py` `-> list[dict[str, Any]]`), `scheduler_tasks.py`의 `_jira_sync_run`/`_confluence_sync_run`은 `resp.json().get("last_sync_at")`로 **dict처럼** 접근하여 `AttributeError` 발생 → `except` 블록에서 흡수되어 `last_sync_at=None` 유지 → `jql_date`/`cql_date`가 항상 빈 문자열 → 매일 전체(~31,164건) 재동기화.
 - 수정: `rows = resp.json(); last_sync_at = rows[0].get("last_sync_at") if rows else None` (양쪽 함수 동일 패턴).
 - 부수 관찰: `upsert_jira_issue`가 매 이슈마다 `ensure_collection()` GET을 호출(캐싱 없음) → 이슈당 Server B로 GET+PUT 2회 라운드트립(~2초/건). 증분 동기화로 정상화되면 일 ~100건 수준이라 당장은 허용 가능하나, 향후 컬렉션 존재 여부를 프로세스 내 캐싱하면 추가 개선 가능 (미적용).
+
+---
+
+## ADR-021: 로그 정규화 값-마스킹 확장 — KEY=VALUE 덤프 무한 카디널리티 제거 (2026-07-06)
+
+**상태**: 채택 (2026-07-06)
+
+**맥락**:
+- cxm/was1이 5분 창마다 로그 31,444건 / 정규화 후 distinct template **653개**를 생성 (타 시스템 2~12건). 이 중 633개가 `ServiceSupportICS.error` ordInfo/dcCustInfo KEY=VALUE 덤프(419) + `AppPushCommonModule` response body JSON(214)의 **값-변형**.
+- 기존 정규화(`=\d+`)는 `CUST_ID=C15292692`(영문자 시작 혼합값), `SESSION_USER_ID=hnlounge4`, 한글 고객명(agent가 비ASCII를 `?`로 치환한 형태 포함)을 못 접음 → 매 주기 "새 template"로 유입.
+- 결과: Qdrant log_incidents에 cxm 2,708 포인트가 쌓여도 tier-1 히트 33/미스 620 — **저장한 LLM 판정이 재사용 불가한 무한 카디널리티**. tier-2 cap·need_llm cap으로는 영구 수렴 불가 → LLM 상시 호출 → DevX 지연(httpx 120s) 겹치면 240s 사이클 타임아웃 반복.
+- 대안 검토: (B안) `log_signatures` 별도 컬렉션 + "LLM 알림성 판정 5회 누적 시 시그니처 승격 → tier-0 스킵" 설계를 상세화했으나, **log_incidents가 이미 정규화 template을 저장·point_id 산출 입력으로 쓰고 있으므로 정규화 강화만으로 기존 tier-1 exact + stored-wins가 동일 효과**(신규 메커니즘 0)를 냄을 확인. 단순성으로 A안 채택 (사용자 선택).
+
+**결정** (`vector_client.normalize_log_for_embedding` 규칙 추가):
+1. 문자+숫자 혼합 할당값 → `=<VAL>` (숫자 선행 hex 쪼개짐 방지 위해 `=\d+`보다 먼저 실행)
+2. 한글·`?` 포함 할당값(고객명·매장명, 공백·괄호 포함 `,`/`}` 경계까지) → `=<VAL>`
+3. 숫자·한글 포함 JSON 문자열 값 → `<VAL>`
+4. JSON 숫자 값(`"loungeId":122`)→`<N>`, JSON 빈 문자열→`<VAL>`
+5. 할당값 플레이스홀더·빈값 통일: `=<N>`/`=<NUM>`/`=<PHONE>`/`=`(빈값) → `=<VAL>` (주문 상태별 필드 채움 여부 조합 폭증 방지)
+6. **정규화 결과 400자 상한** — 리스트형 덤프(dcOrderDtlList)의 반복 `{…}` 블록 수(주문 품목 수)·agent 최대길이 절단 꼬리가 만드는 구조 변형 제거 (저장 텍스트 상한 500과 정합)
+- **과병합 금지 유지**: 순수 문자 상태값(`=Y`/`=N`/`=FAILED`, `"successOrNot":"Y"`)·공백 분리 에러코드(`code 404`)는 보존 — 성공/실패 응답이 서로 다른 template으로 남아 실에러 구분 유지.
+
+**결과** (운영 5분 창 실측 시뮬레이션):
+- distinct 653 → **79 (-88%)** (ServiceSupportICS 419→44, AppPush 214→15). 잔여 축은 유한한 Y/N 플래그 조합·키 구성 차이로 tier-2 fuzzy(cosine 0.9)가 흡수 가능.
+- 각 패턴은 LLM 1회 판정 후 tier-1 자동 스킵(stored-wins) → 사이클 수 초, log_incidents 무한 증식 중단.
+- **배포 시 log_incidents 리셋 필수** (point_id 전면 변경 — 리셋 런북은 log-analyzer CLAUDE.md).
+
+**하지 않은 것**: log_signatures 컬렉션·승격 로직(B안 폐기), llm_client timeout 120→30s 하향(후속 제안으로 보류).

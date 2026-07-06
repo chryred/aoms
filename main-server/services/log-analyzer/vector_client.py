@@ -162,9 +162,14 @@ def normalize_log_for_embedding(raw_log: str) -> str:
         → "<TS> ORA-00060 from <IP>"
         "[Foo.bar:248] referer = https://x/y?id=633"
         → "[Foo.bar:<N>] referer = <URL>"
+        "ordInfo: {CUST_ID=C15292692, ...}"
+        → "ordInfo: {CUST_ID=<VAL>, ...}"
 
     주의(과병합 금지): 공백으로 분리된 단독 에러코드/상태코드(예: "code 404")는
     묶지 않는다. 치환은 URL 토큰·`:NNN]` 라인번호·`=NNN` 할당값 등 가변 요소로 한정.
+    값-마스킹(<VAL>)도 '숫자를 포함한' 영숫자 값만 대상 — Y/N/SUCCESS 같은 순수 문자
+    상태값은 보존해 성공/실패 응답이 서로 다른 template으로 유지되게 한다
+    (cxm 실측: ordInfo 덤프 419변형 → 수 개, 고객ID·주문번호가 =\\d+에 안 걸리던 문제).
     """
     text = re.sub(r'\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}[.\d]*', '<TS>', raw_log)
     # URL 토큰 통째 치환 (쿼리스트링·경로·스킴 차이 흡수) — =NNN 치환보다 먼저
@@ -176,10 +181,30 @@ def normalize_log_for_embedding(raw_log: str) -> str:
     )
     # 소스 라인번호 [Class.method:248] → [Class.method:<N>]
     text = re.sub(r':\d+\]', ':<N>]', text)
+    # 값-마스킹: 할당값 중 '문자+숫자 혼합'(고객ID C15292692, 세션ID hnlounge4, hex 해시) 또는
+    # '한글 포함'(고객명·메뉴명) 값만 <VAL> 치환. 순수 문자 상태값(Y/N/SUCCESS)은 보존 —
+    # 성공/실패 구분 유지 (과병합 금지). =\d+ 보다 먼저 실행해 01D7B8… 같은 숫자 선행 혼합값이
+    # <N>+잔여로 쪼개지는 것을 방지한다.
+    text = re.sub(
+        r'(?<==)(?=[A-Za-z0-9_\-]*\d)(?=[A-Za-z0-9_\-]*[A-Za-z])[A-Za-z0-9_\-]{3,}',
+        '<VAL>', text,
+    )                                                        # KEY=C15292692 / hnlounge4 / 01D7B8…
+    # KEY=홍길동 / KEY=?? ??? (??) — 한글 값 및 agent가 비ASCII를 ?로 치환한 값 (공백·괄호 포함 , } 까지)
+    text = re.sub(r'(?<==)[^,}]*[?가-힣][^,}]*', '<VAL>', text)
+    text = re.sub(r'(?<=":")[^"]*[\d가-힣][^"]*(?=")', '<VAL>', text)  # "key":"a1b2…" (JSON 문자열 값)
+    text = re.sub(r'(?<=":)\d+(?=\s*[,}])', '<N>', text)               # "loungeId":122 (JSON 숫자 값)
+    text = re.sub(r'(?<=:")(?=")', '<VAL>', text)                      # "customerId":"" (JSON 빈 문자열)
     # 할당/쿼리 값 (가변 ID·카운트) key=123 → key=<N>
     text = re.sub(r'=\d+', '=<N>', text)
     text = re.sub(r'\b\d{5,}\b', '<NUM>', text)
-    return text.strip()
+    # 할당값 플레이스홀더 통일 + 빈 값 통일: KEY=<N>/KEY=<NUM>/KEY=(빈값) → KEY=<VAL>
+    # (같은 키가 창마다 <N>/<NUM>/빈값으로 갈려 조합 폭증하는 것 방지 — KEY=VALUE 덤프 대응.
+    #  순수 문자 상태값 KEY=Y/N/FAILED 는 그대로라 상태 구분은 유지됨)
+    text = re.sub(r'=<(?:N|NUM|PHONE|TS|IP|UUID|URL|VAL)>', '=<VAL>', text)
+    text = re.sub(r'=(?=\s*[,}])', '=<VAL>', text)
+    # 길이 상한: 리스트형 덤프의 반복 {…} 블록 수(주문 품목 수)·agent 최대길이 절단 꼬리가
+    # 만드는 구조 변형 제거 (실측 dcOrderDtlList 50변형 → 수 개). 저장 텍스트 상한(500)과 정합.
+    return text.strip()[:400]
 
 
 def compute_fingerprint(text: str) -> str:
