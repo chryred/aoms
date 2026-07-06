@@ -646,7 +646,7 @@ async def _notify_host(hc: HostContext, analysis: str, severity: str, db: AsyncS
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.post(webhook_url, json=card)
-            if resp.status_code != 200:
+            if not (200 <= resp.status_code < 300):   # 200(구커넥터)·202(Workflows) 모두 성공
                 logger.warning("Teams webhook responded %s for host %s", resp.status_code, hc.host)
             else:
                 logger.info("Teams 알림 발송 완료 — host=%s systems=%s severity=%s", hc.host, anomalous_systems, severity)

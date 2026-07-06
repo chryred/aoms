@@ -41,10 +41,18 @@ _SSL_CONTEXT = _SSL_CAFILE if _SSL_CAFILE else True
 
 
 async def _post_webhook(webhook_url: str, body: dict) -> bool:
-    """Teams Incoming Webhook POST 전송"""
+    """Teams 웹훅 POST 전송.
+
+    성공 판정은 2xx 전체. 구 O365 커넥터(Incoming Webhook)는 200, 신규 Teams
+    Workflows(Power Automate) 웹훅은 202 Accepted를 반환하므로 둘 다 성공으로 본다.
+    비-2xx는 실패로 로깅(구커넥터 은퇴 시 403 등 가시성 확보).
+    """
     async with httpx.AsyncClient(timeout=10.0, verify=_SSL_CONTEXT) as client:
         resp = await client.post(webhook_url, json=body)
-        return resp.status_code == 200
+        if not (200 <= resp.status_code < 300):
+            logger.warning("Teams webhook responded %s (host=%s)", resp.status_code, resp.request.url.host)
+            return False
+        return True
 
 
 class TeamsNotifier:

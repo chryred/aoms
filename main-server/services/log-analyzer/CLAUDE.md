@@ -230,6 +230,10 @@ log-analyzer/
 | `ANALYSIS_INTERVAL_SECONDS` | `300` (기본 5분) |
 | `ANALYSIS_RUN_TIMEOUT_SECONDS` | `240` — 한 분석 사이클 최대 실행 시간. 초과 시 `_run_analysis_task`가 강제 종료하고 `_running` 락을 리셋해 다음 주기에 재시도(특정 시스템이 사이클을 무한정 붙잡아 파이프라인 전체가 멈추는 것 방지) |
 | `MAX_TEMPLATES_PER_ROLE` | `50` — `_analyze_one_role`이 한 사이클에 처리하는 **실에러 후보(need_llm)** 상한. 알림성은 상한 무관 전량 처리. 초과분은 드롭이 아니라 in-memory 백로그(`_backlog`)로 이월되어 다음 주기 우선 처리(무손실). 상향 시 폭증 소진 가속 |
+| `ROLE_ANALYSIS_TIMEOUT_SECONDS` | `60` — **역할(system/role) 단위 분석 타임아웃**. `_analyze_one_role_guarded`가 `asyncio.wait_for`로 감싸 초과 시 그 역할만 취소하고 `role_timeout` 반환(다음 주기 재시도). 매달린 DevX LLM 호출 하나가 사이클 전체를 `ANALYSIS_RUN_TIMEOUT`(240s)까지 붙잡아 통째 취소되며 취소 불가한 임베딩 executor 잡·대용량 할당을 스트랜딩(메모리 누증)시키는 것을 방지. **`ANALYSIS_RUN_TIMEOUT_SECONDS`보다 작게 유지할 것.** |
+| `EMBED_EXECUTOR_WORKERS` | `2` — 임베딩 전용 `ThreadPoolExecutor` 워커 수(`vector_client._embed_executor`). 기본(공유·무제한) executor 대신 워커 상한을 둬 타임아웃 취소 시 임베딩 스레드 폭증을 억제. cpus=1.0에서 ONNX는 사실상 직렬이라 2로 충분 |
+| `LLM_CLASSIFY_BATCH` | `25` — 한 LLM 콜에 담는 **per-template 분류 대상 수 상한**. LLM(DevX)이 index별 배열(`template_classifications`)을 안정적으로 반환하도록 배치를 작게 유지(너무 크면 index 누락→보수적 실에러 오탐↑). need_llm 유효 상한 = `min(LLM_CLASSIFY_BATCH, MAX_TEMPLATES_PER_ROLE)`, 초과분은 백로그로 무손실 이월. **콜드스타트를 빨리 소진하려면 이 값과 `MAX_TEMPLATES_PER_ROLE`를 함께 올리되, LLM 배열 신뢰성이 떨어지지 않는 선(≤~30 권장)** |
+| `MAX_FUZZY_RECOGNIZE_PER_CYCLE` | `100` — `_recognize_templates`의 **tier-2(fuzzy) 인식 사이클당 상한**. tier-1(단일 배치 Qdrant 호출, 쌈)은 전량이지만, 미스별 임베딩+검색인 tier-2는 **컬렉션 리셋 직후 콜드스타트(전량 tier-1 미스)에서 O(distinct)로 폭증**해 저장 단계 도달 전 역할 타임아웃 → 영구 정체를 유발한다. 이 상한으로 tier-2를 묶고 초과 미스는 미인식(신규)→`need_llm`(cap+백로그)으로 무손실 이월. 정상 운영에선 미스가 적어 미발동(기존 동작 불변). **리셋 후 콜드스타트 수렴을 앞당기려면 `MAX_TEMPLATES_PER_ROLE`(저장 처리량)와 함께 조정** |
 | `JIRA_URL` | Jira REST API 기본 URL (예: `https://jira.example.com`). 미설정 시 Jira 동기화 비활성 |
 | `JIRA_TOKEN` | Jira Bearer 토큰. 미설정 시 비활성 |
 | `JIRA_PROJECTS` | 동기화 대상 프로젝트 키 (콤마 구분, 예: `PROJ1,PROJ2`). 미설정 시 비활성 |
@@ -288,6 +292,16 @@ POST /metric/similarity
   3. recognized 알림성: bump_occurrence / (tier-2 변형은 결정적 id로 신규 저장) + 경량 notification_auto 레코드 1건 (Teams 없음)
   4. 전부 알림성 인식 → 배치 skip (LLM 호출 없음)
   5. need_llm(신규/recognized 실에러) → analyze_with_vector_context(LLM) → template 단위:
+     - **LLM 입력은 need_llm 로그만** — 인식된 알림성(recognized_notif)은 제외하고 전달한다.
+     - **per-template 분류(2026-07)**: 프롬프트가 need_llm distinct template을 `[index]` 목록으로
+       제시하고 LLM이 **template별 `template_classifications:[{index,is_notification,severity}]`** 배열을
+       반환한다(`prompts.py` `_PER_TEMPLATE_RESPONSE_RULES`, `classify_templates` 인자). `analyze_with_vector_context`가
+       index→template로 매핑해 소비 코드의 `tc["template"]` 계약으로 돌려준다.
+       → 혼재 배치에서 양성 덤프(ordInfo 등)는 is_notification=true로 개별 분류되어 `notification_auto`가 되고
+       (alert_history/incident 미생성), 실에러만 warning/incident/Teams. **배치 verdict 하나로 뭉개져
+       "전체가 경고"가 되던 버그 수정** — 이전엔 프롬프트가 배치 is_notification 하나만 요청해
+       `template_classifications_json`이 항상 NULL이었음. LLM이 index 누락 시 그 template은 tc에서 빠져
+       **보수적으로 실에러 처리**(알림 은폐 방지). 배치 크기는 `LLM_CLASSIFY_BATCH`로 제한(배열 신뢰성).
      - stored-wins: recognized면 저장된 결정, 아니면 LLM template_classifications
      - store_incident_vector(point_key=normalized_template) — template 단위 결정적 id upsert(멱등)
      - submit_analysis도 template마다 1회 (1 row = 1 point):
@@ -467,6 +481,25 @@ ocr_worker.py의 `extract_text_with_stats(file_path, mime_type, progress_cb=_NOO
 
 `vector_client.normalize_log_for_embedding`은 template의 결정적 `template_point_id` 산출 입력이다. 정규화 규칙을 바꾸면 **동일 template의 point_id가 전부 바뀌어** 기존 Qdrant `log_incidents` 포인트가 orphan(tier-1 retrieve miss)이 된다.
 - 규칙 변경 배포 시 **`log_incidents` 컬렉션 리셋** 후 재학습(`POST /collections/log/reset` 또는 런북). 리셋 직후 콜드스타트(전 template 신규 취급)는 `MAX_TEMPLATES_PER_ROLE` cap + 백로그 로테이션이 무손실로 흡수.
+
+> **실증 사례(2026-07-03)**: Phase A 정규화가 반영됐는데 `log_incidents`를 리셋하지 않아, cxm/was1의 고빈도 알림성 로그(SSO `checkSSOActivate` 등)가 tier-1 orphan → 매 주기 실에러 LLM 경로로 재유입 → 새벽 트래픽 서지와 겹쳐 사이클이 240초 백스톱에 계속 걸림(백투백 타임아웃). 리셋 누락이 원인. **정규화 배포 = 리셋 세트로 취급할 것.**
+
+**재기동 + 리셋 런북 (정규화 변경 배포 시 필수 순서):**
+```bash
+cd main-server
+# 1) admin-api 먼저 (log-analyzer가 의존)
+docker compose up -d postgres prometheus alertmanager admin-api
+curl -sf http://localhost:8080/health
+# 2) log-analyzer 기동
+docker compose up -d log-analyzer
+# 3) log_incidents 리셋 (옛 정규화 orphan 제거 + 재생성)
+curl -X POST http://localhost:8000/collections/log/reset
+# 4) 재학습 관찰 (콜드스타트는 cap+백로그가 무손실 흡수)
+docker logs -f synapse-log-analyzer | grep -E "분석 (시작|완료)|백로그|타임아웃"
+```
+회복 검증: `scheduler_run_history`의 analysis 사이클이 `status='ok'` + `dur_s ≤ 30`으로 복귀하는지 확인(리셋 안 하면 다음 서지에 재발).
+
+> **콜드스타트 수렴 주의 (고카디널리티 시스템)**: 리셋 직후엔 해당 시스템의 전 template(cxm은 ~800개)이 tier-1 미스가 되어 재학습이 필요하다. tier-2 상한(`MAX_FUZZY_RECOGNIZE_PER_CYCLE`)이 폭증을 막아 **매 사이클 일부씩 저장→인식 축적으로 수렴**한다(저장 처리량은 `MAX_TEMPLATES_PER_ROLE`/사이클). 800 template ÷ 50 ≈ 16사이클 → 수렴에 수십 분~1시간+ 소요될 수 있다. **콜드스타트를 앞당기려면 리셋 후 일시적으로 `MAX_TEMPLATES_PER_ROLE`↑(예:100)·`ROLE_ANALYSIS_TIMEOUT_SECONDS`↑(예:120, <240 유지)로 재기동 → 수렴 후 원복.** 실측: `MAX_TEMPLATES_PER_ROLE=10`만으로는 tier-2가 안 잡혀(위 B-1 상한 없던 시절) 저장 0건으로 무한 정체했었음.
 - 현행 규칙: 타임스탬프/IP/UUID + **URL 토큰(`https?://…`→`<URL>`)·소스 라인번호(`:NNN]`)·할당값(`=NNN`)·5자리+숫자** 정규화. URL 쿼리스트링·라인번호 차이로 같은 에러가 수백 template으로 갈리는 고카디널리티를 완화(실측 cxm 745→584, SSO 단일 에러 159변형→1).
 - 과병합 금지: 공백 분리 단독 에러코드(`code 404`)는 묶지 않음. 규칙 추가 시 실데이터로 distinct 감소·비병합 동시 검증(`tests/test_normalize.py`).
 - `normalize_log_for_embedding`은 log-analyzer 단일 출처(admin-api 복제본 없음) — 재분류는 log-analyzer `/log-incidents/submit-group`으로 프록시되어 동일 규칙 적용.
@@ -491,15 +524,17 @@ ocr_worker.py의 `extract_text_with_stats(file_path, mime_type, progress_cb=_NOO
 
 > **부하는 "종류(distinct template)"에 비례하고 "건수(occurrence)"와 무관**하다. `fetch_logs_for_system`이 `sum_over_time` 집계값을 template당 1건으로 가져오므로, 실제 장애(같은 에러 반복=건수 폭증, 종류는 적음)는 안전하다. 문제는 정규화 미흡·로깅 노이즈로 인한 "종류 폭증"뿐.
 
-**방어 구조 (4겹):**
+**방어 구조 (6겹):**
 1. **정규화(Phase A)** — `normalize_log_for_embedding`이 URL/라인번호/할당값을 묶어 같은 논리 에러가 여러 template으로 갈리는 것을 줄임. `_analyze_one_role`은 **by_tmpl을 정규화 template으로 키잉** → 변형이 1개로 합쳐져 1 row=1 point 유지.
-2. **전량 배치 인식(B-1)** — `retrieve_points_batch`로 전체 distinct의 tier-1 인식을 **단일 Qdrant 호출**로. 인식엔 상한 없음.
+2. **배치 인식 + tier-2 상한(B-1)** — `retrieve_points_batch`로 전체 distinct의 tier-1 인식을 **단일 Qdrant 호출**로(쌈, 전량). tier-2(fuzzy) 유사도 검색도 **`search_notification_incidents_batch`로 N회 왕복→1회 배치**(2026-07, 콜드스타트 N회 순차검색 비용 제거). 단 미스별 임베딩(CPU)은 남으므로 **tier-2는 `MAX_FUZZY_RECOGNIZE_PER_CYCLE`(기본 100)로 상한**. **컬렉션 리셋 직후 콜드스타트(전량 tier-1 미스)에서 tier-2가 O(distinct=수백~수천)로 폭증해 저장 단계 도달 전 역할 타임아웃 → 영구 정체**하는 것을 방지(2026-07). 초과 미스는 미인식(신규)→need_llm(cap+백로그)으로 무손실 이월. **주의: cap(`MAX_TEMPLATES_PER_ROLE`)은 need_llm(LLM 경로)만 묶으므로 tier-2 폭증은 못 막는다 — 별도 상한 필수.**
 3. **알림성 제외 후 실에러에만 상한(B-2)** — recognized 알림성(`notification_auto`)은 싼 경로로 전량 처리(상한 무관). `MAX_TEMPLATES_PER_ROLE`(기본 50)은 **실에러 후보(need_llm)에만** 적용.
 4. **in-memory 백로그 로테이션(B-3)** — 상한 초과분은 **드롭이 아니라 `_backlog["{system}:{role}"]`로 이월**, 다음 주기에 **우선 처리**. 백로그는 단조 감소 → 여러 주기에 걸쳐 **영구 누락 0**(지연만). 재시작 시 비워지나 재수렴.
-5. **`ANALYSIS_RUN_TIMEOUT_SECONDS`**(기본 240) — `asyncio.wait_for`로 사이클 강제 종료 + `_running` 리셋 → 최종 백스톱.
+5. **역할 단위 타임아웃(`ROLE_ANALYSIS_TIMEOUT_SECONDS`, 기본 60)** — `_analyze_one_role_guarded`가 `asyncio.wait_for`로 각 역할을 감싸 초과 시 그 역할만 취소하고 `role_timeout` 반환. 매달린 DevX 호출 하나가 사이클 전체를 240초까지 붙잡아 통째 취소되며 **취소 불가한 임베딩 executor 잡·대용량 할당을 스트랜딩(메모리 누증)**시키는 것을 방지 → 사이클을 정상 완료시켜 executor가 주기 사이 drain되게 함. 임베딩은 `EMBED_EXECUTOR_WORKERS`(기본 2) 경계 executor 사용.
+6. **`ANALYSIS_RUN_TIMEOUT_SECONDS`**(기본 240) — `asyncio.wait_for`로 사이클 강제 종료 + `_running` 리셋 → 최종 백스톱. (역할 타임아웃이 정상 동작하면 여기까지 오지 않음.)
 
 > 폭증 소진 속도를 높이려면 `MAX_TEMPLATES_PER_ROLE` 상향(env, 코드 변경 없음). 타임아웃 내에서 안전.
-> 회귀 테스트: `tests/test_analysis_resilience.py`(백로그 무손실·알림성 제외·정규화 키잉), `tests/test_retrieve_batch.py`, `tests/test_normalize.py`
+> **메모리 누증 주의**: 사이클 통째 타임아웃(240s)이 반복되면 취소 불가한 `run_in_executor` 임베딩 잡이 주기마다 스트랜딩되어 RSS가 누증한다(glibc 힙 단편화와 겹침). 역할 타임아웃(층 5)이 1차 방어. `UVICORN_MAX_REQUESTS`(graceful restart)가 최종 방어.
+> 회귀 테스트: `tests/test_analysis_resilience.py`(백로그 무손실·알림성 제외·정규화 키잉·**LLM 입력 알림성 제외·역할 타임아웃·임베딩 executor 경계**), `tests/test_retrieve_batch.py`, `tests/test_normalize.py`
 
 ### aggregation_vector_client는 vector_client를 의존
 `aggregation_vector_client.py`는 `vector_client.py`의 `get_embedding`, `ensure_collection` 등을 import.

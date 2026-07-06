@@ -33,6 +33,7 @@ from vector_client import (
     retrieve_point,
     retrieve_points_batch,
     search_notification_incidents,
+    search_notification_incidents_batch,
     search_similar_incidents,
     store_incident_vector,
     template_point_id,
@@ -51,6 +52,24 @@ ADMIN_API_URL  = os.getenv("ADMIN_API_URL",  "http://admin-api:8080")
 # template 수 상한. 알림성(notification)은 싼 경로라 이 상한과 무관하게 전량 처리된다.
 # 초과분은 드롭이 아니라 _backlog로 이월되어 다음 주기에 우선 처리된다(영구 누락 0).
 _MAX_TEMPLATES_PER_ROLE = int(os.getenv("MAX_TEMPLATES_PER_ROLE", "50"))
+
+# role(system/role) 한 개의 분석 최대 실행 시간. 초과 시 그 역할만 스킵하고 다음 주기에
+# 재시도한다. DevX LLM 호출 하나가 매달려 사이클 전체(ANALYSIS_RUN_TIMEOUT)를 잡아먹고
+# 240초에 통째로 취소되면, 취소 불가한 임베딩 executor 잡·대용량 할당이 스트랜딩되어
+# 메모리가 누증한다. 역할 단위로 먼저 끊어 사이클을 정상 완료시켜 이를 방지.
+# (ANALYSIS_RUN_TIMEOUT 백스톱보다 작게 유지할 것.)
+_ROLE_ANALYSIS_TIMEOUT = int(os.getenv("ROLE_ANALYSIS_TIMEOUT_SECONDS", "60"))
+
+# tier-2(fuzzy) 인식 사이클당 상한. tier-1(단일 배치, 쌈)은 전량이지만, 미스별 임베딩+검색인
+# tier-2는 컬렉션 리셋 직후 콜드스타트(전량 미스)에서 O(distinct)로 폭증해 저장 단계 도달 전
+# 역할 타임아웃 → 영구 정체를 유발한다. 이를 상한으로 막고 초과분은 need_llm(cap+백로그)로 이월.
+# 정상 운영에선 미스가 적어 미발동(기존 동작 불변).
+_MAX_FUZZY_RECOGNIZE = int(os.getenv("MAX_FUZZY_RECOGNIZE_PER_CYCLE", "100"))
+
+# 한 LLM 콜에 담는 per-template 분류 대상 수 상한. LLM(DevX)이 index별 배열을 안정적으로
+# 반환하도록 배치를 작게 유지한다(너무 크면 index 누락→보수적 실에러 오탐↑). 초과분은
+# 기존 need_llm cap+백로그로 다음 주기 이월(무손실). need_llm 유효 상한 = min(이 값, _MAX_TEMPLATES_PER_ROLE).
+_LLM_CLASSIFY_BATCH = int(os.getenv("LLM_CLASSIFY_BATCH", "25"))
 
 # in-memory 백로그: "{system_name}:{instance_role}" → 이번 주기에 상한 초과로 보류된
 # 실에러 template(정규화본) 리스트. 다음 주기에 우선 처리되어 단조 감소한다.
@@ -254,6 +273,7 @@ async def analyze_with_vector_context(
     trace_context: str = "",
     trace_tier: str = "5min",
     skip_vector_store: bool = False,
+    classify_templates: list[str] | None = None,
 ) -> dict:
     """
     T4.14 — 벡터 유사도 검색 + LLM 분석 통합 파이프라인
@@ -357,6 +377,7 @@ async def analyze_with_vector_context(
         trace_tier=_trace_tier,
         postmortems=postmortems if postmortems else None,
         metric_snapshot=metric_snapshot if metric_snapshot else None,
+        templates=classify_templates,
     )
 
     # LLM 호출 — 실패해도 벡터 저장은 진행 (패턴 누적 목적)
@@ -367,6 +388,31 @@ async def analyze_with_vector_context(
     except Exception as e:
         llm_error = f"{type(e).__name__}: {str(e)[:300]}"
         logger.warning(f"[{system_name}/{instance_role}] LLM 분석 실패 — 벡터 저장은 계속: {llm_error}")
+
+    # per-template 분류 결과를 index → template 로 매핑 (소비 코드의 tc["template"] 계약).
+    # LLM이 index를 빠뜨리면 그 template은 tc에서 누락 → 소비 측에서 보수적으로 실에러 처리.
+    if classify_templates:
+        raw_tc = analysis.get("template_classifications")
+        remapped: list[dict] = []
+        if isinstance(raw_tc, list):
+            for item in raw_tc:
+                if not isinstance(item, dict):
+                    continue
+                idx = item.get("index")
+                if isinstance(idx, bool) or not isinstance(idx, int):
+                    continue
+                if 0 <= idx < len(classify_templates):
+                    remapped.append({
+                        "template":        classify_templates[idx],
+                        "is_notification": bool(item.get("is_notification")),
+                        "severity":        item.get("severity") or "info",
+                    })
+        analysis["template_classifications"] = remapped
+        if not remapped:
+            logger.warning(
+                f"[{system_name}/{instance_role}] LLM per-template 분류 없음/파싱실패 "
+                f"→ {len(classify_templates)}건 보수적 실에러 처리"
+            )
 
     # 5. 벡터 저장 (skip_vector_store=True이면 건너뜀 — _analyze_one_role에서 그룹별 저장)
     # LLM 실패 시 is_notification=False(기본값) → notification_auto_skip에 영향 없음
@@ -512,6 +558,7 @@ async def _recognize_templates(
     system_name: str,
     instance_role: str,
     templates: list[str],
+    max_fuzzy: int | None = None,
 ) -> dict[str, dict]:
     """template 단위 notification 인식 (LLM 이전, batch 단위 over-skip 방지의 핵심).
 
@@ -523,6 +570,12 @@ async def _recognize_templates(
     반환 {template: {recognized, is_notification, severity, point_exists, occurrence,
                      norm, point_id, dense, sparse}}.
     tier-1 hit은 dense/sparse=None(임베딩 불필요), tier-1 miss는 dense/sparse 계산본 동봉(저장 재사용).
+
+    max_fuzzy: tier-2(미스별 임베딩+검색) 상한. tier-1(단일 배치 호출, 쌈)은 전량 유지하되,
+    비용이 큰 tier-2는 한 사이클에 max_fuzzy개까지만 수행한다(None이면 무제한 — BC).
+    컬렉션 리셋 직후 콜드스타트처럼 전 template이 tier-1 미스가 되면 tier-2가 O(distinct)로
+    폭증해 역할 타임아웃 전에 저장 단계에 도달 못 하고 영구 정체하는 것을 방지. 초과 미스는
+    미인식(신규) 처리 → need_llm 경로(cap+백로그)로 무손실 이월된다.
     """
     result: dict[str, dict] = {}
     for t in templates:
@@ -550,6 +603,14 @@ async def _recognize_templates(
             misses.append(t)
 
     # tier-2 fuzzy: tier-1 미스만 임베딩 후 notification 검색 (배치 임베딩으로 분할상환)
+    # 콜드스타트(전량 미스) 폭증 방지 — 사이클당 max_fuzzy개까지만. 초과분은 미인식(신규)로
+    # 남겨 need_llm(cap+백로그)이 무손실 처리하게 한다.
+    if max_fuzzy is not None and len(misses) > max_fuzzy:
+        logger.warning(
+            f"[{system_name}/{instance_role}] tier-2 인식 미스 {len(misses)}개가 상한({max_fuzzy}) 초과 "
+            f"→ {max_fuzzy}개만 fuzzy 인식, 나머지는 need_llm 경로로 이월"
+        )
+        misses = misses[:max_fuzzy]
     if misses:
         norm_texts = [result[t]["norm"] for t in misses]
         try:
@@ -557,22 +618,27 @@ async def _recognize_templates(
         except Exception as e:
             logger.warning("template 인식 임베딩 실패 (fuzzy 생략): %s", e)
             dense_list = [None] * len(misses)
+        # dense 성공분만 대상. sparse는 저장 재사용용(검색은 dense 단독). 검색은 배치 1콜.
+        fuzzy: list[str] = []
         for t, dvec in zip(misses, dense_list):
             if dvec is None:
                 continue
-            try:
-                svec = await get_sparse_vector(result[t]["norm"])
-            except Exception:
-                continue
             result[t]["dense"] = dvec
-            result[t]["sparse"] = svec
             try:
-                hits = await search_notification_incidents(
-                    dvec, svec, system_name, score_threshold=_NOTIF_RECOGNIZE_THRESHOLD,
-                )
-            except Exception as e:
-                logger.warning("template notification 검색 실패 (계속): %s", e)
-                hits = []
+                result[t]["sparse"] = await get_sparse_vector(result[t]["norm"])
+            except Exception:
+                result[t]["sparse"] = None
+            fuzzy.append(t)
+        # tier-2 유사도 검색을 단일 배치 요청으로 (N회 왕복 → 1회)
+        try:
+            hits_list = await search_notification_incidents_batch(
+                [result[t]["dense"] for t in fuzzy], system_name,
+                score_threshold=_NOTIF_RECOGNIZE_THRESHOLD,
+            )
+        except Exception as e:
+            logger.warning("template notification 배치 검색 실패 (계속): %s", e)
+            hits_list = [[] for _ in fuzzy]
+        for t, hits in zip(fuzzy, hits_list):
             if hits:
                 # 알림성 변형으로 인식 (stored-wins). point_exists=False → 자기 포인트는 신규 저장 대상.
                 result[t]["recognized"] = True
@@ -628,9 +694,28 @@ async def _analyze_one_role(
                 return {"status": "no_logs", "label": label}
 
             # ── 2. 전체 distinct 인식 (배치 tier-1) — 알림성/실에러 분리. 인식은 cap 없이 전량 ──
-            recog = await _recognize_templates(system_name, instance_role, distinct)
+            recog = await _recognize_templates(
+                system_name, instance_role, distinct, max_fuzzy=_MAX_FUZZY_RECOGNIZE
+            )
             recognized_notif = [t for t in distinct
                                 if recog[t]["recognized"] and recog[t]["is_notification"]]
+
+            # tier-2 인식률 측정 카운터 (recog에서 파생 — 배치 최적화 실익 판단용)
+            #   tier1_hit     : 정확 매칭(결정적 id) 성공 = 이미 학습된 template (쌈)
+            #   tier2_attempt : tier-1 미스 중 fuzzy 시도(임베딩+검색)한 수 (max_fuzzy 상한 내)
+            #   tier2_hit     : fuzzy로 알림성 변형 인식 성공 = LLM 1회 절약한 수
+            #   → tier2_hit / tier2_attempt 가 높으면 fuzzy가 실효적 → 배치화로 상한↑ 이득
+            _stats = {
+                "tier1_hit":     sum(1 for t in distinct if recog[t]["point_exists"]),
+                "tier2_attempt": sum(1 for t in distinct if recog[t]["dense"] is not None),
+                "tier2_hit":     sum(1 for t in distinct if recog[t]["recognized"] and not recog[t]["point_exists"]),
+            }
+            if _stats["tier2_attempt"]:
+                logger.info(
+                    f"[{label}] 인식: tier1_hit={_stats['tier1_hit']} "
+                    f"tier2={_stats['tier2_hit']}/{_stats['tier2_attempt']} "
+                    f"(fuzzy 인식률 {_stats['tier2_hit']/_stats['tier2_attempt']*100:.0f}%)"
+                )
 
             # ── 3. recognized 알림성 영속화(점유 갱신/신규 변형 저장) + 경량 1 레코드(Teams 없음) ──
             if recognized_notif:
@@ -675,11 +760,14 @@ async def _analyze_one_role(
                 key=lambda t: by_tmpl[t]["count"], reverse=True,
             )
             pending = deferred_first + rest
-            if len(pending) > _MAX_TEMPLATES_PER_ROLE:
-                need_llm = pending[:_MAX_TEMPLATES_PER_ROLE]
-                _backlog[bkey] = pending[_MAX_TEMPLATES_PER_ROLE:]
+            # need_llm 유효 상한: LLM per-template 배열 신뢰성(_LLM_CLASSIFY_BATCH)과 사이클 부하
+            # 상한(_MAX_TEMPLATES_PER_ROLE) 중 작은 값. 초과분은 백로그로 무손실 이월.
+            _cap = min(_MAX_TEMPLATES_PER_ROLE, _LLM_CLASSIFY_BATCH)
+            if len(pending) > _cap:
+                need_llm = pending[:_cap]
+                _backlog[bkey] = pending[_cap:]
                 logger.warning(
-                    f"[{label}] 실에러 후보 {len(pending)}개가 상한({_MAX_TEMPLATES_PER_ROLE}) 초과 "
+                    f"[{label}] 실에러 후보 {len(pending)}개가 상한({_cap}) 초과 "
                     f"→ {len(need_llm)}개 처리, {len(_backlog[bkey])}개 다음 주기 이월(백로그, 무손실)"
                 )
             else:
@@ -689,18 +777,24 @@ async def _analyze_one_role(
             # 전부 알림성 인식 → 배치 skip (LLM 호출 없음)
             if not need_llm:
                 logger.info(f"[{label}] notification_auto skip (templates={len(recognized_notif)})")
-                return {"status": "notification_auto", "label": label}
+                return {"status": "notification_auto", "label": label, **_stats}
 
-            # ── 4. LLM 분석 (배치 컨텍스트) — 미인식 template 분류 ─────────────
+            # ── 4. LLM 분석 (배치 컨텍스트) — need_llm(미인식·실에러 후보) 로그만 전달 ──
+            # 이미 인식된 알림성(recognized_notif)은 제외한다. 혼재 배치에서 알림성까지
+            # LLM 서사(root_cause/severity)에 섞여 "전체가 경고/위험"으로 전달되는 것을 막고,
+            # 프롬프트 축소로 LLM 지연·메모리도 완화한다.
+            need_llm_logs = [lg for t in need_llm for lg in by_tmpl[t]["logs"]]
             analysis = await analyze_with_vector_context(
-                system_name, instance_role, logs, agent_code,
+                system_name, instance_role, need_llm_logs, agent_code,
                 trace_context=trace_ctx, trace_tier="5min", skip_vector_store=True,
+                classify_templates=need_llm,   # per-template 분류 요청 (index→template 매핑)
             )
             tc_list = analysis.get("template_classifications", []) or []
             llm_notif = {tc["template"] for tc in tc_list if tc.get("is_notification")}
+            llm_sev = {tc["template"]: tc.get("severity") for tc in tc_list if tc.get("template")}
             if not tc_list and analysis.get("is_notification"):
                 llm_notif = set(need_llm)  # 폴백: 전체 알림성
-            severity = analysis.get("severity", "info")
+            severity = analysis.get("severity", "warning")
             root_cause = analysis.get("root_cause", "")
             recommendation = analysis.get("recommendation", "")
             tc_json = json.dumps(tc_list, ensure_ascii=False) if tc_list else None
@@ -717,9 +811,9 @@ async def _analyze_one_role(
                 if rc["recognized"]:          # recognized 실에러(recurring) → 저장된 결정 승계
                     is_notif = rc["is_notification"]   # False (알림성은 recognized_notif에서 이미 처리)
                     tmpl_sev = rc["severity"]
-                else:                          # 신규 → LLM 분류
+                else:                          # 신규 → LLM per-template 분류
                     is_notif = t in llm_notif
-                    tmpl_sev = "info" if is_notif else severity
+                    tmpl_sev = "info" if is_notif else (llm_sev.get(t) or severity)
 
                 t_norm = rc["norm"]
                 t_text = mask_sensitive_data(_format_logs_by_type(by_tmpl[t]["logs"]))
@@ -792,7 +886,7 @@ async def _analyze_one_role(
                 f"[{label}] 분析 완료: {severity} [{analysis.get('anomaly_type', 'unknown')}] "
                 f"신규실에러={n_real} 신규알림성={n_notif_new} 인식알림성={len(recognized_notif)}"
             )
-            return {"status": "analyzed", "label": label}
+            return {"status": "analyzed", "label": label, **_stats}
 
         except Exception as e:
             logger.error(f"[{label}] 분析 실패: {e}")
@@ -814,6 +908,40 @@ async def _analyze_one_role(
             return {"status": "error", "label": label}
 
 
+async def _analyze_one_role_guarded(
+    sem: asyncio.Semaphore,
+    system_id: int,
+    system_name: str,
+    instance_role: str,
+    logs: list,
+    agent_code: str,
+    trace_ctx: str,
+    trace_ref_ids: list,
+) -> dict:
+    """_analyze_one_role를 역할 단위 타임아웃으로 감싼다.
+
+    한 역할(주로 매달린 DevX LLM 호출)이 _ROLE_ANALYSIS_TIMEOUT을 넘기면 그 역할만
+    취소하고 role_timeout으로 반환한다. 사이클 전체가 ANALYSIS_RUN_TIMEOUT(240s)에서
+    통째 취소되며 취소 불가한 임베딩 executor 잡·대용량 할당을 스트랜딩시키는 것을 방지.
+    취소된 역할의 template은 결정적 point_id·stored-wins라 다음 주기에 idempotent 재처리.
+    """
+    label = f"{system_name}/{instance_role}"
+    try:
+        return await asyncio.wait_for(
+            _analyze_one_role(
+                sem, system_id, system_name, instance_role, logs,
+                agent_code, trace_ctx, trace_ref_ids,
+            ),
+            timeout=_ROLE_ANALYSIS_TIMEOUT,
+        )
+    except asyncio.TimeoutError:
+        logger.error(
+            f"[{label}] 역할 분석 타임아웃 ({_ROLE_ANALYSIS_TIMEOUT}s 초과) "
+            f"— 스킵, 다음 주기 재시도"
+        )
+        return {"status": "role_timeout", "label": label}
+
+
 async def run_analysis() -> dict:
     """전체 활성 시스템 로그 분석 실행 (n8n 트리거 또는 내부 스케줄러 호출)
 
@@ -824,7 +952,8 @@ async def run_analysis() -> dict:
       errors:    분석 과정 예외 발생 건 (실패 레코드는 DB에 별도 저장됨)
     """
     logger.info("로그 분석 시작")
-    results: dict = {"analyzed": 0, "skipped": 0, "no_logs": 0, "notification_auto": 0, "errors": 0, "systems": []}
+    results: dict = {"analyzed": 0, "skipped": 0, "no_logs": 0, "notification_auto": 0, "role_timeout": 0, "errors": 0,
+                     "tier1_hit": 0, "tier2_attempt": 0, "tier2_hit": 0, "systems": []}
 
     # 이번 분석 주기의 활성 예외 규칙 캐시 (300초 주기 1회 조회)
 
@@ -886,7 +1015,7 @@ async def run_analysis() -> dict:
 
             for instance_role, logs in logs_by_role.items():
                 role_tasks.append(
-                    _analyze_one_role(
+                    _analyze_one_role_guarded(
                         sem, system_id, system_name, instance_role, logs,
                         agent_code, trace_ctx, list(trace_ref_ids),
                     )
@@ -906,6 +1035,9 @@ async def run_analysis() -> dict:
             else:
                 status = r.get("status", "error")
                 results[status] = results.get(status, 0) + 1
+                results["tier1_hit"]     += r.get("tier1_hit", 0)
+                results["tier2_attempt"] += r.get("tier2_attempt", 0)
+                results["tier2_hit"]     += r.get("tier2_hit", 0)
                 if status == "analyzed":
                     results["systems"].append(r["label"])
 

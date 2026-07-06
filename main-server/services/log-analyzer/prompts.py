@@ -7,6 +7,27 @@
 
 # ── 로그 분석 프롬프트 (vector_client.py) ────────────────────────────────────
 
+# per-template 분류 모드 응답 규칙 (혼재 배치에서 template별 알림성/실에러 분리).
+# 배치 단위 verdict 하나로 뭉개면 진짜 실에러 하나에 양성 덤프까지 warning으로 휩쓸리므로,
+# 각 [index] template을 개별 판정하게 한다.
+_PER_TEMPLATE_RESPONSE_RULES = """위 [index] 각 로그 template을 **개별 분류**하여 반드시 아래 JSON만 출력하세요. 추가 설명 없이 JSON만.
+
+각 template의 is_notification 판정 규칙:
+- ERROR 레벨이더라도 아래를 **모두** 만족하면 is_notification=true, severity="info":
+  1. 스택트레이스가 없다 (at com., at org., Caused by: 패턴 없음)
+  2. DB·API·메시지큐 등 외부 시스템 연결 실패가 아니다
+  ※ 고객정보·세션·주문 등을 KEY=VALUE로 덤프한 로그(빈 필드 많아도), Start/End 등 트레이스 마커, 단순 상태 통보는 is_notification=true (단순 로깅이므로 데이터 정합 오류와 무관).
+- 아래는 is_notification=false, severity="warning" 이상:
+  · 스택트레이스 포함(at com., Caused by:) / 외부 시스템 연결·응답 실패(DB, API, MQ) / 명시적 검증·제약·무결성 오류 / 결제·주문·배치 "실패"·"오류"가 처리 결과로 명시된 경우.
+
+작성 규칙:
+- template_classifications: 위 각 [index]마다 **정확히 하나씩** 포함. index는 위 목록 번호와 일치.
+- root_cause/recommendation: is_notification=false(실에러)들의 공통 원인 대상으로 1건 작성(한국어, 문장은 \\n 구분, 마크다운 금지). 실에러가 없으면 빈 문자열 "".
+- recommendation은 "1) 즉시 조치: ...\\n2) 원인 분석: ...\\n3) 재발 방지: ..." 번호 목록.
+
+{"template_classifications": [{"index": 0, "is_notification": true, "severity": "info"}], "root_cause": "원인 요약\\n근거", "recommendation": "1) 즉시 조치: ...\\n2) 원인 분석: ...\\n3) 재발 방지: ...", "error_category": "오류 카테고리 (예: DB_CONNECTION, MEMORY, NETWORK 등)", "estimated_impact": "예상 영향 범위 (한국어, 1문장)"}"""
+
+
 def build_enhanced_prompt(
     log_content: str,
     system_name: str,
@@ -16,6 +37,7 @@ def build_enhanced_prompt(
     trace_tier: str = "5min",
     postmortems: list[dict] | None = None,
     metric_snapshot: dict | None = None,
+    templates: list[str] | None = None,
 ) -> str:
     """유사 이력 + 해결책을 포함한 강화 프롬프트 생성.
 
@@ -96,6 +118,23 @@ def build_enhanced_prompt(
             parts.append(f"네트워크 RX {metric_snapshot['net_rx']:.1f}MB/s")
         if parts:
             metric_section = f"\n=== 현재 시스템 메트릭 ===\n{' | '.join(parts)}\n"
+
+    # per-template 분류 모드: distinct template을 번호 목록으로 제시하고 index별 분류를 요청
+    if templates:
+        tmpl_lines = "\n".join(f"[{i}] {str(t)[:300]}" for i, t in enumerate(templates))
+        return f"""=== 현재 이상 분류: {type_label} ===
+시스템: {system_name} / {instance_role}
+{trace_section}
+=== 분류 대상 로그 template ({len(templates)}건) ===
+{tmpl_lines}
+{metric_section}
+=== 과거 유사 장애 이력 (상위 3건) ===
+{history_ctx}
+
+=== 검증된 해결책 ===
+{solution_ctx}
+
+{_PER_TEMPLATE_RESPONSE_RULES}"""
 
     return f"""=== 현재 이상 분류: {type_label} ===
 시스템: {system_name} / {instance_role}
