@@ -83,7 +83,9 @@ async def _post_webhook(webhook_url: str, body: dict) -> bool:
     Workflows(Power Automate) 웹훅은 202 Accepted를 반환하므로 둘 다 성공으로 본다.
     비-2xx는 실패로 로깅(구커넥터 은퇴 시 403 등 가시성 확보).
     """
-    async with httpx.AsyncClient(timeout=10.0, verify=_SSL_CONTEXT) as client:
+    # 발송 타임아웃 1초 — 비동기(fire-and-forget)라 파이프라인은 안 막지만, 죽은/느린 웹훅에 대한
+    # 백그라운드 태스크를 빨리 정리(누적 방지)한다. Workflows는 202를 즉시 반환.
+    async with httpx.AsyncClient(timeout=1.0, verify=_SSL_CONTEXT) as client:
         resp = await client.post(webhook_url, json=body)
         if not (200 <= resp.status_code < 300):
             logger.warning("Teams webhook responded %s (host=%s)", resp.status_code, resp.request.url.host)

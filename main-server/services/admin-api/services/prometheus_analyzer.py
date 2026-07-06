@@ -647,7 +647,7 @@ async def _notify_host(hc: HostContext, analysis: str, severity: str, db: AsyncS
     from services.notification import spawn_teams_send
 
     async def _send_metric_card():
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=1.0) as client:   # 발송 1초 타임아웃 (죽은 웹훅 빠른 정리)
             resp = await client.post(webhook_url, json=card)
             if not (200 <= resp.status_code < 300):   # 200(구커넥터)·202(Workflows) 모두 성공
                 logger.warning("Teams webhook responded %s for host %s", resp.status_code, hc.host)
