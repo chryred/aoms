@@ -936,7 +936,8 @@ async def _analyze_one_role(
             return {"status": "analyzed", "label": label, **_stats}
 
         except Exception as e:
-            logger.error(f"[{label}] 분析 실패: {e}")
+            # 예외 타입/repr을 남긴다 — httpx 타임아웃 등은 str(e)가 비어 "분析 실패: "만 찍혀 진단 불가였음
+            logger.error(f"[{label}] 분析 실패: {type(e).__name__}: {e!r}")
             try:
                 await submit_analysis(
                     system_id=system_id,
