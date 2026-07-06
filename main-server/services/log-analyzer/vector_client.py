@@ -380,15 +380,25 @@ _HYBRID_SPARSE_CONFIG = {
 }
 
 
+# 존재 확인된 컬렉션 캐시 — store_incident_vector가 template마다 ensure_collection을 부르며
+# 매번 GET 왕복(N+1)하던 것을 프로세스 1회로 축소. 삭제 시 discard되어 reset 후 재확인.
+_ensured_collections: set[str] = set()
+
+
 async def ensure_collection(collection_name: str, hybrid: bool = True) -> bool:
     """
     컬렉션 미존재 시 자동 생성. True=생성됨, False=이미 존재.
 
     hybrid=True  (기본): Dense(1024) + Sparse(BM25) Hybrid 스키마
     hybrid=False       : Dense 전용 (metric_hourly_patterns용)
+
+    이미 존재 확인된 컬렉션은 GET 없이 즉시 반환(프로세스 캐시) — 저장 루프의 반복 GET 제거.
     """
+    if collection_name in _ensured_collections:
+        return False
     check = await _qdrant_http.get(f"{QDRANT_URL}/collections/{collection_name}")
     if check.status_code == 200:
+        _ensured_collections.add(collection_name)
         return False
 
     body: dict = {
@@ -403,6 +413,7 @@ async def ensure_collection(collection_name: str, hybrid: bool = True) -> bool:
         json=body,
     )
     resp.raise_for_status()
+    _ensured_collections.add(collection_name)
     logger.info(
         "컬렉션 생성: %s (dense=1024, %s, m=16, ef=128)",
         collection_name,
@@ -416,6 +427,7 @@ async def delete_collection(collection_name: str) -> None:
     resp = await _qdrant_http.delete(f"{QDRANT_URL}/collections/{collection_name}")
     if resp.status_code not in (200, 404):
         resp.raise_for_status()
+    _ensured_collections.discard(collection_name)   # reset 후 재확인되도록 캐시 무효화
     logger.info("컬렉션 삭제: %s", collection_name)
 
 
