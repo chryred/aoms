@@ -364,6 +364,25 @@ async def test_tier2_recognition_stats_reported(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_recognize_unlimited_fuzzy_processes_all(monkeypatch):
+    """max_fuzzy=None(UNLIMITED)이면 상한 없이 전 미스를 tier-2로 인식(콜드스타트 전량 검색)."""
+    templates = [f"E{i}" for i in range(300)]           # 전량 미스
+
+    monkeypatch.setattr(analyzer, "retrieve_points_batch", AsyncMock(return_value={}))
+    embed_batch = AsyncMock(side_effect=lambda texts: [[0.1] * 4 for _ in texts])
+    monkeypatch.setattr(analyzer, "get_embedding_batch", embed_batch)
+    monkeypatch.setattr(analyzer, "get_sparse_vector", AsyncMock(return_value={"indices": [1], "values": [0.5]}))
+    notif_batch = AsyncMock(side_effect=lambda vecs, *a, **k: [[] for _ in vecs])
+    monkeypatch.setattr(analyzer, "search_notification_incidents_batch", notif_batch)
+
+    recog = await analyzer._recognize_templates("cxm", "was1", templates, max_fuzzy=None)
+
+    assert len(embed_batch.await_args.args[0]) == 300   # 상한 없이 전량 임베딩
+    assert len(notif_batch.await_args.args[0]) == 300   # 전량 배치 검색
+    assert all(recog[t]["dense"] is not None for t in templates)
+
+
+@pytest.mark.asyncio
 async def test_recognize_no_cap_when_misses_under_limit(monkeypatch):
     """미스가 상한 이하면 전량 tier-2 (정상 운영 — 기존 동작 불변)."""
     templates = [f"E{i}" for i in range(20)]

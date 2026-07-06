@@ -65,7 +65,10 @@ _ROLE_ANALYSIS_TIMEOUT = int(os.getenv("ROLE_ANALYSIS_TIMEOUT_SECONDS", "60"))
 # tier-2는 컬렉션 리셋 직후 콜드스타트(전량 미스)에서 O(distinct)로 폭증해 저장 단계 도달 전
 # 역할 타임아웃 → 영구 정체를 유발한다. 이를 상한으로 막고 초과분은 need_llm(cap+백로그)로 이월.
 # 정상 운영에선 미스가 적어 미발동(기존 동작 불변).
-_MAX_FUZZY_RECOGNIZE = int(os.getenv("MAX_FUZZY_RECOGNIZE_PER_CYCLE", "100"))
+# tier-2 fuzzy 인식 사이클당 상한. "UNLIMITED"(대소문자 무관)이면 None → 상한 없이 전량 인식.
+# 정수면 그 개수까지만, 0이면 tier-2 미수행. (전량 처리는 콜드스타트에서 임베딩 O(distinct)이니 주의)
+_raw_fuzzy = os.getenv("MAX_FUZZY_RECOGNIZE_PER_CYCLE", "100").strip()
+_MAX_FUZZY_RECOGNIZE: int | None = None if _raw_fuzzy.upper() == "UNLIMITED" else int(_raw_fuzzy)
 
 # 한 LLM 콜에 담는 per-template 분류 대상 수 상한. LLM(DevX)이 index별 배열을 안정적으로
 # 반환하도록 배치를 작게 유지한다(너무 크면 index 누락→보수적 실에러 오탐↑). 초과분은
