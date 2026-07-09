@@ -521,6 +521,21 @@ class LogAnalysisCreate(BaseModel):
     log_content: str
     analysis_result: str
     severity: str
+
+    @field_validator("severity", mode="before")
+    @classmethod
+    def _normalize_severity(cls, v):
+        """LLM 열거형 이탈 값 정규화 (2차 방어 — 1차는 log-analyzer analyzer.normalize_severity).
+
+        허용값 밖 severity("error" 등)가 저장되면 Teams 발송 조건(warning/critical)에서
+        빠지고 UI에 원문이 노출된다. 거부(422) 대신 보정 — 분석 레코드 유실 방지.
+        """
+        if not isinstance(v, str) or not v.strip():
+            return "warning"
+        s = v.strip().lower()
+        if s in ("info", "warning", "critical"):
+            return s
+        return "warning"  # "error" 포함 미허용값은 보수적으로 warning
     root_cause: Optional[str] = None
     recommendation: Optional[str] = None
     model_used: Optional[str] = None

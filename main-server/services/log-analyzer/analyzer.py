@@ -84,6 +84,22 @@ _backlog: dict[str, list[str]] = {}
 _admin_http = httpx.AsyncClient(timeout=10.0)    # admin-api 호출
 _prom_http  = httpx.AsyncClient(timeout=30.0)    # Prometheus 쿼리
 
+# severity 허용값. LLM이 프롬프트 열거형을 벗어난 값(대표: "error")을 반환하면
+# Qdrant payload → stored-wins 승계 → alert_history까지 그대로 전파되어
+# Teams 발송 조건(warning/critical)에서 빠지고 UI에 원문이 노출된다.
+_ALLOWED_SEVERITIES = {"info", "warning", "critical"}
+_SEVERITY_ALIASES = {"error": "warning"}
+
+
+def normalize_severity(value: str | None, default: str = "warning") -> str:
+    """LLM 응답·저장 payload의 severity를 info/warning/critical로 정규화."""
+    if not value:
+        return default
+    v = value.strip().lower()
+    if v in _ALLOWED_SEVERITIES:
+        return v
+    return _SEVERITY_ALIASES.get(v, default)
+
 ANALYSIS_QUERY = """다음 서버 로그를 분석하여 반드시 아래 JSON 형식으로만 응답하세요. 추가 설명 없이 JSON만 출력하세요.
 
 시스템명: {system_name}
@@ -393,6 +409,9 @@ async def analyze_with_vector_context(
     except Exception as e:
         llm_error = f"{type(e).__name__}: {str(e)[:300]}"
         logger.warning(f"[{system_name}/{instance_role}] LLM 분석 실패 — 벡터 저장은 계속: {llm_error}")
+    # LLM이 열거형 밖 severity("error" 등)를 반환해도 하류(Qdrant/admin-api)로 새지 않게 정규화
+    if "severity" in analysis:
+        analysis["severity"] = normalize_severity(analysis.get("severity"))
     # LLM 호출 자체 소요 (DevX 지연 진단 — 임베딩/검색 prep과 분리)
     logger.info(
         f"[{system_name}/{instance_role}] LLM호출 {(time.monotonic()-_tllm)*1000:.0f}ms "
@@ -415,7 +434,7 @@ async def analyze_with_vector_context(
                     remapped.append({
                         "template":        classify_templates[idx],
                         "is_notification": bool(item.get("is_notification")),
-                        "severity":        item.get("severity") or "info",
+                        "severity":        normalize_severity(item.get("severity"), default="info"),
                     })
         analysis["template_classifications"] = remapped
         if not remapped:
@@ -609,7 +628,8 @@ async def _recognize_templates(
             result[t]["recognized"] = True
             result[t]["point_exists"] = True
             result[t]["is_notification"] = bool(pl.get("is_notification"))
-            result[t]["severity"] = pl.get("severity") or "info"
+            # 과거 오염 포인트(severity="error" 등) 승계 시에도 정규화 (방어 계층)
+            result[t]["severity"] = normalize_severity(pl.get("severity"), default="info")
             result[t]["occurrence"] = int(pl.get("occurrence_count", 1) or 1)
         else:
             misses.append(t)

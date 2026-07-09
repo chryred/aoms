@@ -623,6 +623,10 @@ log-analyzer → POST /api/v1/analysis
 
 ## 개발 주의사항 (실수 방지)
 
+### LogAnalysisCreate.severity 정규화 (2026-07-07)
+
+`schemas.py`의 `LogAnalysisCreate`는 field_validator로 severity를 `info/warning/critical`로 정규화한다 (미허용값 — 대표 `"error"` — 은 `warning`으로 보정, 422 거부 아님 — 분석 레코드 유실 방지). 1차 방어는 log-analyzer `analyzer.normalize_severity`. 배경·정리 스크립트는 log-analyzer CLAUDE.md "severity 정규화 불변식" 참조. 이 필드를 Literal로 바꾸면 구버전 log-analyzer가 보낸 이탈 값이 422로 유실되니 주의.
+
 ### Teams Adaptive Card — 카드 액션 (Wave 2B 변경)
 
 `adaptive_card_builder.py`의 `build_metric_alert_card` / `build_log_analysis_card` 두 함수 모두

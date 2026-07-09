@@ -473,6 +473,16 @@ ocr_worker.py의 `extract_text_with_stats(file_path, mime_type, progress_cb=_NOO
 
 ## 개발 주의사항
 
+### severity 정규화 불변식 (2026-07-07)
+
+LLM이 프롬프트 열거형(info/warning/critical)을 벗어난 severity(대표: `"error"`)를 반환하는 사례가 실제 발생 — 검증 없이 Qdrant payload → stored-wins 승계 → admin-api `alert_history`까지 전파되어 Teams 발송 조건(warning/critical)에서 빠지고 UI에 원문("error" 초록 배지)이 노출됐다.
+
+- **`analyzer.normalize_severity(value, default)`** — 허용값 화이트리스트 + `error→warning` 별칭, 그 외 미허용값은 default로 폴백
+- 적용 지점 3곳: ① `analyze_with_vector_context` LLM 응답 배치 severity ② per-template `template_classifications` remap ③ `_recognize_templates` tier-1 저장 payload 승계(과거 오염 포인트 방어)
+- 2차 방어: admin-api `LogAnalysisCreate` field_validator (거부 대신 보정 — 분석 레코드 유실 방지)
+- 기존 오염 데이터 정리: `configs/postgres/migrations/20260707_normalize_severity_error.sql` (DB 3개 테이블) + `scripts/fix_qdrant_severity_error.py` (Qdrant `log_incidents` payload)
+- 회귀 테스트: `tests/test_severity_normalization.py`
+
 ### 컬렉션 초기화 순서
 - `log_incidents` / `metric_baselines`: **log-analyzer `lifespan`이 부팅 시 자동 `ensure_collection`** (ADR-004)
 - `metric_hourly_patterns` / `aggregation_summaries`: `POST /aggregation/collections/setup` — 수동 1회

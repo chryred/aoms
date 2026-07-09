@@ -73,6 +73,21 @@ async def test_create_analysis_info_no_alert(authed_client: AsyncClient):
     assert resp.json()["alert_sent"] is False
 
 
+async def test_create_analysis_severity_error_normalized_to_warning(authed_client: AsyncClient):
+    """LLM이 열거형 밖 severity="error"를 보내도 warning으로 정규화 저장 + Teams 발송 (2차 방어)"""
+    system = await create_system(authed_client)
+    payload = {**ANALYSIS_PAYLOAD, "system_id": system["id"], "severity": "error"}
+
+    with patch("routes.analysis.DEFAULT_WEBHOOK_URL", "https://teams.example.com/webhook"), \
+         patch("routes.analysis.notifier.send_log_analysis_alert", new_callable=AsyncMock, return_value=True):
+        resp = await authed_client.post("/api/v1/analysis", json=payload)
+
+    assert resp.status_code == 201
+    data = resp.json()
+    assert data["severity"] == "warning"
+    assert data["alert_sent"] is True  # "error"였으면 warning/critical 조건에서 빠져 발송 누락
+
+
 async def test_create_analysis_system_not_found(authed_client: AsyncClient):
     payload = {**ANALYSIS_PAYLOAD, "system_id": 9999}
     resp = await authed_client.post("/api/v1/analysis", json=payload)

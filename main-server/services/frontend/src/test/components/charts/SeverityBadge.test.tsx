@@ -28,6 +28,12 @@ describe('SeverityBadge', () => {
     expect(screen.getByText('unknown')).toBeInTheDocument()
   })
 
+  it('알 수 없는 severity — 경고 스타일 폴백 (정상 초록으로 위장 금지)', () => {
+    // 백엔드 정규화를 우회한 미정의 값이 와도 "정상"처럼 보이면 안 됨
+    render(<SeverityBadge severity={'error' as never} />)
+    expect(screen.getByText('error').className).toContain('text-warning-text')
+  })
+
   it('size=sm — 기본', () => {
     render(<SeverityBadge severity="normal" />)
     expect(screen.getByText('정상').className).toContain('text-xs')
