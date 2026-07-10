@@ -172,6 +172,10 @@ def normalize_log_for_embedding(raw_log: str) -> str:
     (cxm 실측: ordInfo 덤프 419변형 → 수 개, 고객ID·주문번호가 =\\d+에 안 걸리던 문제).
     """
     text = re.sub(r'\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}[.\d]*', '<TS>', raw_log)
+    # 날짜 없는 단독 시각(08:36:00 / 16:49:09,644) — 스케줄 배치가 같은 메시지를 슬롯마다
+    # 다른 template으로 갈라놓는 것 방지 (dev-itenm OrderCloseService 실측 940변형 → 2).
+    # HH:MM 2단 형태(logback Interpreter@12:18 라인:칼럼 참조)는 대상 아님 (과병합 금지).
+    text = re.sub(r'\b\d{1,2}:\d{2}:\d{2}(?:[.,]\d+)?\b', '<TS>', text)
     # URL 토큰 통째 치환 (쿼리스트링·경로·스킴 차이 흡수) — =NNN 치환보다 먼저
     text = re.sub(r'https?://\S+', '<URL>', text)
     text = re.sub(r'\b\d{1,3}(?:\.\d{1,3}){3}\b', '<IP>', text)

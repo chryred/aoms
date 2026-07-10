@@ -108,6 +108,37 @@ def test_distinct_error_codes_not_merged():
     assert norm("connection failed code 404") != norm("connection failed code 500")
 
 
+# ── 신규 규칙: 날짜 없는 단독 시각(HH:MM:SS) 흡수 ─────────────────────────────
+
+def test_bare_time_of_day_collapses():
+    """날짜 없는 선두 시각(08:36:00)은 <TS> — 스케줄 배치가 같은 메시지를 슬롯마다
+    다른 template으로 갈라놓는 것 방지 (dev-itenm OrderCloseService 940변형 → 2)."""
+    a = "08:36:00 ERROR k.c.m.f.s.OrderCloseService:-1 - 샵프 : (샵프 주문의 재고 연동 데이터가 없음.)"
+    b = "13:15:00 ERROR k.c.m.f.s.OrderCloseService:-1 - 샵프 : (샵프 주문의 재고 연동 데이터가 없음.)"
+    assert norm(a) == norm(b)
+    assert "<TS>" in norm(a)
+
+
+def test_bare_time_with_millis_collapses():
+    """밀리초 동반 시각(16:49:09,644 / 09.123)도 <TS>로 수렴."""
+    a = "16:49:09,644 |-ERROR in ch.qos.logback.core.joran.spi.Interpreter - no applicable action"
+    b = "16:20:55.972 |-ERROR in ch.qos.logback.core.joran.spi.Interpreter - no applicable action"
+    assert norm(a) == norm(b)
+
+
+def test_bare_time_different_messages_not_merged():
+    """시각만 같고 메시지가 다르면 병합 금지 (주문 vs 취소 주문)."""
+    a = "08:36:00 ERROR OrderCloseService - 샵프 주문의 재고 연동 데이터가 없음."
+    b = "08:36:00 ERROR OrderCloseService - 샵프 취소 주문의 재고 연동 데이터가 없음."
+    assert norm(a) != norm(b)
+
+
+def test_hh_mm_two_segment_not_masked():
+    """2단 시각(HH:MM 형태 — logback Interpreter@12:18 라인:칼럼 참조)은 마스킹하지 않음."""
+    out = norm("ERROR in ch.qos.logback.core.joran.spi.Interpreter@12:18 - no applicable action")
+    assert "12:18" in out
+
+
 # ── 하위 호환: 기존 규칙 유지 ─────────────────────────────────────────────────
 
 def test_existing_timestamp_and_ip_still_normalized():
