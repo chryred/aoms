@@ -282,7 +282,7 @@ OnceLock regex — 매칭 순서:
 4. 주민번호 (6-7자리) → `[JUMIN]`
 5. 카드번호 (13-16자리) → `[CARD]`
 6. 전화번호 → `[PHONE]`
-7. 5자리 이상 숫자 → `[NUM]`
+7. 5자리 이상 숫자 → `[NUM]` — 단 `ClassName.java:NNN` 라인번호와 `ORA-NNNNN`(Oracle 에러 코드 = 오류 유형 식별자)은 보호
 8. 200자 truncate (Prometheus label 크기 제한)
 
 ---
