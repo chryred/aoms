@@ -59,12 +59,13 @@ pub fn extract_template(line: &str) -> String {
     mask_large_numbers(&result)
 }
 
-/// 5자리 이상 숫자를 <NUM>으로 마스킹하되, ClassName.java:NNN 패턴은 보호.
+/// 5자리 이상 숫자를 <NUM>으로 마스킹하되, ClassName.java:NNN 패턴과
+/// Oracle 에러 코드(ORA-NNNNN — 오류 유형 식별자, 가변 데이터 아님)는 보호.
 /// Rust regex lookbehind 미지원으로 클로저 기반 처리.
 fn mask_large_numbers(s: &str) -> String {
     static RE: OnceLock<Regex> = OnceLock::new();
     let re = RE.get_or_init(|| {
-        Regex::new(r"([\w\$]+\.java:\d+)|(\b\d{5,}\b)").unwrap()
+        Regex::new(r"([\w\$]+\.java:\d+|\bORA-\d+)|(\b\d{5,}\b)").unwrap()
     });
     re.replace_all(s, |caps: &regex::Captures| {
         if caps.get(1).is_some() {
@@ -110,6 +111,21 @@ mod tests {
     fn test_large_number_still_masked() {
         let t = extract_template("transaction id=12345 failed");
         assert!(t.contains("<NUM>"), "독립 5자리+ 숫자는 여전히 마스킹: {}", t);
+    }
+
+    #[test]
+    fn test_ora_error_code_preserved() {
+        let t = extract_template(
+            "uncategorized SQLException; ORA-28365: wallet is not open: java.sql.SQLException",
+        );
+        assert!(t.contains("ORA-28365"), "ORA 코드는 오류 유형 식별자 — 마스킹 금지: {}", t);
+    }
+
+    #[test]
+    fn test_ora_adjacent_number_still_masked() {
+        let t = extract_template("ORA-00600: internal error, arguments: [729], txn id 1234567890");
+        assert!(t.contains("ORA-00600"), "got: {}", t);
+        assert!(t.contains("<NUM>"), "ORA 코드 외 독립 5자리+ 숫자는 여전히 마스킹: {}", t);
     }
 
     #[test]

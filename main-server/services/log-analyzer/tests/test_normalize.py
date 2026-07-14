@@ -139,6 +139,29 @@ def test_hh_mm_two_segment_not_masked():
     assert "12:18" in out
 
 
+# ── 과병합 금지: ORA 에러 코드 보존 ──────────────────────────────────────────
+
+def test_ora_error_code_preserved():
+    """ORA-NNNNN은 오류 유형 식별자 — <NUM> 마스킹하면 어떤 유형인지 구분 불가."""
+    out = norm("uncategorized SQLException; ORA-28365: wallet is not open")
+    assert "ORA-28365" in out
+    assert "ORA-<NUM>" not in out
+
+
+def test_distinct_ora_codes_not_merged():
+    """서로 다른 ORA 코드는 서로 다른 template으로 유지되어야 한다."""
+    assert norm("SQLException; ORA-28365: wallet is not open") != norm(
+        "SQLException; ORA-00600: internal error"
+    )
+
+
+def test_ora_adjacent_large_number_still_masked():
+    """ORA 코드만 예외 — 그 외 독립 5자리+ 숫자는 여전히 마스킹."""
+    out = norm("ORA-00060 deadlock detected txn 1234567890")
+    assert "ORA-00060" in out
+    assert "1234567890" not in out
+
+
 # ── 하위 호환: 기존 규칙 유지 ─────────────────────────────────────────────────
 
 def test_existing_timestamp_and_ip_still_normalized():

@@ -200,7 +200,8 @@ def normalize_log_for_embedding(raw_log: str) -> str:
     text = re.sub(r'(?<=:")(?=")', '<VAL>', text)                      # "customerId":"" (JSON 빈 문자열)
     # 할당/쿼리 값 (가변 ID·카운트) key=123 → key=<N>
     text = re.sub(r'=\d+', '=<N>', text)
-    text = re.sub(r'\b\d{5,}\b', '<NUM>', text)
+    # ORA-NNNNN(Oracle 에러 코드)은 오류 유형 식별자 — 마스킹하면 유형 구분 불가라 보존
+    text = re.sub(r'\b(?<!ORA-)\d{5,}\b', '<NUM>', text)
     # 할당값 플레이스홀더 통일 + 빈 값 통일: KEY=<N>/KEY=<NUM>/KEY=(빈값) → KEY=<VAL>
     # (같은 키가 창마다 <N>/<NUM>/빈값으로 갈려 조합 폭증하는 것 방지 — KEY=VALUE 덤프 대응.
     #  순수 문자 상태값 KEY=Y/N/FAILED 는 그대로라 상태 구분은 유지됨)
