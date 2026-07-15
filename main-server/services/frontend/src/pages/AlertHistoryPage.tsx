@@ -1,7 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import toast from 'react-hot-toast'
-import { Ban, Bell, ChevronLeft, ChevronRight, RefreshCw, X } from 'lucide-react'
+import {
+  Ban,
+  Bell,
+  CheckCircle,
+  ChevronLeft,
+  ChevronRight,
+  Clock,
+  RefreshCw,
+  X,
+} from 'lucide-react'
 import { useAlerts } from '@/hooks/queries/useAlerts'
 import { useAlertsCount } from '@/hooks/queries/useAlertsCount'
 import { useSystems } from '@/hooks/queries/useSystems'
@@ -15,8 +24,12 @@ import { LoadingSkeleton } from '@/components/common/LoadingSkeleton'
 import { ErrorCard } from '@/components/common/ErrorCard'
 import { AlertTable } from '@/components/alert/AlertTable'
 import { AlertDetailPanel } from '@/components/alert/AlertDetailPanel'
-import { cn, kstDateToUtcStart, kstDateToUtcEnd } from '@/lib/utils'
+import { SeverityBadge } from '@/components/charts/SeverityBadge'
+import { formatAlertTitle } from '@/components/alert/alertTitle'
+import { cn, formatKST, kstDateToUtcStart, kstDateToUtcEnd } from '@/lib/utils'
 import type { AlertHistory, Severity } from '@/types/alert'
+import { alertsApi } from '@/api/alerts'
+import { analysisApi } from '@/api/analysis'
 import { metricExclusionsApi } from '@/api/metricExclusions'
 import { reclassifyApi } from '@/api/reclassify'
 import {
@@ -86,6 +99,22 @@ export function AlertHistoryPage() {
   const [selectedMetricKeys, setSelectedMetricKeys] = useState<Set<string>>(new Set())
   const [overrideThresholdInput, setOverrideThresholdInput] = useState('') // 빈 문자열 = 완전 차단
   const [applyToAllHosts, setApplyToAllHosts] = useState(false) // true = host=NULL 와일드카드
+
+  // 일괄 확인
+  const [isAcknowledging, setIsAcknowledging] = useState(false)
+
+  // 로그 전체 보기 모달 (선택된 로그분석 알림을 사이클 시각순으로 나열)
+  type LogViewItem = {
+    alertId: number
+    createdAt: string
+    systemId: number | null
+    severity: Severity
+    title: string
+    lines: string[]
+  }
+  const [showLogViewModal, setShowLogViewModal] = useState(false)
+  const [logViewLoading, setLogViewLoading] = useState(false)
+  const [logViewItems, setLogViewItems] = useState<LogViewItem[]>([])
 
   const { user } = useAuthStore()
 
@@ -209,10 +238,8 @@ export function AlertHistoryPage() {
 
   // 체크박스 핸들러
   const currentAlerts = alerts ?? []
-  // 선택 가능 알림: 로그분석 + prometheus_analyzer 메트릭 이상
-  const selectableAlerts = currentAlerts.filter(
-    (a) => a.alert_type === 'log_analysis' || isMetricAnalyzerAlert(a),
-  )
+  // 일괄 확인 대상 확장: 모든 알림 행이 선택 가능 (심각도 변경/예외 처리는 유형별로 별도 게이팅)
+  const selectableAlerts = currentAlerts
   const allSelectableSelected =
     selectableAlerts.length > 0 && selectableAlerts.every((a) => selectedIds.has(a.id))
 
@@ -243,6 +270,10 @@ export function AlertHistoryPage() {
   const selectedMetricCount = selectedMetricAlerts.length
   // 심각도 변경 가능한 로그: qdrant_point_id 있는 항목 (severity 무관)
   const qualifyingLogAlerts = selectedLogAlerts.filter((a) => a.qdrant_point_id)
+  // 일괄 확인 대상: 선택된 알림 중 아직 미확인 항목
+  const selectedUnackedAlerts = currentAlerts.filter(
+    (a) => selectedIds.has(a.id) && !a.acknowledged,
+  )
 
   // 만료 옵션 → ISO UTC 변환
   const computeExpiresAt = (): string | null => {
@@ -254,6 +285,72 @@ export function AlertHistoryPage() {
     const days = parseInt(expiryOption, 10)
     const target = new Date(Date.now() + days * 86400000)
     return target.toISOString()
+  }
+
+  // 일괄 확인 처리 — 선택된 미확인 알림을 건별 acknowledge 팬아웃
+  const handleBulkAcknowledge = async () => {
+    const targets = selectedUnackedAlerts
+    if (targets.length === 0) return
+    setIsAcknowledging(true)
+    const results = await Promise.allSettled(
+      targets.map((a) =>
+        alertsApi.acknowledgeAlert(a.id, { acknowledged_by: user?.name ?? 'unknown' }),
+      ),
+    )
+    setIsAcknowledging(false)
+    setSelectedIds(new Set())
+    await refetch()
+
+    const succeeded = results.filter((r) => r.status === 'fulfilled').length
+    const failed = results.filter((r) => r.status === 'rejected').length
+    if (failed > 0) {
+      toast.error(`${succeeded}건 확인 완료, ${failed}건 실패`)
+    } else {
+      toast.success(`${succeeded}건을 확인 처리했습니다.`)
+    }
+  }
+
+  // 로그 전체 보기 — 선택된 로그분석 알림의 원본 오류 로그를 사이클 시각순으로 조회
+  const openLogViewModal = async () => {
+    const logAlerts = selectedLogAlerts
+    if (logAlerts.length === 0) return
+    setShowLogViewModal(true)
+    setLogViewLoading(true)
+    setLogViewItems([])
+    const details = await Promise.allSettled(
+      logAlerts.map((a) =>
+        a.log_analysis_id != null
+          ? analysisApi.getAnalysis(a.log_analysis_id)
+          : Promise.reject(new Error('no log_analysis_id')),
+      ),
+    )
+    const items: LogViewItem[] = logAlerts.map((a, i) => {
+      const res = details[i]
+      const detail = res.status === 'fulfilled' ? res.value : null
+      let lines: string[] = []
+      if (detail?.log_content) {
+        lines = detail.log_content
+          .split('\n')
+          .map((l) => l.trim())
+          .filter(Boolean)
+      } else if (detail?.templates_json && detail.templates_json.length > 0) {
+        lines = detail.templates_json
+      } else if (a.description) {
+        lines = [a.description]
+      }
+      return {
+        alertId: a.id,
+        createdAt: a.created_at,
+        systemId: a.system_id,
+        severity: a.severity,
+        title: a.title,
+        lines,
+      }
+    })
+    // 사이클 시각 오름차순 (오래된 것 → 최신) — naive UTC 문자열 정렬
+    items.sort((x, y) => x.createdAt.localeCompare(y.createdAt))
+    setLogViewItems(items)
+    setLogViewLoading(false)
   }
 
   // 로그 심각도 일괄 변경
@@ -545,17 +642,20 @@ export function AlertHistoryPage() {
 
       {/* 일괄 액션 바 */}
       {selectedIds.size > 0 && (
-        <div className="bg-surface shadow-neu-flat mb-3 flex items-center gap-3 rounded-sm px-4 py-2.5">
-          <span className="text-text-primary text-sm font-medium">
+        <div className="bg-surface shadow-neu-flat mb-3 flex flex-wrap items-center gap-3 rounded-sm px-4 py-2.5">
+          <span className="text-text-primary text-sm font-medium whitespace-nowrap">
             {selectedIds.size}건 선택됨
             {(selectedLogAnalysisCount > 0 || selectedMetricCount > 0) && (
-              <span className="text-text-secondary ml-2 text-xs">
+              <span className="text-text-secondary ml-2 text-xs whitespace-nowrap">
                 (로그 {selectedLogAnalysisCount} · 메트릭 {selectedMetricCount})
               </span>
             )}
           </span>
+          {/* 조치 그룹 (재분류/예외) — secondary, 인접 배치 + 뒤에 구분선 */}
           <NeuButton
             size="sm"
+            variant="secondary"
+            className="whitespace-nowrap"
             onClick={() => setShowLogSeverityModal(true)}
             disabled={selectedLogAnalysisCount === 0}
             title={selectedLogAnalysisCount === 0 ? '로그 분석 알림을 선택하세요' : undefined}
@@ -565,6 +665,8 @@ export function AlertHistoryPage() {
           </NeuButton>
           <NeuButton
             size="sm"
+            variant="secondary"
+            className="whitespace-nowrap"
             onClick={openExcludeModal}
             disabled={selectedMetricCount === 0}
             title={selectedMetricCount === 0 ? '메트릭 이상 알림을 선택하세요' : undefined}
@@ -572,7 +674,39 @@ export function AlertHistoryPage() {
             <Ban className="h-3.5 w-3.5" />
             메트릭 예외 처리
           </NeuButton>
-          <NeuButton size="sm" variant="ghost" onClick={() => setSelectedIds(new Set())}>
+          <div className="bg-border h-5 w-px shrink-0" aria-hidden="true" />
+          {/* 조회 — ghost (가벼운 보기 액션) */}
+          <NeuButton
+            size="sm"
+            variant="ghost"
+            className="whitespace-nowrap"
+            onClick={openLogViewModal}
+            disabled={selectedLogAnalysisCount === 0}
+            title={selectedLogAnalysisCount === 0 ? '로그 분석 알림을 선택하세요' : undefined}
+          >
+            <Clock className="h-3.5 w-3.5" />
+            로그 전체 보기
+          </NeuButton>
+          {/* 주 액션 — primary (accent 강조) */}
+          <NeuButton
+            size="sm"
+            variant="primary"
+            className="whitespace-nowrap"
+            onClick={handleBulkAcknowledge}
+            loading={isAcknowledging}
+            disabled={isAcknowledging || selectedUnackedAlerts.length === 0}
+            title={selectedUnackedAlerts.length === 0 ? '미확인 알림을 선택하세요' : undefined}
+          >
+            <CheckCircle className="h-3.5 w-3.5" />
+            확인
+            {selectedUnackedAlerts.length > 0 && ` (${selectedUnackedAlerts.length})`}
+          </NeuButton>
+          <NeuButton
+            size="sm"
+            variant="ghost"
+            className="whitespace-nowrap"
+            onClick={() => setSelectedIds(new Set())}
+          >
             선택 취소
           </NeuButton>
         </div>
@@ -619,12 +753,12 @@ export function AlertHistoryPage() {
                 className="accent-accent"
                 checked={allSelectableSelected}
                 onChange={toggleSelectAll}
-                aria-label="예외 처리 가능한 알림 전체 선택"
+                aria-label="현재 페이지 알림 전체 선택"
               />
               <span className="text-text-secondary text-xs">
                 {selectedIds.size > 0
-                  ? `${selectedIds.size}건 선택됨 / 예외 처리 가능 ${selectableAlerts.length}건`
-                  : `예외 처리 가능 ${selectableAlerts.length}건 (로그분석 + 메트릭 이상)`}
+                  ? `${selectedIds.size}건 선택됨 / 전체 ${selectableAlerts.length}건`
+                  : `전체 ${selectableAlerts.length}건 선택 가능`}
               </span>
             </div>
           )}
@@ -667,6 +801,73 @@ export function AlertHistoryPage() {
               다음
               <ChevronRight className="h-4 w-4" />
             </NeuButton>
+          </div>
+        </div>
+      )}
+
+      {/* 로그 전체 보기 모달 — 선택된 로그분석 알림을 사이클 시각순으로 나열 */}
+      {showLogViewModal && (
+        <div
+          className="bg-overlay fixed inset-0 z-50 flex items-center justify-center p-4"
+          onClick={() => setShowLogViewModal(false)}
+        >
+          <div
+            className="bg-surface shadow-neu-flat flex max-h-[85vh] w-full max-w-3xl flex-col rounded-sm"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="log-view-modal-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="border-border flex items-center justify-between border-b px-6 py-4">
+              <h3 id="log-view-modal-title" className="text-text-primary text-base font-semibold">
+                로그 전체 보기{' '}
+                <span className="text-text-secondary text-sm font-normal">
+                  (시간순 · {logViewItems.length}건)
+                </span>
+              </h3>
+              <button
+                onClick={() => setShowLogViewModal(false)}
+                className="text-text-secondary hover:text-text-primary"
+                aria-label="닫기"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto px-6 py-4">
+              {logViewLoading ? (
+                <p className="text-text-secondary text-sm">불러오는 중…</p>
+              ) : logViewItems.length === 0 ? (
+                <p className="text-text-secondary text-sm">표시할 로그가 없습니다.</p>
+              ) : (
+                <ol className="space-y-4">
+                  {logViewItems.map((item) => (
+                    <li key={item.alertId} className="border-border border-l-2 pl-3">
+                      <div className="mb-1.5 flex flex-wrap items-center gap-2">
+                        <span className="text-text-disabled font-mono text-xs">
+                          {formatKST(item.createdAt, 'datetime')}
+                        </span>
+                        <SeverityBadge severity={item.severity} />
+                        <span className="text-text-secondary text-xs">
+                          {item.systemId != null
+                            ? (systems.find((s) => s.id === item.systemId)?.display_name ?? '-')
+                            : '-'}
+                        </span>
+                        <span className="text-text-primary text-sm font-medium">
+                          {formatAlertTitle(item.title)}
+                        </span>
+                      </div>
+                      {item.lines.length > 0 ? (
+                        <pre className="bg-bg-base text-text-secondary overflow-x-auto rounded-sm p-2 font-mono text-xs whitespace-pre-wrap">
+                          {item.lines.join('\n')}
+                        </pre>
+                      ) : (
+                        <p className="text-text-disabled text-xs">로그 내용 없음</p>
+                      )}
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -872,7 +1073,7 @@ export function AlertHistoryPage() {
                   onChange={(e) => setOverrideThresholdInput(e.target.value)}
                 />
                 <p className="text-text-disabled mt-1 text-xs">
-                  예: 디스크 I/O 500ms 입력 → 500ms 이하는 무시, 초과 시 정상 알림 발생. 선택된
+                  예: 디스크 I/O 1000ms 입력 → 1000ms 이하는 무시, 초과 시 정상 알림 발생. 선택된
                   메트릭이 여러 종류면 모두 같은 숫자가 적용됩니다 (단위는 메트릭별: %, ms, MB/s,
                   건/분).
                 </p>

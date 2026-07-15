@@ -593,7 +593,7 @@ log-analyzer → POST /api/v1/analysis
 | `PROM_ALERT_MEM_CRITICAL` | `90.0` | 메모리 critical 판정 임계치(%) |
 | `PROM_ALERT_HTTP_SLOW_MS` | `3000.0` | HTTP 응답 지연 임계치(ms) |
 | `PROM_ALERT_LOG_ERROR_RATE` | `5.0` | 로그 에러 급증 임계치(건/분) |
-| `PROM_ALERT_DISK_IO_MS` | `200.0` | 디스크 I/O 응답시간 임계치(ms) |
+| `PROM_ALERT_DISK_IO_MS` | `1000.0` | 디스크 I/O 응답시간 임계치(ms) |
 | `PROM_NET_MAX_MBPS` | `1000.0` | NIC 최대 속도 Mbps (1Gbps 기본). TX/RX 각각 독립 판정 |
 | `PROM_ALERT_NET_THRESHOLD_PCT` | `70.0` | 네트워크 대역폭 warning % |
 | `PROM_ALERT_NET_CRITICAL_PCT` | `90.0` | 네트워크 대역폭 critical % |

@@ -569,6 +569,8 @@ class LogAnalysisOut(BaseModel):
     system_id: Optional[int]
     instance_role: Optional[str]
     severity: str
+    # 수집 사이클에 잡힌 오류 로그 라인(횟수 프리픽스 + PII 마스킹된 template blob) — "로그 전체 보기" 모달용
+    log_content: Optional[str] = None
     root_cause: Optional[str]
     recommendation: Optional[str]
     model_used: Optional[str]

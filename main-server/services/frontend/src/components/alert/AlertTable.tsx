@@ -11,7 +11,6 @@ import { formatRelative, formatKST } from '@/lib/utils'
 import { cn } from '@/lib/utils'
 import { ROUTES } from '@/constants/routes'
 import type { AlertHistory } from '@/types/alert'
-import { isMetricAnalyzerAlert } from '@/constants/metricTypes'
 
 const ALERT_TYPE_LABELS: Record<string, string> = {
   metric: '메트릭',
@@ -107,8 +106,7 @@ export function AlertTable({ alerts, onSelect, selectedIds, onToggleSelect }: Al
                     className="accent-accent"
                     checked={selectedIds?.has(alert.id) ?? false}
                     onChange={() => onToggleSelect(alert.id)}
-                    // 예외처리 가능한 알림: 로그분석 또는 prometheus_analyzer 메트릭 이상
-                    disabled={alert.alert_type !== 'log_analysis' && !isMetricAnalyzerAlert(alert)}
+                    // 모든 알림 선택 가능 — 일괄 확인 대상. 심각도 변경/예외 처리는 유형별로 툴바에서 재차 게이팅됨
                     aria-label={`알림 ${alert.id} 선택`}
                   />
                 </td>
