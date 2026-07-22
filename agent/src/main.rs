@@ -391,7 +391,8 @@ fn watch_config_file(config_path: &str, tx: mpsc::Sender<Config>) {
 
 // ── Tailer lifecycle helpers ─────────────────────────────────────────────────
 
-/// Expand glob patterns and spawn a tailer for each matched path.
+/// Spawn a tailer per configured path. Glob 패턴(`catalina.*.log`)은 확장하지 않고
+/// 패턴 자체를 키로 glob 타일러 하나가 담당한다 — 자정 날짜 롤링 자동 추적.
 fn start_log_tailers(
     cfg: &Config,
     counter: &LogCounter,
@@ -402,24 +403,22 @@ fn start_log_tailers(
     }
     for lm_cfg in &cfg.log_monitor {
         for raw_path in &lm_cfg.paths {
-            for path in expand_glob(raw_path) {
-                if stops.contains_key(&path) {
-                    continue; // already running
-                }
-                let stop = Arc::new(AtomicBool::new(false));
-                let matcher = KeywordMatcher::new(&lm_cfg.keywords);
-                let log_type = lm_cfg.log_type.clone();
-                let multiline = lm_cfg.multiline;
-                let services = cfg.services.clone();
-                let counter_clone = counter.clone();
-                let stop_clone = stop.clone();
-                let path_clone = path.clone();
-                std::thread::spawn(move || {
-                    start_tailer(path_clone, log_type, multiline, matcher, services, counter_clone, stop_clone);
-                });
-                info!("Log tailer spawned: {} (log_type={} multiline={})", path, lm_cfg.log_type, lm_cfg.multiline);
-                stops.insert(path, stop);
+            if stops.contains_key(raw_path) {
+                continue; // already running
             }
+            let stop = Arc::new(AtomicBool::new(false));
+            let matcher = KeywordMatcher::new(&lm_cfg.keywords);
+            let log_type = lm_cfg.log_type.clone();
+            let multiline = lm_cfg.multiline;
+            let services = cfg.services.clone();
+            let counter_clone = counter.clone();
+            let stop_clone = stop.clone();
+            let path_clone = raw_path.clone();
+            std::thread::spawn(move || {
+                start_tailer(path_clone, log_type, multiline, matcher, services, counter_clone, stop_clone);
+            });
+            info!("Log tailer spawned: {} (log_type={} multiline={})", raw_path, lm_cfg.log_type, lm_cfg.multiline);
+            stops.insert(raw_path.clone(), stop);
         }
     }
 }
@@ -463,7 +462,7 @@ fn reconcile_log_tailers(
         .log_monitor
         .iter()
         .flat_map(|lm| lm.paths.iter())
-        .flat_map(|p| expand_glob(p))
+        .cloned()
         .collect();
 
     // Stop tailers for removed paths
@@ -471,7 +470,7 @@ fn reconcile_log_tailers(
         .log_monitor
         .iter()
         .flat_map(|lm| lm.paths.iter())
-        .flat_map(|p| expand_glob(p))
+        .cloned()
         .collect();
     for removed in old_paths.difference(&new_all_paths) {
         if let Some(stop) = stops.remove(removed) {
@@ -484,24 +483,22 @@ fn reconcile_log_tailers(
     if new_cfg.collectors.log_monitor {
         for lm_cfg in &new_cfg.log_monitor {
             for raw_path in &lm_cfg.paths {
-                for added in expand_glob(raw_path) {
-                    if stops.contains_key(&added) || old_paths.contains(&added) {
-                        continue;
-                    }
-                    let stop = Arc::new(AtomicBool::new(false));
-                    let matcher = KeywordMatcher::new(&lm_cfg.keywords);
-                    let log_type = lm_cfg.log_type.clone();
-                    let multiline = lm_cfg.multiline;
-                    let services = new_cfg.services.clone();
-                    let counter_clone = counter.clone();
-                    let stop_clone = stop.clone();
-                    let path_clone = added.clone();
-                    std::thread::spawn(move || {
-                        start_tailer(path_clone, log_type, multiline, matcher, services, counter_clone, stop_clone);
-                    });
-                    info!("Log tailer spawned (hot-reload): {} (log_type={} multiline={})", added, lm_cfg.log_type, lm_cfg.multiline);
-                    stops.insert(added, stop);
+                if stops.contains_key(raw_path) || old_paths.contains(raw_path) {
+                    continue;
                 }
+                let stop = Arc::new(AtomicBool::new(false));
+                let matcher = KeywordMatcher::new(&lm_cfg.keywords);
+                let log_type = lm_cfg.log_type.clone();
+                let multiline = lm_cfg.multiline;
+                let services = new_cfg.services.clone();
+                let counter_clone = counter.clone();
+                let stop_clone = stop.clone();
+                let path_clone = raw_path.clone();
+                std::thread::spawn(move || {
+                    start_tailer(path_clone, log_type, multiline, matcher, services, counter_clone, stop_clone);
+                });
+                info!("Log tailer spawned (hot-reload): {} (log_type={} multiline={})", raw_path, lm_cfg.log_type, lm_cfg.multiline);
+                stops.insert(raw_path.clone(), stop);
             }
         }
     }
@@ -565,27 +562,6 @@ fn reconcile_web_tailers(
     }
 }
 
-// ── Glob expansion ───────────────────────────────────────────────────────────
-
-/// Expand a path that may contain glob wildcards (e.g. `/opt/app/logs/*.log`).
-/// Returns all currently matching file paths. Non-glob paths are returned as-is.
-fn expand_glob(pattern: &str) -> Vec<String> {
-    if !pattern.contains('*') && !pattern.contains('?') && !pattern.contains('[') {
-        return vec![pattern.to_string()];
-    }
-    match glob::glob(pattern) {
-        Ok(paths) => paths
-            .filter_map(|p| p.ok())
-            .filter(|p| p.is_file())
-            .filter_map(|p| p.to_str().map(|s| s.to_string()))
-            .collect(),
-        Err(e) => {
-            warn!("Glob pattern error '{}': {}", pattern, e);
-            vec![]
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -642,5 +618,54 @@ mod tests {
     fn test_gc_old_logs_nonexistent_dir() {
         // Should not panic
         gc_old_logs("/nonexistent/path/that/does/not/exist", 7);
+    }
+
+    fn test_config_with_log_paths(paths: &[String]) -> Config {
+        let paths_toml = paths
+            .iter()
+            .map(|p| format!("\"{}\"", p))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let toml_str = format!(
+            r#"
+[agent]
+system_name = "test"
+display_name = "test"
+host = "testhost"
+
+[remote_write]
+endpoint = "http://localhost:9090/api/v1/write"
+
+[[log_monitor]]
+paths = [{}]
+"#,
+            paths_toml
+        );
+        toml::from_str(&toml_str).unwrap()
+    }
+
+    // 날짜 파일명 로그(catalina.20260722.log 등)는 glob 패턴 자체가 타일러 키가 되어야
+    // 자정에 새 파일이 생겨도 (glob 타일러가) 재시작 없이 추적할 수 있다.
+    #[test]
+    fn test_start_log_tailers_uses_glob_pattern_as_key() {
+        let dir = TempDir::new().unwrap();
+        std::fs::write(dir.path().join("catalina.20260722.log"), "boot\n").unwrap();
+        std::fs::write(dir.path().join("catalina.20260723.log"), "boot\n").unwrap();
+        let pattern = dir.path().join("catalina.*.log").to_str().unwrap().to_string();
+
+        let cfg = test_config_with_log_paths(&[pattern.clone()]);
+        let counter = LogCounter::new();
+        let mut stops: HashMap<String, Arc<AtomicBool>> = HashMap::new();
+
+        start_log_tailers(&cfg, &counter, &mut stops);
+
+        for stop in stops.values() {
+            stop.store(true, Ordering::Relaxed);
+        }
+        assert_eq!(
+            stops.keys().collect::<Vec<_>>(),
+            vec![&pattern],
+            "glob pattern itself should be the single tailer key (no expansion)"
+        );
     }
 }

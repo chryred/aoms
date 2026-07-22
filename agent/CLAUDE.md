@@ -171,8 +171,11 @@ anomaly_correlation_total{..., metric_name, log_errors_in_window, corr_type}
 - `EventKind::Remove` → 파일 포인터 해제, recreate 대기
 - `recv_timeout(1s)` 루프로 `stop` AtomicBool 체크 (shutdown 가능)
 
-**glob 지원**: `main.rs::expand_glob()` — `*`, `?`, `[` 포함 시 `glob::glob()` 확장,
-아니면 literal 경로 그대로 사용. 매칭 파일당 별도 스레드 스폰.
+**glob 지원** (`tailer.rs::start_glob_tailer`, access_log.rs와 동일 패턴):
+- `paths`에 `*`/`?`/`[` 포함 시 확장하지 않고 **패턴 자체가 타일러 키** — 패턴당 glob 타일러 스레드 1개.
+- 시작 시 매칭 파일 중 mtime 최신 파일을 tail(끝에서부터). 매칭되는 **새 파일 Create 시 처음부터 읽고 자동 전환**
+  → Tomcat처럼 활성 로그가 날짜 파일명(`catalina.20260722.log`)으로 매일 새로 생성되는 경우 재시작 없이 추적.
+- literal 경로는 기존 고정 경로 타일러(`start_fixed_tailer`) 그대로.
 
 ---
 

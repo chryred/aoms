@@ -34,7 +34,7 @@ keywords = ["ERROR", "CRITICAL", "PANIC", "Fatal", "Exception"]
 log_type = "jeus"
 
 [[log_monitor]]
-paths = ["/opt/app/logs/*.log"]
+paths = ["/opt/app/logs/catalina.*.log"]  # glob 패턴 — 날짜별 파일(catalina.20260722.log) 자동 추적 (자정 롤링 시 새 파일로 자동 전환)
 keywords = ["ERROR", "CRITICAL", "PANIC", "Fatal", "Exception"]
 log_type = "app"
 multiline = true  # Java 스택트레이스(at/Caused by: 줄) 멀티라인 수집 (기본값: false)
