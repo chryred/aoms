@@ -203,12 +203,32 @@ log-analyzer/
 |---|---|---|---|---|
 | `run_daily_aggregation` | `daily` | `systems_map` (GET /api/v1/systems) | `/api/v1/aggregations/daily` POST 응답 id | ✅ collector_type/metric_group별 |
 | `run_weekly_report` | `weekly` | `systems_map` (GET /api/v1/systems) | PG POST 성공 시 응답 id, 실패 시 0 sentinel (Qdrant 저장은 PG와 독립) | ✅ 시스템당 1포인트 |
-| `run_monthly_report` | `monthly` | `systems_map` (GET /api/v1/systems) | 0 (monthly는 집계 행 없음) | ✅ 시스템당 1포인트 |
-| `_run_single_period_report` | quarterly/half_year/annual | `systems_map` (GET /api/v1/systems) | 0 (report_history만 존재) | ✅ 시스템당 1포인트 |
+| `run_monthly_report` | `monthly` | `systems_map` (GET /api/v1/systems) | `/api/v1/aggregations/monthly` POST 응답 id, 실패 시 0 sentinel | ✅ 시스템당 1포인트 |
+| `_run_single_period_report` | quarterly/half_year/annual | `systems_map` (GET /api/v1/systems) | `/api/v1/aggregations/monthly` POST 응답 id (period_type 구분), 실패 시 0 sentinel | ✅ 시스템당 1포인트 |
 | `run_trend_alert` | — | hourly rows에서 직접 (Teams 알림 전용) | N/A | ❌ 벡터 저장 없음 (의도적) |
 
 > **중요**: `/api/v1/aggregations/daily` GET 응답 스키마(`DailyAggregationOut`)에는 `system_name`/`display_name` 컬럼이 없다.
 > weekly/monthly/longperiod 모두 반드시 `systems_map`(GET /api/v1/systems)으로 `system_id → system_name` 변환 후 Qdrant payload에 저장해야 한다.
+
+### 롤업 집계 PG 저장 규칙 (2026-08-12 수정)
+
+주/월/분기/반기/연간은 시스템 전체를 하나로 합친 **롤업 행**이라 수집기·메트릭 그룹 구분이 없다.
+그런데 admin-api 집계 스키마(`_AggregationBase`)는 `collector_type`/`metric_group`을 **필수**로 요구하고
+유니크 제약 키에도 포함하므로 고정 표식을 넣는다.
+
+| 상수 | 값 | 비고 |
+|---|---|---|
+| `_ROLLUP_COLLECTOR_TYPE` | `"rollup"` | `metric_weekly_aggregations` / `metric_monthly_aggregations` 롤업 행 표식 |
+| `_ROLLUP_METRIC_GROUP` | `"all"` | 동일 |
+
+- 저장 대상 테이블: weekly → `metric_weekly_aggregations`, monthly/quarterly/half_year/annual → `metric_monthly_aggregations`(`period_type`으로 구분)
+- 프론트 안정성 리포트(`ReportPage.tsx`)가 이 두 테이블을 읽는다. **PG POST를 빼먹으면 화면이 영구 공백**이 된다.
+- **회귀 배경**: weekly는 두 필수 필드 누락으로 admin-api가 422를 반환했고(코드는 `logger.warning`만 남기고 진행),
+  monthly/longperiod는 PG POST 자체가 없었다 → 운영기에서 주별/월별/분기 탭이 계속 "집계 데이터가 없습니다".
+  회귀 테스트: `tests/test_aggregation_pg_persistence.py`
+- **장기 기간 경계**: `_build_longperiod_configs(now_kst)`가 **직전 완료 기간**의 캘린더 경계를 산출한다
+  (quarterly는 매월 실행되지만 분기 경계를 넘을 때까지 같은 `period_start` → admin-api upsert가 같은 행 갱신).
+  기간 경계는 `_utc_naive_iso()`로 **UTC naive 변환 후** 저장·조회한다 (`_dt_naive`는 tzinfo만 떼서 KST 벽시계가 9시간 밀려 저장됨).
 
 ## 환경변수
 

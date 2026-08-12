@@ -21,6 +21,7 @@
 - 수동 `+9h` 하드코딩 금지 — `formatKST()` / `_KST` 상수 경유
 - `new Date(naiveUtcString)` 직접 호출 금지 → `normalizeUtc()` 경유
 - 집계 버킷 계산 시 반드시 KST 경계 계산 후 UTC naive 변환
+- **KST tz-aware datetime에 `aggregation_processor._dt_naive()` 사용 금지** — tzinfo만 떼기 때문에 KST 벽시계가 UTC로 저장되어 9시간 밀린다. 기간 경계는 `_utc_naive_iso()` 경유 (2026-08-12: 분기/반기/연간 리포트가 이 실수로 KST 자정을 UTC 자정으로 저장하고 있었음)
 
 ## Frontend 공통 유틸 (`src/lib/utils.ts`)
 - `formatKST()` — UTC → KST 표시

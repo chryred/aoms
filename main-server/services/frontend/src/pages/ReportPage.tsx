@@ -137,7 +137,7 @@ export function ReportPage() {
         <EmptyState
           icon={<BarChart3 className="h-10 w-10" />}
           title="집계 데이터가 없습니다"
-          description="n8n WF7-WF10 워크플로우가 실행되면 자동으로 채워집니다."
+          description="log-analyzer 집계 스케줄러가 실행되면 자동으로 채워집니다. (일별 매일 07:30, 주별 매주 월요일 08:00, 월별·분기·반기·연간 매월 1일 08:00~09:00 KST)"
         />
       ) : (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">

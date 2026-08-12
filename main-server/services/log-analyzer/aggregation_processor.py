@@ -19,6 +19,17 @@ def _dt_naive(dt: datetime) -> str:
     """admin-api는 timezone-naive datetime을 기대하므로 UTC offset 제거 후 isoformat 반환"""
     return dt.replace(tzinfo=None).isoformat()
 
+
+def _utc_naive_iso(dt: datetime) -> str:
+    """KST tz-aware 기간 경계 → UTC naive isoformat (저장·조회는 UTC 고정, ADR-013).
+
+    `_dt_naive`는 tzinfo만 떼기 때문에 KST 벽시계가 UTC로 저장되는 9시간 오차가 생긴다.
+    naive 입력은 이미 UTC로 간주한다.
+    """
+    if dt.tzinfo is None:
+        return dt.isoformat()
+    return dt.astimezone(timezone.utc).replace(tzinfo=None).isoformat()
+
 import httpx
 
 import aggregation_vector_client
@@ -46,6 +57,12 @@ TEAMS_WEBHOOK_URL = os.getenv("TEAMS_WEBHOOK_URL", "")
 
 # 알림성 로그 비율 임계값 — 이 비율 이상이면 집계 LLM 프롬프트에 필터링 컨텍스트 주입
 _NOTIFICATION_RATIO_THRESHOLD = 0.5
+
+# 시스템 단위 롤업(주/월/분기/반기/연간) 집계 행의 collector_type / metric_group 표식.
+# hourly/daily는 수집기·메트릭 그룹별 행이지만 롤업은 시스템 전체를 하나로 합친다.
+# admin-api 집계 스키마가 두 필드를 필수로 요구하고 유니크 제약 키에도 포함되므로 고정값이 필요하다.
+_ROLLUP_COLLECTOR_TYPE = "rollup"
+_ROLLUP_METRIC_GROUP   = "all"
 
 
 async def _fetch_log_counts_from_db(
@@ -1339,6 +1356,8 @@ async def run_weekly_report() -> dict:
                     json={
                         "system_id":      s["system_id"],
                         "week_start":     week_start_iso,
+                        "collector_type": _ROLLUP_COLLECTOR_TYPE,
+                        "metric_group":   _ROLLUP_METRIC_GROUP,
                         "metrics_json":   json.dumps(metrics_json_dict),
                         "llm_severity":   s["worst_severity"],
                         "llm_summary":    llm_summary[:500],
@@ -1533,10 +1552,39 @@ async def run_monthly_report() -> dict:
         except Exception as exc:
             logger.warning("월간 리포트 이력 저장 실패: %s", exc)
 
-        # Qdrant 월간 요약 저장 — 시스템별 1포인트
+        # 월간 집계 저장 + Qdrant 요약 저장 — 시스템별 1포인트
         for sn, s in system_summary.items():
             if not sn:
                 continue
+
+            # PG 저장 (실패해도 Qdrant 저장은 계속 진행)
+            pg_row_id = 0
+            try:
+                saved_resp = await client.post(
+                    f"{ADMIN_API_URL}/api/v1/aggregations/monthly",
+                    json={
+                        "system_id":      s["system_id"],
+                        "period_start":   month_start_iso,
+                        "period_type":    "monthly",
+                        "collector_type": _ROLLUP_COLLECTOR_TYPE,
+                        "metric_group":   _ROLLUP_METRIC_GROUP,
+                        "metrics_json":   json.dumps({
+                            "total_anomaly_hours": round(s["total_anomaly_hours"], 2),
+                            "worst_severity":      s["worst_severity"],
+                            "system_count":        1,
+                        }),
+                        "llm_severity":   s["worst_severity"],
+                        "llm_summary":    llm_summary[:500],
+                    },
+                    timeout=10.0,
+                )
+                if saved_resp.is_success:
+                    pg_row_id = saved_resp.json().get("id") or 0
+                else:
+                    logger.warning("월간 집계 PG 저장 실패 [%s]: HTTP %s", sn, saved_resp.status_code)
+            except Exception as exc:
+                logger.warning("월간 집계 PG 저장 실패 [%s]: %s", sn, exc)
+
             try:
                 cause_text = s.get("cause", "")
                 summary_parts = [
@@ -1559,7 +1607,7 @@ async def run_monthly_report() -> dict:
                     period_start=month_start_iso,
                     summary_text=summary_text,
                     dominant_severity=s["worst_severity"],
-                    pg_row_id=0,  # monthly는 report_history row만 있고 aggregation row는 없음
+                    pg_row_id=pg_row_id,  # 0이면 PG 저장 실패 sentinel
                 )
             except Exception as exc:
                 logger.warning("Qdrant 월간 요약 저장 실패 [%s]: %s", sn, exc)
@@ -1591,12 +1639,15 @@ async def _run_single_period_report(
     except Exception as exc:
         logger.warning("장기 리포트 — 시스템 목록 조회 실패 [%s]: %s", period_type, exc)
 
+    period_start_iso = _utc_naive_iso(period_start)
+    period_end_iso   = _utc_naive_iso(period_end)
+
     try:
         resp = await client.get(
             f"{ADMIN_API_URL}/api/v1/aggregations/daily",
             params={
-                "from_dt": _dt_naive(period_start),
-                "to_dt":   _dt_naive(period_end),
+                "from_dt": period_start_iso,
+                "to_dt":   period_end_iso,
                 "limit":   500,
             },
         )
@@ -1702,8 +1753,8 @@ async def _run_single_period_report(
             f"{ADMIN_API_URL}/api/v1/reports",
             json={
                 "report_type":  period_type,
-                "period_start": _dt_naive(period_start),
-                "period_end":   _dt_naive(period_end),
+                "period_start": period_start_iso,
+                "period_end":   period_end_iso,
                 "teams_status": "sent",
                 "llm_summary":  llm_summary,
                 "system_count": len(system_summary),
@@ -1713,11 +1764,41 @@ async def _run_single_period_report(
     except Exception as exc:
         logger.warning("장기 리포트 이력 저장 실패 [%s]: %s", period_type, exc)
 
-    # Qdrant 장기 요약 저장 — 시스템별 1포인트
-    period_start_iso = _dt_naive(period_start)
+    # 장기 집계 저장 + Qdrant 요약 저장 — 시스템별 1포인트
     for sn, s in system_summary.items():
         if not sn:
             continue
+
+        # PG 저장 (실패해도 Qdrant 저장은 계속 진행)
+        pg_row_id = 0
+        try:
+            saved_resp = await client.post(
+                f"{ADMIN_API_URL}/api/v1/aggregations/monthly",
+                json={
+                    "system_id":      s["system_id"],
+                    "period_start":   period_start_iso,
+                    "period_type":    period_type,
+                    "collector_type": _ROLLUP_COLLECTOR_TYPE,
+                    "metric_group":   _ROLLUP_METRIC_GROUP,
+                    "metrics_json":   json.dumps({
+                        "total_anomaly_hours": round(s["total_anomaly_hours"], 2),
+                        "worst_severity":      s["worst_severity"],
+                        "system_count":        1,
+                    }),
+                    "llm_severity":   s["worst_severity"],
+                    "llm_summary":    llm_summary[:500],
+                },
+                timeout=10.0,
+            )
+            if saved_resp.is_success:
+                pg_row_id = saved_resp.json().get("id") or 0
+            else:
+                logger.warning(
+                    "장기 집계 PG 저장 실패 [%s/%s]: HTTP %s", period_type, sn, saved_resp.status_code
+                )
+        except Exception as exc:
+            logger.warning("장기 집계 PG 저장 실패 [%s/%s]: %s", period_type, sn, exc)
+
         try:
             cause_text = s.get("cause", "")
             summary_parts = [
@@ -1740,7 +1821,7 @@ async def _run_single_period_report(
                 period_start=period_start_iso,
                 summary_text=summary_text,
                 dominant_severity=s["worst_severity"],
-                pg_row_id=0,  # 장기 리포트는 aggregation 단위 행 없음 (report_history만 존재)
+                pg_row_id=pg_row_id,  # 0이면 PG 저장 실패 sentinel
             )
         except Exception as exc:
             logger.warning("Qdrant 장기 요약 저장 실패 [%s/%s]: %s", period_type, sn, exc)
@@ -1748,54 +1829,58 @@ async def _run_single_period_report(
     return {"status": "ok", "period_type": period_type, "system_count": len(system_summary)}
 
 
+def _build_longperiod_configs(now: datetime) -> list[tuple[str, datetime, datetime, str]]:
+    """실행 시각(KST) 기준으로 생성할 (period_type, 시작, 종료, 라벨) 목록 산출.
+
+    기간은 모두 **직전 완료 기간**의 캘린더 경계다 (시작 이상 ~ 종료 미만).
+    매월 실행되는 quarterly는 분기 경계를 넘을 때까지 같은 period_start를 유지하므로
+    admin-api upsert가 같은 행을 갱신한다 (중복 행 생성 없음).
+    """
+    month = now.month
+    configs: list[tuple[str, datetime, datetime, str]] = []
+
+    # Quarterly — 직전 완료 분기 (예: 8월 실행 → 2분기 4/1~7/1)
+    prev_quarter_start_month = ((month - 1) // 3) * 3 + 1 - 3
+    if prev_quarter_start_month <= 0:
+        qs = now.replace(year=now.year - 1, month=prev_quarter_start_month + 12, day=1,
+                         hour=0, minute=0, second=0, microsecond=0)
+    else:
+        qs = now.replace(month=prev_quarter_start_month, day=1,
+                         hour=0, minute=0, second=0, microsecond=0)
+    qe = qs.replace(year=qs.year + 1, month=1) if qs.month == 10 else qs.replace(month=qs.month + 3)
+    configs.append(("quarterly", qs, qe, f"{qs.year}년 {(qs.month - 1) // 3 + 1}분기"))
+
+    # Half year — 1월/7월 실행 시 직전 완료 반기
+    if month in (1, 7):
+        if month == 1:
+            hs = now.replace(year=now.year - 1, month=7, day=1,
+                             hour=0, minute=0, second=0, microsecond=0)
+        else:
+            hs = now.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+        he = now.replace(month=month, day=1, hour=0, minute=0, second=0, microsecond=0)
+        configs.append((
+            "half_year",
+            hs,
+            he,
+            f"{hs.year}년 {'하반기' if month == 1 else '상반기'}",
+        ))
+
+    # Annual — 1월 실행 시 직전 연도
+    if month == 1:
+        as_ = now.replace(year=now.year - 1, month=1, day=1,
+                          hour=0, minute=0, second=0, microsecond=0)
+        ae  = now.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
+        configs.append(("annual", as_, ae, f"{now.year - 1}년 연간"))
+
+    return configs
+
+
 async def run_longperiod_report() -> dict:
     """
     WF10 로직 이관 — 분기/반기/연간 리포트.
     오늘 날짜 기준으로 생성할 period_type 결정 후 순차 실행.
     """
-    now = datetime.now(_KST)
-    month = now.month
-
-    # 항상 quarterly, 1월/7월은 half_year, 1월은 annual 추가
-    period_configs: list[tuple[str, datetime, datetime, str]] = []
-
-    # Quarterly
-    quarter_start_month = ((month - 1) // 3) * 3 + 1 - 3
-    if quarter_start_month <= 0:
-        qs = now.replace(year=now.year - 1, month=quarter_start_month + 12, day=1,
-                         hour=0, minute=0, second=0, microsecond=0)
-    else:
-        qs = now.replace(month=quarter_start_month, day=1,
-                         hour=0, minute=0, second=0, microsecond=0)
-    qe = now.replace(month=month, day=1, hour=0, minute=0, second=0, microsecond=0)
-    q_num = ((month - 1) // 3)  # 0-based, so current quarter
-    period_configs.append((
-        "quarterly",
-        qs,
-        qe,
-        f"{now.year}년 Q{q_num}분기",
-    ))
-
-    if month in (1, 7):
-        hs = now.replace(month=month - 6 if month > 6 else month + 6,
-                         day=1, hour=0, minute=0, second=0, microsecond=0)
-        if month == 1:
-            hs = now.replace(year=now.year - 1, month=7, day=1,
-                             hour=0, minute=0, second=0, microsecond=0)
-        he = now.replace(month=month, day=1, hour=0, minute=0, second=0, microsecond=0)
-        period_configs.append((
-            "half_year",
-            hs,
-            he,
-            f"{now.year - (1 if month == 1 else 0)}년 {'하반기' if month == 1 else '상반기'}",
-        ))
-
-    if month == 1:
-        as_ = now.replace(year=now.year - 1, month=1, day=1,
-                          hour=0, minute=0, second=0, microsecond=0)
-        ae  = now.replace(year=now.year - 1, month=12, day=31,
-                          hour=23, minute=59, second=59, microsecond=0)
-        period_configs.append(("annual", as_, ae, f"{now.year - 1}년 연간"))
+    period_configs = _build_longperiod_configs(datetime.now(_KST))
 
     results = []
     async with httpx.AsyncClient(timeout=60.0) as client:
