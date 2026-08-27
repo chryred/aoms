@@ -140,6 +140,18 @@ function getTileColor(pct: number, isOthers?: boolean): string {
   return 'bg-normal/10 border-normal/20'
 }
 
+// 좀비 배지 색상 — critical 임계치(20)는 alert_rules.yml ZombieProcessCritical 과 동일
+const ZOMBIE_CRITICAL = 20
+
+// 배지 전용 토큰(SeverityBadge 와 동일 계열)을 쓴다. text-warning / text-critical 을
+// 반투명 배경 위에 직접 올리면 Light 모드에서 대비가 2.7:1 까지 떨어져 읽히지 않는다.
+// *-text / *-bg 토큰은 테마별로 명도가 뒤집히도록 index.css 에 정의돼 있다.
+function getZombieColor(count: number): string {
+  return count >= ZOMBIE_CRITICAL
+    ? 'bg-critical-bg border-critical/40 text-critical-text'
+    : 'bg-warning-bg border-warning/40 text-warning-text'
+}
+
 function getTextColor(pct: number, isOthers?: boolean): string {
   if (isOthers) return 'text-text-secondary'
   if (pct >= 80) return 'text-critical'
@@ -203,6 +215,9 @@ export function ProcessTreemap({ data }: ProcessTreemapProps) {
           0,
         )
 
+        // 서버 총합은 같은 instance_role 의 모든 행에 복제되어 오므로 아무 행에서나 읽으면 된다
+        const serverZombies = rawProcs.find((p) => p.sys_zombie_count)?.sys_zombie_count ?? 0
+
         const othersEntry = rawProcs.find((p) => p.name === '기타 (미추적)')
         const trackedBytes = rawProcs
           .filter((p) => p.name !== '기타 (미추적)')
@@ -214,6 +229,17 @@ export function ProcessTreemap({ data }: ProcessTreemapProps) {
             <div className="border-border mb-3 flex items-center gap-2 border-b pb-2">
               <span className="text-text-primary text-sm font-semibold">{role}</span>
               {host && <span className="text-text-secondary text-xs">{host}</span>}
+              {serverZombies > 0 && (
+                <span
+                  className={cn(
+                    'ml-auto rounded-sm border px-1.5 py-0.5 text-[10px] font-semibold tabular-nums',
+                    getZombieColor(serverZombies),
+                  )}
+                  title={`defunct(state=Z) 프로세스 ${serverZombies}개 — 부모가 회수하지 못한 종료 자식`}
+                >
+                  좀비 {serverZombies}
+                </span>
+              )}
             </div>
 
             {/* 전체 메모리 스택 바 — 메모리 모드 + 기타 항목 있을 때만 */}
@@ -242,13 +268,26 @@ export function ProcessTreemap({ data }: ProcessTreemapProps) {
                       flexGrow: 1,
                     }}
                   >
-                    <div
-                      className={cn(
-                        'truncate text-xs font-medium',
-                        isOthers ? 'text-text-secondary' : 'text-text-primary',
+                    <div className="flex items-start gap-1">
+                      <div
+                        className={cn(
+                          'flex-1 truncate text-xs font-medium',
+                          isOthers ? 'text-text-secondary' : 'text-text-primary',
+                        )}
+                      >
+                        {proc.name}
+                      </div>
+                      {!isOthers && (proc.zombie_count ?? 0) > 0 && (
+                        <span
+                          className={cn(
+                            'shrink-0 rounded-sm border px-1 text-[10px] font-semibold tabular-nums',
+                            getZombieColor(proc.zombie_count ?? 0),
+                          )}
+                          title={`이 프로세스가 부모인 좀비 ${proc.zombie_count}개 — 자식 종료 후 wait() 미회수`}
+                        >
+                          ☠{proc.zombie_count}
+                        </span>
                       )}
-                    >
-                      {proc.name}
                     </div>
                     <div
                       className={cn(

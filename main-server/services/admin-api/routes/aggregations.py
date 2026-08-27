@@ -701,11 +701,17 @@ async def get_process_summary(
                 logger.warning("process-summary: 쿼리 실패: %s — %s", promql[:80], exc)
                 return []
 
-        cpu_res, mem_res, mem_all_res, cores_res = await asyncio.gather(
+        cpu_res, mem_res, mem_all_res, cores_res, zcount_res, zparent_res = await asyncio.gather(
             _query(f'process_cpu_percent{{system_name="{sn}"}}'),
             _query(f'process_memory_bytes{{system_name="{sn}"}}'),
             _query(f'memory_used_bytes{{system_name="{sn}"}}'),
             _query(f'count by (instance_role) (cpu_usage_percent{{system_name="{sn}",core!="total"}})'),
+            # 좀비는 호스트 전역 값 — 동일 host 다중 에이전트 중복 방지로 max 집계 (sum 금지)
+            _query(f'max by (instance_role) (process_zombie_count{{system_name="{sn}"}})'),
+            _query(
+                f'max by (instance_role, parent_process, parent_pid, service_display)'
+                f' (process_zombie_by_parent{{system_name="{sn}"}})'
+            ),
         )
 
     # 인스턴스별 CPU 코어 수
@@ -838,6 +844,44 @@ async def get_process_summary(
             "sys_buffers_bytes": round(sys_buffers_map.get(role, 0)),
             "sys_slab_unreclaim_bytes": round(sys_slab_unreclaim_map.get(role, 0)),
         }
+
+    # ── 좀비 프로세스 ────────────────────────────────────────────────────────
+    # 화면 배지는 알림(5분 지속)과 달리 지속 게이트 없이 현재값을 그대로 보여준다.
+    # 운영자가 알림이 뜨기 전 단계를 눈으로 먼저 잡을 수 있게 하기 위함.
+    # 구버전 에이전트는 process_zombie_by_parent 를 보내지 않으므로 빈 결과여도 정상.
+    zombie_total: dict[str, int] = {}
+    for series in zcount_res:
+        role = series.get("metric", {}).get("instance_role", "")
+        val = series.get("value", [None, None])[1]
+        if not role or val is None:
+            continue
+        try:
+            zombie_total[role] = int(float(val))
+        except (TypeError, ValueError):
+            pass
+
+    for series in zparent_res:
+        labels = series.get("metric", {})
+        role = labels.get("instance_role", "")
+        val = series.get("value", [None, None])[1]
+        if not role or val is None:
+            continue
+        # 부모를 CPU/메모리 행과 같은 키 규칙(service_display 우선)으로 매칭한다.
+        # 매칭되는 행이 없으면 행을 새로 만들지 않고 sys_zombie_count 로만 인지시킨다.
+        name = labels.get("service_display") or labels.get("parent_process", "")
+        key = f"{role}|{name}"
+        if key in proc_map:
+            try:
+                proc_map[key]["zombie_count"] = proc_map[key].get("zombie_count", 0) + int(float(val))
+            except (TypeError, ValueError):
+                pass
+
+    # 서버(instance_role) 총합은 해당 role 의 모든 행에 복제한다.
+    # "기타 (미추적)" 행은 others_bytes >= 100MB 일 때만 생성되어 운반체로 쓸 수 없다.
+    for entry in proc_map.values():
+        total = zombie_total.get(entry["instance_role"])
+        if total:
+            entry["sys_zombie_count"] = total
 
     # 인스턴스별로 묶고, 각 그룹 내 CPU% 내림차순 정렬
     return sorted(proc_map.values(), key=lambda x: (x["instance_role"], -x["cpu_percent"]))

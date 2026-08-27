@@ -17,6 +17,7 @@ class MetricType(str, Enum):
     NETWORK_TX = "network_tx"
     HTTP_LATENCY = "http_latency"
     LOG_ERROR_RATE = "log_error_rate"
+    ZOMBIE = "zombie"
 
 
 # 한국어 라벨 — UI 표시용 (DB 저장 값은 enum value 그대로 사용)
@@ -28,6 +29,7 @@ METRIC_TYPE_LABELS_KO: dict[str, str] = {
     MetricType.NETWORK_TX.value: "네트워크 송신",
     MetricType.HTTP_LATENCY.value: "HTTP 응답 지연",
     MetricType.LOG_ERROR_RATE.value: "로그 에러 발생률",
+    MetricType.ZOMBIE.value: "좀비 프로세스",
 }
 
 ALLOWED_METRIC_TYPES = frozenset(mt.value for mt in MetricType)
@@ -44,6 +46,7 @@ _TITLE_PATTERNS: list[tuple[re.Pattern[str], str]] = [
     (re.compile(r"네트워크\s*TX"), MetricType.NETWORK_TX.value),
     (re.compile(r"HTTP\s*지연"), MetricType.HTTP_LATENCY.value),
     (re.compile(r"로그\s*에러"), MetricType.LOG_ERROR_RATE.value),
+    (re.compile(r"좀비\s*프로세스"), MetricType.ZOMBIE.value),
 ]
 
 

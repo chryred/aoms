@@ -136,7 +136,9 @@ tcp_connections{..., port, state}        # ESTABLISHED|TIME_WAIT|CLOSE_WAIT
 # 프로세스 → 서비스 상관관계
 process_cpu_percent{..., process, service_name, service_display}
 process_memory_bytes{..., process, service_name, service_display}
-process_zombie_count{...,}                       # 좀비(defunct) 프로세스 수 (state=Z, 매 수집마다 emit)
+process_zombie_count{...,}                       # 좀비(defunct) 프로세스 수 (state=Z, 0이어도 매 수집마다 emit)
+process_zombie_by_parent{..., parent_process, parent_pid, service_name, service_display}
+                                                 # 부모별 좀비 자식 수. 좀비>0일 때만 emit(상위 5개 부모)
 
 # 로그 에러 (log_monitor)
 log_error_total{..., log_type, level, service_name, template}

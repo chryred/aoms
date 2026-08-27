@@ -28,8 +28,8 @@ pub fn collect(cfg: &AgentConfig, services: &[ServiceConfig]) -> Vec<MetricSampl
     let now = Instant::now();
 
     // Gather current snapshot for every process
-    // (pid, proc_name, cmdline, curr_ticks, rss_kb)
-    let mut active: Vec<(u32, String, String, u64, u64, char)> = Vec::new();
+    // (pid, ppid, proc_name, cmdline, curr_ticks, rss_kb, state)
+    let mut active: Vec<(u32, u32, String, String, u64, u64, char)> = Vec::new();
     let mut current_prev: HashMap<u32, (u64, Instant)> = HashMap::new();
 
     for proc_result in procs {
@@ -43,6 +43,7 @@ pub fn collect(cfg: &AgentConfig, services: &[ServiceConfig]) -> Vec<MetricSampl
         let cpu_ticks = stat.utime + stat.stime;
         let rss_kb = (stat.rss as u64).saturating_mul(4); // 4KB pages typical
         let pid = stat.pid as u32;
+        let ppid = stat.ppid as u32;
         let state = stat.state;
 
         let cmdline = proc
@@ -52,7 +53,7 @@ pub fn collect(cfg: &AgentConfig, services: &[ServiceConfig]) -> Vec<MetricSampl
         let proc_name = stat.comm.clone();
 
         current_prev.insert(pid, (cpu_ticks, now));
-        active.push((pid, proc_name, cmdline, cpu_ticks, rss_kb, state));
+        active.push((pid, ppid, proc_name, cmdline, cpu_ticks, rss_kb, state));
     }
 
     // Compute per-PID cpu% using delta vs previous snapshot
@@ -60,10 +61,53 @@ pub fn collect(cfg: &AgentConfig, services: &[ServiceConfig]) -> Vec<MetricSampl
     let mut prev_guard = mutex.lock().unwrap();
 
     // 좀비 프로세스 카운트 (state == 'Z') — CPU/메모리 계산과 무관하게 집계
-    let zombie_count = active.iter().filter(|(_, _, _, _, _, s)| *s == 'Z').count() as f64;
+    let zombie_count = active.iter().filter(|(_, _, _, _, _, _, s)| *s == 'Z').count() as f64;
+
+    // 좀비 부모 귀속 — 어느 프로세스가 자식을 회수(wait)하지 못하는지 특정한다.
+    // OOM으로 자식이 죽은 뒤 부모가 wait()를 못 하는 패턴을 서비스 단위로 추적하기 위한 것.
+    // active가 아래 집계 루프에서 소비되므로 여기서 emit용 행을 미리 만들어 둔다.
+    // (parent_process, parent_pid, count, service_name, service_display)
+    const ZOMBIE_TOP_PARENTS: usize = 5;
+    let mut zombie_parent_rows: Vec<(String, u32, u32, String, String)> = Vec::new();
+    if zombie_count > 0.0 {
+        let mut by_parent: HashMap<u32, u32> = HashMap::new();
+        for (_pid, ppid, _name, _cmd, _ticks, _rss, state) in &active {
+            if *state == 'Z' {
+                *by_parent.entry(*ppid).or_insert(0) += 1;
+            }
+        }
+
+        let pid_index: HashMap<u32, usize> = active
+            .iter()
+            .enumerate()
+            .map(|(i, p)| (p.0, i))
+            .collect();
+
+        let mut parents: Vec<(u32, u32)> = by_parent.into_iter().collect();
+        // 좀비 수 내림차순 → 상위 N개만. 카디널리티 상한.
+        parents.sort_by(|a, b| b.1.cmp(&a.1));
+
+        for (ppid, count) in parents.into_iter().take(ZOMBIE_TOP_PARENTS) {
+            // 부모가 이미 죽어 재양육된 경우(ppid=1) 등 조회 실패는 "unknown"으로 둔다.
+            let (parent_name, match_str) = match pid_index.get(&ppid) {
+                Some(&i) => (
+                    active[i].2.clone(),
+                    format!("{} {}", active[i].2, active[i].3),
+                ),
+                None => ("unknown".to_string(), String::new()),
+            };
+            // 서비스 매핑은 아래 집계 루프와 동일한 process_match 규칙을 따른다.
+            let (svc_name, svc_display) = services
+                .iter()
+                .find(|svc| match_str.contains(&svc.process_match))
+                .map(|svc| (svc.name.clone(), svc.display_name.clone()))
+                .unwrap_or_default();
+            zombie_parent_rows.push((parent_name, ppid, count, svc_name, svc_display));
+        }
+    }
 
     let mut pid_cpu: HashMap<u32, f64> = HashMap::new();
-    for (pid, _name, _cmd, curr_ticks, _rss, _state) in &active {
+    for (pid, _ppid, _name, _cmd, curr_ticks, _rss, _state) in &active {
         if let Some((prev_ticks, prev_time)) = prev_guard.get(pid) {
             let delta_secs = now.duration_since(*prev_time).as_secs_f64();
             if delta_secs > 0.0 {
@@ -84,7 +128,7 @@ pub fn collect(cfg: &AgentConfig, services: &[ServiceConfig]) -> Vec<MetricSampl
     let mut service_stats: HashMap<String, (String, f64, u64)> = HashMap::new();
     let mut unmatched: Vec<(String, u32, String, f64, u64)> = Vec::new();
 
-    for (pid, proc_name, cmdline, _curr_ticks, rss_kb, _state) in active {
+    for (pid, _ppid, proc_name, cmdline, _curr_ticks, rss_kb, _state) in active {
         let Some(cpu_pct) = pid_cpu.get(&pid).copied() else {
             continue; // 첫 관측 PID — CPU delta 없음. 이번 round는 skip
         };
@@ -120,7 +164,23 @@ pub fn collect(cfg: &AgentConfig, services: &[ServiceConfig]) -> Vec<MetricSampl
     let mut samples = Vec::new();
 
     // 좀비 프로세스 카운트 emit (samples 선언 이후)
+    // 0이어도 매 주기 emit — alert rule이 absent() 없이 단순 비교식을 쓸 수 있고
+    // 그래프 연속성이 확보된다.
     samples.push(MetricSample::new("process_zombie_count", base.clone(), zombie_count));
+
+    // 좀비 부모 귀속 emit — 좀비가 있을 때만 시계열이 생긴다(정상 운영 시 카디널리티 0).
+    for (parent_name, ppid, count, svc_name, svc_display) in zombie_parent_rows {
+        let mut lbs = base.clone();
+        lbs.push(("parent_process".to_string(), parent_name));
+        lbs.push(("parent_pid".to_string(), ppid.to_string()));
+        lbs.push(("service_name".to_string(), svc_name));
+        lbs.push(("service_display".to_string(), svc_display));
+        samples.push(MetricSample::new(
+            "process_zombie_by_parent",
+            lbs,
+            count as f64,
+        ));
+    }
 
     // Emit service-mapped metrics
     for (svc_name, (svc_display, cpu_percent, rss_kb)) in &service_stats {

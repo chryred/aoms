@@ -24,6 +24,11 @@ _LOG_ERROR_RATE_THRESHOLD = float(os.getenv("PROM_ALERT_LOG_ERROR_RATE",        
 _DISK_IO_MS_THRESHOLD     = float(os.getenv("PROM_ALERT_DISK_IO_MS",          "1000.0"))
 _NET_MAX_MBPS             = float(os.getenv("PROM_NET_MAX_MBPS",              "1000.0"))
 _NET_THRESHOLD_PCT        = float(os.getenv("PROM_ALERT_NET_THRESHOLD_PCT",     "70.0"))
+# 좀비는 개수 임계치를 두지 않는다(기본 0) — 정상 부모는 자식 종료 즉시 wait()로 회수하므로
+# 5분 이상 지속된 좀비는 1개라도 회수 실패 확정 신호다. 오탐 방어는 prometheus_analyzer 의
+# 5분 지속 게이트 PromQL 과 alert_rules 의 for:5m 이 담당한다.
+# 상시 좀비를 달고 사는 레거시 앱은 metric_exclusions(metric_type=zombie)로 개별 예외 처리.
+_ZOMBIE_COUNT_THRESHOLD   = float(os.getenv("PROM_ALERT_ZOMBIE_COUNT",           "0.0"))
 
 
 # ── 헬퍼 ─────────────────────────────────────────────────────────────────────
@@ -293,7 +298,18 @@ def build_prometheus_llm_prompt(
         dn = sm.display_name or sn
         if sm.zombie_count > 0:
             proc_section_lines.append(
-                f"  ⚠️ 좀비 프로세스 {sm.zombie_count}개 감지 ({dn}) — 응답 없는 defunct 상태"
+                f"  ⚠️ 좀비 프로세스 {sm.zombie_count}개 감지 ({dn}) — 5분 이상 미회수된 defunct 상태"
+            )
+            if sm.zombie_parents:
+                detail = " / ".join(
+                    f"{z['name']} [PID {z['pid']}] {z['count']}개" for z in sm.zombie_parents
+                )
+                proc_section_lines.append(f"     └ 부모: {detail}")
+            proc_section_lines.append(
+                "     ※ 자식 프로세스가 OOM(OutOfMemoryError) 등으로 비정상 종료된 뒤"
+                " 부모가 wait() 회수를 못 하는 경우가 많음."
+                " 동일 호스트의 메모리 사용률과 FATAL/ERROR 로그"
+                "(OutOfMemoryError, GC overhead)를 함께 확인할 것."
             )
         for p in sm.top_processes:
             name = p["name"]

@@ -191,3 +191,54 @@ groups:
         annotations:
           summary: "FATAL/CRITICAL 로그 감지"
           description: "{{ $labels.host }} FATAL/CRITICAL 로그 {{ $value | humanize }}건 발생"
+
+  # ── 좀비 프로세스 감지 (synapse_agent process_zombie_count) ───────────────
+  # OOM(OutOfMemoryError) 등으로 자식이 비정상 종료되면 부모가 wait() 하지 못해
+  # defunct(state=Z)가 누적된다.
+  # 개수 임계치를 두지 않는다 — 정상 부모는 자식 종료 즉시 회수하므로
+  # 5분을 버티는 좀비는 1개라도 회수 실패 확정 신호다. 오탐 방어는 for:5m 이 담당.
+  # 상시 좀비를 달고 사는 레거시 앱은 전역 임계치를 올리지 말고
+  # metric_exclusions(메트릭 종류 = zombie)로 해당 시스템만 예외 처리할 것.
+  # process_zombie_count 는 호스트 전역 값 — 동일 host 에 에이전트가 복수면
+  # 같은 값을 중복 보고하므로 max 집계 필수. sum 금지.
+  - name: zombie_detection
+    interval: 1m
+    rules:
+
+      # 4-A. 좀비 미회수 (경고)
+      - alert: ZombieProcessDetected
+        expr: |
+          max by (system_name, instance_role, host) (process_zombie_count) > 0
+        for: 5m
+        labels:
+          severity: warning
+          alert_category: threshold
+          system_name: "{{ $labels.system_name }}"
+          instance_role: "{{ $labels.instance_role }}"
+          host: "{{ $labels.host }}"
+          metric_name: zombie_process
+          metric_value: "{{ $value | humanize }}"
+        annotations:
+          summary: "좀비 프로세스 감지 — 5분 이상 미회수"
+          description: >-
+            {{ $labels.host }} defunct 프로세스 {{ $value | humanize }}개가 5분 이상 회수되지 않음.
+            자식 프로세스가 OOM 등으로 비정상 종료된 뒤 부모가 wait() 하지 못하는 상태일 수 있음.
+
+      # 4-B. 좀비 대량 누적 (위험)
+      - alert: ZombieProcessCritical
+        expr: |
+          max by (system_name, instance_role, host) (process_zombie_count) >= 20
+        for: 5m
+        labels:
+          severity: critical
+          alert_category: threshold
+          system_name: "{{ $labels.system_name }}"
+          instance_role: "{{ $labels.instance_role }}"
+          host: "{{ $labels.host }}"
+          metric_name: zombie_process
+          metric_value: "{{ $value | humanize }}"
+        annotations:
+          summary: "좀비 프로세스 대량 누적 — 부모 재기동 검토"
+          description: >-
+            {{ $labels.host }} defunct 프로세스 {{ $value | humanize }}개가 5분 이상 지속.
+            부모가 반복적으로 회수에 실패하는 중 — 부모 프로세스 재기동 필요 가능성 높음.

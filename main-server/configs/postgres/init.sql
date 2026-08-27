@@ -219,7 +219,7 @@ CREATE TABLE IF NOT EXISTS metric_exclusions (
     id                   SERIAL PRIMARY KEY,
     system_id            INTEGER NOT NULL REFERENCES systems(id) ON DELETE CASCADE,
     host                 VARCHAR(255),                         -- NULL = 시스템 전체 host 적용 (와일드카드)
-    metric_type          VARCHAR(30) NOT NULL,                 -- cpu | memory | disk_io | network_rx | network_tx | http_latency | log_error_rate
+    metric_type          VARCHAR(30) NOT NULL,                 -- cpu | memory | disk_io | network_rx | network_tx | http_latency | log_error_rate | zombie
     override_threshold   DOUBLE PRECISION,                     -- NULL = 완전 차단. 값 있으면 해당 메트릭 임계치를 이 값으로 대체 (개발기 둔감화)
     reason               TEXT,
     active               BOOLEAN NOT NULL DEFAULT TRUE,

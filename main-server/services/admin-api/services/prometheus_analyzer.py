@@ -37,6 +37,7 @@ from services.prompts import (
     _DISK_IO_MS_THRESHOLD,
     _NET_MAX_MBPS,
     _NET_THRESHOLD_PCT,
+    _ZOMBIE_COUNT_THRESHOLD,
     build_prometheus_llm_prompt,
 )
 
@@ -61,6 +62,8 @@ _NET_CRITICAL_PCT    = float(os.getenv("PROM_ALERT_NET_CRITICAL_PCT",      "90.0
 # ── 임계치 (critical) ─────────────────────────────────────────────────────────
 _CPU_CRITICAL = float(os.getenv("PROM_ALERT_CPU_CRITICAL", "90.0"))
 _MEM_CRITICAL = float(os.getenv("PROM_ALERT_MEM_CRITICAL", "90.0"))
+# 좀비 critical — alert_rules.yml 의 ZombieProcessCritical(>= 20) 과 같은 값 유지
+_ZOMBIE_COUNT_CRITICAL = float(os.getenv("PROM_ALERT_ZOMBIE_CRITICAL", "20.0"))
 
 # ── 쿨다운 (인메모리, 재시작 시 초기화) ──────────────────────────────────────
 _COOLDOWN_SECONDS = int(os.getenv("PROM_ALERT_COOLDOWN_SECONDS", "1800"))  # 30분
@@ -116,6 +119,8 @@ class SystemMetrics:
     top_processes: list = field(default_factory=list)
     # 좀비 프로세스 수 (state=Z)
     zombie_count: int = 0
+    # 좀비 부모 귀속 — [{"name": str, "pid": str, "count": int}] (상위 3개)
+    zombie_parents: list = field(default_factory=list)
 
 
 @dataclass
@@ -542,17 +547,60 @@ async def _build_host_contexts(
         )[:5]
 
     # 10. 좀비 프로세스 수 (state=Z)
+    #  (1) process_zombie_count 는 호스트 전역 값 — 동일 host 에 에이전트가 복수면 같은 값을
+    #      중복 보고한다. sum 금지, max 집계 필수 (process_cpu_percent 와 동일 패턴).
+    #  (2) 임계치가 0이라 개수로 오탐을 막을 수 없다. alert_rules 의 for:5m 과 같은
+    #      지속 조건을 PromQL 로 직접 건다 — 좌변은 현재값, 우변은 최근 5분 내내
+    #      좀비가 있었는지 여부. 에이전트가 좀비 0 도 매 주기 emit 하므로 게이트가 성립한다.
     zombie_results = await _query_prometheus(
-        'process_zombie_count > 0'
+        '(max by (host, system_name, display_name) (process_zombie_count))'
+        ' and '
+        '(min_over_time('
+        '(max by (host, system_name, display_name) (process_zombie_count))[5m:1m]'
+        ') > 0)'
     )
     for r in zombie_results:
         host = r["metric"].get("host", "")
         sn   = r["metric"].get("system_name", "unknown")
+        dn   = r["metric"].get("display_name", sn)
         val  = int(float(r["value"][1]))
         if not host:
             continue
-        if host in hosts and sn in hosts[host].systems:
-            hosts[host].systems[sn].zombie_count = val
+        sm = _get_host(host).get_or_create(sn)
+        sm.display_name = sm.display_name or dn
+        excluded, eff_thr = _excluded(host, sn, MetricType.ZOMBIE.value, val, _ZOMBIE_COUNT_THRESHOLD)
+        if excluded:
+            continue
+        sm.zombie_count = val
+        if val > eff_thr:
+            # eff_thr 기본 0 → 5분 이상 지속된 좀비는 1개부터 이상으로 승격.
+            # 시스템별 override_threshold 가 설정된 경우에만 그 값이 쓰인다.
+            sm.anomalies.append(f"좀비 프로세스 {val}개 (5분 이상 미회수)")
+            sm.matched_metric_types.append(MetricType.ZOMBIE.value)
+
+    # 11. 좀비 부모 귀속 (좀비가 있을 때만 시계열 존재 — 구버전 에이전트는 빈 결과)
+    zparent_results = await _query_prometheus(
+        'max by (host, system_name, parent_process, parent_pid, service_display)'
+        ' (process_zombie_by_parent)'
+    )
+    zparents_by_key: dict[tuple, list] = {}
+    for r in zparent_results:
+        m    = r["metric"]
+        host = m.get("host", "")
+        sn   = m.get("system_name", "unknown")
+        if not host:
+            continue
+        zparents_by_key.setdefault((host, sn), []).append({
+            "name":  m.get("service_display") or m.get("parent_process", "?"),
+            "pid":   m.get("parent_pid", ""),
+            "count": int(float(r["value"][1])),
+        })
+    for (host, sn), plist in zparents_by_key.items():
+        if host not in hosts or sn not in hosts[host].systems:
+            continue
+        hosts[host].systems[sn].zombie_parents = sorted(
+            plist, key=lambda x: x["count"], reverse=True
+        )[:3]
 
     return hosts
 
@@ -566,6 +614,8 @@ def _calc_severity(hc: HostContext) -> str:
         if sm.cpu_avg is not None and sm.cpu_avg > _CPU_CRITICAL:
             return "critical"
         if sm.mem_used_pct is not None and sm.mem_used_pct > _MEM_CRITICAL:
+            return "critical"
+        if sm.zombie_count >= _ZOMBIE_COUNT_CRITICAL:
             return "critical"
         if sm.net_rx_mbps is not None and sm.net_rx_mbps > _net_critical_mbps:
             return "critical"

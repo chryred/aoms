@@ -9,6 +9,7 @@ export const METRIC_TYPES = [
   'network_tx',
   'http_latency',
   'log_error_rate',
+  'zombie',
 ] as const
 
 export type MetricType = (typeof METRIC_TYPES)[number]
@@ -21,6 +22,7 @@ export const METRIC_TYPE_LABELS_KO: Record<MetricType, string> = {
   network_tx: '네트워크 송신',
   http_latency: 'HTTP 응답 지연',
   log_error_rate: '로그 에러 발생률',
+  zombie: '좀비 프로세스',
 }
 
 /** 메트릭 종류별 단위 — 사용자가 override_threshold 입력 시 참고용 */
@@ -32,6 +34,7 @@ export const METRIC_TYPE_UNITS: Record<MetricType, string> = {
   network_tx: 'MB/s',
   http_latency: 'ms',
   log_error_rate: '건/분',
+  zombie: '개',
 }
 
 const TITLE_PATTERNS: { regex: RegExp; type: MetricType }[] = [
@@ -42,6 +45,7 @@ const TITLE_PATTERNS: { regex: RegExp; type: MetricType }[] = [
   { regex: /네트워크\s*TX/i, type: 'network_tx' },
   { regex: /HTTP\s*지연/, type: 'http_latency' },
   { regex: /로그\s*에러/, type: 'log_error_rate' },
+  { regex: /좀비\s*프로세스/, type: 'zombie' },
 ]
 
 /** prometheus_analyzer 알림 title에서 메트릭 종류 추출 (metric_types 컬럼 폴백). */

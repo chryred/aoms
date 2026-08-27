@@ -171,7 +171,7 @@ docker exec -it aoms-admin-api \
 ### 메트릭 알림 예외 처리 `/api/v1/metric-exclusions`
 prometheus_analyzer 메트릭 알림 전용. 로그 알림용 `/api/v1/alert-exclusions` 와 대칭이지만 매칭 모델 다름.
 매칭 키: `(system_id, host, metric_type)` — host 정확매치가 host=NULL 와일드카드보다 우선.
-metric_type enum: `cpu | memory | disk_io | network_rx | network_tx | http_latency | log_error_rate` (단일 진실: `services/metric_types.py` / `frontend/src/constants/metricTypes.ts`).
+metric_type enum: `cpu | memory | disk_io | network_rx | network_tx | http_latency | log_error_rate | zombie` (단일 진실: `services/metric_types.py` / `frontend/src/constants/metricTypes.ts`).
 
 - `POST /` — 메트릭 예외 규칙 일괄 등록 (BulkExcludeResult 반환, 중복 시 skip)
 - `GET /?active=true&system_id=&include_expired=false` — 활성·미만료 규칙 조회
@@ -597,6 +597,8 @@ log-analyzer → POST /api/v1/analysis
 | `PROM_NET_MAX_MBPS` | `1000.0` | NIC 최대 속도 Mbps (1Gbps 기본). TX/RX 각각 독립 판정 |
 | `PROM_ALERT_NET_THRESHOLD_PCT` | `70.0` | 네트워크 대역폭 warning % |
 | `PROM_ALERT_NET_CRITICAL_PCT` | `90.0` | 네트워크 대역폭 critical % |
+| `PROM_ALERT_ZOMBIE_COUNT` | `0.0` | 좀비 warning 임계치(개). **0 = 좀비 1개부터 이상 판정** — 오탐 방어는 5분 지속 게이트가 담당 |
+| `PROM_ALERT_ZOMBIE_CRITICAL` | `20.0` | 좀비 critical 임계치(개). `alert_rules.yml` `ZombieProcessCritical` 과 동일 값 |
 | `PROM_ALERT_COOLDOWN_SECONDS` | `1800` | prometheus_analyzer host별 쿨다운(초, 기본 30분) |
 | `ENCRYPTION_KEY` | 없음 (필수) | 공통 Fernet 대칭키 — DB 비밀번호 및 챗봇 executor 자격증명 암호화에 사용. 미설정 시 `db_collection_loop` 비활성화. 생성: `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` |
 | `DB_COLLECT_INTERVAL_SECS` | `60` | DB 메트릭 수집 주기(초). 하위 호환: `ORACLE_COLLECT_INTERVAL_SECS`도 인식 |

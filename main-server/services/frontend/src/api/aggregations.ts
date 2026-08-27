@@ -107,4 +107,7 @@ export interface ProcessSummary {
   sys_anon_bytes?: number // AnonPages — JVM heap/JIT 등 익명 메모리
   sys_buffers_bytes?: number // Buffers — 커널 I/O 버퍼
   sys_slab_unreclaim_bytes?: number // SUnreclaim — 커널 비회수 Slab
+  // 좀비(defunct) 프로세스 — 좀비가 없으면 두 필드 모두 부재
+  zombie_count?: number // 이 프로세스가 부모인 좀비 수
+  sys_zombie_count?: number // 해당 서버(instance_role) 좀비 총합 — 같은 서버의 모든 행에 복제됨
 }

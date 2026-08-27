@@ -52,6 +52,8 @@
 | `FRONTEND_EXTERNAL_URL` | Teams 카드 "인시던트 보기" 버튼이 여는 React 페이지 외부 접근 URL (예: `http://{server-a-ip}:3001`) — Wave 2B에서 "해결책 등록" 버튼 제거됨 |
 | `ANALYSIS_INTERVAL_SECONDS` | 300 (로그 분석 주기) |
 | `PROMETHEUS_ANALYZE_INTERVAL_SECONDS` | 300 (admin-api 메트릭 교차 분석 주기) |
+| `PROM_ALERT_ZOMBIE_COUNT` | 0 — 좀비 warning 임계치(개). **0 = 5분 이상 지속된 좀비 1개부터 이상 판정**. 오탐 방어는 개수가 아니라 지속 조건(PromQL 5분 게이트 + alert rule `for: 5m`)이 담당. 상시 좀비 앱은 `metric_exclusions`(metric_type=`zombie`)로 개별 예외 |
+| `PROM_ALERT_ZOMBIE_CRITICAL` | 20 — 좀비 critical 임계치(개). `alert_rules.yml` `ZombieProcessCritical` 과 같은 값 유지 |
 | `PROMETHEUS_RETENTION_DAYS` | 15 (운영) / 3 (개발) — 챗봇 `prometheus_query` 도구가 시각 입력 검증에 사용. `docker-compose.yml` `--storage.tsdb.retention.time` 과 일치시킬 것 |
 | `TEMPO_URL` | `http://tempo:3200` — admin-api + log-analyzer Tempo HTTP API (ADR-008) |
 | `OTEL_COLLECTOR_ENDPOINT` | `http://otel-collector:4317` — Java Agent OTLP gRPC 전송 목적지 (ADR-008) |
