@@ -96,6 +96,11 @@ class DevxStrategy(LLMStrategy):
                 },
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
             )
+            if resp.status_code >= 400:
+                logger.error(
+                    "DevX 토큰 발급 실패: status=%s client_id=%r body=%s",
+                    resp.status_code, DEVX_CLIENT_ID, resp.text[:500],
+                )
             resp.raise_for_status()
             body = resp.json()
             self._token = body["access_token"]
@@ -118,6 +123,14 @@ class DevxStrategy(LLMStrategy):
             headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
             json={"agent_code": code, "query": prompt, "response_mode": "streaming", "user": "synapse-v"},
         ) as resp:
+            if resp.status_code >= 400:
+                # 스트리밍 응답은 body를 읽기 전엔 거절 사유를 알 수 없고,
+                # raise_for_status() 예외 메시지에도 body가 담기지 않는다 → 먼저 읽어서 로그에 남긴다.
+                detail = (await resp.aread()).decode("utf-8", "replace")
+                logger.error(
+                    "DevX chat 실패: status=%s agent_code=%r prompt_bytes=%d body=%s",
+                    resp.status_code, code, len(prompt.encode("utf-8")), detail[:1000],
+                )
             resp.raise_for_status()
             async for line in resp.aiter_lines():
                 if not line.startswith("data:"):
