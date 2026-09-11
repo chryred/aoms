@@ -34,7 +34,7 @@
   - **운영 분석 계열 (5)**: `log_incidents`, `metric_baselines`, `incident_postmortems`(Wave 1B), `metric_hourly_patterns`, `aggregation_summaries`
   - **Knowledge 계열 (4)**: `knowledge_guides`(1500자 청크, system_id=NULL은 공용), `knowledge_jira_issues`, `knowledge_confluence_pages`, `knowledge_documents`(operator_note 포함)
   - 시스템 필터 정책은 컬렉션별로 다름(`system_name` / `system_id` / 미적용 — V1 정책). 챗봇 RAG 도구 매핑: `qdrant_search_incident_knowledge`(log+metric 통합) / `qdrant_search_hourly_patterns` / `qdrant_search_aggregation_summary` / `qdrant_search_guide` / `/knowledge/search` federated
-  - Ollama는 ADR-011로 제거됨 — 임베딩은 log-analyzer 컨테이너 내 FastEmbed ONNX(bge-m3) + reranker(bge-reranker-v2-m3 ONNX FP32)
+  - Ollama는 ADR-011로 제거됨 — 임베딩은 log-analyzer 컨테이너 내 FastEmbed ONNX(bge-m3) + reranker(bge-reranker-v2-m3 ONNX **int8**, `onnx/model_int8.onnx` ~544MB — 리포 배포본 그대로 사용)
 
 ### 핵심 환경변수
 | 변수 | 기본 값 / 설명 |

@@ -228,6 +228,8 @@ services:
       # Sparse: fastembed BM25 (/app/fastembed-models에 번들)
       - DENSE_EMBED_MODEL=${DENSE_EMBED_MODEL:-BAAI/bge-m3}
       - DENSE_ONNX_FILE=${DENSE_ONNX_FILE:-onnx/model.onnx}
+      # Reranker: 리포 배포 int8(~544MB). FP32로 되돌리려면 모델 재배포 후 onnx/model.onnx 지정
+      - RERANKER_ONNX_FILE=${RERANKER_ONNX_FILE:-onnx/model_int8.onnx}
       - SPARSE_EMBED_MODEL=${SPARSE_EMBED_MODEL:-Qdrant/bm25}
       - HF_HUB_OFFLINE=1                 # 폐쇄망 안전장치: 로컬 번들만 사용
       - QDRANT_URL=${QDRANT_URL}

@@ -176,14 +176,16 @@ docker exec -i synapse-postgres psql -U synapse -d synapse < configs/postgres/in
 ## 폐쇄망 FastEmbed 모델 배포 (ADR-011)
 
 Ollama는 ADR-011로 제거됨. 임베딩은 log-analyzer 컨테이너 내 FastEmbed ONNX가 담당.
-**모델은 이미지에서 분리되어 서버 볼륨(`/opt/synapse/models`)으로 마운트됨** — 코드 배포 시 ~500MB만 전송, 모델(~4.6GB)은 최초 1회만 배포.
+**모델은 이미지에서 분리되어 서버 볼륨(`/opt/synapse/models`)으로 마운트됨** — 코드 배포 시 ~500MB만 전송, 모델(~2.8GB)은 최초 1회만 배포.
+> reranker를 FP32(2.2GB) → int8(544MB)로 전환하면서 기존 ~4.6GB에서 줄었다.
+> **이미 모델 볼륨이 배포된 서버는 `export-models`를 다시 받아 재배포해야 한다** — 기존 볼륨에는 `model_int8.onnx`가 없어 reranker 로딩이 실패한다(경고 로그만 남고 검색 품질 저하).
 
 ### 최초 모델 배포 (인터넷 환경 빌드 서버에서 1회)
 
 ```bash
 # 1. 모델 전용 tar.gz 추출
 ./build-images.sh export-models
-# → main-server/synapse-models.tar.gz 생성 (~1.5GB compressed)
+# → main-server/synapse-models.tar.gz 생성 (압축 해제 ~2.8GB, 압축 크기는 스크립트가 출력)
 
 # 2. 서버로 전송 및 압축 해제
 scp main-server/synapse-models.tar.gz user@server-a:/tmp/

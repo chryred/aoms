@@ -49,7 +49,7 @@ make test-api        # 단위 테스트 (SQLite in-memory, admin-api와 공유)
   - Sparse: fastembed `SparseTextEmbedding("Qdrant/bm25")` (BM25 IDF)
   - 실측 2-core CPU warm: Dense ~35~90ms, Sparse <1ms, Hybrid `/points/query` 전체 36ms
   - 모델 파일은 Dockerfile 빌드 단계에서 이미지에 번들 (`/app/dense-models`, `/app/fastembed-models`, `HF_HUB_OFFLINE=1`)
-- **Reranker (선택적, ADR-011 후속)**: `bge-reranker-v2-m3` ONNX FP32 cross-encoder
+- **Reranker (선택적, ADR-011 후속)**: `bge-reranker-v2-m3` ONNX **int8** cross-encoder
   - 모듈: `reranker.py` (`async def rerank(query, candidates, top_k, text_field)`)
   - 입력 (query, doc) 쌍 → relevance logit. Hybrid retrieval(top-N*4) → reranker → top-K 정렬
   - 호출 경로:
@@ -59,7 +59,9 @@ make test-api        # 단위 테스트 (SQLite in-memory, admin-api와 공유)
     - `/guides/search` 엔드포인트에 `rerank: bool, rerank_top_k: int, score_threshold: float` 옵션
     - `search_similar_aggregations(rerank=True, rerank_top_k=..., score_threshold=...)` 키워드 인자
   - 자동 분석 파이프라인(로그/메트릭 유사도 분류)에는 적용하지 않음 (top-1 RRF 임계값 기반이라 reranker 불필요)
-  - 모델 ~2.3GB (FP32, 양자화 없음). Dockerfile에서 `onnx-community/bge-reranker-v2-m3-ONNX`로부터 `/app/reranker-models`에 번들
+  - 모델 ~544MB. `onnx-community/bge-reranker-v2-m3-ONNX` 리포가 배포하는 **`onnx/model_int8.onnx`를 그대로** 받아 `/app/reranker-models`에 번들 (별도 양자화 단계 없음)
+  - FP32(`onnx/model.onnx` + `model.onnx_data`, ~2.2GB)는 받지 않는다. 되돌리려면 Dockerfile `model-downloader`의 `allow_patterns`에 두 파일을 추가하고 `RERANKER_ONNX_FILE=onnx/model.onnx` 지정 (모델 재배포 필요)
+  - **int8 파일이 볼륨에 없으면** `_get_reranker_session()`이 실패하지만 `rerank()`가 예외를 삼켜 `Reranker 추론 실패: … → 원본 순서 유지` 경고만 남긴다. **장애 없이 검색 품질만 저하되므로 로그로만 확인된다** — `docker logs synapse-log-analyzer | grep -i reranker`
 - **벡터 DB**: Qdrant (Server B)
 - **포트**: 8000 (Docker)
 
@@ -76,7 +78,7 @@ log-analyzer/
 ├── aggregation_vector_client.py   # metric_hourly_patterns / aggregation_summaries 컬렉션 관리
 ├── knowledge_vector_client.py     # V1 Knowledge 3종 컬렉션 (Jira/Confluence/Documents) 관리
 ├── guides_vector_client.py        # knowledge_guides 컬렉션 (운영 가이드 Hybrid 임베딩·검색)
-├── reranker.py                    # bge-reranker-v2-m3 cross-encoder 재순위화 (ADR-011 후속, FP32)
+├── reranker.py                    # bge-reranker-v2-m3 cross-encoder 재순위화 (ADR-011 후속, int8)
 ├── chunking.py                    # 문서 포맷별 청킹 전략 (DOCX/PDF/XLSX/PPTX/Confluence)
 ├── ocr_worker.py                  # 첨부 OCR 처리 (이미지/PDF/문서 통합 텍스트 추출)
 ├── routes/
@@ -242,7 +244,7 @@ log-analyzer/
 | `SPARSE_EMBED_MODEL` | `Qdrant/bm25` (ADR-011) |
 | `RERANKER_MODEL` | `onnx-community/bge-reranker-v2-m3-ONNX` (Dockerfile에서 override). 코드 기본값은 `BAAI/bge-reranker-v2-m3` |
 | `RERANKER_MODEL_CACHE` | `/app/reranker-models` (이미지 번들 경로) |
-| `RERANKER_ONNX_FILE` | `onnx/model.onnx` (FP32, model.onnx_data external data 동반) |
+| `RERANKER_ONNX_FILE` | `onnx/model_int8.onnx` (~544MB 단일 파일, external data 없음). Dockerfile deps 스테이지 + docker-compose 양쪽에서 지정. **코드 기본값(`reranker.py`)은 `onnx/model.onnx`** — 테스트가 이 값을 검증하므로 바꾸지 말 것 |
 | `RERANKER_MAX_LENGTH` | `512` (cross-encoder pair encoding 최대 토큰) |
 | `FASTEMBED_CACHE_PATH` | `/app/fastembed-models` (read-only 마운트) |
 | `HF_HUB_OFFLINE` | `1` (폐쇄망 필수) |
