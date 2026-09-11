@@ -48,7 +48,7 @@
 | `DENSE_MODEL_CACHE` / `SPARSE_MODEL_CACHE` | 이미지 번들 경로 (Dockerfile에서 자동 설정) |
 | `HF_HUB_OFFLINE` | `1` (폐쇄망 필수). 개발기 미러 필요 시 `HF_ENDPOINT=https://hf-mirror.com` |
 | `QDRANT_URL` | `http://{server-b}:6333` |
-| `TEAMS_WEBHOOK_URL` | 전역 Teams 폴백 (시스템별 `systems.teams_webhook_url`이 우선) |
+| `TEAMS_WEBHOOK_URL` | 전역 Teams 폴백 (시스템별 `systems.teams_webhook_url`이 우선). O365 Incoming Webhook 커넥터 은퇴 → **Power Automate 워크플로 웹훅**(`*.logic.azure.com`, 성공 응답 `202`) 사용. 설정 절차는 `docs/teams-workflow-webhook.md` |
 | `FRONTEND_EXTERNAL_URL` | Teams 카드 "인시던트 보기" 버튼이 여는 React 페이지 외부 접근 URL (예: `http://{server-a-ip}:3001`) — Wave 2B에서 "해결책 등록" 버튼 제거됨 |
 | `ANALYSIS_INTERVAL_SECONDS` | 300 (로그 분석 주기) |
 | `PROMETHEUS_ANALYZE_INTERVAL_SECONDS` | 300 (admin-api 메트릭 교차 분석 주기) |
