@@ -43,7 +43,7 @@
 | `LLM_TYPE` | `devx` / `claude` / `openai` — `llm_client.py` Strategy가 라우팅 (ADR-001). ADR-012: ollama 폐지 |
 | `DEVX_CLIENT_ID` / `DEVX_CLIENT_SECRET` | DevX OAuth client_credentials 인증 (시스템 발급) |
 | `DENSE_EMBED_MODEL` | `BAAI/bge-m3` (onnxruntime 직접 호출, 1024차원, ADR-011) |
-| `DENSE_ONNX_FILE` | `onnx/model.onnx` (Dense ONNX 파일 경로 — int8 교체 시 `onnx/model_int8.onnx`) |
+| `DENSE_ONNX_FILE` | `onnx/model.onnx` (Dense ONNX 파일 경로, FP32 2.11GB). **`BAAI/bge-m3` 리포는 양자화 변형을 배포하지 않는다** — `onnx/model_int8.onnx`는 존재하지 않으므로 이 값으로 바꾸면 dense 임베딩이 로딩 실패한다(reranker와 달리 폴백 없음 → 검색·분석 중단). int8을 쓰려면 직접 양자화하거나 커뮤니티 변환본을 별도 확보해야 한다 |
 | `SPARSE_EMBED_MODEL` | `Qdrant/bm25` (fastembed SparseTextEmbedding, IDF 기반) |
 | `DENSE_MODEL_CACHE` / `SPARSE_MODEL_CACHE` | 이미지 번들 경로 (Dockerfile에서 자동 설정) |
 | `HF_HUB_OFFLINE` | `1` (폐쇄망 필수). 개발기 미러 필요 시 `HF_ENDPOINT=https://hf-mirror.com` |

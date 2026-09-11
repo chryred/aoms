@@ -417,6 +417,26 @@ ls -lh main-server/*.tar.gz</code></pre>
 <tr><td><code>reranker-models/</code> — bge-reranker-v2-m3-ONNX (int8)</td><td>약 544 MB</td><td><strong>재정렬.</strong> 위 둘이 뽑은 후보를 다시 읽어 진짜 관련 있는 것을 위로 올립니다.</td></tr>
 </table></div>
 
+<div class="note info"><span class="t">실제 tar.gz 구성 (2026-09 실측)</span>
+<div class="tbl"><table>
+<tr><th>파일</th><th>크기</th></tr>
+<tr><td>dense <code>onnx/model.onnx_data</code> (bge-m3 가중치)</td><td>2.11 GB</td></tr>
+<tr><td>reranker <code>onnx/model_int8.onnx</code></td><td>544 MB</td></tr>
+<tr><td>토크나이저·설정 등 나머지</td><td>약 48 MB</td></tr>
+<tr><td><strong>압축 해제 합계</strong></td><td><strong>2.70 GB</strong></td></tr>
+<tr><td><strong><code>synapse-models.tar.gz</code></strong></td><td><strong>1.65 GB</strong></td></tr>
+</table></div>
+<p>용량 대부분은 <strong>dense 모델</strong>입니다. reranker는 int8이라 544MB로 작습니다.</p></div>
+
+<div class="note warn"><span class="t">dense는 int8로 바꿀 수 없습니다</span>
+<p>reranker를 int8로 줄였으니 dense도 줄이면 되지 않느냐는 질문이 나오는데, <strong>안 됩니다.</strong></p>
+<div class="tbl"><table>
+<tr><th>모델</th><th>양자화</th><th>이유</th></tr>
+<tr><td>reranker (<code>onnx-community</code>)</td><td><strong>int8</strong></td><td>리포가 int8·fp16·q4 등 9종을 미리 배포 — 파일명만 지정하면 됨</td></tr>
+<tr><td>dense (<code>BAAI/bge-m3</code>)</td><td>FP32만</td><td><strong>공식 리포가 양자화 변형을 배포하지 않음.</strong> <code>onnx/model_int8.onnx</code>는 존재하지 않으므로 <code>DENSE_ONNX_FILE</code>을 그 값으로 바꾸면 <strong>dense 임베딩이 로딩 실패</strong>합니다. reranker와 달리 폴백이 없어 검색·분석이 통째로 멈춥니다.</td></tr>
+<tr><td>sparse (<code>Qdrant/bm25</code>)</td><td>해당 없음</td><td>BM25는 신경망이 아니라 통계 기반 순위 함수 — IDF 가중치와 언어별 불용어 목록이라 양자화할 대상이 없음 (~50MB)</td></tr>
+</table></div></div>
+
 <div class="note danger"><span class="t">사내 PC는 HuggingFace 접속이 막혀 있는 경우가 많습니다</span>
 <p>세 모델 모두 <strong>HuggingFace Hub</strong>(<code>huggingface.co</code>)에서 받습니다.
 사내망에서 이 도메인이 차단되어 있으면 <code>./build-images.sh export-models</code>가
@@ -433,7 +453,7 @@ ls -lh main-server/*.tar.gz</code></pre>
 
 <h4>방법 A — 빌드 장비에서 바로 추출 (권장)</h4>
 <pre><code>./build-images.sh export-models
-<span class="c">#  → main-server/synapse-models.tar.gz  (압축 해제 약 2.8 GB, 압축 크기는 스크립트가 출력)</span></code></pre>
+<span class="c">#  → main-server/synapse-models.tar.gz  (1.65 GB, 압축 해제 2.70 GB)</span></code></pre>
 <p>내부적으로 <code>model-downloader</code> 스테이지를 빌드해 모델을 받고,
 <code>dense-models</code> · <code>fastembed-models</code> · <code>reranker-models</code> 세 디렉터리를 묶습니다.
 <strong>디렉터리 구조가 운영 환경과 100% 동일</strong>하므로 가장 안전합니다.</p>
@@ -480,7 +500,7 @@ ls -lh synapse-models.tar.gz</code></pre>
 
 <div class="tbl"><table>
 <tr><th>순서</th><th>장소</th><th>할 일</th></tr>
-<tr><td>①</td><td>외부 PC</td><td>방법 B의 스크립트 실행 → <code>synapse-models.tar.gz</code> 생성 (압축 해제 약 2.8 GB)</td></tr>
+<tr><td>①</td><td>외부 PC</td><td>방법 B의 스크립트 실행 → <code>synapse-models.tar.gz</code> 생성 (약 1.65 GB)</td></tr>
 <tr><td>②</td><td>외부 PC</td><td>무결성 확인용 체크섬 생성 — <code>sha256sum synapse-models.tar.gz &gt; synapse-models.sha256</code><br><span style="color:var(--ink3)">macOS는 <code>shasum -a 256</code></span></td></tr>
 <tr><td>③</td><td>—</td><td><strong>tar.gz 파일과 체크섬 파일</strong>을 USB에 복사해 사내 반입 (보안 절차에 따름)</td></tr>
 <tr><td>④</td><td>사내 빌드 PC</td><td>체크섬 검증 — <code>sha256sum -c synapse-models.sha256</code></td></tr>
@@ -640,7 +660,7 @@ done</code></pre>
 <tr><td><code>synapse-log-analyzer-1.0.tar.gz</code></td><td><code>/app/synapse/images/</code></td><td></td></tr>
 <tr><td><code>synapse-frontend-1.0.tar.gz</code></td><td><code>/app/synapse/images/</code></td><td></td></tr>
 <tr><td>인프라 이미지 7종</td><td><code>/app/synapse/images/</code></td><td>prometheus 외</td></tr>
-<tr><td><code>synapse-models.tar.gz</code></td><td><code>/tmp/</code></td><td><strong>최초 1회만</strong> · 압축 해제 약 2.8 GB. HuggingFace 차단 환경이면 <a href="#s1" data-s="s1">01-4 방법 C</a>로 확보. <strong>기존 서버도 reranker int8 전환 시 1회 재배포 필요</strong></td></tr>
+<tr><td><code>synapse-models.tar.gz</code></td><td><code>/tmp/</code></td><td><strong>최초 1회만</strong> · 약 1.65 GB (압축 해제 2.70 GB). HuggingFace 차단 환경이면 <a href="#s1" data-s="s1">01-4 방법 C</a>로 확보. <strong>기존 서버도 reranker int8 전환 시 1회 재배포 필요</strong></td></tr>
 <tr><td><code>docker-compose.yml</code></td><td><code>/app/synapse/</code></td><td></td></tr>
 <tr><td><code>.env</code></td><td><code>/app/synapse/</code></td><td>03단계에서 작성</td></tr>
 <tr><td><code>configs/</code> 전체</td><td><code>/app/synapse/configs/</code></td><td>prometheus·alertmanager·tempo 설정</td></tr>
@@ -712,6 +732,7 @@ scp aoms-offline/qdrant-v1.14.0.tar.gz   $SERVER_B:/app/synapse/images/</code></
 <tr><td><code>JIRA_URL</code> / <code>JIRA_TOKEN</code> / <code>JIRA_PROJECTS</code></td><td>Jira 이슈 동기화</td><td>동기화 스케줄러 자동 비활성화</td></tr>
 <tr><td><code>CONFLUENCE_URL</code> / <code>CONFLUENCE_TOKEN</code> / <code>CONFLUENCE_SPACES</code></td><td>Confluence 문서 동기화</td><td>동기화 스케줄러 자동 비활성화</td></tr>
 <tr><td><code>ANALYSIS_INTERVAL_SECONDS</code></td><td>로그 분석 주기(초)</td><td>300 (5분)</td></tr>
+<tr><td><code>DENSE_ONNX_FILE</code></td><td>dense ONNX 파일명. <strong>바꾸지 마십시오.</strong> <code>BAAI/bge-m3</code> 리포는 양자화 변형을 배포하지 않아 <code>onnx/model_int8.onnx</code>는 <strong>존재하지 않습니다.</strong></td><td><code>onnx/model.onnx</code> (FP32)</td></tr>
 <tr><td><code>RERANKER_ONNX_FILE</code></td><td>reranker ONNX 파일명. 기본 <code>onnx/model_int8.onnx</code>(544MB)로 <strong>따로 설정할 필요 없습니다.</strong> FP32로 바꾸려면 모델을 다시 배포한 뒤 <code>onnx/model.onnx</code> 지정 — <a href="#s1" data-s="s1">01-4</a></td><td>int8 사용 (권장 기본값)</td></tr>
 <tr><td><code>PROMETHEUS_RETENTION_DAYS</code></td><td>메트릭 보관 일수 — <code>docker-compose.yml</code>의 <code>--storage.tsdb.retention.time</code>과 <strong>같은 값</strong>으로</td><td>15</td></tr>
 <tr><td><code>ACCESS_TOKEN_EXPIRE_MINUTES</code> / <code>REFRESH_TOKEN_EXPIRE_DAYS</code></td><td>로그인 토큰 유효 기간</td><td>15분 / 7일</td></tr>
@@ -1672,7 +1693,7 @@ docker compose restart admin-api log-analyzer frontend</code></pre>
 <tr><td>사이드바 메뉴</td><td>기재 없음</td><td><strong>SSL 인증서</strong>, <strong>CLI 배포 관리</strong>, <strong>AI 어시스턴트</strong>, <strong>장애 예측</strong> 메뉴가 추가되었습니다.</td></tr>
 <tr><td>좀비 프로세스 임계치</td><td>기재 없음</td><td><code>PROM_ALERT_ZOMBIE_COUNT</code>/<code>_CRITICAL</code>이 추가되었으나 <strong><code>docker-compose.yml</code>에 주입되어 있지 않습니다.</strong> 값 변경 시 직접 추가해야 합니다. → <a href="#s3" data-s="s3">03-2</a></td></tr>
 <tr><td>임베딩 모델 확보</td><td><code>./build-images.sh export-models</code> 한 가지</td><td>HuggingFace 차단 환경을 위해 <strong>외부 PC 반입 절차(방법 C)</strong>와 Python 직접 다운로드(방법 B) 추가. 심볼릭 링크·<code>model.onnx_data</code> 주의사항 포함. → <a href="#s1" data-s="s1">01-4</a></td></tr>
-<tr><td>reranker 모델</td><td>FP32 <code>model.onnx</code> + <code>model.onnx_data</code> (~2.2GB)</td><td><strong>int8 <code>model_int8.onnx</code> (544MB)로 전환.</strong> 받는 파일과 이미지 기본값이 어긋나 reranker가 동작하지 않던 문제를 해결했습니다. 모델 tar.gz도 ~4.6GB → ~2.8GB로 줄었습니다. <strong>기존 서버는 모델 재배포 필요</strong> → <a href="#s1" data-s="s1">01-4</a></td></tr>
+<tr><td>reranker 모델</td><td>FP32 <code>model.onnx</code> + <code>model.onnx_data</code> (~2.2GB)</td><td><strong>int8 <code>model_int8.onnx</code> (544MB)로 전환.</strong> 받는 파일과 이미지 기본값이 어긋나 reranker가 동작하지 않던 문제를 해결했습니다. 모델 크기도 압축 해제 기준 ~4.3GB → 2.70GB(tar.gz 1.65GB)로 줄었습니다. <strong>기존 서버는 모델 재배포 필요</strong> → <a href="#s1" data-s="s1">01-4</a></td></tr>
 <tr><td>OIDC 키 미생성 시 동작</td><td>“기동 시 <code>FileNotFoundError</code> 발생”</td><td><strong>기동은 정상.</strong> <code>auth.py</code>의 키 로더가 파일이 없으면 <code>None</code>을 반환하므로, 실패는 <strong>타시스템 SSO 로그인을 시도하는 시점</strong>에 <code>ValueError</code>로 나타납니다. OIDC 자체가 <strong>선택 기능</strong>입니다. → <a href="#s1" data-s="s1">01-2</a></td></tr>
 <tr><td>인프라 이미지 받기</td><td><code>docker pull</code> (플랫폼 지정 없음)</td><td><strong><code>--platform linux/amd64</code> 명시.</strong> Apple Silicon Mac에서 그냥 받으면 arm64 이미지가 내려와 서버에서 <code>exec format error</code>가 납니다. → <a href="#s1" data-s="s1">01-5</a></td></tr>
 <tr><td>1단계 작업 순서</td><td>키 생성 → <code>git clone</code></td><td><strong><code>git clone</code> 먼저.</strong> 키는 clone한 저장소 안의 <code>main-server/services/admin-api/secrets/</code>에 만듭니다.</td></tr>
