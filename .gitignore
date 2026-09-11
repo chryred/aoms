@@ -25,6 +25,8 @@ main-server/artifacts/otel/*.jar
 # 임시 스크린샷 / playwright 산출물
 *.png
 !main-server/services/frontend/public/**/*.png
+# 설치·온보딩 가이드 화면 캡처 (setup-guide.src.html 빌드 원본)
+!docs/setup-guide-images/*.png
 ems-mcp/
 .gstack/
 *.tar.gz
