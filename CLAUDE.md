@@ -265,5 +265,5 @@ subagent 없이 자가 검증으로 "완료"라고 말하지 않는다.
 
 ### [LLM 파이프라인] DevX OAuth + 업무영역별 agent_code (ADR-007)
 - DevX 인증은 시스템 OAuth(`client_credentials`) 방식. `DEVX_CLIENT_ID`/`DEVX_CLIENT_SECRET` 환경변수로 토큰 발급.
-- `agent_code`는 `llm_agent_configs` 테이블에서 업무 영역별 관리 (9개 영역). 담당자(contacts)와 무관.
+- `agent_code`는 `llm_agent_configs` 테이블에서 업무 영역별 관리 (12개 영역). 담당자(contacts)와 무관.
 - 관리 페이지: `/admin/llm-config` (admin 전용)
