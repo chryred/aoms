@@ -12,28 +12,9 @@ import (
 
 	"synapse/agent-t-gateway/internal/config"
 	"synapse/agent-t-gateway/internal/ingest"
-	"synapse/agent-t-gateway/internal/protocol"
 	"synapse/agent-t-gateway/internal/registry"
+	"synapse/agent-t-gateway/internal/store"
 )
-
-// No-op implementations until B2 (sink/backpressure) and B3 (commands/dict) land.
-type noopSink struct{}
-
-func (noopSink) Accept(registry.Instance, *protocol.Batch, int64) {}
-
-type noopCommands struct{}
-
-func (noopCommands) Pending(int64) []protocol.Command { return nil }
-func (noopCommands) Done(int64, bool)                 {}
-
-type noopDict struct{}
-
-func (noopDict) Missing(string, []string) []string { return nil }
-func (noopDict) Put(string, string, string)        {}
-
-type noopBackpressure struct{}
-
-func (noopBackpressure) BackoffMs() int { return 0 }
 
 func main() {
 	cfg := config.Load()
@@ -48,22 +29,44 @@ func main() {
 	reg := registry.New(registry.PGStore{Pool: pool})
 	go reg.Run(ctx)
 
+	writer := store.NewWriter(store.Config{
+		URL: cfg.ClickHouseURL, DB: cfg.ClickHouseDB, User: cfg.ClickHouseUser, Password: cfg.ClickHousePassword,
+		FlushInterval: cfg.FlushInterval, FlushRows: cfg.FlushRows, MaxQueueBytes: cfg.CHQueueMaxBytes,
+	}, nil)
+	commands := store.NewCommands(store.PGCommandStore{Pool: pool})
+	writer.Dumps = commands
+	// Writer and commands outlive the HTTP server so in-flight requests finish first.
+	bgCtx, stopBg := context.WithCancel(context.Background())
+	defer stopBg()
+	go commands.Run(bgCtx)
+	writerDone := make(chan struct{})
+	go func() { writer.Run(bgCtx); close(writerDone) }() // final flush on cancel
+
 	mux := http.NewServeMux()
 	mux.Handle("/t/v1/batch", &ingest.Handler{
-		Registry: reg, Sink: noopSink{}, Commands: noopCommands{}, Dict: noopDict{},
-		Back: noopBackpressure{}, Skew: ingest.NewSkew(), Now: time.Now,
+		Registry: reg, Sink: writer, Commands: commands, Dict: store.NewDict(writer, store.DefaultDictCapacity),
+		Back: writer, Skew: ingest.NewSkew(), Now: time.Now,
 	})
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) { w.Write([]byte("ok")) })
 
-	srv := &http.Server{Addr: cfg.Listen, Handler: mux, ReadHeaderTimeout: 10 * time.Second}
-	go func() {
-		<-ctx.Done()
-		sc, c := context.WithTimeout(context.Background(), 5*time.Second)
-		defer c()
-		_ = srv.Shutdown(sc)
-	}()
+	srv := &http.Server{Addr: cfg.Listen, Handler: mux, ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout: 30 * time.Second, IdleTimeout: 120 * time.Second}
 	log.Printf("agent-t-gateway listening on %s", cfg.Listen)
-	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		log.Fatal(err)
-	}
+	go func() {
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatal(err)
+		}
+	}()
+
+	<-ctx.Done()
+	// 1) stop accepting and wait for handlers, 2) final ClickHouse flush,
+	// 3) last command sync so dumps inserted in the final flush become 'done'.
+	sc, c := context.WithTimeout(context.Background(), 5*time.Second)
+	_ = srv.Shutdown(sc)
+	c()
+	stopBg()
+	<-writerDone
+	fc, fcancel := context.WithTimeout(context.Background(), 5*time.Second)
+	commands.Sync(fc)
+	fcancel()
 }
