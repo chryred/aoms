@@ -1,6 +1,6 @@
 from datetime import datetime, date
 from decimal import Decimal
-from typing import Annotated, Any, Dict, List, Optional
+from typing import Annotated, Any, Dict, List, Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pydantic.functional_serializers import PlainSerializer
 
@@ -31,6 +31,9 @@ class SystemCreate(BaseModel):
     description: Optional[str] = None
     status: str = "active"
     teams_webhook_url: Optional[str] = None
+    environment: Literal['dev', 'prod'] = 'prod'
+    tx_slow_threshold_ms: int = Field(3000, ge=100, le=600000)
+    tx_retention_days: int = Field(7, ge=1, le=30)
 
 
 class SystemUpdate(BaseModel):
@@ -38,6 +41,9 @@ class SystemUpdate(BaseModel):
     description: Optional[str] = None
     status: Optional[str] = None
     teams_webhook_url: Optional[str] = None
+    environment: Optional[Literal['dev', 'prod']] = None
+    tx_slow_threshold_ms: Optional[int] = Field(None, ge=100, le=600000)
+    tx_retention_days: Optional[int] = Field(None, ge=1, le=30)
 
 
 class SystemOut(BaseModel):
@@ -47,6 +53,9 @@ class SystemOut(BaseModel):
     description: Optional[str]
     status: str
     teams_webhook_url: Optional[str]
+    environment: str
+    tx_slow_threshold_ms: int
+    tx_retention_days: int
     created_at: UtcDatetime
     updated_at: UtcDatetime
 
@@ -799,13 +808,13 @@ class AgentInstanceCreate(BaseModel):
     system_id: int
     host: str
     agent_type: str = Field(
-        pattern="^(alloy|node_exporter|jmx_exporter|synapse_agent|db|otel_javaagent|cli)$"
+        pattern="^(alloy|node_exporter|jmx_exporter|synapse_agent|agent_t|db|cli)$"
     )
     install_path: Optional[str] = None   # db 에이전트는 바이너리 없음
     config_path: Optional[str] = None    # db 에이전트는 설정 파일 없음
     port: Optional[int] = None
     pid_file: Optional[str] = None
-    ssh_username: Optional[str] = None  # synapse_agent/otel_javaagent 전용 — 라우터에서 필수 검증
+    ssh_username: Optional[str] = None  # synapse_agent/agent_t 전용 — 라우터에서 필수 검증
     label_info: Optional[str] = None   # JSON string
     os_type: Optional[str] = None      # 'linux' | 'windows'
     server_type: Optional[str] = None  # 'web' | 'was' | 'db' | 'middleware' | 'other'
@@ -843,7 +852,7 @@ class AgentInstanceOut(BaseModel):
     config_path: Optional[str]    # db 에이전트는 null
     port: Optional[int]
     pid_file: Optional[str]
-    ssh_username: Optional[str]   # synapse_agent/otel_javaagent 전용; NULL이면 계정 검증 스킵
+    ssh_username: Optional[str]   # synapse_agent/agent_t 전용; NULL이면 계정 검증 스킵
     label_info: Optional[str]
     os_type: Optional[str]
     server_type: Optional[str]
@@ -1208,3 +1217,37 @@ class SslCertStatusOut(BaseModel):
     """인증서 현황 대시보드 — 서버 + 최신 스냅샷"""
     server:   SslServerOut
     snapshot: Optional[SslCertSnapshotOut]
+
+
+# ── APM 대시보드 / Agent-T 명령 ─────────────────────────────────────────
+class ApmDashboardIn(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    layout: List[Any] = Field(default_factory=list)
+    filters: Dict[str, Any] = Field(default_factory=dict)
+    is_shared_default: bool = False
+
+
+class ApmDashboardOut(BaseModel):
+    id: int
+    owner_user_id: int
+    name: str
+    layout: List[Any]
+    filters: Dict[str, Any]
+    is_shared_default: bool
+    created_at: UtcDatetime
+    updated_at: UtcDatetime
+
+    model_config = {"from_attributes": True}
+
+
+class AgentCommandOut(BaseModel):
+    id: int
+    agent_instance_id: int
+    command: str
+    status: str
+    result_ref: Optional[str]
+    requested_by: Optional[int]
+    created_at: UtcDatetime
+    updated_at: UtcDatetime
+
+    model_config = {"from_attributes": True}

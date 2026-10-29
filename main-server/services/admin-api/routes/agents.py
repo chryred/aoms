@@ -150,11 +150,11 @@ async def create_agent(
         # 연결 테스트 성공 → 등록과 동시에 running (수집 시작)
         body.status = "running"
 
-    # synapse_agent / otel_javaagent: SSH 계정 필수 (혼용 차단)
-    if body.agent_type in ("synapse_agent", "otel_javaagent") and not body.ssh_username:
+    # synapse_agent / agent_t: SSH 계정 필수 (혼용 차단)
+    if body.agent_type in ("synapse_agent", "agent_t") and not body.ssh_username:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="synapse_agent·otel_javaagent 에이전트는 SSH 계정(ssh_username)이 필수입니다.",
+            detail="synapse_agent·agent_t 에이전트는 SSH 계정(ssh_username)이 필수입니다.",
         )
 
     agent = AgentInstance(**body.model_dump())

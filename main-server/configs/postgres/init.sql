@@ -26,6 +26,9 @@ CREATE TABLE IF NOT EXISTS systems (
     system_type     VARCHAR(50)  NOT NULL DEFAULT 'was',    -- 'web' | 'was' | 'db' | 'middleware' | 'other'
     status          VARCHAR(20)  DEFAULT 'active',
     teams_webhook_url TEXT,
+    environment     VARCHAR(10)  NOT NULL DEFAULT 'prod',   -- 'dev' | 'prod' (Agent-T)
+    tx_slow_threshold_ms INTEGER NOT NULL DEFAULT 3000,     -- Agent-T 느린 트랜잭션 기준(ms)
+    tx_retention_days    INTEGER NOT NULL DEFAULT 7,        -- Agent-T 상세 보관 일수 (1~30)
     created_at      TIMESTAMP DEFAULT NOW(),
     updated_at      TIMESTAMP DEFAULT NOW()
 );
@@ -434,6 +437,34 @@ CREATE TABLE IF NOT EXISTS agent_install_jobs (
 );
 
 CREATE INDEX IF NOT EXISTS idx_install_jobs_job_id ON agent_install_jobs(job_id);
+
+-- ── APM 대시보드 (Agent-T) ─────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS apm_dashboards (
+    id                SERIAL PRIMARY KEY,
+    owner_user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name              VARCHAR(100) NOT NULL,
+    layout            JSONB NOT NULL DEFAULT '[]'::jsonb,
+    filters           JSONB NOT NULL DEFAULT '{}'::jsonb,
+    is_shared_default BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at        TIMESTAMP DEFAULT NOW(),
+    updated_at        TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_apm_dashboards_owner ON apm_dashboards(owner_user_id);
+
+-- ── Agent-T 원격 명령 큐 ───────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS agent_commands (
+    id                SERIAL PRIMARY KEY,
+    agent_instance_id INTEGER NOT NULL REFERENCES agent_instances(id) ON DELETE CASCADE,
+    command           VARCHAR(30) NOT NULL,
+    status            VARCHAR(20) NOT NULL DEFAULT 'pending',  -- pending | sent | done | failed
+    result_ref        VARCHAR(100),
+    requested_by      INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_at        TIMESTAMP DEFAULT NOW(),
+    updated_at        TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_agent_commands_agent_status ON agent_commands(agent_instance_id, status);
 
 -- ── 챗봇 (ReAct) 관련 테이블 ───────────────────────────────────────────
 -- UUID PK 위해 pgcrypto 확장 필요
