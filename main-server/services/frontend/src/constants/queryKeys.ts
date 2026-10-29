@@ -4,6 +4,7 @@ import type { PeriodType } from '@/types/aggregation'
 import type { ReportType } from '@/types/report'
 import type { OperatorNoteListParams, FeedbackListParams } from '@/api/knowledge'
 import type { GuideListParams } from '@/types/guide'
+import type { ScatterParams, TxListParams } from '@/types/apm'
 
 export const qk = {
   systems: () => ['systems'] as const,
@@ -78,5 +79,13 @@ export const qk = {
     deployment: (id: number) => ['ssl', 'deployments', id] as const,
     certStatus: () => ['ssl', 'certs', 'status'] as const,
     certByServer: (serverId: number) => ['ssl', 'certs', serverId] as const,
+  },
+  apm: {
+    transactions: (params: TxListParams) => ['apm', 'transactions', params] as const,
+    transaction: (traceId: string, spanId: string) =>
+      ['apm', 'transaction', traceId, spanId] as const,
+    scatter: (params: ScatterParams) => ['apm', 'scatter', params] as const,
+    systemSummary: (systemId: number) => ['apm', 'system-summary', systemId] as const,
+    dashboards: () => ['apm', 'dashboards'] as const,
   },
 }

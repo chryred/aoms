@@ -100,4 +100,13 @@ describe('queryKeys (qk)', () => {
   it('agentLiveStatus(id)', () => {
     expect(qk.agentLiveStatus(7)).toEqual(['agents', 7, 'live-status'])
   })
+
+  it('apm 키', () => {
+    const tx = { system_ids: [1] }
+    expect(qk.apm.transactions(tx)).toEqual(['apm', 'transactions', tx])
+    expect(qk.apm.transaction('t', 's')).toEqual(['apm', 'transaction', 't', 's'])
+    expect(qk.apm.scatter(tx)).toEqual(['apm', 'scatter', tx])
+    expect(qk.apm.systemSummary(3)).toEqual(['apm', 'system-summary', 3])
+    expect(qk.apm.dashboards()).toEqual(['apm', 'dashboards'])
+  })
 })

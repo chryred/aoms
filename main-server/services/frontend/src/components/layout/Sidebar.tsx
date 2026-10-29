@@ -23,6 +23,7 @@ import {
   Siren,
   BookOpen,
   KeyRound,
+  ListTree,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useUiStore } from '@/store/uiStore'
@@ -183,6 +184,23 @@ export function Sidebar() {
             to={ROUTES.TRENDS}
             icon={<TrendingUp className="h-4 w-4" />}
             label="장애 예측"
+            collapsed={collapsed}
+            onNavigate={closeMobileSidebar}
+          />
+        </NavGroup>
+
+        <NavGroup label="트랜잭션" collapsed={collapsed}>
+          <NavItem
+            to={ROUTES.APM_LIVE}
+            icon={<Activity className="h-4 w-4" />}
+            label="실시간 모니터링"
+            collapsed={collapsed}
+            onNavigate={closeMobileSidebar}
+          />
+          <NavItem
+            to={ROUTES.APM_TRANSACTIONS}
+            icon={<ListTree className="h-4 w-4" />}
+            label="트랜잭션 분석"
             collapsed={collapsed}
             onNavigate={closeMobileSidebar}
           />
