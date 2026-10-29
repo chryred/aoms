@@ -132,6 +132,7 @@ services:
     volumes:
       - ./services/attaches/knowledge-docs:/attaches/knowledge-docs:z
       - ./services/attaches/chat-attachments:/attaches/chat-attachments:z
+      - ./artifacts/agent-t:/app/artifacts/agent-t:ro,z
     environment:
       - DATABASE_URL=postgresql+asyncpg://synapse:${DB_PASSWORD}@postgres:5432/synapse
       - TEAMS_WEBHOOK_URL=${TEAMS_WEBHOOK_URL}
@@ -163,10 +164,11 @@ services:
       - AGENT_BINARY_PATH=${AGENT_BINARY_PATH:-/app/bin/agent-v}
       - SYNAPSE_CLI_BINARY_PATH=${SYNAPSE_CLI_BINARY_PATH:-/app/bin/synapse}
       # Agent-T (ClickHouse 조회 + gateway 실시간 SSE)
+      - AGENT_T_ARTIFACT_DIR=/app/artifacts/agent-t
       - CLICKHOUSE_URL=${CLICKHOUSE_URL:-http://clickhouse:8123}
       - CLICKHOUSE_DB=${CLICKHOUSE_DB:-agent_t}
       - CLICKHOUSE_USER=${CLICKHOUSE_USER:-agent_t}
-      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD}
+      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD:?CLICKHOUSE_PASSWORD must be set}
       - AGENT_T_GATEWAY_URL=${AGENT_T_GATEWAY_URL:-http://agent-t-gateway:8330}
       # chat
       - CHAT_ATTACHMENT_DIR=${CHAT_ATTACHMENT_DIR:-/attaches/chat-attachments}
@@ -241,7 +243,7 @@ services:
       - CLICKHOUSE_URL=${CLICKHOUSE_URL:-http://clickhouse:8123}
       - CLICKHOUSE_DB=${CLICKHOUSE_DB:-agent_t}
       - CLICKHOUSE_USER=${CLICKHOUSE_USER:-agent_t}
-      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD}
+      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD:?CLICKHOUSE_PASSWORD must be set}
       # JIRA, Conflence 동기화
       - JIRA_URL=${JIRA_URL}              # Jira 서버 주소
       - JIRA_TOKEN=${JIRA_TOKEN}          # Jira API 토큰 (Bearer)
@@ -291,7 +293,7 @@ services:
       - ./configs/clickhouse/config.d/limits.xml:/etc/clickhouse-server/config.d/limits.xml:ro,z
     environment:
       # CLICKHOUSE_PASSWORD 이름은 이미지 entrypoint 가 default 사용자 설정으로 해석하므로 사용 금지
-      - AGENT_T_CH_PASSWORD=${CLICKHOUSE_PASSWORD}
+      - AGENT_T_CH_PASSWORD=${CLICKHOUSE_PASSWORD:?CLICKHOUSE_PASSWORD must be set}
     ulimits:
       nofile:
         soft: 262144
@@ -315,12 +317,12 @@ services:
       - "8330:8330"
     environment:
       - GATEWAY_LISTEN=:8330
-      - GATEWAY_PG_DSN=postgres://synapse:${DB_PASSWORD}@postgres:5432/synapse?sslmode=disable
+      - GATEWAY_PG_DSN=postgres://${DB_USER}:${DB_PASSWORD}@postgres:5432/synapse?sslmode=disable
       - SECRET_KEY=${SECRET_KEY}
       - CLICKHOUSE_URL=http://clickhouse:8123
       - CLICKHOUSE_DB=agent_t
       - CLICKHOUSE_USER=agent_t
-      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD}
+      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD:?CLICKHOUSE_PASSWORD must be set}
       - PROMETHEUS_REMOTE_WRITE_URL=http://prometheus:9090/api/v1/write
       - GATEWAY_FLUSH_INTERVAL=1s
       - GATEWAY_FLUSH_ROWS=10000
