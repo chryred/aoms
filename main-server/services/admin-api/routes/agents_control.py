@@ -875,6 +875,12 @@ async def _run_install(
         await _run_otel_install(job_id, agent, session)
         return
 
+    # Agent-T (Java APM 에이전트) 설치
+    if agent.agent_type == "agent_t":
+        from services import agent_t_installer  # 순환 import 방지: 호출 시점에 로드
+        await agent_t_installer.run_install(job_id, agent, session)
+        return
+
     # Synapse CLI 배포 (단순 scp + chmod, 데몬 없음)
     if agent.agent_type == "cli":
         await _run_cli_install(job_id, agent, session)
@@ -1220,6 +1226,30 @@ async def get_agent_live_status(
             "live_status": live_status,
             "last_seen": last_seen,
             "service_name": service_name,
+            "collectors_active": [],
+        }
+
+    # ── Agent-T (gateway snapshot 기반) ──────────────────────────────────────
+    if agent.agent_type == "agent_t":
+        from services import agent_t_installer
+        info = {}
+        try:
+            info = json.loads(agent.label_info or "{}")
+        except Exception:
+            pass
+        instance_role = info.get("instance_role", "was")
+        instances = await agent_t_installer.fetch_snapshot(agent.system_id, current_user)
+        inst = agent_t_installer.find_instance(instances, agent.system_id, instance_role)
+        last_seen, age_secs = agent_t_installer.last_seen_age(inst.get("last_seen") if inst else None)
+        live_status = _calc_live_status(age_secs) if age_secs is not None else "no_data"
+        return {
+            "agent_id": agent_id,
+            "type": "agent_t",
+            "status": agent.status,
+            "live": live_status == "collecting",
+            "live_status": live_status,
+            "last_seen": last_seen,
+            "instance_role": instance_role,
             "collectors_active": [],
         }
 
