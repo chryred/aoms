@@ -113,11 +113,11 @@ export function useMetricDashboard(numericId: number, timeRange: TimeRange) {
   const { data: systemLive } = useSystemLiveStatus(numericId || undefined)
   const isSystemLive = systemLive?.is_live ?? false
 
-  const { data: otelAgents = [] } = useAgents({
+  const { data: agentTAgents = [] } = useAgents({
     system_id: numericId || undefined,
-    agent_type: 'otel_javaagent',
+    agent_type: 'agent_t',
   })
-  const hasOtel = otelAgents.some((a) => ['running', 'installed'].includes(a.status))
+  const hasAgentT = agentTAgents.some((a) => ['running', 'installed'].includes(a.status))
 
   const { data: minuteData = [], isLoading: minuteLoading } = useMetricsRange(
     chartPopup
@@ -182,7 +182,7 @@ export function useMetricDashboard(numericId: number, timeRange: TimeRange) {
     toDt,
     adaptiveStep,
     isSystemLive,
-    hasOtel,
+    hasAgentT,
     minuteData,
     minuteLoading,
     processSummary,

@@ -24,8 +24,29 @@ const schema = z.object({
   status: z.enum(['active', 'inactive']).default('active'),
   teams_webhook_url: z.string().url('올바른 URL 형식이 아닙니다').optional().or(z.literal('')),
   description: z.string().optional(),
+  environment: z.enum(['dev', 'prod']).default('dev'),
+  // 느린 트랜잭션 기준(초) — 저장 시 ms 로 변환
+  slow_sec: z
+    .string()
+    .refine(
+      (v) => v !== '' && Number(v) >= 0.1 && Number(v) <= 600,
+      '0.1 ~ 600초 범위로 입력하세요',
+    ),
+  tx_retention_days: z
+    .string()
+    .refine(
+      (v) => /^\d+$/.test(v) && Number(v) >= 1 && Number(v) <= 30,
+      '보관일은 1 ~ 30일 범위로 입력하세요',
+    ),
 })
 type FormData = z.infer<typeof schema>
+
+const DEFAULT_VALUES: Partial<FormData> = {
+  status: 'active',
+  environment: 'dev',
+  slow_sec: '3',
+  tx_retention_days: '7',
+}
 
 interface SystemFormDrawerProps {
   open: boolean
@@ -53,7 +74,7 @@ export function SystemFormDrawer({ open, onClose, onCreated, editTarget }: Syste
     formState: { errors },
   } = useForm<FormData>({
     resolver: zodResolver(schema),
-    defaultValues: { status: 'active' },
+    defaultValues: DEFAULT_VALUES,
   })
 
   // Focus trap + ESC close
@@ -99,15 +120,21 @@ export function SystemFormDrawer({ open, onClose, onCreated, editTarget }: Syste
         status: editTarget.status,
         teams_webhook_url: editTarget.teams_webhook_url ?? '',
         description: editTarget.description ?? '',
+        environment: editTarget.environment === 'prod' ? 'prod' : 'dev',
+        slow_sec: String((editTarget.tx_slow_threshold_ms ?? 3000) / 1000),
+        tx_retention_days: String(editTarget.tx_retention_days ?? 7),
       })
     } else {
-      reset({ status: 'active' })
+      reset(DEFAULT_VALUES)
     }
   }, [editTarget, reset, open])
 
   const onSubmit = (data: FormData) => {
+    const { slow_sec, tx_retention_days, ...rest } = data
     const cleanData = {
-      ...data,
+      ...rest,
+      tx_slow_threshold_ms: Math.round(Number(slow_sec) * 1000),
+      tx_retention_days: Number(tx_retention_days),
       teams_webhook_url: data.teams_webhook_url || undefined,
       description: data.description || undefined,
     }
@@ -184,6 +211,27 @@ export function SystemFormDrawer({ open, onClose, onCreated, editTarget }: Syste
               <option value="active">운영 중</option>
               <option value="inactive">비활성</option>
             </NeuSelect>
+            <NeuSelect id="environment" label="환경" {...register('environment')}>
+              <option value="dev">개발</option>
+              <option value="prod">운영</option>
+            </NeuSelect>
+            <div className="flex gap-3">
+              <NeuInput
+                id="slow_sec"
+                label="느린 트랜잭션 기준 (초)"
+                type="number"
+                step="0.1"
+                error={errors.slow_sec?.message}
+                {...register('slow_sec')}
+              />
+              <NeuInput
+                id="tx_retention_days"
+                label="트랜잭션 보관일 (1~30)"
+                type="number"
+                error={errors.tx_retention_days?.message}
+                {...register('tx_retention_days')}
+              />
+            </div>
             <NeuInput
               id="teams_webhook_url"
               label="Teams Webhook URL"

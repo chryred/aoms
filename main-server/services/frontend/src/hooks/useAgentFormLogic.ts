@@ -10,7 +10,7 @@ import type {
   OsType,
   ServerType,
   DbType,
-  OtelServiceType,
+  AgentTServiceType,
   WebServerLogFormat,
 } from '@/types/agent'
 import type { System } from '@/types/system'
@@ -18,15 +18,15 @@ import type { System } from '@/types/system'
 export const AGENT_TYPES: { value: AgentType; label: string }[] = [
   { value: 'synapse_agent', label: 'Synapse 수집기' },
   { value: 'db', label: 'DB 수집기' },
-  { value: 'otel_javaagent', label: 'OTel Java 수집기' },
+  { value: 'agent_t', label: 'Agent-T (트랜잭션)' },
 ]
 
-export const OTEL_SERVICE_TYPES: { value: OtelServiceType; label: string }[] = [
+export const AGENT_T_SERVICE_TYPES: { value: AgentTServiceType; label: string }[] = [
   { value: 'tomcat', label: 'Tomcat (setenv.sh)' },
   { value: 'jboss', label: 'JBoss / WildFly (standalone.conf.d)' },
-  { value: 'jeus', label: 'JEUS (otel.sh)' },
+  { value: 'jeus', label: 'JEUS (domain.xml)' },
   { value: 'systemd', label: 'systemd (root 필요)' },
-  { value: 'standalone', label: '독립 실행 (otel-launch.sh)' },
+  { value: 'standalone', label: '독립 실행 (wrapper)' },
 ]
 
 export const DB_TYPE_OPTIONS: {
@@ -64,9 +64,9 @@ const DEFAULT_PATHS: Record<
     pid: '~/synapse/agent.pid',
     port: 0,
   },
-  otel_javaagent: {
-    install: '~/otel',
-    config: '~/otel/otel-env.sh',
+  agent_t: {
+    install: '~/agent-t',
+    config: '',
     pid: '',
     port: 0,
   },
@@ -179,18 +179,22 @@ export interface AgentFormState {
     field: K,
     value: WebServerForm[K],
   ) => void
-  // SSH 계정 (synapse_agent / otel_javaagent 전용)
+  // SSH 계정 (synapse_agent / agent_t 전용)
   sshUsername: string
   setSshUsername: (v: string) => void
-  // OTel fields
-  otelServiceName: string
-  setOtelServiceName: (v: string) => void
-  otelServiceType: OtelServiceType
-  setOtelServiceType: (v: OtelServiceType) => void
-  otelJdkVersion: string
-  setOtelJdkVersion: (v: string) => void
-  otelServicePath: string
-  setOtelServicePath: (v: string) => void
+  // Agent-T fields (설치 경로는 installPath, 역할은 instanceRole 공유)
+  jvmMatch: string
+  setJvmMatch: (v: string) => void
+  agentTServiceType: AgentTServiceType
+  setAgentTServiceType: (v: AgentTServiceType) => void
+  agentTServicePath: string
+  setAgentTServicePath: (v: string) => void
+  immediate: boolean
+  setImmediate: (v: boolean) => void
+  permanent: boolean
+  setPermanent: (v: boolean) => void
+  jeusConfirm: boolean
+  setJeusConfirm: (v: boolean) => void
   // Submit
   error: string | null
   loading: boolean
@@ -234,14 +238,16 @@ export function useAgentFormLogic(
   ])
   const [webServers, setWebServers] = useState<WebServerForm[]>([])
 
-  // SSH 계정 (synapse_agent / otel_javaagent 전용)
+  // SSH 계정 (synapse_agent / agent_t 전용)
   const [sshUsername, setSshUsername] = useState('')
 
-  // OTel fields
-  const [otelServiceName, setOtelServiceName] = useState('')
-  const [otelServiceType, setOtelServiceType] = useState<OtelServiceType>('standalone')
-  const [otelJdkVersion, setOtelJdkVersion] = useState('17')
-  const [otelServicePath, setOtelServicePath] = useState('')
+  // Agent-T fields
+  const [jvmMatch, setJvmMatch] = useState('')
+  const [agentTServiceType, setAgentTServiceType] = useState<AgentTServiceType>('standalone')
+  const [agentTServicePath, setAgentTServicePath] = useState('')
+  const [immediate, setImmediate] = useState(true)
+  const [permanent, setPermanent] = useState(true)
+  const [jeusConfirm, setJeusConfirm] = useState(false)
 
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
@@ -332,14 +338,16 @@ export function useAgentFormLogic(
         collect_interval_secs: Math.max(10, Number(dbInterval) || 60),
       })
     }
-    if (agentType === 'otel_javaagent') {
-      const system = systems.find((s) => s.id === selectedSystemId)
+    if (agentType === 'agent_t') {
       return JSON.stringify({
-        tempo_service_name: otelServiceName || system?.system_name || '',
-        service_type: otelServiceType,
-        jdk_version: otelJdkVersion,
-        install_path: installPath,
-        service_path: otelServicePath || undefined,
+        jvm_match: jvmMatch.trim(),
+        instance_role: instanceRole || undefined,
+        service_type: agentTServiceType,
+        service_path: agentTServicePath || undefined,
+        install_dir: installPath,
+        immediate,
+        permanent,
+        ...(agentTServiceType === 'jeus' ? { jeus_confirm: jeusConfirm } : {}),
       })
     }
     const system = systems.find((s) => s.id === selectedSystemId)
@@ -386,9 +394,13 @@ export function useAgentFormLogic(
       setError('시스템을 선택하세요.')
       return
     }
-    setLoading(true)
     const isDb = agentType === 'db'
-    const isOtelSubmit = agentType === 'otel_javaagent'
+    const isAgentTSubmit = agentType === 'agent_t'
+    if (isAgentTSubmit && !jvmMatch.trim()) {
+      setError('대상 JVM 식별 문자열(jvm_match)을 입력하세요.')
+      return
+    }
+    setLoading(true)
     if (!isDb && !sshUsername.trim()) {
       setError('SSH 계정(OS 사용자명)을 입력하세요.')
       setLoading(false)
@@ -401,10 +413,10 @@ export function useAgentFormLogic(
         agent_type: agentType,
         ...(isDb
           ? {}
-          : isOtelSubmit
+          : isAgentTSubmit
             ? { install_path: installPath }
             : { install_path: installPath, config_path: configPath }),
-        pid_file: isOtelSubmit ? undefined : pidFile || undefined,
+        pid_file: isAgentTSubmit ? undefined : pidFile || undefined,
         ...(!isDb ? { ssh_username: sshUsername.trim() } : {}),
         port: isDb
           ? port
@@ -478,14 +490,18 @@ export function useAgentFormLogic(
     updateWebServer,
     sshUsername,
     setSshUsername,
-    otelServiceName,
-    setOtelServiceName,
-    otelServiceType,
-    setOtelServiceType,
-    otelJdkVersion,
-    setOtelJdkVersion,
-    otelServicePath,
-    setOtelServicePath,
+    jvmMatch,
+    setJvmMatch,
+    agentTServiceType,
+    setAgentTServiceType,
+    agentTServicePath,
+    setAgentTServicePath,
+    immediate,
+    setImmediate,
+    permanent,
+    setPermanent,
+    jeusConfirm,
+    setJeusConfirm,
     error,
     loading,
     handleTypeChange,

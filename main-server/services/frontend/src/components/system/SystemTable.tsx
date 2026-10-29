@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Pencil, Trash2, Terminal } from 'lucide-react'
 import { NeuButton } from '@/components/neumorphic/NeuButton'
+import { NeuBadge } from '@/components/neumorphic/NeuBadge'
 import { EmptyState } from '@/components/common/EmptyState'
 import { useDeleteSystem } from '@/hooks/mutations/useDeleteSystem'
 import { formatKST } from '@/lib/utils'
@@ -69,7 +70,7 @@ export function SystemTable({ systems, onEdit, searchQuery = '' }: SystemTablePr
         <table className="w-full">
           <thead>
             <tr className="border-border border-b">
-              {['시스템명', '상태', '등록일', ''].map((h) => (
+              {['시스템명', '환경', '상태', '등록일', ''].map((h) => (
                 <th key={h} className="type-label px-4 py-3 text-left">
                   {h}
                 </th>
@@ -82,6 +83,11 @@ export function SystemTable({ systems, onEdit, searchQuery = '' }: SystemTablePr
                 <td className="px-4 py-3">
                   <p className="text-text-primary font-medium">{system.display_name}</p>
                   <p className="text-text-secondary font-mono text-xs">{system.system_name}</p>
+                </td>
+                <td className="px-4 py-3">
+                  <NeuBadge variant={system.environment === 'prod' ? 'critical' : 'muted'}>
+                    {system.environment === 'prod' ? '운영' : '개발'}
+                  </NeuBadge>
                 </td>
                 <td className="px-4 py-3">
                   <span
