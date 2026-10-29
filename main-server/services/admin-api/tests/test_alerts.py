@@ -380,3 +380,71 @@ async def test_acknowledge_alert_not_found(authed_client: AsyncClient):
         json={"acknowledged_by": "admin"}
     )
     assert resp.status_code == 404
+
+
+# ── related_trace_ids (Agent-T / ClickHouse) ─────────────────────────────────
+
+async def _add_agent_t(client: AsyncClient, system_id: int) -> None:
+    resp = await client.post(
+        "/api/v1/agents",
+        json={"system_id": system_id, "host": "10.0.0.1", "agent_type": "agent_t", "ssh_username": "was"},
+    )
+    assert resp.status_code == 201
+
+
+async def _set_agent_t_status(db_session, status_value: str) -> None:
+    from sqlalchemy import update
+    from models import AgentInstance
+    await db_session.execute(update(AgentInstance).where(AgentInstance.agent_type == "agent_t").values(status=status_value))
+    await db_session.commit()
+
+
+async def _stored_trace_ids(db_session):
+    from sqlalchemy import select
+    from models import AlertHistory
+    rows = (await db_session.execute(select(AlertHistory.related_trace_ids))).scalars().all()
+    assert len(rows) == 1
+    return rows[0]
+
+
+async def test_alert_related_traces_from_clickhouse(authed_client: AsyncClient, db_session):
+    """agent_t 보유 시스템: tx_summary 에러 트랜잭션 trace_id 가 related_trace_ids 로 저장"""
+    system = await create_system(authed_client)
+    await _add_agent_t(authed_client, system["id"])
+    await _set_agent_t_status(db_session, "running")
+
+    mock_query = AsyncMock(return_value=[{"trace_id": "a" * 32}, {"trace_id": "b" * 32}])
+    with patch("routes.alerts.clickhouse_client.query", mock_query):
+        resp = await authed_client.post("/api/v1/alerts/receive", json=ALERT_PAYLOAD)
+
+    assert resp.status_code == 200
+    assert await _stored_trace_ids(db_session) == ["a" * 32, "b" * 32]
+    sql, params = mock_query.call_args.args
+    assert "agent_t.tx_summary" in sql and "error = 1" in sql
+    assert params["system_id"] == system["id"]
+    assert params["limit"] == 5
+
+
+async def test_alert_related_traces_skipped_without_agent_t(authed_client: AsyncClient, db_session):
+    await create_system(authed_client)
+    mock_query = AsyncMock(return_value=[{"trace_id": "a" * 32}])
+    with patch("routes.alerts.clickhouse_client.query", mock_query):
+        resp = await authed_client.post("/api/v1/alerts/receive", json=ALERT_PAYLOAD)
+
+    assert resp.status_code == 200
+    mock_query.assert_not_called()
+    assert await _stored_trace_ids(db_session) is None
+
+
+async def test_alert_related_traces_clickhouse_error_swallowed(authed_client: AsyncClient, db_session):
+    from services.clickhouse_client import ClickHouseError
+    system = await create_system(authed_client)
+    await _add_agent_t(authed_client, system["id"])
+    await _set_agent_t_status(db_session, "installed")
+
+    with patch("routes.alerts.clickhouse_client.query", AsyncMock(side_effect=ClickHouseError("down"))):
+        resp = await authed_client.post("/api/v1/alerts/receive", json=ALERT_PAYLOAD)
+
+    assert resp.status_code == 200
+    assert resp.json()["processed"][0]["status"] == "no_webhook"
+    assert await _stored_trace_ids(db_session) is None

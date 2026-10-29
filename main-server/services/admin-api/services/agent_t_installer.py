@@ -182,20 +182,6 @@ def _env_file_content(service_type: str, javaagent: str) -> str:
     )
 
 
-def _agent_t_inject_path(service_type: str, service_path: str, install_dir: str, sys_name: str) -> str | None:
-    path = _get_inject_path(service_type, service_path, install_dir, sys_name)
-    if not path:
-        return path
-    head, _, base = path.rpartition("/")
-    base = base.replace("otel-launch.sh", "agent-t-launch.sh").replace("otel.", "agent-t.")
-    return f"{head}/{base}"
-
-
-def _to_agent_t_env(content: str) -> str:
-    """기존 OTel inject 헬퍼가 만든 내용의 env 파일 참조를 Agent-T 용으로 치환."""
-    return content.replace("otel-env.sh", _ENV_FILE)
-
-
 def _jeus_server_name(info: dict, jvm_match: str) -> str:
     name = info.get("server_name") or re.sub(r"^-D", "", jvm_match).split("=")[0]
     return name.strip()
@@ -459,7 +445,7 @@ async def run_install(job_id: str, agent: AgentInstance, session: dict) -> None:
 
 
 async def _apply_inject(session, conn, service_type, service_path, install_dir, sys_name, _log) -> None:
-    inject_path = _agent_t_inject_path(service_type, service_path, install_dir, sys_name)
+    inject_path = _get_inject_path(service_type, service_path, install_dir, sys_name)
     if not inject_path:
         _log("    inject 파일 경로를 결정할 수 없어 영구 적용을 건너뜁니다.")
         return
@@ -469,10 +455,10 @@ async def _apply_inject(session, conn, service_type, service_path, install_dir, 
 
     if service_type == "tomcat":
         existing = await asyncio.to_thread(ssh_read_file, *conn, inject_path)
-        content = _to_agent_t_env(_build_tomcat_setenv(existing or "", install_dir))
+        content = _build_tomcat_setenv(existing or "", install_dir, _ENV_FILE)
         _log(f"    {inject_path} 마커 블록 갱신 (기존 설정 보존)")
     else:
-        content = _to_agent_t_env(_build_service_env_inject(service_type, service_path, install_dir))
+        content = _build_service_env_inject(service_type, service_path, install_dir, _ENV_FILE)
         _log(f"    {inject_path} 생성")
     await asyncio.to_thread(ssh_put_file, *conn, inject_path, content)
 

@@ -430,3 +430,31 @@ async def test_dashboard_requires_auth(client):
     response = await client.get("/api/v1/dashboard/system-health")
 
     assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_system_health_has_agent_t(
+    db_session: AsyncSession,
+    authed_client,
+    sample_system: System,
+):
+    """running|installed agent_t 보유 시스템만 has_agent_t=True"""
+    from models import AgentInstance
+
+    other = System(system_name="no_agent_t", display_name="No Agent-T", status="active")
+    stopped = System(system_name="stopped_agent_t", display_name="Stopped", status="active")
+    db_session.add_all([other, stopped])
+    await db_session.flush()
+    db_session.add_all([
+        AgentInstance(system_id=sample_system.id, host="10.0.0.1", agent_type="agent_t", status="running"),
+        AgentInstance(system_id=stopped.id, host="10.0.0.2", agent_type="agent_t", status="stopped"),
+    ])
+    await db_session.commit()
+
+    response = await authed_client.get("/api/v1/dashboard/system-health")
+
+    assert response.status_code == 200
+    by_name = {s["system_name"]: s for s in response.json()["systems"]}
+    assert by_name["test_system"]["has_agent_t"] is True
+    assert by_name["no_agent_t"]["has_agent_t"] is False
+    assert by_name["stopped_agent_t"]["has_agent_t"] is False

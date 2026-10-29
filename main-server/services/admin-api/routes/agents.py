@@ -10,7 +10,7 @@ SSH 인증:
   - GET/POST /api/v1/agents
   - GET/PATCH/DELETE /api/v1/agents/{id}
 
-에이전트 제어·설치·라이브 상태·OTel 설치는 routes/agents_control.py 참조.
+에이전트 제어·설치·라이브 상태는 routes/agents_control.py 참조.
 """
 
 import asyncio
