@@ -15,6 +15,11 @@ SESSION = {"host": "10.0.0.5", "port": 22, "username": "jeussic", "password": "p
 FIXTURE = Path(__file__).parent / "fixtures" / "jeus_domain_min.xml"
 
 
+def _inst_at(age_s: float = 0):
+    import time
+    return {"system_id": 1, "instance_role": "was", "last_seen": int((time.time() - age_s) * 1000)}
+
+
 class Remote:
     """ssh_* 목. 명령 문자열 부분 일치로 응답을 정한다."""
 
@@ -98,7 +103,7 @@ async def env(db_session, monkeypatch, tmp_path):
     async def fake_snapshot(system_id, user):
         if snapshots[0] is not None:
             return snapshots[0]
-        return [{"system_id": 1, "instance_role": "was", "last_seen": 1}] if remote.attached else []
+        return [_inst_at()] if remote.attached else []
 
     monkeypatch.setattr(inst, "fetch_snapshot", fake_snapshot)
     monkeypatch.setattr(inst, "_CONFIRM_TIMEOUT_S", 0)
@@ -343,7 +348,7 @@ async def test_rerun_keeps_token_and_skips_attach_when_live(env):
     env.remote.read_map[props_path] = first_props
     env.remote.attached = False
     env.remote.exec_calls.clear()
-    env.snapshots[0] = [{"system_id": 1, "instance_role": "was", "last_seen": 1}]
+    env.snapshots[0] = [_inst_at()]
     agent2 = await _agent(env, agent)
     agents_control._live_jobs["job1"] = {"status": "running", "logs": "", "error": None}
     agent2.label_info = json.dumps({**json.loads(agent2.label_info), "jeus_confirm": True})
@@ -359,3 +364,13 @@ async def test_rerun_keeps_token_and_skips_attach_when_live(env):
     assert env.remote.files[props_path] == first_props
     assert (await _agent(env, agent)).status == "running"
     assert "-javaagent:" in env.remote.files[path]  # jeus_confirm 으로 반영됨
+
+
+async def test_stale_gateway_entry_does_not_skip_attach_or_confirm(env):
+    env.snapshots[0] = [_inst_at(600)]  # 10분 전 — 유휴 인스턴스 잔존
+    agent = await env.make({"jvm_match": "-Dsic_server1", "permanent": False})
+    await inst.run_install("job1", agent, SESSION)
+    job = await _job(env)
+    assert job.status == "done"
+    assert env.remote.attached and "이미 적용됨" not in job.logs
+    assert (await _agent(env, agent)).status == "installed"  # 확인 단계도 stale 은 불인정

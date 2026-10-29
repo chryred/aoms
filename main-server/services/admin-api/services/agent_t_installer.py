@@ -160,6 +160,17 @@ def last_seen_age(last_seen) -> tuple[str | None, float | None]:
     return datetime.fromtimestamp(ts, tz=timezone.utc).isoformat(), time.time() - ts
 
 
+_FRESH_WITHIN_S = 30
+
+
+def is_fresh(inst: dict | None) -> bool:
+    """gateway 는 유휴 인스턴스를 오래 보관하므로, last_seen 이 30초 이내일 때만 수신 중으로 본다."""
+    if not inst:
+        return False
+    _, age = last_seen_age(inst.get("last_seen"))
+    return age is not None and age <= _FRESH_WITHIN_S
+
+
 # ── 영구 적용 ────────────────────────────────────────────────────────────────
 
 def _env_file_content(service_type: str, javaagent: str) -> str:
@@ -355,9 +366,9 @@ async def run_install(job_id: str, agent: AgentInstance, session: dict) -> None:
         javaagent = f"-javaagent:{install_dir}/{jar_name}"
         attached = False
         already_live = False
-        if immediate and find_instance(
+        if immediate and is_fresh(find_instance(
             await fetch_snapshot(agent.system_id, _service_principal()), agent.system_id, instance_role
-        ):
+        )):
             already_live = True
             _log("[4/7] 이미 적용됨 — gateway 에서 인스턴스가 확인되어 attach 를 건너뜁니다.")
         elif immediate:
@@ -408,7 +419,7 @@ async def run_install(job_id: str, agent: AgentInstance, session: dict) -> None:
                 inst = find_instance(
                     await fetch_snapshot(agent.system_id, _service_principal()), agent.system_id, instance_role
                 )
-                if inst:
+                if is_fresh(inst):
                     agent_status = "running"
                     _log("    gateway 에서 인스턴스 수신 확인 → running")
                     break
