@@ -15,7 +15,7 @@ export interface SystemHealthData {
   status: 'normal' | 'warning' | 'critical'
   reason: string
   proactive_count: number // 예방 패턴 감지 건수
-  has_otel?: boolean
+  has_agent_t?: boolean
   instances?: InstanceHealth[]
 }
 

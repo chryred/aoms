@@ -1,12 +1,17 @@
-export type AgentType = 'synapse_agent' | 'db' | 'otel_javaagent' | 'cli'
+export type AgentType = 'synapse_agent' | 'db' | 'agent_t' | 'cli'
 
-export type OtelServiceType = 'tomcat' | 'jboss' | 'jeus' | 'systemd' | 'standalone'
+export type AgentTServiceType = 'tomcat' | 'jboss' | 'jeus' | 'systemd' | 'standalone'
 
-export interface OtelAgentLabelInfo {
-  tempo_service_name: string
-  service_type: OtelServiceType
-  jdk_version: string
-  install_path: string
+export interface AgentTLabelInfo {
+  jvm_match: string
+  instance_role?: string
+  service_type: AgentTServiceType
+  service_path?: string
+  install_dir: string
+  immediate: boolean
+  permanent: boolean
+  jeus_confirm?: boolean
+  enabled?: boolean
 }
 
 export type DbType = 'oracle' | 'postgresql' | 'mssql' | 'mysql'
@@ -51,7 +56,7 @@ export interface AgentInstance {
   config_path: string | null // db 에이전트는 null
   port: number | null
   pid_file: string | null
-  ssh_username: string | null // synapse_agent/otel_javaagent 전용; null이면 계정 검증 스킵
+  ssh_username: string | null // synapse_agent/agent_t 전용; null이면 계정 검증 스킵
   label_info: string | null
   os_type: OsType | null
   server_type: ServerType | null
@@ -68,7 +73,7 @@ export interface AgentInstanceCreate {
   config_path?: string // db 에이전트는 불필요
   port?: number
   pid_file?: string
-  ssh_username?: string // synapse_agent/otel_javaagent 필수
+  ssh_username?: string // synapse_agent/agent_t 필수
   label_info?: string
   os_type?: OsType
   server_type?: ServerType

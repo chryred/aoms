@@ -87,5 +87,8 @@ export const qk = {
     scatter: (params: ScatterParams) => ['apm', 'scatter', params] as const,
     systemSummary: (systemId: number) => ['apm', 'system-summary', systemId] as const,
     dashboards: () => ['apm', 'dashboards'] as const,
+    threadDumps: (agentId: number) => ['apm', 'thread-dumps', agentId] as const,
+    threadDump: (agentId: number, commandId: number) =>
+      ['apm', 'thread-dump', agentId, commandId] as const,
   },
 }

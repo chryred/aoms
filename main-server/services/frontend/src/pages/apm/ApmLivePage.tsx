@@ -101,10 +101,8 @@ export function ApmLivePage() {
   const streamIds = selectedSystems.length > 0 ? selectedSystems : systems.map((s) => s.id)
   const events = useApmLiveStream(streamIds)
 
-  // F2 가 System 타입에 tx_slow_threshold_ms 를 추가하기 전에도 병합되도록 방어적으로 읽는다
   const slowOf = (id: number) =>
-    (systems.find((s) => s.id === id) as { tx_slow_threshold_ms?: number } | undefined)
-      ?.tx_slow_threshold_ms ?? DEFAULT_SLOW_MS
+    systems.find((s) => s.id === id)?.tx_slow_threshold_ms ?? DEFAULT_SLOW_MS
   const slowMs = streamIds.length ? Math.min(...streamIds.map(slowOf)) : DEFAULT_SLOW_MS
 
   const systemName = useCallback(
