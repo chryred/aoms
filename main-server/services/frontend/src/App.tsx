@@ -85,6 +85,15 @@ const IncidentDetailPage = lazy(() =>
 const SchedulerRunHistoryPage = lazy(() =>
   import('@/pages/SchedulerRunHistoryPage').then((m) => ({ default: m.SchedulerRunHistoryPage })),
 )
+const ApmLivePage = lazy(() =>
+  import('@/pages/apm/ApmLivePage').then((m) => ({ default: m.ApmLivePage })),
+)
+const ApmTransactionsPage = lazy(() =>
+  import('@/pages/apm/ApmTransactionsPage').then((m) => ({ default: m.ApmTransactionsPage })),
+)
+const ApmTxDetailPage = lazy(() =>
+  import('@/pages/apm/ApmTxDetailPage').then((m) => ({ default: m.ApmTxDetailPage })),
+)
 const KnowledgePage = lazy(() =>
   import('@/pages/KnowledgePage').then((m) => ({ default: m.KnowledgePage })),
 )
@@ -275,6 +284,30 @@ export function App() {
             element={
               <Suspense fallback={<LoadingSkeleton shape="table" />}>
                 <FeedbackManagePage />
+              </Suspense>
+            }
+          />
+          <Route
+            path={ROUTES.APM_LIVE}
+            element={
+              <Suspense fallback={<LoadingSkeleton shape="card" />}>
+                <ApmLivePage />
+              </Suspense>
+            }
+          />
+          <Route
+            path={ROUTES.APM_TRANSACTIONS}
+            element={
+              <Suspense fallback={<LoadingSkeleton shape="table" />}>
+                <ApmTransactionsPage />
+              </Suspense>
+            }
+          />
+          <Route
+            path="/apm/tx/:traceId/:spanId"
+            element={
+              <Suspense fallback={<LoadingSkeleton shape="card" />}>
+                <ApmTxDetailPage />
               </Suspense>
             }
           />
