@@ -195,7 +195,7 @@
 
 ## ADR-008: OpenTelemetry + Grafana Tempo 분산 추적 통합 (2026-04-18)
 
-**Status**: Accepted
+**Status**: Superseded by ADR-022 (ADR-022 로 대체 — 2026-10-30. 아래는 당시 결정의 역사 기록이며 Tempo·OTel Collector·OTel Java Agent 는 제거됨)
 
 **Context**
 - LLM 로그 분석이 "어떤 요청이 실패했는지" 까지는 파악 불가 — 로그 텍스트만으로는 요청 흐름 추적 안 됨
@@ -765,3 +765,42 @@ Synapse는 이미 자체 username/password DB(`users` 테이블)를 보유하고
 - **배포 시 log_incidents 리셋 필수** (point_id 전면 변경 — 리셋 런북은 log-analyzer CLAUDE.md).
 
 **하지 않은 것**: log_signatures 컬렉션·승격 로직(B안 폐기), llm_client timeout 120→30s 하향(후속 제안으로 보류).
+
+---
+
+## ADR-022: Agent-T — 자체 Java 트랜잭션 에이전트 + agent-t-gateway(Go) + ClickHouse (2026-10-30)
+
+**상태**: 채택 (2026-10-30). ADR-008(OTel + Tempo)을 대체한다. 설계: `docs/superpowers/specs/2026-10-29-agent-t-design.md`.
+
+**맥락**:
+- OTel Java Agent 는 JDK 8 미만에서 동작하지 않는다(class major 52). JDK 1.7 WAS(예: JEUS 7)는 트랜잭션 trace 가 전혀 보이지 않았으나, 같은 서버의 상용 APM 은 실시간 모니터링·트랜잭션 분석을 제공 중이었다.
+- 운영기 확인(2026-10-30): OTel 에이전트 설치 시스템 **0대**, `otel-collector` unhealthy 방치. OTel/Tempo 스택은 아무 데이터도 처리하지 않았다. n8n 도 미사용(ADR-006 이후 컨테이너만 유지).
+- 같은 JVM 에 JVM 힙·GC 지표(`docs/jvm-metrics-collection-decision.md` 의 GC 로그 tailing)와 스레드 덤프(SSH `kill -3`) 요구가 별도 경로로 계획돼 있어, JVM 에 붙는 수집체가 늘어날 상황이었다.
+
+**결정**:
+1. **Agent-T**: JDK 1.6~21 을 한 코드베이스로 지원하는 자체 Java 에이전트(`agent-t-legacy.jar` 1.6~1.7 / `agent-t.jar` 8~21 / `agent-t-attacher.jar`). 런타임 의존성 0(ASM 소스 vendoring + 패키지 shading), 메서드 본문만 계측(필드·메서드 추가 금지, retransform 안전), 킬 스위치. `premain`(영구) + `agentmain`(Dynamic Attach, **WAS 재기동 없이 즉시 적용**) 두 진입점. 트랜잭션 + JVM 지표(MXBean) + 스레드 덤프를 한 에이전트로 통합. `agent_type='agent_t'`.
+2. **InterMAX 방식 계층 저장**: 모든 트랜잭션의 **요약·SQL 집계는 전량** 저장, 호출 트리·스택 같은 **상세는 선별**(느린 기준 초과·에러·커넥션 미반환/미커밋 + 정상 샘플 1%) 저장. 판정은 에이전트가 트랜잭션 종료 시점에 수행.
+3. **agent-t-gateway (Go, :8330)**: 배치 수신(`POST /t/v1/batch`) → ClickHouse 적재, 인스턴스별 실시간 상태 + SSE(`/t/v1/stream`), 5초 집계 Prometheus remote write, PG 명령 큐 폴링. WAS 시계 오차 보정, 과부하 시 상세 → SQL → 요약 순 폐기.
+4. **ClickHouse**: 트랜잭션 저장소(DB `agent_t`, 기본 7일/범위 1~30일, 적재 시점에 만료일 계산하는 행 TTL). 시스템 기준정보는 PG `systems.environment`/`tx_slow_threshold_ms`/`tx_retention_days`.
+5. **실시간은 SSE**(WebSocket 아님): 단방향 + 프록시 친화. 기존 알림 WS(`/ws/dashboard`)와는 송신 서비스가 달라 통합하지 않음.
+6. **admin-api**: `/api/v1/apm/*` 조회(ClickHouse, httpx async), APM 대시보드 CRUD(`apm_dashboards`), 스레드 덤프 명령(`agent_commands`), 설치 Job(SFTP + attach + 영구 적용, exec 채널 거부 시 PTY 폴백).
+7. **제거**: `otel-collector`, `tempo`, `n8n` 컨테이너와 OTel Java Agent 설치 경로·Tempo 조회 코드·`api/traces.ts`. JVM 힙·GC 는 GC 로그 tailing 대신 Agent-T MXBean(spec §6.10), 스레드 덤프는 SSH `kill -3` 대신 Agent-T 명령(spec §6.11)으로 대체. WF4/WF5 JSON 은 보존.
+8. **통합 결과**: Server A 컨테이너 11개 → 10개(`tempo`·`otel-collector`·`n8n` 제거, `clickhouse`·`agent-t-gateway` 추가).
+
+**결과 / 영향**:
+- JDK 구분 없이 동일한 화면·데이터 모양의 트랜잭션 분석·실시간 모니터링 제공. 신규 서비스는 gateway 1개.
+- WAS 서버 → Server A `:8330` 직접 통신 경로(방화벽 개방) 필요. ClickHouse 데이터 디렉터리(uid 101)·비밀번호(`AGENT_T_CH_PASSWORD` 매핑) 운영 절차 추가.
+- `alert_history.related_trace_ids`/`log_analysis_history.referenced_trace_ids` 는 컬럼명 유지, 내용이 Agent-T trace id 로 바뀜. LLM 프롬프트 trace 컨텍스트는 ClickHouse 조회로 교체.
+- 에이전트 jar 는 repo 에 포함하지 않고 `main-server/artifacts/agent-t/`(SHA256SUMS 검증)로 배포 — 폐쇄망 반입 절차 필요.
+- 클린룸: 상용 APM 의 코드·클래스명·프로토콜은 차용하지 않았다.
+
+**기각한 대안** (spec §5.3 "합치지 않은 것"):
+
+| 후보 | 기각 사유 |
+|---|---|
+| gateway 를 admin-api 에 통합 | 워커 주기 재시작으로 메모리 상태 유실, 5,000 TPS 수신이 API 워커 점유 |
+| Agent-T → ClickHouse 직접 적재 | WAS 마다 DB 계정 배포, 큐(실시간 상태)·설정 전달 주체 부재 |
+| agent-v(Rust) 가 Agent-T 데이터 중계 | JDK 1.7 서버에 agent-v 설치 보장 없음, 장애 지점 증가 |
+| 알림 WebSocket(`/ws/dashboard`)과 APM SSE 통합 | 송신 서비스가 다름 — 프론트 프록시 경로 접두어만 정리 |
+
+그 외 기각: OTel Java Agent 유지(JDK 7 불가, 사용 0대), JDK 8+ 만 OTel·미만만 Agent-T 이원화(화면·데이터 모양이 갈라짐).

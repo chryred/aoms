@@ -6,7 +6,7 @@
 
 | 문서 | 내용 | 언제 읽어야 하나 |
 |---|---|---|
-| `.claude/memory/architecture.md` | 전체 아키텍처 다이어그램, 서비스 연결 맵(admin-api/log-analyzer/PostgreSQL), n8n 보류 워크플로우 표 | 서비스 간 통신·데이터 흐름 분석 시 |
+| `.claude/memory/architecture.md` | 전체 아키텍처 다이어그램, 서비스 연결 맵(admin-api/log-analyzer/PostgreSQL), n8n 보류 워크플로우 표(n8n 컨테이너는 Agent-T 로 제거) | 서비스 간 통신·데이터 흐름 분석 시 |
 | `.claude/memory/code-layout.md` | 디렉터리 트리 + Server A/B 포트 맵 | 파일 위치·포트 확인 시 |
 | `.claude/memory/data-flows.md` | 메트릭 알림 / LLM 로그 분석 / 벡터 유사도 분류 / 분석 실패 처리 흐름 | 기능 추가·버그 추적 시 |
 | `.claude/memory/development-notes.md` | system_name 일관성, instance_role 의미, synapse_agent, 폐쇄망 배포, 담당자별 LLM 키 등 | 구현 세부사항 필요 시 |
@@ -23,11 +23,13 @@
 ## Quick Reference — 항상 알아야 할 핵심
 
 ### 서비스 구성 (Server A)
-- **admin-api** (8080): FastAPI. 시스템/담당자 관리, 알림 수신, Teams 발송, 챗봇 ReAct 오케스트레이션 (47개 도구)
+- **admin-api** (8080): FastAPI. 시스템/담당자 관리, 알림 수신, Teams 발송, 챗봇 ReAct 오케스트레이션 (47개 도구), APM 조회(`/api/v1/apm/*`, ClickHouse)
 - **log-analyzer** (8000): FastAPI. Prometheus `log_error_total` 조회 → LLM 분석 → admin-api 전송. 내부 스케줄러가 모든 주기 작업(과거 n8n WF1/WF6~WF11) 처리
-- **frontend** (3001): React + Vite + TailwindCSS, 뉴모피즘 디자인 시스템. 챗봇 패널 + 인시던트 NextActionCard + 자동 통찰 ✨ 버튼 (Feature 5C)
+- **frontend** (3001): React + Vite + TailwindCSS, 뉴모피즘 디자인 시스템. 챗봇 패널 + 인시던트 NextActionCard + 자동 통찰 ✨ 버튼 (Feature 5C) + 트랜잭션 메뉴(실시간 모니터링·트랜잭션 분석·건별 상세, Agent-T)
+- **agent-t-gateway** (8330, Go): Agent-T(WAS 상주 Java 에이전트) 배치 수신 → ClickHouse 적재 + 실시간 SSE + Prometheus remote write (ADR-022). WAS 서버가 직접 접속하므로 호스트 포트 게시
+- **ClickHouse** (`synapse-clickhouse`, 8123 내부): 트랜잭션 상세·SQL·액티브·JVM 지표 저장(기본 7일, DB `agent_t`)
 - **PostgreSQL** (5432), **Prometheus** (9090), **Alertmanager** (9093), **Grafana** (3000, 운영)
-- **n8n** (5678): 현재 미사용. 컨테이너만 예비 유지(WF4 일일 리포트 / WF5 에스컬레이션은 향후 log-analyzer 이관 예정으로 `main-server/n8n-workflows/`에 JSON만 보존)
+- **n8n / Tempo / OTel Collector**: Agent-T 도입(ADR-022)으로 컨테이너 제거. WF4 일일 리포트 / WF5 에스컬레이션은 향후 log-analyzer 이관 예정으로 `main-server/n8n-workflows/`에 JSON만 보존
 
 ### Server B
 - **Qdrant** (6333): Dense(1024) + Sparse(BM25) Hybrid Search (ADR-011). **총 9개 컬렉션** — 정식 정의는 `main-server/CLAUDE.md` "Qdrant 컬렉션 구조" 참조
@@ -55,8 +57,8 @@
 | `PROM_ALERT_ZOMBIE_COUNT` | 0 — 좀비 warning 임계치(개). **0 = 5분 이상 지속된 좀비 1개부터 이상 판정**. 오탐 방어는 개수가 아니라 지속 조건(PromQL 5분 게이트 + alert rule `for: 5m`)이 담당. 상시 좀비 앱은 `metric_exclusions`(metric_type=`zombie`)로 개별 예외 |
 | `PROM_ALERT_ZOMBIE_CRITICAL` | 20 — 좀비 critical 임계치(개). `alert_rules.yml` `ZombieProcessCritical` 과 같은 값 유지 |
 | `PROMETHEUS_RETENTION_DAYS` | 15 (운영) / 3 (개발) — 챗봇 `prometheus_query` 도구가 시각 입력 검증에 사용. `docker-compose.yml` `--storage.tsdb.retention.time` 과 일치시킬 것 |
-| `TEMPO_URL` | `http://tempo:3200` — admin-api + log-analyzer Tempo HTTP API (ADR-008) |
-| `OTEL_COLLECTOR_ENDPOINT` | `http://otel-collector:4317` — Java Agent OTLP gRPC 전송 목적지 (ADR-008) |
+| `CLICKHOUSE_URL` | `http://clickhouse:8123` — admin-api APM 조회 + agent-t-gateway 적재 대상 (ADR-022). `CLICKHOUSE_DB`(기본 `agent_t`)/`CLICKHOUSE_USER`/`CLICKHOUSE_PASSWORD` 동반 |
+| `AGENT_T_GATEWAY_URL` | `http://agent-t-gateway:8330` — Agent-T 설치 Job 이 WAS 에이전트 설정에 심는 gateway 주소. 운영에서는 WAS 서버가 접근 가능한 `http://{server-a-ip}:8330` 으로 지정 |
 | `SYNAPSE_CLI_BINARY_PATH` | `/app/bin/synapse` — CLI 배포용 바이너리 경로 (Docker 이미지 내 번들) |
 
 ### 로컬 개발
@@ -75,6 +77,8 @@ make test-api        # 단위 테스트 (SQLite in-memory)
 - frontend 관련: `main-server/services/frontend/CLAUDE.md`
 - 인프라/배포 관련: `main-server/CLAUDE.md`
 - n8n 워크플로우 관련: `main-server/n8n-workflows/CLAUDE.md`
+- agent-t(Java 트랜잭션 에이전트) 관련: `agent-t/CLAUDE.md`
+- agent-t-gateway(Go 수집 게이트웨이) 관련: `agent-t-gateway/CLAUDE.md`
 - synapse-cli 관련: `synapse-cli/CLAUDE.md`
 - synapse-agent(Rust) 관련: `agent/CLAUDE.md`
 
@@ -170,7 +174,7 @@ make test-api        # 단위 테스트 (SQLite in-memory)
 
 전 계층에서 다음 규칙을 준수해야 UTC/KST 혼재 버그가 재발하지 않는다.
 
-- **수집·전송·저장은 UTC 고정**. Rust Agent / OTel Collector / Prometheus / Tempo는 OTLP·Remote Write 프로토콜 제약으로 Unix epoch(UTC)만 허용한다. PostgreSQL 컬럼도 `TIMESTAMP WITHOUT TIME ZONE`(naive = UTC) 유지.
+- **수집·전송·저장은 UTC 고정**. Rust Agent / Agent-T / Prometheus는 프로토콜 제약(Remote Write·배치 `ts`)으로 Unix epoch(UTC)만 허용한다. PostgreSQL 컬럼도 `TIMESTAMP WITHOUT TIME ZONE`(naive = UTC) 유지.
 - **Python 코드 금지 패턴**:
   - `datetime.utcnow()` (Python 3.12+ deprecated) → **`datetime.now(timezone.utc).replace(tzinfo=None)`** 사용 (naive UTC 유지 + deprecated 경고 제거)
   - `datetime.now()` (로컬 타임존 naive) → 금지. UTC가 필요하면 위 표현, KST가 필요하면 `datetime.now(_KST)` (`_KST = timezone(timedelta(hours=9))`) 사용

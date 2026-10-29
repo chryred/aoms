@@ -4,6 +4,7 @@
 > 유형: 의사결정 기록 (Decision Record). 설계·구현 미착수
 > 관련 문서: `docs/llm-agentic-diagnostics-requirements.md` (Step 1에 해당)
 > 상태: **권고안 제시 — 확정에 필요한 정보 1건 미확보(§6)**
+> **대체됨 (2026-10-30)**: 본 문서의 GC 로그 tailing 방식은 `docs/superpowers/specs/2026-10-29-agent-t-design.md` §6.10 / ADR-022 로 대체되었다(Agent-T 가 JVM 안에서 MXBean 으로 직접 수집). 아래는 판단 근거로 보존하는 이력이다.
 
 ---
 

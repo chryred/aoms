@@ -19,6 +19,8 @@ aoms/
 │   ├── .env.example                   # 운영 환경변수 템플릿
 │   ├── .env.local.example             # 로컬 환경변수 템플릿
 │   ├── configs/dev/                   # 로컬 최소 설정 파일
+│   ├── configs/clickhouse/            # init/ (최초 DDL), users.d/, config.d/limits.xml (Agent-T)
+│   ├── artifacts/agent-t/             # 에이전트 jar + SHA256SUMS (repo 미포함, README 만)
 │   └── services/
 │       ├── admin-api/
 │       │   ├── CLAUDE.md              # admin-api 상세 가이드
@@ -47,9 +49,12 @@ aoms/
 │           ├── aggregation_processor.py         # Phase 5: 시간/일/주/월/장기 집계 + 트렌드 분석 코어
 │           ├── vector_client.py                 # log_incidents / metric_baselines 관리
 │           ├── aggregation_vector_client.py     # metric_hourly_patterns / aggregation_summaries
-│           ├── trace_summarizer.py              # OTel: Tempo 조회 → tier별 trace context 텍스트 (ADR-008)
+│           ├── trace_summarizer.py              # Agent-T: ClickHouse 조회 → tier별 trace context 텍스트 (ADR-022)
 │           └── tests/                           # pytest (JSON 파싱 등)
 ├── agent/                             # synapse_agent Rust 단일 바이너리 수집기 (Phase 6)
+├── agent-t/                           # Agent-T Java 트랜잭션 에이전트 (core/bridge/instrument/boot/attacher, build.sh) — ADR-022
+├── agent-t-gateway/                   # Agent-T 수집 게이트웨이 (Go, :8330) — ADR-022
+├── contracts/agent-t/                 # 에이전트↔gateway 전송 계약 (protocol.md)
 └── sub-server/
     └── docker-compose.yml             # Server B: Ollama + Qdrant
 ```
@@ -69,9 +74,8 @@ aoms/
 | Prometheus | `9090` | `9090` | |
 | Alertmanager | `9093` | `9093` | |
 | Grafana | — (없음) | `3000` | |
-| Tempo | — (없음) | `3200` | 분산 추적 백엔드 (ADR-008) |
-| OTel Collector | `13133` (healthcheck), `4317` (gRPC, 127.0.0.1), `4318` (HTTP, 127.0.0.1) | 동일 | tail_sampling (ADR-008) |
-| n8n | `5678` | `5678` | 현재 미사용 (컨테이너만 예비 유지, ADR-006) |
+| agent-t-gateway | `8330` | `8330` | WAS 의 Agent-T 가 직접 접속(`/t/v1/batch`), SSE `/t/v1/stream` 은 frontend nginx `/t/` 프록시 경유 (ADR-022) |
+| ClickHouse | — (컨테이너 내부 `8123`) | — (내부 전용) | 트랜잭션 저장 (ADR-022). 호스트 게시 안 함 |
 | Qdrant | `6333` (HTTP), `6334` (gRPC) | — (없음, Server B) | |
 | Ollama | `11434` | — (없음, Server B) | |
 
