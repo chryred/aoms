@@ -48,6 +48,7 @@ export default defineConfig({
       '/oauth/userinfo': 'http://localhost:8080',
       '/oauth/jwks': 'http://localhost:8080',
       '/.well-known/openid-configuration': 'http://localhost:8080',
+      '/t': 'http://localhost:8330',
       '/analyze': 'http://localhost:8000',
       '/aggregation': 'http://localhost:8000',
       '/grafana/': 'http://localhost:3000',

@@ -28,9 +28,8 @@ CONTAINERS=(
   "synapse-admin-api"
   "synapse-log-analyzer"
   "synapse-frontend"
-  "synapse-n8n"
-  "synapse-tempo"
-  "synapse-otel-collector"
+  "synapse-clickhouse"
+  "synapse-agent-t-gateway"
 )
 
 for c in "${CONTAINERS[@]}"; do
@@ -63,7 +62,7 @@ check_http "admin-api"        "http://localhost:8080/health"
 check_http "admin-api Docs"   "http://localhost:8080/docs"
 check_http "log-analyzer"     "http://localhost:8000/health"
 check_http "frontend"         "http://localhost:3001"
-check_http "n8n"              "http://localhost:5678/healthz"
+check_http "agent-t-gateway"  "http://localhost:8330/healthz"
 
 # ──────────────────────────────────────────────────────────────
 section "3. 설정 파일 존재 확인"
@@ -97,12 +96,13 @@ check_file "postgres/init.sql"            "$BASE_DIR/configs/postgres/init.sql"
 check_file "postgres/postgresql.conf"     "$BASE_DIR/configs/postgres/postgresql.conf"
 check_file "ssl/grafana.crt"              "$BASE_DIR/ssl/grafana.crt"
 check_file "ssl/grafana.key"              "$BASE_DIR/ssl/grafana.key"
-check_file "tempo/tempo.yml"              "$BASE_DIR/configs/tempo/tempo.yml"
-check_file "otel-collector-config.yml"    "$BASE_DIR/configs/otel-collector/otel-collector-config.yml"
+check_file "clickhouse/init SQL"          "$BASE_DIR/configs/clickhouse/init/001_agent_t.sql"
+check_file "clickhouse/users.d"           "$BASE_DIR/configs/clickhouse/users.d/agent_t.xml"
+check_file "clickhouse/config.d"          "$BASE_DIR/configs/clickhouse/config.d/limits.xml"
 
 # .env 필수 키 존재 여부
 if [[ -f "$BASE_DIR/.env" ]]; then
-  for key in SECRET_KEY CORS_ORIGINS FRONTEND_EXTERNAL_URL AGENT_PROMETHEUS_URL TEAMS_WEBHOOK_URL LLM_API_URL QDRANT_URL ENCRYPTION_KEY DEVX_CLIENT_ID DEVX_CLIENT_SECRET; do
+  for key in SECRET_KEY CORS_ORIGINS FRONTEND_EXTERNAL_URL AGENT_PROMETHEUS_URL TEAMS_WEBHOOK_URL LLM_API_URL QDRANT_URL ENCRYPTION_KEY CLICKHOUSE_PASSWORD DEVX_CLIENT_ID DEVX_CLIENT_SECRET; do
     if grep -q "^${key}=" "$BASE_DIR/.env" 2>/dev/null; then
       VALUE=$(grep "^${key}=" "$BASE_DIR/.env" | cut -d= -f2-)
       if [[ -n "$VALUE" ]]; then
@@ -127,10 +127,6 @@ if [[ "$TABLE_COUNT" =~ ^[0-9]+$ ]] && [[ "$TABLE_COUNT" -ge 10 ]]; then
 else
   fail "PostgreSQL 테이블 수 이상: '${TABLE_COUNT}'"
 fi
-
-N8N_SCHEMA=$(docker exec synapse-postgres psql -U synapse -d synapse -t -c \
-  "SELECT COUNT(*) FROM information_schema.schemata WHERE schema_name='n8n';" 2>/dev/null | tr -d ' \n')
-[[ "$N8N_SCHEMA" -ge 1 ]] && ok "n8n 스키마 존재" || fail "n8n 스키마 없음"
 
 # ──────────────────────────────────────────────────────────────
 section "5. Prometheus Basic Auth 확인"
@@ -212,31 +208,30 @@ else
 fi
 
 # ──────────────────────────────────────────────────────────────
-section "9. Tempo / OTel Collector 상태"
+section "9. ClickHouse / Agent-T gateway 상태"
 
-# Tempo health (포트 미노출 — docker exec 경유)
-TEMPO_HEALTH=$(docker exec synapse-tempo wget -qO- http://localhost:3200/ready 2>/dev/null || echo "error")
-if [[ "$TEMPO_HEALTH" == "ready" ]]; then
-  ok "Tempo /ready → ready"
+# ClickHouse (포트 미노출 — docker exec 경유)
+CH_PING=$(docker exec synapse-clickhouse wget -qO- http://localhost:8123/ping 2>/dev/null | tr -d '\n' || echo "error")
+if [[ "$CH_PING" == "Ok." ]]; then
+  ok "ClickHouse /ping → Ok."
 else
-  fail "Tempo /ready → $TEMPO_HEALTH"
+  fail "ClickHouse /ping → $CH_PING"
 fi
 
-# OTel Collector health (포트 미노출 — docker exec 경유)
-OTEL_CODE=$(docker exec synapse-otel-collector wget -qS -O /dev/null http://localhost:13133/ 2>&1 | \
-  grep "HTTP/" | awk '{print $2}' | tail -1 || echo "000")
-if [[ "$OTEL_CODE" == "200" ]]; then
-  ok "OTel Collector :13133 → HTTP 200"
+CH_TABLES=$(docker exec synapse-clickhouse clickhouse-client -q "SELECT count() FROM system.tables WHERE database='agent_t'" 2>/dev/null | tr -d ' \n')
+if [[ "$CH_TABLES" =~ ^[0-9]+$ ]] && [[ "$CH_TABLES" -ge 6 ]]; then
+  ok "ClickHouse agent_t 테이블 ${CH_TABLES}개 (예상: 6개)"
 else
-  fail "OTel Collector :13133 → HTTP $OTEL_CODE"
+  fail "ClickHouse agent_t 테이블 수 이상: '${CH_TABLES}' (init SQL 미적용?)"
 fi
 
-# ──────────────────────────────────────────────────────────────
-section "10. n8n 상태 확인"
-
-N8N_HEALTH=$(curl -s --max-time 5 http://localhost:5678/healthz 2>/dev/null | \
-  python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('status','unknown'))" 2>/dev/null || echo "error")
-[[ "$N8N_HEALTH" == "ok" ]] && ok "n8n healthz → ok" || warn "n8n 상태: $N8N_HEALTH (초기 설정 필요할 수 있음)"
+# gateway health
+GW_CODE=$(curl -s -o /dev/null -w "%{http_code}" --max-time 5 http://localhost:8330/healthz 2>/dev/null || echo "000")
+if [[ "$GW_CODE" == "200" ]]; then
+  ok "agent-t-gateway :8330/healthz → HTTP 200"
+else
+  fail "agent-t-gateway :8330/healthz → HTTP $GW_CODE"
+fi
 
 # ──────────────────────────────────────────────────────────────
 section "11. admin-api 번들 바이너리 확인"
