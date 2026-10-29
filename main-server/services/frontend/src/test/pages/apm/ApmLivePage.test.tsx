@@ -242,6 +242,86 @@ describe('ApmLivePage', () => {
   })
 })
 
+describe('위젯별 대상 · 저장 안 됨 기준선', () => {
+  const aggFor = (system_id: number) => ({
+    system_id,
+    instance_role: 'was1',
+    ts: 5000,
+    tps: 12,
+    avg_ms: 1,
+    err_rate: 0,
+    slow_cnt: 0,
+    uri_top: [],
+    sql_top: [],
+    jvm: null,
+    dropped: { detail: 0, sql: 0, tx: 0 },
+  })
+
+  it('?system= 으로 진입해도 사용자가 바꾸기 전에는 "저장 안 됨" 이 없다', async () => {
+    renderPage('/apm/live?system=3')
+    await screen.findByText('TPS')
+    expect(screen.queryByText('저장 안 됨')).not.toBeInTheDocument()
+  })
+
+  it('편집 모드에서 위젯 대상을 지정하면 저장 본문 layout 에 target 이 들어간다', async () => {
+    renderPage()
+    await screen.findByText('TPS')
+    await userEvent.click(screen.getByRole('button', { name: /편집/ }))
+    await userEvent.click(screen.getByRole('button', { name: 'TPS 대상' }))
+    await userEvent.click(screen.getAllByText('시스템 선택...').pop()!)
+    await userEvent.click(screen.getByRole('button', { name: /시스템4/ }))
+    expect(screen.getByText('저장 안 됨')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: /^저장/ }))
+    await waitFor(() => expect(apmApi.updateDashboard).toHaveBeenCalled())
+    const layout = vi.mocked(apmApi.updateDashboard).mock.calls[0][1].layout
+    expect(layout.find((w) => w.i === 'a')?.target).toEqual({ system_ids: [4] })
+    expect(layout.find((w) => w.i === 'b')?.target).toBeUndefined()
+  })
+
+  it('"상단 필터 따름" 은 target 을 제거한다', async () => {
+    vi.mocked(apmApi.listDashboards).mockResolvedValue([
+      dashboard([{ ...widget('a', 'tps'), target: { system_ids: [4], instance_role: 'was1' } }]),
+    ])
+    renderPage()
+    await screen.findByText('TPS')
+    await userEvent.click(screen.getByRole('button', { name: /편집/ }))
+    await userEvent.click(screen.getByRole('button', { name: 'TPS 대상' }))
+    await userEvent.click(screen.getAllByRole('button', { name: '상단 필터 따름' }).pop()!)
+    await userEvent.click(screen.getByRole('button', { name: /^저장/ }))
+    await waitFor(() => expect(apmApi.updateDashboard).toHaveBeenCalled())
+    expect(vi.mocked(apmApi.updateDashboard).mock.calls[0][1].layout[0]).not.toHaveProperty(
+      'target',
+    )
+  })
+
+  it('WAS 선택만으로도 target 이 지정된다', async () => {
+    useApmLiveStream.mockReturnValue(emptyLive({ agg: new Map([['3:was1', [aggFor(3)]]]) }))
+    renderPage()
+    await screen.findAllByText('TPS')
+    await userEvent.click(screen.getByRole('button', { name: /편집/ }))
+    await userEvent.click(screen.getByRole('button', { name: 'TPS 대상' }))
+    await userEvent.selectOptions(screen.getByLabelText('대상 WAS'), 'was1')
+    await userEvent.click(screen.getByRole('button', { name: /^저장/ }))
+    await waitFor(() => expect(apmApi.updateDashboard).toHaveBeenCalled())
+    expect(vi.mocked(apmApi.updateDashboard).mock.calls[0][1].layout[0].target).toEqual({
+      instance_role: 'was1',
+    })
+  })
+
+  it('위젯은 override 대상의 데이터로 렌더링된다 (상단 필터와 무관)', async () => {
+    useApmLiveStream.mockReturnValue(emptyLive({ agg: new Map([['4:was1', [aggFor(4)]]]) }))
+    vi.mocked(apmApi.listDashboards).mockResolvedValue([
+      dashboard([
+        { ...widget('a', 'tps'), target: { system_ids: [4] } },
+        { ...widget('b', 'avg_ms', 5), target: { system_ids: [3] } },
+      ]),
+    ])
+    renderPage()
+    expect(await screen.findByText('12.0')).toBeInTheDocument() // system 4 의 TPS
+    expect(screen.getAllByText('데이터 수집 중')).toHaveLength(1) // system 3 대상 avg_ms 는 비어 있음
+  })
+})
+
 describe('위젯 상호작용', () => {
   const now = Date.now()
   const top = (uri: string, ms: number, id: string) => ({

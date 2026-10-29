@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { NeuBadge } from '@/components/neumorphic/NeuBadge'
 import { NeuMultiSelect } from '@/components/neumorphic/NeuMultiSelect'
@@ -8,6 +8,7 @@ import { DashboardGrid } from '@/components/apm/live/DashboardGrid'
 import { DashboardSwitcher } from '@/components/apm/live/DashboardSwitcher'
 import { LiveContext } from '@/components/apm/live/LiveContext'
 import { WidgetFrame } from '@/components/apm/live/WidgetFrame'
+import { WidgetTargetControl } from '@/components/apm/live/WidgetTargetControl'
 import { WidgetPicker } from '@/components/apm/live/WidgetPicker'
 import { MAX_WIDGETS, widgetRegistry } from '@/components/apm/live/widgetRegistry'
 import { useApmDashboards } from '@/hooks/queries/useApmDashboards'
@@ -88,6 +89,8 @@ export function ApmLivePage() {
     queryIds.length ? queryIds : null,
   )
   const [roleOverride, setRoleOverride] = useState<string | null>(null)
+  // ?system= 로 진입한 직후에는 URL 값이 기준선이므로 그것만으로 '저장 안 됨' 을 띄우지 않는다
+  const [seeded, setSeeded] = useState(queryIds.length > 0)
   const [editing, setEditing] = useState(false)
   const [queueFilter, setQueueFilter] = useState<string | null>(null)
 
@@ -104,7 +107,10 @@ export function ApmLivePage() {
       ?.tx_slow_threshold_ms ?? DEFAULT_SLOW_MS
   const slowMs = streamIds.length ? Math.min(...streamIds.map(slowOf)) : DEFAULT_SLOW_MS
 
-  const systemName = (id: number) => systems.find((s) => s.id === id)?.display_name ?? `#${id}`
+  const systemName = useCallback(
+    (id: number) => systems.find((s) => s.id === id)?.display_name ?? `#${id}`,
+    [systems],
+  )
   const roles = useMemo(() => {
     const set = new Set<string>()
     for (const e of events.active.values()) set.add(e.instance_role)
@@ -117,8 +123,13 @@ export function ApmLivePage() {
   const dirty =
     base.id === null ||
     !saved ||
-    JSON.stringify([saved.name, normalize(saved.layout), toDraft(saved).filters]) !==
-      JSON.stringify([base.name, normalize(base.layout), currentFilters])
+    JSON.stringify([
+      saved.name,
+      normalize(saved.layout),
+      seeded
+        ? { system_ids: queryIds, instance_role: toDraft(saved).filters.instance_role }
+        : toDraft(saved).filters,
+    ]) !== JSON.stringify([base.name, normalize(base.layout), currentFilters])
 
   const select = (id: number | null) => {
     const found = id === null ? undefined : dashboards?.find((x) => x.id === id)
@@ -126,6 +137,7 @@ export function ApmLivePage() {
     setSystemOverride(null)
     setRoleOverride(null)
     setQueueFilter(null)
+    setSeeded(false)
   }
 
   const save = () => {
@@ -163,7 +175,10 @@ export function ApmLivePage() {
             label="시스템"
             options={systems.map((s) => ({ value: s.id, label: s.display_name }))}
             selected={selectedSystems}
-            onChange={(v) => setSystemOverride(v as number[])}
+            onChange={(v) => {
+              setSystemOverride(v as number[])
+              setSeeded(false)
+            }}
           />
         </div>
         <div className="min-w-[160px]">
@@ -231,6 +246,25 @@ export function ApmLivePage() {
               <WidgetFrame
                 title={def.title}
                 editing={editing}
+                targetControl={
+                  <WidgetTargetControl
+                    title={def.title}
+                    target={w.target}
+                    systems={systems}
+                    roles={roles}
+                    onChange={(t) =>
+                      setDraft({
+                        ...base,
+                        layout: base.layout.map((it) => {
+                          if (it.i !== w.i) return it
+                          const { target: _drop, ...rest } = it
+                          void _drop
+                          return t ? { ...rest, target: t } : rest
+                        }),
+                      })
+                    }
+                  />
+                }
                 onRemove={() =>
                   setDraft({ ...base, layout: base.layout.filter((it) => it.i !== w.i) })
                 }

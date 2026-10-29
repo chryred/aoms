@@ -14,7 +14,7 @@ export function JvmConnPoolWidget({ events, target }: WidgetProps) {
         { label: '최대', colorVar: '--color-border-alt', points: max },
       ]}
       format={(v) => String(Math.round(v))}
-      emptyText="계측 가능한 커넥션 풀 없음"
+      emptyText="커넥션 풀 계측은 다음 단계에서 제공됩니다"
     />
   )
 }

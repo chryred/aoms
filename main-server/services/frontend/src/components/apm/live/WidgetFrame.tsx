@@ -6,11 +6,19 @@ interface WidgetFrameProps {
   title: string
   editing: boolean
   onRemove: () => void
+  /** 편집 모드에서 제목 옆에 표시되는 대상 지정 컨트롤 */
+  targetControl?: ReactNode
   children: ReactNode
 }
 
 /** 위젯 공통 카드. 편집 모드에서만 드래그 핸들·삭제 버튼 노출. */
-export function WidgetFrame({ title, editing, onRemove, children }: WidgetFrameProps) {
+export function WidgetFrame({
+  title,
+  editing,
+  onRemove,
+  targetControl,
+  children,
+}: WidgetFrameProps) {
   return (
     <div className="bg-bg-base shadow-neu-flat flex h-full flex-col rounded-sm p-3">
       <div
@@ -24,15 +32,18 @@ export function WidgetFrame({ title, editing, onRemove, children }: WidgetFrameP
           {title}
         </span>
         {editing && (
-          <button
-            type="button"
-            aria-label={`${title} 삭제`}
-            onClick={onRemove}
-            onMouseDown={(e) => e.stopPropagation()}
-            className="text-text-secondary hover:text-critical-text rounded-sm p-1"
-          >
-            <X size={14} />
-          </button>
+          <div className="flex items-center gap-1" onMouseDown={(e) => e.stopPropagation()}>
+            {targetControl}
+            <button
+              type="button"
+              aria-label={`${title} 삭제`}
+              onClick={onRemove}
+              onMouseDown={(e) => e.stopPropagation()}
+              className="text-text-secondary hover:text-critical-text rounded-sm p-1"
+            >
+              <X size={14} />
+            </button>
+          </div>
         )}
       </div>
       <div className="min-h-0 flex-1">{children}</div>

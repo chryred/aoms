@@ -56,6 +56,10 @@ export function ScatterWidget({ events, target, slowMs }: WidgetProps) {
   const [drag, setDrag] = useState<Rect | null>(null)
   const [selected, setSelected] = useState<Pt[]>([])
   const live = offsetMin === 0
+  // target 객체는 매 렌더 새로 만들어지므로 값(systemIds join + role)에만 의존한다
+  const idsKey = target.systemIds.join(',')
+  const role = target.instanceRole
+  const systemIds = useMemo(() => (idsKey ? idsKey.split(',').map(Number) : []), [idsKey])
 
   // 실시간 모드에서는 1초마다 시간축을 밀어준다
   useEffect(() => {
@@ -71,7 +75,7 @@ export function ScatterWidget({ events, target, slowMs }: WidgetProps) {
 
   const past = useApmScatter(
     {
-      system_ids: target.systemIds,
+      system_ids: systemIds,
       start: new Date(tMin).toISOString(),
       end: new Date(tMax).toISOString(),
     },
@@ -81,24 +85,39 @@ export function ScatterWidget({ events, target, slowMs }: WidgetProps) {
   const points: Pt[] = useMemo(() => {
     if (live) {
       return events.points
-        .filter((p) => matchesTarget(p, target))
+        .filter((p) => matchesTarget(p, { systemIds, instanceRole: role }))
         .flatMap((p) =>
           p.points.map((pt) => ({ ...pt, error: !!pt.error, system_id: p.system_id })),
         )
         .filter((p) => p.ts >= tMin)
     }
     return (past.data?.points ?? []).map((p) => ({ ...p, ts: toMs(p.ts), error: !!p.error }))
-  }, [live, events.points, target, past.data, tMin])
+  }, [live, events.points, systemIds, role, past.data, tMin])
 
-  const yMax = niceMax(Math.max(slowMs * 3, ...points.map((p) => p.elapsed_ms)))
-  const scale = scatterScale(tMin, tMax, yMax, width, height, PAD)
+  const yMax = useMemo(
+    () => niceMax(Math.max(slowMs * 3, ...points.map((p) => p.elapsed_ms))),
+    [slowMs, points],
+  )
+  const scale = useMemo(
+    () => scatterScale(tMin, tMax, yMax, width, height, PAD),
+    [tMin, tMax, yMax, width, height],
+  )
 
   useEffect(() => {
     const ctx = prepareCanvas(canvasRef.current, width, height)
     if (!ctx) return
+    // 색은 그리기 1회당 한 번만 해석한다 (점마다 getComputedStyle 호출 금지)
+    const colors = {
+      text: cssVar('--color-text-secondary'),
+      border: cssVar('--color-border'),
+      accent: cssVar('--color-accent'),
+      critical: cssVar('--color-critical'),
+      normal: cssVar(LEVEL_VAR.normal),
+      warning: cssVar(LEVEL_VAR.warning),
+    }
     ctx.font = '10px sans-serif'
-    ctx.fillStyle = cssVar('--color-text-secondary')
-    ctx.strokeStyle = cssVar('--color-border')
+    ctx.fillStyle = colors.text
+    ctx.strokeStyle = colors.border
     ctx.textAlign = 'right'
     for (const f of [0, 0.5, 1]) {
       const y = scale.y(yMax * f)
@@ -117,16 +136,14 @@ export function ScatterWidget({ events, target, slowMs }: WidgetProps) {
       )
     }
     for (const p of points) {
-      ctx.fillStyle = cssVar(
-        p.error ? '--color-critical' : LEVEL_VAR[queueColor(p.elapsed_ms, slowMs)],
-      )
+      ctx.fillStyle = p.error ? colors.critical : colors[queueColor(p.elapsed_ms, slowMs)]
       ctx.fillRect(scale.x(p.ts) - 1.5, scale.y(p.elapsed_ms) - 1.5, 3, 3)
     }
     if (drag) {
-      ctx.strokeStyle = cssVar('--color-accent')
+      ctx.strokeStyle = colors.accent
       ctx.strokeRect(drag.x0, drag.y0, drag.x1 - drag.x0, drag.y1 - drag.y0)
     }
-  })
+  }, [points, scale, width, height, tMin, tMax, yMax, slowMs, drag])
 
   const local = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const box = e.currentTarget.getBoundingClientRect()
@@ -170,6 +187,9 @@ export function ScatterWidget({ events, target, slowMs }: WidgetProps) {
           ))}
         </select>
         <span className="text-text-secondary">{points.length.toLocaleString()}건</span>
+        {!live && role && (
+          <span className="text-text-tertiary">과거 구간은 WAS 구분 없이 표시</span>
+        )}
         {past.data?.truncated && <span className="text-warning-text">일부만 표시</span>}
       </div>
       <div ref={wrapRef} className="min-h-0 flex-1">

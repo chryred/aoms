@@ -1,4 +1,4 @@
-import { useContext, useEffect, useRef } from 'react'
+import { useContext, useEffect, useMemo, useRef } from 'react'
 import { cssVar, prepareCanvas, useElementSize } from '@/lib/apm/canvas'
 import { pickActive } from '@/lib/apm/liveData'
 import { hitBar, queueBars, queueGeometry } from '@/lib/apm/queueBuckets'
@@ -17,30 +17,47 @@ export function QueueWidget({ events, target }: WidgetProps) {
   const wrapRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const { width, height } = useElementSize(wrapRef)
-  const bars = queueBars(pickActive(events.active, target))
+  const idsKey = target.systemIds.join(',')
+  const role = target.instanceRole
+  const bars = useMemo(
+    () =>
+      queueBars(
+        pickActive(events.active, {
+          systemIds: idsKey ? idsKey.split(',').map(Number) : [],
+          instanceRole: role,
+        }),
+      ),
+    [events.active, idsKey, role],
+  )
 
   useEffect(() => {
     const ctx = prepareCanvas(canvasRef.current, width, height)
     if (!ctx) return
     const rects = queueGeometry(bars, width, height)
+    const colors = {
+      normal: cssVar(LEVEL_VAR.normal),
+      warning: cssVar(LEVEL_VAR.warning),
+      critical: cssVar(LEVEL_VAR.critical),
+      text: cssVar('--color-text-secondary'),
+    }
     ctx.font = '11px sans-serif'
     ctx.textAlign = 'center'
     rects.forEach((r, i) => {
       const dim = queueFilter !== null && queueFilter !== r.key
       ctx.globalAlpha = dim ? 0.35 : 1
       for (const s of r.segs) {
-        ctx.fillStyle = cssVar(LEVEL_VAR[s.level])
+        ctx.fillStyle = colors[s.level]
         ctx.fillRect(r.x, s.y, r.w, s.h)
       }
       ctx.globalAlpha = 1
-      ctx.fillStyle = cssVar('--color-text-secondary')
+      ctx.fillStyle = colors.text
       ctx.fillText(
         `${systemName(bars[i].system_id)}/${bars[i].instance_role}`.slice(0, 14),
         r.x + r.w / 2,
         height - 4,
       )
     })
-  })
+  }, [bars, width, height, queueFilter, systemName])
 
   const onClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const box = e.currentTarget.getBoundingClientRect()
