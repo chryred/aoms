@@ -1,9 +1,13 @@
 package com.synapsev.agentt.boot;
 
+import com.synapsev.agentt.active.ActiveRegistry;
+import com.synapsev.agentt.active.StackSampler;
 import com.synapsev.agentt.bridge.Hooks;
 import com.synapsev.agentt.conf.AgentConfig;
 import com.synapsev.agentt.conf.AgentProperties;
 import com.synapsev.agentt.instrument.AgentTransformer;
+import com.synapsev.agentt.jvm.JvmCollector;
+import com.synapsev.agentt.jvm.ThreadDumper;
 import com.synapsev.agentt.log.AgentLog;
 import com.synapsev.agentt.transport.Batch;
 import com.synapsev.agentt.transport.HttpPoster;
@@ -155,12 +159,62 @@ public final class AgentRuntime {
         rt.uninstall();
     }
 
+    /** A not-yet-started daemon thread that runs {@code task} every {@code periodMs}; failures are logged. */
+    private static Thread daemon(String name, final long periodMs, final Runnable task) {
+        Thread t = new Thread(name) {
+            @Override
+            public void run() {
+                while (!isInterrupted()) {
+                    try {
+                        Thread.sleep(periodMs);
+                        task.run();
+                    } catch (InterruptedException e) {
+                        return;
+                    } catch (Throwable e) {
+                        AgentLog.error(getName(), e);
+                    }
+                }
+            }
+        };
+        t.setDaemon(true);
+        return t;
+    }
+
     static void start(Instrumentation inst, AgentProperties props, boolean attached) {
         final AgentConfig config = new AgentConfig();
         AgentLog.init(props.logDir);
         final Sender sender = new Sender(new HttpPoster(props.gatewayUrl, props.agentToken), config,
                 Batch.AgentInfo.detect("0.1.0"), 1000);
         TxTracker tracker = new TxTracker(TxTracker.forSender(sender), config);
+        final ActiveRegistry registry = new ActiveRegistry();
+        final StackSampler sampler = new StackSampler(registry, config);
+        tracker.setActive(registry, sampler);
+        final JvmCollector jvm = new JvmCollector();
+        final ThreadDumper dumper = new ThreadDumper();
+        sender.setCommandListener(new Sender.CommandListener() {
+            public void onCommand(long id, String type) {
+                if (!"thread_dump".equals(type)) {
+                    return;
+                }
+                String[] d = dumper.dump(ThreadDumper.DEFAULT_MAX_BYTES);
+                if (d == null) {
+                    AgentLog.warn("thread dump " + id + " ignored: limited to one per minute");
+                } else {
+                    sender.offerDump(id, d[0], Boolean.parseBoolean(d[1]));
+                }
+            }
+        });
+        final Thread activeLoop = daemon("agent-t-active", 1000, new Runnable() {
+            public void run() {
+                ActiveRegistry.ActiveSnapshot a = registry.snapshot(System.currentTimeMillis(), config.slowMs, 50);
+                sender.offerActive(a.top, a.buckets);
+            }
+        });
+        final Thread jvmLoop = daemon("agent-t-jvm", 5000, new Runnable() {
+            public void run() {
+                sender.offerJvm(jvm.sample());
+            }
+        });
         final AgentRuntime rt = new AgentRuntime(new InstControl(inst), new AgentTransformer(), tracker);
         final Thread poller = new Thread("agent-t-control") {
             @Override
@@ -183,6 +237,9 @@ public final class AgentRuntime {
         launch(rt, attached, new Runnable() {
             public void run() {
                 sender.start();
+                sampler.start();
+                activeLoop.start();
+                jvmLoop.start();
             }
         }, new Runnable() {
             public void run() {
@@ -191,6 +248,9 @@ public final class AgentRuntime {
         }, new Runnable() {
             public void run() {
                 sender.stop();
+                sampler.stop();
+                activeLoop.interrupt();
+                jvmLoop.interrupt();
             }
         });
         AgentLog.info("agent-t started (" + (attached ? "agentmain" : "premain") + ") system=" + props.systemName
