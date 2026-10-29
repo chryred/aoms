@@ -30,7 +30,8 @@
 ```
 src/
 ├── api/           # API 호출 함수 (도메인별 파일)
-│   └── agents.ts      # SSH 세션 + 에이전트 CRUD + 제어 + 설치 Job (Phase 6)
+│   ├── agents.ts      # SSH 세션 + 에이전트 CRUD + 제어 + 설치 Job (Phase 6)
+│   └── apm.ts         # 트랜잭션 검색·상세·산점도·대시보드 CRUD·스레드 덤프 (Agent-T). 구 `traces.ts`(Tempo)는 제거됨
 ├── components/
 │   ├── neumorphic/    # 기본 UI 컴포넌트 (NeuCard, NeuButton, NeuInput 등)
 │   ├── layout/        # AppLayout, AuthLayout, TopBar, AuthGuard
@@ -48,6 +49,7 @@ src/
 │   ├── chat/          # ChatHeader, ChatPanel, SystemMultiSelect, ChatSessionSearchInput, SessionItemMenu, SessionRenameModal, SessionDeleteConfirmModal
 │   ├── help/          # GuestSystemGrid (다중 선택), HelpVisitorForm
 │   ├── mascot/        # Synap (마스코트 캐릭터)
+│   ├── apm/           # TxFilterBar, TxTable, ApmSummaryCard, detail/, live/(react-grid-layout 대시보드 + widgets/)
 │   └── user/
 ├── hooks/
 │   ├── queries/       # 조회 훅 (useDashboardHealth, useSystemDetailHealth, useAgents, useAgentStatus, useAgentConfig, useInstallJob)
@@ -60,6 +62,10 @@ src/
 │   ├── FeedbackManagePage.tsx        # 해결책 관리 (/feedback/manage, 해결책 검색+감리 두 탭. /feedback/search redirect 포함)
 │   ├── AgentListPage.tsx             # 에이전트 목록 (시스템별 그룹, SSH 세션 관리) (Phase 6)
 │   ├── AgentDetailPage.tsx           # 에이전트 제어 + 설정 파일 편집기 (Phase 6)
+│   ├── apm/
+│   │   ├── ApmLivePage.tsx           # /apm/live 실시간 모니터링 (위젯 대시보드, SSE)
+│   │   ├── ApmTransactionsPage.tsx   # /apm/transactions 트랜잭션 분석 (검색·산점도·표)
+│   │   └── ApmTxDetailPage.tsx       # /apm/tx/:traceId/:spanId 건별 상세
 │   └── ssl/
 │       ├── SslDashboardPage.tsx      # 인증서 D-day 현황 대시보드 (60초 폴링)
 │       ├── SslServersPage.tsx        # 서버 등록/삭제/SSH 테스트
@@ -69,7 +75,7 @@ src/
 │   └── sshSessionStore.ts  # SSH 세션 토큰 인메모리 관리 (Phase 6)
 ├── types/         # TypeScript 타입 정의
 │   └── agent.ts       # AgentInstance, SSHSession, InstallJob 타입 (Phase 6)
-├── lib/           # queryClient, ky-client, utils, metrics-transform
+├── lib/           # queryClient, ky-client, utils, metrics-transform, sse (consumeSSE/openSse/fetchWithRefresh)
 └── constants/     # 앱 상수 (routes.ts에 AGENTS, agentDetail 추가)
 ```
 
@@ -134,6 +140,15 @@ VITE_LOG_ANALYZER_URL    # log-analyzer 주소 (운영: http://log-analyzer:8000
 - 뉴모피즘 디자인 시스템 전체 적용 — 새 컴포넌트는 반드시 `neumorphic/` 기본 컴포넌트 위에서 구성
 - Collector 등록 마법사 UI 포함 (Phase 5 수집기 유연 레지스트리 연동)
 - 폐쇄망 배포 시 `npm run build` 결과물을 Nginx 등으로 정적 서빙
+
+---
+
+## 트랜잭션(APM) 메뉴 — Agent-T (ADR-022)
+
+- 사이드바 그룹 "트랜잭션": `/apm/live`(실시간 모니터링), `/apm/transactions`(트랜잭션 분석), `/apm/tx/:traceId/:spanId`(건별 상세, 메뉴 없음). 시스템 상세 페이지의 성능 분석 영역도 `api/apm.ts` 요약으로 교체됨(Tempo 기반 `api/traces.ts`·TraceDotChart 등 제거).
+- **SSE** (`src/lib/sse.ts`): `consumeSSE`(스트림 파서), `openSse`(재연결 + 인증), `fetchWithRefresh`(401 시 토큰 갱신 후 1회 재시도). SSE 는 admin-api 가 아니라 gateway(`/t/v1/stream`)로 가며 nginx 프록시 경로를 사용한다. EventSource 는 헤더 인증이 안 되므로 쓰지 않는다.
+- **대시보드 레이아웃**: `react-grid-layout`(2.3.0). 레이아웃·필터는 `apm_dashboards`(PG)에 저장, 위젯 추가·크기 변경 시 `PUT`.
+- **Canvas 위젯 규칙**: 큐(액티브 대기열)·산점도처럼 점이 많이 찍히는 위젯은 SVG/DOM 이 아니라 **Canvas** 로 그린다(수천 점 + 1초 갱신). 색은 하드코딩하지 않고 CSS 변수를 `getComputedStyle` 로 읽어 쓰며 Dark/Light 전환 시 다시 그린다. 시각은 `formatKST()` 로만 표출.
 
 ---
 
