@@ -1,0 +1,6 @@
+{
+  "config": {"version": 5, "enabled": true, "slow_ms": 3000, "normal_detail_rate": 0.01, "stack_interval_ms": 1000, "exclude": [], "uri_rules": [], "log_level": "info"},
+  "commands": [{"id": 7, "type": "thread_dump"}],
+  "need_dict": {"sql": ["aabbccddeeff0011"], "uri": []},
+  "backoff_ms": 0
+}
