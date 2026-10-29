@@ -22,6 +22,6 @@ async def test_agent_type_agent_t_requires_ssh_username(authed_client: AsyncClie
     assert resp.status_code == 201
 
     resp = await authed_client.post(
-        "/api/v1/agents", json={**base, "agent_type": "otel_javaagent", "ssh_username": "was"}
+        "/api/v1/agents", json={**base, "agent_type": "bogus_type", "ssh_username": "was"}
     )
     assert resp.status_code == 422

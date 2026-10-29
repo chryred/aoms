@@ -157,7 +157,7 @@ class AlertHistory(Base):
     resolved_at = Column(DateTime)                     # Alertmanager resolved 시 채워짐
     # LLM/분석 실패 이력: NULL=성공, 값=실패 사유 (UI "분석 실패" 뱃지 렌더링 조건)
     error_message    = Column(Text)
-    # Phase OTel: 메트릭 알림 ↔ trace 링크 (NULL = OTel 미적용)
+    # Agent-T: 메트릭 알림 ↔ 에러 trace_id 링크 (NULL = Agent-T 미적용)
     related_trace_ids = Column(JSONB)
     # 인시던트 연결 (NULL = 인시던트 미생성)
     incident_id = Column(Integer, ForeignKey("incidents.id", ondelete="SET NULL"), nullable=True)
@@ -195,7 +195,7 @@ class LogAnalysisHistory(Base):
     has_solution     = Column(Boolean, default=False)
     # LLM/분석 실패 이력: NULL=성공, 값=실패 사유 (UI "분析 실패" 뱃지 렌더링 조건)
     error_message    = Column(Text)
-    # Phase OTel: 분산 추적 상관 컬럼 (NULL = OTel 미적용)
+    # Agent-T: 분산 추적 상관 컬럼 (NULL = Agent-T 미적용)
     referenced_trace_ids = Column(JSONB)
     trace_summary_text   = Column(Text)
     # 인시던트 연결 (NULL = 인시던트 미생성)

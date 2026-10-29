@@ -560,7 +560,7 @@ class LogAnalysisCreate(BaseModel):
     templates:         Optional[list[str]]  = None
     # 예외 처리 count 임계값 검증용: {template: count} 매핑 (5분 윈도우 합계)
     template_counts:   Optional[dict[str, int]] = None
-    # OTel trace 상관
+    # Agent-T trace 상관
     referenced_trace_ids: Optional[list[str]] = None
     trace_summary_text:   Optional[str]       = None
     # 실에러/알림성 분리 분류 건수 + per-template 분류
