@@ -12,6 +12,7 @@ import (
 
 	"synapse/agent-t-gateway/internal/config"
 	"synapse/agent-t-gateway/internal/ingest"
+	"synapse/agent-t-gateway/internal/live"
 	"synapse/agent-t-gateway/internal/registry"
 	"synapse/agent-t-gateway/internal/store"
 )
@@ -42,9 +43,19 @@ func main() {
 	writerDone := make(chan struct{})
 	go func() { writer.Run(bgCtx); close(writerDone) }() // final flush on cancel
 
+	if cfg.SecretKey == "" {
+		log.Fatal("SECRET_KEY is required (verifies admin-api user JWTs for /t/v1/stream)")
+	}
+	hub := live.NewHub()
+	liveState := live.NewState(hub)
+	go liveState.Run(bgCtx)
+	liveAPI := &live.API{State: liveState, Hub: hub, Secret: []byte(cfg.SecretKey)}
+
 	mux := http.NewServeMux()
+	mux.HandleFunc("/t/v1/stream", liveAPI.Stream)
+	mux.HandleFunc("/t/v1/snapshot", liveAPI.Snapshot)
 	mux.Handle("/t/v1/batch", &ingest.Handler{
-		Registry: reg, Sink: writer, Commands: commands, Dict: store.NewDict(writer, store.DefaultDictCapacity),
+		Registry: reg, Sink: ingest.MultiSink{writer, liveState}, Commands: commands, Dict: store.NewDict(writer, store.DefaultDictCapacity),
 		Back: writer, Skew: ingest.NewSkew(), Now: time.Now,
 	})
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) { w.Write([]byte("ok")) })

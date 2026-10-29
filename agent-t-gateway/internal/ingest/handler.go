@@ -151,3 +151,12 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 	w.WriteHeader(code)
 	_ = json.NewEncoder(w).Encode(v)
 }
+
+// MultiSink fans an accepted batch out to several sinks in order (e.g. ClickHouse writer, then live state).
+type MultiSink []Sink
+
+func (m MultiSink) Accept(inst registry.Instance, b *protocol.Batch, offsetMs int64) {
+	for _, s := range m {
+		s.Accept(inst, b, offsetMs)
+	}
+}
