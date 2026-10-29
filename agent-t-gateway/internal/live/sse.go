@@ -9,7 +9,10 @@ import (
 	"time"
 )
 
-const PingInterval = 15 * time.Second
+const (
+	PingInterval = 15 * time.Second
+	WriteTimeout = 10 * time.Second // per SSE write
+)
 
 // API serves GET /t/v1/stream and GET /t/v1/snapshot behind the admin-api user JWT.
 type API struct {
@@ -34,22 +37,35 @@ func (a *API) authorized(w http.ResponseWriter, r *http.Request) bool {
 	return true
 }
 
-func parseSystemIDs(r *http.Request) []int64 {
-	var ids []int64
-	for _, p := range strings.Split(r.URL.Query().Get("system_ids"), ",") {
-		if id, err := strconv.ParseInt(strings.TrimSpace(p), 10, 64); err == nil {
-			ids = append(ids, id)
-		}
+// parseSystemIDs reads the optional comma separated system_ids filter. An absent or empty
+// parameter means "all systems"; any unparsable element is an error (never widens the filter).
+func parseSystemIDs(r *http.Request) ([]int64, error) {
+	raw := r.URL.Query().Get("system_ids")
+	if strings.TrimSpace(raw) == "" {
+		return nil, nil
 	}
-	return ids
+	var ids []int64
+	for _, p := range strings.Split(raw, ",") {
+		id, err := strconv.ParseInt(strings.TrimSpace(p), 10, 64)
+		if err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, nil
 }
 
 func (a *API) Snapshot(w http.ResponseWriter, r *http.Request) {
 	if !a.authorized(w, r) {
 		return
 	}
+	ids, err := parseSystemIDs(r)
+	if err != nil {
+		http.Error(w, "invalid system_ids", http.StatusBadRequest)
+		return
+	}
 	set := map[int64]bool{}
-	for _, id := range parseSystemIDs(r) {
+	for _, id := range ids {
 		set[id] = true
 	}
 	w.Header().Set("Content-Type", "application/json")
@@ -61,6 +77,11 @@ func (a *API) Stream(w http.ResponseWriter, r *http.Request) {
 	if !a.authorized(w, r) {
 		return
 	}
+	ids, err := parseSystemIDs(r)
+	if err != nil {
+		http.Error(w, "invalid system_ids", http.StatusBadRequest)
+		return
+	}
 	fl, ok := w.(http.Flusher)
 	if !ok {
 		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
@@ -70,10 +91,12 @@ func (a *API) Stream(w http.ResponseWriter, r *http.Request) {
 	h.Set("Content-Type", "text/event-stream")
 	h.Set("Cache-Control", "no-cache")
 	h.Set("X-Accel-Buffering", "no")
-	sub := a.Hub.Subscribe(parseSystemIDs(r))
+	sub := a.Hub.Subscribe(ids)
 	defer a.Hub.Unsubscribe(sub)
 
+	rc := http.NewResponseController(w)
 	write := func(name string, data []byte) bool {
+		_ = rc.SetWriteDeadline(time.Now().Add(WriteTimeout)) // a stalled client must not pin the goroutine
 		if _, err := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", name, data); err != nil {
 			return false
 		}

@@ -13,12 +13,16 @@ import (
 	"synapse/agent-t-gateway/internal/config"
 	"synapse/agent-t-gateway/internal/ingest"
 	"synapse/agent-t-gateway/internal/live"
+	"synapse/agent-t-gateway/internal/promrw"
 	"synapse/agent-t-gateway/internal/registry"
 	"synapse/agent-t-gateway/internal/store"
 )
 
 func main() {
 	cfg := config.Load()
+	if cfg.SecretKey == "" {
+		log.Fatal("SECRET_KEY is required (verifies admin-api user JWTs for /t/v1/stream)")
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
@@ -43,11 +47,15 @@ func main() {
 	writerDone := make(chan struct{})
 	go func() { writer.Run(bgCtx); close(writerDone) }() // final flush on cancel
 
-	if cfg.SecretKey == "" {
-		log.Fatal("SECRET_KEY is required (verifies admin-api user JWTs for /t/v1/stream)")
-	}
 	hub := live.NewHub()
 	liveState := live.NewState(hub)
+	if cfg.PrometheusRemoteWrite == "" {
+		log.Print("PROMETHEUS_REMOTE_WRITE_URL is empty: Prometheus remote write disabled")
+	} else {
+		rw := promrw.NewWriter(cfg.PrometheusRemoteWrite)
+		liveState.OnAgg = rw.Hook
+		go rw.Run(bgCtx)
+	}
 	go liveState.Run(bgCtx)
 	liveAPI := &live.API{State: liveState, Hub: hub, Secret: []byte(cfg.SecretKey)}
 
