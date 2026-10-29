@@ -94,10 +94,15 @@ if [ "$PROFILE" = legacy ]; then
   ASM=third_party/src/asm52
   ASM_LEVEL=ASM5
   JAVAC=(javac -nowarn -source 1.6 -target 1.6 -encoding UTF-8 -Xlint:-options)
+  # Stub classes are class-file v51 (what JDK 7 apps load) so the strict split verifier checks our frames.
+  STUBJAVAC=(javac -nowarn -source 1.7 -target 1.7 -encoding UTF-8 -Xlint:-options)
+  VERIFY=(-Xverify:all -XX:-FailOverToOldVerifier)
 else
   ASM=third_party/src/asm97
   ASM_LEVEL=ASM9
   JAVAC=(javac -nowarn --release 8 -encoding UTF-8 -Xlint:-options)
+  STUBJAVAC=("${JAVAC[@]}")
+  VERIFY=(-Xverify:all)
 fi
 # ASM API level differs per build (ASM 5.2 vs 9.7), so the instrument sources read it from a generated constant.
 mkdir -p "$B/gen/com/synapsev/agentt/instrument"
@@ -116,10 +121,13 @@ find "$ASM" core/src/main/java bridge/src/main/java instrument/src/main/java boo
 "${JAVAC[@]}" -d "$B/classes" @"$B/main.txt"
 CP="third_party/lib/junit.jar:third_party/lib/hamcrest-core.jar"
 if [ "$ACTION" = test ]; then
-  find core/src/test/java bridge/src/test/java instrument/src/test/java boot/src/test/java -name '*.java' > "$B/test.txt"
-  "${JAVAC[@]}" -cp "$B/classes:$CP" -d "$B/test-classes" @"$B/test.txt"
+  find instrument/src/test/java/javax instrument/src/test/java/testapp -name '*.java' > "$B/stubs.txt"
+  "${STUBJAVAC[@]}" -d "$B/test-classes" @"$B/stubs.txt"
+  find core/src/test/java bridge/src/test/java instrument/src/test/java boot/src/test/java -name '*.java' \
+    -not -path 'instrument/src/test/java/javax/*' -not -path 'instrument/src/test/java/testapp/*' > "$B/test.txt"
+  "${JAVAC[@]}" -cp "$B/classes:$B/test-classes:$CP" -d "$B/test-classes" @"$B/test.txt"
   CLASSES=$(for d in core bridge instrument boot; do (cd $d/src/test/java && find . -name '*Test.java'); done | sed -e 's#^\./##' -e 's#\.java$##' -e 's#/#.#g' | sort | tr '\n' ' ')
-  java -Dagentt.repo.root=/w -cp "$B/classes:$B/test-classes:$CP" org.junit.runner.JUnitCore $CLASSES
+  java "${VERIFY[@]}" -Dagentt.repo.root=/w -cp "$B/classes:$B/test-classes:$CP" org.junit.runner.JUnitCore $CLASSES
 else
   mkdir -p build/dist
   # The bridge classes must live on the bootstrap class path, so they ship as a nested jar resource, not top-level.

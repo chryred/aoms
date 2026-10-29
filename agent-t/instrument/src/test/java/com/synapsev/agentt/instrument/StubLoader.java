@@ -18,6 +18,8 @@ import java.util.Set;
 public final class StubLoader extends ClassLoader {
     private final AgentTransformer transformer;
     public final Set<String> transformedNames = new HashSet<String>();
+    /** Class bytes built in tests (javac cannot produce some shapes); keyed by binary name. */
+    public final java.util.Map<String, byte[]> generated = new java.util.HashMap<String, byte[]>();
     /** When true the loader behaves like an app loader that cannot see the bridge package. */
     public boolean blockBridge;
     /** Resource names (e.g. "testapp/BranchA.class") hidden from header lookups; loading is unaffected. */
@@ -62,7 +64,7 @@ public final class StubLoader extends ClassLoader {
             if (name.endsWith("$Impl")) {
                 bytes = concreteSubclass(name, loadClass(name.substring(0, name.length() - 5)));
             } else {
-                bytes = classBytes(name);
+                bytes = generated.containsKey(name) ? generated.get(name) : classBytes(name);
                 byte[] t = transformer.transform(this, name.replace('.', '/'), null, null, bytes);
                 if (t != null) {
                     transformedNames.add(name);

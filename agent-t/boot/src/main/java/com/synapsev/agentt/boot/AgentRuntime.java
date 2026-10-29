@@ -126,16 +126,43 @@ public final class AgentRuntime {
         }
     }
 
+    /**
+     * Installs the transformer, then starts the sender and the control thread. If anything after the install
+     * fails, everything is rolled back (transformer removed, classes restored, hooks detached) so a later
+     * attach cannot double-instrument.
+     */
+    static void launch(AgentRuntime rt, boolean attached, Runnable startSender, Runnable startPoller,
+            Runnable stopSender) {
+        rt.install(attached); // transformer first, then the background threads
+        try {
+            startSender.run();
+            startPoller.run();
+        } catch (RuntimeException e) {
+            rollback(rt, stopSender);
+            throw e;
+        } catch (Error e) {
+            rollback(rt, stopSender);
+            throw e;
+        }
+    }
+
+    private static void rollback(AgentRuntime rt, Runnable stopSender) {
+        try {
+            stopSender.run();
+        } catch (Throwable ignore) {
+            // best effort
+        }
+        rt.uninstall();
+    }
+
     static void start(Instrumentation inst, AgentProperties props, boolean attached) {
         final AgentConfig config = new AgentConfig();
         AgentLog.init(props.logDir);
-        Sender sender = new Sender(new HttpPoster(props.gatewayUrl, props.agentToken), config,
+        final Sender sender = new Sender(new HttpPoster(props.gatewayUrl, props.agentToken), config,
                 Batch.AgentInfo.detect("0.1.0"), 1000);
         TxTracker tracker = new TxTracker(TxTracker.forSender(sender), config);
         final AgentRuntime rt = new AgentRuntime(new InstControl(inst), new AgentTransformer(), tracker);
-        rt.install(attached); // transformer first, then the sender thread
-        sender.start();
-        Thread poller = new Thread("agent-t-control") {
+        final Thread poller = new Thread("agent-t-control") {
             @Override
             public void run() {
                 while (true) {
@@ -153,7 +180,19 @@ public final class AgentRuntime {
             }
         };
         poller.setDaemon(true);
-        poller.start();
+        launch(rt, attached, new Runnable() {
+            public void run() {
+                sender.start();
+            }
+        }, new Runnable() {
+            public void run() {
+                poller.start();
+            }
+        }, new Runnable() {
+            public void run() {
+                sender.stop();
+            }
+        });
         AgentLog.info("agent-t started (" + (attached ? "agentmain" : "premain") + ") system=" + props.systemName
                 + " role=" + props.instanceRole);
     }

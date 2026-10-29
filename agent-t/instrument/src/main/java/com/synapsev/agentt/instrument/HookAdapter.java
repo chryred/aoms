@@ -1,9 +1,11 @@
 package com.synapsev.agentt.instrument;
 
+import com.synapsev.agentt.shaded.asm.AnnotationVisitor;
 import com.synapsev.agentt.shaded.asm.Label;
 import com.synapsev.agentt.shaded.asm.MethodVisitor;
 import com.synapsev.agentt.shaded.asm.Opcodes;
 import com.synapsev.agentt.shaded.asm.Type;
+import com.synapsev.agentt.shaded.asm.TypePath;
 import com.synapsev.agentt.shaded.asm.commons.AdviceAdapter;
 import com.synapsev.agentt.shaded.asm.commons.Method;
 
@@ -37,6 +39,23 @@ final class HookAdapter extends AdviceAdapter {
     private final Label end = new Label();
     private int token = -1;
     private boolean guarded;
+    /**
+     * Exception-table entries are emitted in the order [hook regions][application entries][method-level catch-all]
+     * so that a hook failure is always handled by its own region first, even when the hook call sits inside an
+     * application catch-any range (the JVM takes the first matching entry).
+     */
+    private final java.util.List<Label[]> hookEntries = new java.util.ArrayList<Label[]>();
+    private final java.util.List<Object[]> appEntries = new java.util.ArrayList<Object[]>();
+
+    @Override
+    public void visitTryCatchBlock(Label from, Label to, Label handler, String type) {
+        appEntries.add(new Object[] {from, to, handler, type});
+    }
+
+    @Override
+    public AnnotationVisitor visitTryCatchAnnotation(int typeRef, TypePath typePath, String desc, boolean visible) {
+        return null; // type annotations on catch blocks cannot follow their (re-ordered) block; they are optional
+    }
 
     HookAdapter(MethodVisitor mv, int access, String name, String desc, Matchers.Kind kind) {
         super(AsmApi.LEVEL, mv, access, name, desc);
@@ -58,7 +77,9 @@ final class HookAdapter extends AdviceAdapter {
         Label after = new Label();
         mark(e);
         goTo(after);
-        catchException(s, e, THROWABLE);
+        Label h = new Label();
+        hookEntries.add(new Label[] {s, e, h});
+        mark(h);
         pop();
         if (returnsObject) {
             visitInsn(Opcodes.ACONST_NULL);
@@ -196,9 +217,10 @@ final class HookAdapter extends AdviceAdapter {
 
     @Override
     public void visitMaxs(int maxStack, int maxLocals) {
+        Label catchAll = new Label();
         if (guarded) {
             mark(end);
-            catchException(start, end, THROWABLE);
+            mark(catchAll);
             int ex = newLocal(THROWABLE);
             storeLocal(ex);
             Label s = open();
@@ -234,6 +256,15 @@ final class HookAdapter extends AdviceAdapter {
             close(s, false);
             loadLocal(ex);
             throwException();
+        }
+        for (Label[] h : hookEntries) {
+            mv.visitTryCatchBlock(h[0], h[1], h[2], "java/lang/Throwable");
+        }
+        for (Object[] a : appEntries) {
+            mv.visitTryCatchBlock((Label) a[0], (Label) a[1], (Label) a[2], (String) a[3]);
+        }
+        if (guarded) {
+            mv.visitTryCatchBlock(start, end, catchAll, "java/lang/Throwable");
         }
         super.visitMaxs(maxStack, maxLocals);
     }
