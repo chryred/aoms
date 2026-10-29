@@ -28,7 +28,7 @@ def _rows(n):
 def _install(monkeypatch, rows, captured=None):
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/api/v1/systems":
-            return httpx.Response(200, json=[{"id": 42, "system_name": "was-test"}])
+            return httpx.Response(200, json=[{"id": 42, "system_name": "was-test", "tx_slow_threshold_ms": 2500}])
         if captured is not None:
             captured.append(request)
         body = "\n".join(json.dumps(r) for r in rows)
@@ -58,6 +58,12 @@ async def test_build_trace_context_formats_lines(monkeypatch):
     ch = captured[0]
     assert ch.url.params["param_system_id"] == "42"
     assert "42" not in ch.content.decode()
+    assert ch.url.params["param_slow_ms"] == "2500"
+    sql = ch.content.decode()
+    assert "t.error = 1 OR t.elapsed_ms >= {slow_ms:UInt32}" in sql
+    assert "conn_leak > 0 OR t.conn_uncommit > 0" in sql
+    assert "ORDER BY t.error DESC, t.elapsed_ms DESC" in sql
+    assert "agent_t.tx_summary" in sql
 
 
 @pytest.mark.asyncio
@@ -82,3 +88,14 @@ async def test_unknown_system_or_failure_returns_empty(monkeypatch):
     monkeypatch.setattr(trace_summarizer.httpx, "AsyncClient", boom)
     trace_summarizer._systems_cache.clear()
     assert await trace_summarizer.build_trace_context("was-test", 0, 1, "5min") == ("", [])
+
+
+@pytest.mark.asyncio
+async def test_overlong_single_line_truncated_not_dropped(monkeypatch):
+    row = _rows(1)[0]
+    row["uri"] = "/x" * 500
+    _install(monkeypatch, [row], None)
+    text, ids = await trace_summarizer.build_trace_context("was-test", 0, 1, "5min")
+    assert 0 < len(text) <= trace_summarizer._TIER_BUDGET["5min"]
+    assert text.endswith("…")
+    assert ids == [row["trace_id"]]

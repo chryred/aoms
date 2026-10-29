@@ -13,6 +13,7 @@ tier별 예산에 맞는 요약 텍스트와 trace_id 목록을 반환.
 import json
 import logging
 import os
+import re
 import time
 from typing import Literal
 
@@ -21,13 +22,15 @@ import httpx
 logger = logging.getLogger(__name__)
 
 CLICKHOUSE_URL = os.getenv("CLICKHOUSE_URL", "http://clickhouse:8123")
-CLICKHOUSE_DB = os.getenv("CLICKHOUSE_DB", "agent_t")
+_db = os.getenv("CLICKHOUSE_DB", "agent_t")
+CLICKHOUSE_DB = _db if re.fullmatch(r"[A-Za-z0-9_]+", _db) else "agent_t"
 CLICKHOUSE_USER = os.getenv("CLICKHOUSE_USER", "default")
 CLICKHOUSE_PASSWORD = os.getenv("CLICKHOUSE_PASSWORD", "")
 ADMIN_API_URL = os.getenv("ADMIN_API_URL", "http://admin-api:8080")
 
 _SYSTEMS_TTL = 300.0
 _QUERY_LIMIT = 20
+_DEFAULT_SLOW_MS = 3000
 
 # tier별 trace summary 예산 (자 단위)
 _TIER_BUDGET = {
@@ -42,27 +45,32 @@ _systems_cache: dict = {}
 _SQL = """
 SELECT toString(t.trace_id) AS trace_id, d.text AS uri, t.elapsed_ms AS elapsed_ms,
        t.sql_ms AS sql_ms, t.sql_cnt AS sql_cnt, t.exc_class AS exc_class
-FROM agent_t.tx_summary AS t
+FROM __DB__.tx_summary AS t
 LEFT JOIN (
     SELECT id, argMax(text, last_seen) AS text
-    FROM agent_t.dict_uri
+    FROM __DB__.dict_uri
     GROUP BY id
 ) AS d ON t.uri_id = d.id
 WHERE t.system_id = {system_id:UInt32}
   AND t.start_ts >= fromUnixTimestamp64Milli({start_ms:Int64}, 'UTC')
   AND t.start_ts < fromUnixTimestamp64Milli({end_ms:Int64}, 'UTC')
-ORDER BY t.elapsed_ms DESC
+  AND (t.error = 1 OR t.elapsed_ms >= {slow_ms:UInt32} OR t.conn_leak > 0 OR t.conn_uncommit > 0)
+ORDER BY t.error DESC, t.elapsed_ms DESC
 LIMIT {limit:UInt32}
 FORMAT JSONEachRow
-"""
+""".replace("__DB__", CLICKHOUSE_DB)
 
 
-async def _resolve_system_id(client: httpx.AsyncClient, system_name: str) -> int | None:
+async def _resolve_system(client: httpx.AsyncClient, system_name: str) -> tuple[int, int] | None:
+    """system_name -> (system_id, slow_ms)"""
     now = time.monotonic()
     if not _systems_cache or now - _systems_cache.get("at", 0.0) > _SYSTEMS_TTL:
         resp = await client.get(f"{ADMIN_API_URL}/api/v1/systems")
         resp.raise_for_status()
-        _systems_cache["map"] = {s["system_name"]: s["id"] for s in resp.json()}
+        _systems_cache["map"] = {
+            s["system_name"]: (s["id"], s.get("tx_slow_threshold_ms") or _DEFAULT_SLOW_MS)
+            for s in resp.json()
+        }
         _systems_cache["at"] = now
     return _systems_cache["map"].get(system_name)
 
@@ -84,14 +92,16 @@ async def build_trace_context(
     """
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            system_id = await _resolve_system_id(client, system_name)
-            if system_id is None:
+            resolved = await _resolve_system(client, system_name)
+            if resolved is None:
                 return ("", [])
+            system_id, slow_ms = resolved
             resp = await client.post(
                 CLICKHOUSE_URL,
                 params={
                     "database": CLICKHOUSE_DB,
                     "param_system_id": system_id,
+                    "param_slow_ms": slow_ms,
                     "param_start_ms": start_ts_ns // 1_000_000,
                     "param_end_ms": end_ts_ns // 1_000_000,
                     "param_limit": _QUERY_LIMIT,
@@ -117,9 +127,15 @@ async def build_trace_context(
             f"{r.get('uri') or '?'} {r['elapsed_ms']}ms "
             f"sql {r['sql_ms']}ms/{r['sql_cnt']} {r.get('exc_class') or ''}"
         ).rstrip()
-        cost = len(line) + (1 if lines else 0)
-        if used + cost > budget:
+        sep = 1 if lines else 0
+        remaining = budget - used - sep
+        if remaining <= 0:
             break
+        if len(line) > remaining:
+            if lines:
+                break
+            line = line[:remaining - 1] + "…"
+        cost = len(line) + sep
         lines.append(line)
         trace_ids.append(r["trace_id"])
         used += cost
