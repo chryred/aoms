@@ -23,10 +23,12 @@ interface Props {
   value: TxFilters
   systemOptions: { value: number; label: string }[]
   onApply: (next: TxFilters) => void
+  validate: (from: string, to: string) => string | null
 }
 
-export function TxFilterBar({ value, systemOptions, onApply }: Props) {
+export function TxFilterBar({ value, systemOptions, onApply, validate }: Props) {
   const [draft, setDraft] = useState<TxFilters>(value)
+  const [invalid, setInvalid] = useState<string | null>(null)
   const set = <K extends keyof TxFilters>(key: K, v: TxFilters[K]) =>
     setDraft((d) => ({ ...d, [key]: v }))
 
@@ -36,7 +38,9 @@ export function TxFilterBar({ value, systemOptions, onApply }: Props) {
         className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4"
         onSubmit={(e) => {
           e.preventDefault()
-          onApply(draft)
+          const msg = validate(draft.from, draft.to)
+          setInvalid(msg)
+          if (!msg) onApply(draft)
         }}
       >
         <NeuInput
@@ -113,6 +117,11 @@ export function TxFilterBar({ value, systemOptions, onApply }: Props) {
           />
           에러만
         </label>
+        {invalid && (
+          <p role="alert" className="text-critical-text text-xs sm:col-span-2 lg:col-span-4">
+            {invalid}
+          </p>
+        )}
         <div className="flex items-end justify-end">
           <NeuButton type="submit">조회</NeuButton>
         </div>

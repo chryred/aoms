@@ -28,6 +28,13 @@ describe('buildCallTree', () => {
     expect(rows[1].ratio).toBeCloseTo(0.1)
   })
 
+  it('첫 자식 앞 빈 구간도 미계측 행으로 삽입한다', () => {
+    const rows = buildCallTree([node(0, -1, 'http', 0, 100), node(1, 0, 'sql', 30, 70)], 100)
+    expect(rows.map((r) => r.kind)).toEqual(['http', 'gap', 'sql'])
+    expect(rows[1]).toMatchObject({ startMs: 0, durMs: 30 })
+    expect(rows[1].ratio).toBeCloseTo(0.3)
+  })
+
   it('1ms 미만 빈 구간과 자식 없는 노드에는 행을 만들지 않는다', () => {
     const rows = buildCallTree(
       [node(0, -1, 'http', 0, 100), node(1, 0, 'sql', 0, 50), node(2, 0, 'sql', 50, 50)],
@@ -44,6 +51,7 @@ describe('buildCallTree', () => {
     expect(rows.map((r) => [r.id, r.depth])).toEqual([
       ['n0', 0],
       ['n1', 1],
+      ['gap-1-0', 2],
       ['n2', 2],
       ['gap-1-10', 2],
     ])

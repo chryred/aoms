@@ -13,6 +13,7 @@ import { TxCallTreeTab } from '@/components/apm/detail/TxCallTreeTab'
 import { TxStackTab } from '@/components/apm/detail/TxStackTab'
 import { TxResourceTab } from '@/components/apm/detail/TxResourceTab'
 import { ROUTES } from '@/constants/routes'
+import { useSystems } from '@/hooks/queries/useSystems'
 import { useApmTransactionDetail } from '@/hooks/queries/useApmTransactionDetail'
 import { cn, formatKST } from '@/lib/utils'
 
@@ -25,13 +26,14 @@ const TABS = [
 ] as const
 type TabKey = (typeof TABS)[number]['key']
 
-const NO_DETAIL = '호출 트리는 느린 기준 이상·에러 건만 보관합니다'
+const DEFAULT_SLOW_SEC = 3
 
 export function ApmTxDetailPage() {
   const { traceId, spanId } = useParams()
   const navigate = useNavigate()
   const [tab, setTab] = useState<TabKey>('path')
   const { data, isLoading, error, refetch } = useApmTransactionDetail(traceId, spanId)
+  const { data: systems = [] } = useSystems()
 
   const back = (
     <NeuButton variant="ghost" size="sm" onClick={() => navigate(ROUTES.APM_TRANSACTIONS)}>
@@ -49,6 +51,8 @@ export function ApmTxDetailPage() {
     )
   }
   const { summary, sql, detail, path } = data
+  const slowMs = systems.find((s) => s.id === summary.system_id)?.tx_slow_threshold_ms
+  const NO_DETAIL = `호출 트리는 느린 기준(${slowMs ? slowMs / 1000 : DEFAULT_SLOW_SEC}초) 이상·에러 건만 보관합니다`
 
   return (
     <div>

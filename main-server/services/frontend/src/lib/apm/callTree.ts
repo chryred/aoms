@@ -59,7 +59,7 @@ export function buildCallTree(nodes: TxNode[], totalMs: number): CallTreeRow[] {
         ratio: ratio(to - from),
       })
     }
-    let cursor = kids[0].s
+    let cursor = node.s
     for (const kid of kids) {
       pushGap(cursor, kid.s)
       visit(kid, depth + 1)

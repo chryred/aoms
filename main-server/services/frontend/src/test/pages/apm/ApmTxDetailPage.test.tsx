@@ -7,6 +7,8 @@ import { ApmTxDetailPage } from '@/pages/apm/ApmTxDetailPage'
 import type { TxDetail, TxSummary } from '@/types/apm'
 
 vi.mock('@/hooks/queries/useApmTransactionDetail', () => ({ useApmTransactionDetail: vi.fn() }))
+vi.mock('@/hooks/queries/useSystems', () => ({ useSystems: vi.fn() }))
+import { useSystems } from '@/hooks/queries/useSystems'
 import { useApmTransactionDetail } from '@/hooks/queries/useApmTransactionDetail'
 
 const mk = (over: Partial<TxSummary>): TxSummary =>
@@ -31,8 +33,11 @@ const mk = (over: Partial<TxSummary>): TxSummary =>
     ...over,
   }) as TxSummary
 
-function setup(detail: TxDetail['detail']) {
-  const summary = mk({})
+function setup(detail: TxDetail['detail'], slowMs?: number) {
+  vi.mocked(useSystems).mockReturnValue({
+    data: [{ id: 7, tx_slow_threshold_ms: slowMs }],
+  } as never)
+  const summary = mk({ system_id: 7 })
   vi.mocked(useApmTransactionDetail).mockReturnValue({
     data: {
       summary,
@@ -66,11 +71,20 @@ describe('ApmTxDetailPage', () => {
   })
 
   it('detail=null 이면 호출 트리·스택 탭에 보관 정책 안내', async () => {
+    setup(null, 5000)
+    const text = '호출 트리는 느린 기준(5초) 이상·에러 건만 보관합니다'
+    await userEvent.click(screen.getByRole('tab', { name: '호출 트리' }))
+    expect(screen.getByText(text)).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('tab', { name: '스택 샘플' }))
+    expect(screen.getByText(text)).toBeInTheDocument()
+  })
+
+  it('임계값이 없으면 기본 3초', async () => {
     setup(null)
     await userEvent.click(screen.getByRole('tab', { name: '호출 트리' }))
-    expect(screen.getByText(/에러 건만 보관합니다/)).toBeInTheDocument()
-    await userEvent.click(screen.getByRole('tab', { name: '스택 샘플' }))
-    expect(screen.getByText(/에러 건만 보관합니다/)).toBeInTheDocument()
+    expect(
+      screen.getByText('호출 트리는 느린 기준(3초) 이상·에러 건만 보관합니다'),
+    ).toBeInTheDocument()
   })
 
   it('detail 이 있으면 호출 트리에 미계측 구간이 표시된다', async () => {

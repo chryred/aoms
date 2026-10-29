@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { HTTPError } from 'ky'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { ApmTransactionsPage } from '@/pages/apm/ApmTransactionsPage'
@@ -80,6 +81,43 @@ describe('ApmTransactionsPage', () => {
     expect(p.error_only).toBe(true)
     expect(p.start).toBe('2026-10-29T15:00:00')
     expect(p.end).toBe('2026-10-30T15:00:00')
+  })
+
+  it('422 는 보관 기간 안내를 즉시 표시한다 (선택 시스템 보관일 최대값)', () => {
+    vi.mocked(useSystems).mockReturnValue({
+      data: [
+        { id: 1, display_name: 'a', tx_retention_days: 7 },
+        { id: 2, display_name: 'b', tx_retention_days: 14 },
+      ],
+    } as never)
+    const err = new HTTPError(
+      new Response('{}', { status: 422 }),
+      new Request('http://x/api'),
+      {} as never,
+    )
+    vi.mocked(useApmTransactions).mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      error: err,
+      refetch: vi.fn(),
+    } as never)
+    renderPage()
+    expect(screen.getByText('보관 기간(14일) 지난 데이터입니다')).toBeInTheDocument()
+    expect(screen.queryByText('다시 시도')).not.toBeInTheDocument()
+  })
+
+  it('시작일이 종료일보다 늦으면 조회하지 않고 검증 메시지를 표시한다', async () => {
+    renderPage()
+    vi.mocked(useApmTransactions).mockClear()
+    fireEvent.change(screen.getByLabelText('시작일 (KST)'), { target: { value: '2999-01-01' } })
+    await userEvent.click(screen.getByRole('button', { name: '조회' }))
+    expect(screen.getByText('시작일이 종료일보다 늦을 수 없습니다')).toBeInTheDocument()
+  })
+
+  it('URL 의 잘못된 날짜는 API 호출 대상이 비어 있다', () => {
+    renderPage('/apm/transactions?from=2026-10-31&to=2026-10-30')
+    expect(vi.mocked(useApmTransactions).mock.calls.at(-1)![0].system_ids).toEqual([])
+    expect(screen.getAllByText('시작일이 종료일보다 늦을 수 없습니다').length).toBeGreaterThan(0)
   })
 
   it('행 클릭 시 상세로 이동', async () => {

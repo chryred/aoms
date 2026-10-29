@@ -55,31 +55,42 @@ function filtersToUrl(f: TxFilters): Record<string, string> {
   return Object.fromEntries(entries.filter(([, v]) => v !== ''))
 }
 
-/** 보관일 초과(422) 응답의 detail 메시지에서 보관일수(N)를 뽑는다. */
-function useRetentionNotice(error: unknown): string | null {
-  const [notice, setNotice] = useState<string | null>(null)
+const RETENTION_FALLBACK = '보관 기간이 지난 데이터입니다'
+
+/** 422(보관일 초과)는 상태 코드만으로 즉시 판정한다. N 은 선택 시스템 보관일, 없으면 detail 메시지에서 추출. */
+function useRetentionNotice(error: unknown, retentionDays: number | undefined): string | null {
+  const is422 = error instanceof HTTPError && error.response.status === 422
+  const [fallback, setFallback] = useState<string | null>(null)
   useEffect(() => {
-    if (!(error instanceof HTTPError) || error.response.status !== 422) {
-      setNotice(null)
+    if (!is422 || retentionDays) {
+      setFallback(null)
       return
     }
     let cancelled = false
-    error.response
+    ;(error as HTTPError).response
       .clone()
       .json()
       .then((body: { detail?: unknown }) => {
-        const detail = typeof body.detail === 'string' ? body.detail : ''
-        const days = detail.match(/\d+/)?.[0]
-        if (!cancelled) setNotice(days ? `보관 기간(${days}일) 지난 데이터입니다` : detail)
+        const days = (typeof body.detail === 'string' ? body.detail : '').match(/\d+/)?.[0]
+        if (!cancelled && days) setFallback(`보관 기간(${days}일) 지난 데이터입니다`)
       })
-      .catch(() => {
-        if (!cancelled) setNotice('보관 기간이 지난 데이터입니다')
-      })
+      .catch(() => undefined)
     return () => {
       cancelled = true
     }
-  }, [error])
-  return notice
+  }, [error, is422, retentionDays])
+  if (!is422) return null
+  return retentionDays
+    ? `보관 기간(${retentionDays}일) 지난 데이터입니다`
+    : (fallback ?? RETENTION_FALLBACK)
+}
+
+/** 날짜 입력 검증. 문제 없으면 null. */
+function validateRange(from: string, to: string): string | null {
+  const ok = (d: string) => /^\d{4}-\d{2}-\d{2}$/.test(d) && !Number.isNaN(Date.parse(d))
+  if (!ok(from) || !ok(to)) return '시작일과 종료일을 올바르게 입력하세요'
+  if (from > to) return '시작일이 종료일보다 늦을 수 없습니다'
+  return null
 }
 
 export function ApmTransactionsPage() {
@@ -88,7 +99,10 @@ export function ApmTransactionsPage() {
   const offset = Number(sp.get('offset') ?? 0) || 0
   const { data: systems = [] } = useSystems()
 
+  const rangeError = validateRange(filters.from, filters.to)
+
   const params: TxListParams = useMemo(() => {
+    if (rangeError) return { system_ids: [] }
     const num = (v: string) => (v === '' ? undefined : Number(v))
     return {
       system_ids: filters.systemIds.length ? filters.systemIds : systems.map((s) => s.id),
@@ -105,10 +119,14 @@ export function ApmTransactionsPage() {
       limit: PAGE_SIZE,
       offset,
     }
-  }, [filters, offset, systems])
+  }, [filters, offset, systems, rangeError])
 
   const { data, isLoading, error, refetch } = useApmTransactions(params)
-  const retentionNotice = useRetentionNotice(error)
+  const selected = filters.systemIds.length
+    ? systems.filter((s) => filters.systemIds.includes(s.id))
+    : systems
+  const retentionDays = Math.max(0, ...selected.map((s) => s.tx_retention_days ?? 0)) || undefined
+  const retentionNotice = useRetentionNotice(error, retentionDays)
 
   const systemOptions = systems.map((s) => ({ value: s.id, label: s.display_name }))
   const goOffset = (next: number) => {
@@ -126,8 +144,15 @@ export function ApmTransactionsPage() {
         value={filters}
         systemOptions={systemOptions}
         onApply={(next) => setSp(filtersToUrl(next))}
+        validate={validateRange}
       />
-      {isLoading ? (
+      {rangeError ? (
+        <NeuCard>
+          <p role="alert" className="text-warning-text text-sm">
+            {rangeError}
+          </p>
+        </NeuCard>
+      ) : isLoading ? (
         <LoadingSkeleton shape="table" count={8} />
       ) : retentionNotice ? (
         <NeuCard>
