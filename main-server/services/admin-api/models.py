@@ -23,6 +23,9 @@ class System(Base):
     description = Column(Text)
     status = Column(String(20), default="active")
     teams_webhook_url = Column(Text)                   # 시스템별 Teams webhook (없으면 기본값 사용)
+    environment = Column(String(10), nullable=False, default="prod", server_default="prod")  # 'dev' | 'prod'
+    tx_slow_threshold_ms = Column(Integer, nullable=False, default=3000, server_default="3000")  # Agent-T 느린 트랜잭션 기준(ms)
+    tx_retention_days = Column(Integer, nullable=False, default=7, server_default="7")  # Agent-T 상세 보관 일수 (1~30)
     created_at = Column(DateTime, default=func.now())
     updated_at = Column(DateTime, default=func.now(), onupdate=func.now())
 
@@ -487,14 +490,14 @@ class AgentInstance(Base):
     id           = Column(Integer, primary_key=True)
     system_id    = Column(Integer, ForeignKey("systems.id", ondelete="CASCADE"), nullable=False)
     host         = Column(String(200), nullable=False)          # 서버 IP
-    agent_type   = Column(String(50), nullable=False)           # synapse_agent | db | otel_javaagent | cli
+    agent_type   = Column(String(50), nullable=False)           # synapse_agent | agent_t | db | cli
     install_path = Column(String(500), nullable=True)           # 바이너리 경로 (db 에이전트는 NULL)
     config_path  = Column(String(500), nullable=True)           # 설정파일 경로 (db 에이전트는 NULL)
     port         = Column(Integer)                              # 메트릭 노출 포트
     os_type      = Column(String(20))                            # 'linux' | 'windows' — 에이전트 설치 서버 OS
     server_type  = Column(String(50))                           # 'web' | 'was' | 'db' | 'middleware' | 'other' — 서버 역할
     pid_file     = Column(String(500))                          # PID 파일 경로 (systemd 없으므로)
-    ssh_username = Column(String(100), nullable=True)           # SSH 접속 계정 (synapse_agent/otel_javaagent 전용; NULL=검증 스킵)
+    ssh_username = Column(String(100), nullable=True)           # SSH 접속 계정 (synapse_agent/agent_t 전용; NULL=검증 스킵)
     label_info   = Column(Text)                                 # JSON: system_name, instance_role 등
     status       = Column(String(20), default="unknown")        # installed | running | stopped | unknown
     created_at   = Column(DateTime, default=func.now())
@@ -521,6 +524,42 @@ class AgentInstallJob(Base):
 
     __table_args__ = (
         Index("idx_install_jobs_job_id", "job_id"),
+    )
+
+
+class ApmDashboard(Base):
+    """APM 대시보드 레이아웃/필터 저장 (사용자별, 공유 기본값 가능)"""
+    __tablename__ = "apm_dashboards"
+
+    id                = Column(Integer, primary_key=True)
+    owner_user_id     = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    name              = Column(String(100), nullable=False)
+    layout            = Column(JSONB, nullable=False, default=list)   # 위젯 배치 목록
+    filters           = Column(JSONB, nullable=False, default=dict)   # 필터 조건
+    is_shared_default = Column(Boolean, nullable=False, default=False)
+    created_at        = Column(DateTime, default=func.now())
+    updated_at        = Column(DateTime, default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        Index("idx_apm_dashboards_owner", "owner_user_id"),
+    )
+
+
+class AgentCommand(Base):
+    """Agent-T 원격 명령 큐 (gateway 가 polling)"""
+    __tablename__ = "agent_commands"
+
+    id                = Column(Integer, primary_key=True)
+    agent_instance_id = Column(Integer, ForeignKey("agent_instances.id", ondelete="CASCADE"), nullable=False)
+    command           = Column(String(30), nullable=False)
+    status            = Column(String(20), nullable=False, default="pending")  # pending | sent | done | failed
+    result_ref        = Column(String(100), nullable=True)
+    requested_by      = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    created_at        = Column(DateTime, default=func.now())
+    updated_at        = Column(DateTime, default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        Index("idx_agent_commands_agent_status", "agent_instance_id", "status"),
     )
 
 
