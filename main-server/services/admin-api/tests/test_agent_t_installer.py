@@ -29,6 +29,9 @@ class Remote:
         self.files: dict[str, str] = {}
         self.read_map: dict[str, str | None] = {}
         self.exec_error: Exception | None = None
+        self.events: list[tuple[str, str]] = []
+        self.attached = False
+        self.mode = "600"
 
     def _run(self, cmd):
         if cmd.startswith("ps -eo"):
@@ -39,7 +42,11 @@ class Remote:
             return 0, self.version, ""
         if "--check" in cmd:
             return 0, self.check, ""
+        if cmd.startswith("stat -c %a"):
+            return 0, self.mode + "\n", ""
         if "agent-t-attacher.jar" in cmd:
+            if self.attach_code == 0:
+                self.attached = True
             return self.attach_code, "", ""
         if cmd == "echo $HOME":
             return 0, "/home/jeussic\n", ""
@@ -49,6 +56,7 @@ class Remote:
         if self.exec_error:
             raise self.exec_error
         self.exec_calls.append(cmd)
+        self.events.append(("exec", cmd))
         return self._run(cmd)
 
     def ssh_shell_exec(self, host, port, user, pw, cmd, timeout=60):
@@ -60,6 +68,7 @@ class Remote:
 
     def put_file(self, host, port, user, pw, path, content):
         self.files[path] = content
+        self.events.append(("put", path))
 
     def read_file(self, host, port, user, pw, path):
         return self.read_map.get(path)
@@ -83,10 +92,13 @@ async def env(db_session, monkeypatch, tmp_path):
     monkeypatch.setattr(inst, "ssh_put_file", remote.put_file)
     monkeypatch.setattr(inst, "ssh_read_file", remote.read_file)
 
-    snapshots: list[list[dict]] = [[{"system_id": 1, "instance_role": "was", "last_seen": 1}]]
+    # None = attach 가 일어난 뒤에만 인스턴스가 보인다
+    snapshots: list = [None]
 
     async def fake_snapshot(system_id, user):
-        return snapshots[0]
+        if snapshots[0] is not None:
+            return snapshots[0]
+        return [{"system_id": 1, "instance_role": "was", "last_seen": 1}] if remote.attached else []
 
     monkeypatch.setattr(inst, "fetch_snapshot", fake_snapshot)
     monkeypatch.setattr(inst, "_CONFIRM_TIMEOUT_S", 0)
@@ -200,7 +212,9 @@ async def test_token_hash_stored_not_plaintext(env):
     assert info["agent_token_sha256"] == hashlib.sha256(token.encode()).hexdigest()
     assert token not in json.dumps(info)
     assert token not in (await _job(env)).logs
-    assert "chmod 600 /home/jeussic/agent-t/agent-t.properties" in env.remote.exec_calls
+    prep = "umask 077; : > /home/jeussic/agent-t/agent-t.properties; chmod 600 /home/jeussic/agent-t/agent-t.properties"
+    ev = env.remote.events
+    assert ev.index(("exec", prep)) < ev.index(("put", "/home/jeussic/agent-t/agent-t.properties"))
     assert "gateway.url=http://gw:8330" in props
 
 
@@ -231,7 +245,8 @@ async def test_jeus_requires_confirm(env):
     await inst.run_install("job1", agent, SESSION)
     job = await _job(env)
     assert job.status == "done"
-    assert "확인 필요" in job.logs and "+" in job.logs and "-javaagent:" in job.logs
+    assert "확인 필요" in job.logs
+    assert any(l.startswith("+") and "-javaagent:" in l and not l.startswith("+++") for l in job.logs.splitlines())
     assert not any(p.endswith("domain.xml") for p in env.remote.files)
     assert not any("domain.xml_" in c for c in env.remote.exec_calls)
 
@@ -268,3 +283,79 @@ async def test_live_status_agent_t_uses_gateway_snapshot(env, authed_client, mon
     env.snapshots[0] = []
     body = (await authed_client.get(f"/api/v1/agents/{agent.id}/live-status")).json()
     assert body["live"] is False and body["live_status"] == "no_data"
+
+
+async def test_non_600_properties_mode_fails(env):
+    env.remote.mode = "644"
+    agent = await env.make({"jvm_match": "-Dsic_server1", "permanent": False})
+    await inst.run_install("job1", agent, SESSION)
+    job = await _job(env)
+    assert job.status == "failed" and "600" in job.error
+
+
+async def test_newline_injection_in_role_rejected_before_remote(env):
+    agent = await env.make({"jvm_match": "-Dsic_server1", "instance_role": "was\ngateway.url=http://evil"})
+    await inst.run_install("job1", agent, SESSION)
+    job = await _job(env)
+    assert job.status == "failed" and "instance_role" in job.error
+    assert env.remote.events == []
+
+
+async def test_newline_injection_in_system_name_rejected(env):
+    agent = await env.make({"jvm_match": "-Dsic_server1"})
+    sys_obj = await env.db.get(System, 1)
+    sys_obj.system_name = "sic\nagent.token=x"
+    await env.db.commit()
+    await inst.run_install("job1", agent, SESSION)
+    job = await _job(env)
+    assert job.status == "failed" and "system_name" in job.error
+    assert env.remote.events == []
+
+
+async def test_jeus_config_error_fails_before_upload_and_attach(env):
+    env.remote.read_map["/jeus/domains/sic_domain/config/domain.xml"] = FIXTURE.read_text()
+    agent = await env.make(_jeus_label(server_name="no_such_server"))
+    await inst.run_install("job1", agent, SESSION)
+    job = await _job(env)
+    assert job.status == "failed" and "찾을 수 없습니다" in job.error
+    assert env.remote.binaries == {} and not env.remote.attached
+
+
+async def test_jeus_missing_service_path_fails_early(env):
+    agent = await env.make({"jvm_match": "-Dsic_server1", "service_type": "jeus"})
+    await inst.run_install("job1", agent, SESSION)
+    job = await _job(env)
+    assert job.status == "failed" and "service_path" in job.error
+    assert env.remote.binaries == {} and not env.remote.attached
+
+
+async def test_rerun_keeps_token_and_skips_attach_when_live(env):
+    path = "/jeus/domains/sic_domain/config/domain.xml"
+    env.remote.read_map[path] = FIXTURE.read_text()
+    agent = await env.make(_jeus_label())
+    await inst.run_install("job1", agent, SESSION)
+    first = json.loads((await _agent(env, agent)).label_info)
+    props_path = "/home/jeussic/agent-t/agent-t.properties"
+    first_props = env.remote.files[props_path]
+    assert env.remote.attached
+
+    # 재실행: 원격 properties 가 이미 있고 gateway 에도 보인다
+    env.remote.read_map[props_path] = first_props
+    env.remote.attached = False
+    env.remote.exec_calls.clear()
+    env.snapshots[0] = [{"system_id": 1, "instance_role": "was", "last_seen": 1}]
+    agent2 = await _agent(env, agent)
+    agents_control._live_jobs["job1"] = {"status": "running", "logs": "", "error": None}
+    agent2.label_info = json.dumps({**json.loads(agent2.label_info), "jeus_confirm": True})
+    await env.db.commit()
+    await inst.run_install("job1", agent2, SESSION)
+
+    job = await _job(env)
+    assert job.status == "done", job.error
+    assert "이미 적용됨" in job.logs
+    assert not any("agent-t-attacher.jar" in c for c in env.remote.exec_calls)
+    second = json.loads((await _agent(env, agent)).label_info)
+    assert second["agent_token_sha256"] == first["agent_token_sha256"]
+    assert env.remote.files[props_path] == first_props
+    assert (await _agent(env, agent)).status == "running"
+    assert "-javaagent:" in env.remote.files[path]  # jeus_confirm 으로 반영됨

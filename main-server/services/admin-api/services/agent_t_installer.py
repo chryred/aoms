@@ -45,6 +45,7 @@ _CONFIRM_TIMEOUT_S = 30
 _CONFIRM_INTERVAL_S = 3
 _ENV_FILE = "agent-t-env.sh"
 _ATTACHER_JAR = "agent-t-attacher.jar"
+_SAFE_VALUE_RE = re.compile(r"^[A-Za-z0-9_.-]{1,100}$")
 
 
 # ── 원격 실행 ────────────────────────────────────────────────────────────────
@@ -232,12 +233,16 @@ async def run_install(job_id: str, agent: AgentInstance, session: dict) -> None:
                 "systemd 시스템 유닛은 root SSH 계정이 필요합니다. 다른 service_type 을 사용하세요."
             )
 
-        install_dir = await _expand_tilde(session, install_dir)
-        service_path = await _expand_tilde(session, service_path)
-
         async with AsyncSessionLocal() as db:
             sys_obj = (await db.execute(select(System).where(System.id == agent.system_id))).scalar_one_or_none()
         sys_name = sys_obj.system_name if sys_obj else "unknown"
+        # properties 줄바꿈 주입 방지 — 원격 작업 전에 검증
+        for field, value in (("instance_role", instance_role), ("system_name", sys_name)):
+            if not _SAFE_VALUE_RE.match(str(value)):
+                raise ValueError(f"{field}: 영문·숫자·_.- 만 허용되며 1~100자여야 합니다 ({str(value)[:40]!r})")
+
+        install_dir = await _expand_tilde(session, install_dir)
+        service_path = await _expand_tilde(session, service_path)
 
         # [2] 대상 JVM 탐색
         _log(f"[1/7] 대상 JVM 탐색: {jvm_match}")
@@ -274,6 +279,14 @@ async def run_install(job_id: str, agent: AgentInstance, session: dict) -> None:
         jar_name = "agent-t-legacy.jar" if major <= 7 else "agent-t.jar"
         _log(f"[2/7] JDK {major} ({java_bin}) → {jar_name} 선택")
 
+        # JEUS 영구 적용 사전 검증 — 업로드·attach 전에 설정 오류를 확정한다
+        jeus_ctx = None
+        if permanent and service_type == "jeus":
+            jeus_ctx = await _jeus_precheck(
+                session, (session["host"], session["port"], session["username"], session["password"]),
+                info, jvm_match, service_path, f"-javaagent:{install_dir}/{jar_name}",
+            )
+
         # [4] 업로드
         jar_bytes = _read_artifact(jar_name)
         attacher_bytes = _read_artifact(_ATTACHER_JAR)
@@ -281,7 +294,23 @@ async def run_install(job_id: str, agent: AgentInstance, session: dict) -> None:
             f"{_verify_against_sums(jar_name, jar_bytes)}  {jar_name}\n"
             f"{_verify_against_sums(_ATTACHER_JAR, attacher_bytes)}  {_ATTACHER_JAR}\n"
         )
-        token = secrets.token_urlsafe(32)
+        conn = (session["host"], session["port"], session["username"], session["password"])
+        q_dir = shlex.quote(install_dir)
+        props_path = f"{install_dir}/agent-t.properties"
+        q_props = shlex.quote(props_path)
+
+        # 재실행(jeus_confirm 등) 시 실행 중 에이전트의 토큰을 바꾸지 않는다
+        token = None
+        if info.get("agent_token_sha256"):
+            existing_props = await asyncio.to_thread(ssh_read_file, *conn, props_path)
+            for ln in (existing_props or "").splitlines():
+                if ln.startswith("agent.token="):
+                    cand = ln.split("=", 1)[1].strip()
+                    if hashlib.sha256(cand.encode("utf-8")).hexdigest() == info["agent_token_sha256"]:
+                        token = cand
+                        _log("    기존 토큰 유지 (재실행)")
+        if token is None:
+            token = secrets.token_urlsafe(32)
         token_sha = hashlib.sha256(token.encode("utf-8")).hexdigest()
         gateway_url = os.getenv("AGENT_T_GATEWAY_URL", "")
         properties = (
@@ -291,19 +320,23 @@ async def run_install(job_id: str, agent: AgentInstance, session: dict) -> None:
             f"system.name={sys_name}\n"
             f"log.dir={install_dir}/logs\n"
         )
-        q_dir = shlex.quote(install_dir)
         _log(f"[3/7] 설치 디렉터리 생성 및 업로드: {install_dir}")
         code, _, err = await _exec(session, f"mkdir -p {q_dir}/logs")
         if code != 0:
             raise RuntimeError(f"설치 디렉터리 생성 실패: {err.strip()}")
-        conn = (session["host"], session["port"], session["username"], session["password"])
+        # 토큰 파일은 업로드 전에 600 으로 만든 뒤 내용을 채운다 (putfo 는 기존 모드를 유지)
+        code, _, err = await _exec(session, f"umask 077; : > {q_props}; chmod 600 {q_props}")
+        if code != 0:
+            raise RuntimeError(f"agent-t.properties 생성 실패: {err.strip()}")
         await asyncio.to_thread(ssh_put_binary, *conn, f"{install_dir}/{jar_name}", jar_bytes)
         await asyncio.to_thread(ssh_put_binary, *conn, f"{install_dir}/{_ATTACHER_JAR}", attacher_bytes)
         await asyncio.to_thread(ssh_put_file, *conn, f"{install_dir}/SHA256SUMS", sums)
-        await asyncio.to_thread(ssh_put_file, *conn, f"{install_dir}/agent-t.properties", properties)
-        code, _, err = await _exec(session, f"chmod 600 {q_dir}/agent-t.properties")
-        if code != 0:
-            raise RuntimeError(f"agent-t.properties 권한 설정 실패: {err.strip()}")
+        await asyncio.to_thread(ssh_put_file, *conn, props_path, properties)
+        code, mode_out, err = await _exec(session, f"stat -c %a {q_props}")
+        if code != 0 or mode_out.strip() != "600":
+            raise RuntimeError(
+                f"agent-t.properties 권한이 600 이 아닙니다 ({mode_out.strip() or err.strip() or '확인 실패'})"
+            )
         code, _, err = await _exec(session, f"cd {q_dir} && sha256sum -c SHA256SUMS")
         if code != 0:
             raise RuntimeError(f"SHA256 검증 실패: {err.strip()}")
@@ -321,7 +354,13 @@ async def run_install(job_id: str, agent: AgentInstance, session: dict) -> None:
         # [5] 즉시 적용
         javaagent = f"-javaagent:{install_dir}/{jar_name}"
         attached = False
-        if immediate:
+        already_live = False
+        if immediate and find_instance(
+            await fetch_snapshot(agent.system_id, _service_principal()), agent.system_id, instance_role
+        ):
+            already_live = True
+            _log("[4/7] 이미 적용됨 — gateway 에서 인스턴스가 확인되어 attach 를 건너뜁니다.")
+        elif immediate:
             _log("[4/7] 즉시 적용(attach) 사전 점검")
             _, chk_out, chk_err = await _exec(
                 session, f"{shlex.quote(java_bin)} -jar {q_dir}/{_ATTACHER_JAR} --check {pid} 2>&1"
@@ -351,7 +390,7 @@ async def run_install(job_id: str, agent: AgentInstance, session: dict) -> None:
             _log(f"[5/7] 영구 적용: service_type={service_type}")
             env_content = _env_file_content(service_type, javaagent)
             if service_type == "jeus":
-                needs_confirm = await _apply_jeus(session, conn, info, jvm_match, service_path, javaagent, _log)
+                needs_confirm = await _apply_jeus(session, conn, info, javaagent, jeus_ctx, _log)
             else:
                 await asyncio.to_thread(ssh_put_file, *conn, f"{install_dir}/{_ENV_FILE}", env_content)
                 await _apply_inject(session, conn, service_type, service_path, install_dir, sys_name, _log)
@@ -360,7 +399,9 @@ async def run_install(job_id: str, agent: AgentInstance, session: dict) -> None:
 
         # [7] 확인
         agent_status = "installed"
-        if attached:
+        if already_live:
+            agent_status = "running"
+        elif attached:
             _log("[6/7] gateway 수신 확인 대기 (최대 30초)")
             deadline = time.monotonic() + _CONFIRM_TIMEOUT_S
             while True:
@@ -432,15 +473,24 @@ async def _apply_inject(session, conn, service_type, service_path, install_dir, 
         _log("→ 다음 WAS 재기동부터 기동 옵션으로 적용됩니다.")
 
 
-async def _apply_jeus(session, conn, info, jvm_match, service_path, javaagent, _log) -> bool:
-    """JEUS domain.xml 반자동 주입. 확인 필요(미적용)면 True."""
+async def _jeus_precheck(session, conn, info, jvm_match, service_path, javaagent) -> tuple[str, str, str]:
+    """(domain_xml 경로, 서버명, 원문). service_path·서버명·domain.xml 내 서버 존재를 검증한다."""
     if not service_path:
         raise ValueError("JEUS 영구 적용에는 service_path(도메인 디렉터리)가 필요합니다.")
-    domain_xml = f"{service_path}/config/domain.xml"
     server_name = _jeus_server_name(info, jvm_match)
+    if not server_name or not _SAFE_VALUE_RE.match(server_name):
+        raise ValueError(f"jvm_match 에서 JEUS 서버명을 알 수 없습니다. label_info.server_name 을 지정하세요 ({jvm_match!r}).")
+    domain_xml = f"{service_path}/config/domain.xml"
     xml_text = await asyncio.to_thread(ssh_read_file, *conn, domain_xml)
     if xml_text is None:
         raise FileNotFoundError(f"domain.xml 을 찾을 수 없습니다: {domain_xml}")
+    jeus_domain.add_javaagent(xml_text, server_name, javaagent)  # 서버 부재·XML 오류면 ValueError
+    return domain_xml, server_name, xml_text
+
+
+async def _apply_jeus(session, conn, info, javaagent, ctx, _log) -> bool:
+    """JEUS domain.xml 반자동 주입. 확인 필요(미적용)면 True."""
+    domain_xml, server_name, xml_text = ctx
     new_xml, diff = jeus_domain.add_javaagent(xml_text, server_name, javaagent)
     if not diff:
         _log(f"    domain.xml 의 {server_name} 에 이미 agent-t 가 등록되어 있습니다 (변경 없음).")
