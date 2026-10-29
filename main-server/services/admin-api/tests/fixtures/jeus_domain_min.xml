@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<domain xmlns="http://www.tmaxsoft.com/xml/ns/jeus">
+    <name>sic_domain</name>
+    <servers>
+        <server>
+            <name>sic_server1</name>
+            <listeners>
+                <listener>
+                    <name>base1</name>
+                    <listen-port>9736</listen-port>
+                </listener>
+            </listeners>
+            <jvm-config>
+                <jvm-option>-Xms512m</jvm-option>
+                <jvm-option>-Xmx1024m</jvm-option>
+                <jvm-option>-Dsic_server1</jvm-option>
+            </jvm-config>
+        </server>
+        <server>
+            <name>sic_server2</name>
+            <listeners>
+                <listener>
+                    <name>base1</name>
+                    <listen-port>9737</listen-port>
+                </listener>
+            </listeners>
+            <jvm-config>
+                <jvm-option>-Xms512m</jvm-option>
+                <jvm-option>-Dsic_server2</jvm-option>
+            </jvm-config>
+        </server>
+    </servers>
+</domain>
