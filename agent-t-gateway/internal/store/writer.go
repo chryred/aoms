@@ -50,7 +50,7 @@ type DumpAcker interface {
 }
 
 // DropStats counts rows discarded under queue pressure.
-type DropStats struct{ Detail, SQL, Summary int64 }
+type DropStats struct{ Detail, SQL, Summary, Dict int64 }
 
 type buffer struct{ lines [][]byte }
 
@@ -70,7 +70,7 @@ type Writer struct {
 
 	flushMu sync.Mutex // serialises flushes
 
-	droppedDetail, droppedSQL, droppedSummary atomic.Int64
+	droppedDetail, droppedSQL, droppedSummary, droppedDict atomic.Int64
 }
 
 func NewWriter(cfg Config, client *http.Client) *Writer {
@@ -161,7 +161,7 @@ func (w *Writer) PutDict(kind, id, text string) {
 	}
 }
 
-// shedLocked drops the oldest rows (detail, then SQL, then summary) until under the limit.
+// shedLocked drops the oldest rows (detail, then SQL, then summary, then dict) until under the limit.
 func (w *Writer) shedLocked() {
 	for w.queued > w.cfg.MaxQueueBytes {
 		dropped := false
@@ -184,6 +184,22 @@ func (w *Writer) shedLocked() {
 			dropped = true
 			break
 		}
+		if dropped {
+			continue
+		}
+		// Hard ceiling: only dict rows may still be shed. Dump rows are never dropped.
+		for _, t := range []string{tblDictSQL, tblDictURI} {
+			buf := w.bufs[t]
+			if len(buf.lines) == 0 {
+				continue
+			}
+			w.queued -= int64(len(buf.lines[0]))
+			buf.lines[0] = nil
+			buf.lines = buf.lines[1:]
+			w.droppedDict.Add(1)
+			dropped = true
+			break
+		}
 		if !dropped {
 			return
 		}
@@ -191,7 +207,7 @@ func (w *Writer) shedLocked() {
 }
 
 func (w *Writer) Dropped() DropStats {
-	return DropStats{Detail: w.droppedDetail.Load(), SQL: w.droppedSQL.Load(), Summary: w.droppedSummary.Load()}
+	return DropStats{Detail: w.droppedDetail.Load(), SQL: w.droppedSQL.Load(), Summary: w.droppedSummary.Load(), Dict: w.droppedDict.Load()}
 }
 
 // BackoffMs asks agents to pause when the queue is at or above 80% of its limit.
@@ -263,34 +279,47 @@ func (w *Writer) flush(ctx context.Context, minRows int) error {
 		}
 		w.mu.Unlock()
 
-		var size int64
-		for _, l := range lines {
-			size += int64(len(l))
-		}
-		retry, err := w.insert(ctx, t, lines)
-		if err != nil && retry {
-			// Put rows back in front of anything queued meanwhile; they stay counted in w.queued.
-			w.mu.Lock()
-			w.bufs[t].lines = append(lines, w.bufs[t].lines...)
-			w.dumpAcks = append(acks, w.dumpAcks...)
-			w.mu.Unlock()
-		} else {
+		// Insert in chunks of at most FlushRows so a backlog after an outage drains in
+		// bounded requests. On a transient failure only the unsent remainder is re-queued.
+		for off := 0; off < len(lines); {
+			end := off + w.cfg.FlushRows
+			if end > len(lines) {
+				end = len(lines)
+			}
+			chunk := lines[off:end]
+			var size int64
+			for _, l := range chunk {
+				size += int64(len(l))
+			}
+			retry, err := w.insert(ctx, t, chunk)
+			if err != nil && retry {
+				// Put the unsent rows back in front of anything queued meanwhile; still counted in w.queued.
+				w.mu.Lock()
+				w.bufs[t].lines = append(lines[off:len(lines):len(lines)], w.bufs[t].lines...)
+				if t == tblDump {
+					w.dumpAcks = append(acks[off:len(acks):len(acks)], w.dumpAcks...)
+				}
+				w.mu.Unlock()
+				if first == nil {
+					first = err
+				}
+				break
+			}
 			w.mu.Lock()
 			w.queued -= size
 			w.mu.Unlock()
-		}
-		if !(err != nil && retry) && w.Dumps != nil {
-			for _, id := range acks {
-				w.Dumps.Done(id, err == nil)
+			if t == tblDump && w.Dumps != nil {
+				for _, id := range acks[off:end] {
+					w.Dumps.Done(id, err == nil)
+				}
 			}
-		}
-		if err != nil {
-			if !retry {
-				log.Printf("clickhouse %s: discarding %d rows: %v", t, len(lines), err)
+			if err != nil {
+				log.Printf("clickhouse %s: discarding %d rows: %v", t, len(chunk), err)
+				if first == nil {
+					first = err
+				}
 			}
-			if first == nil {
-				first = err
-			}
+			off = end
 		}
 	}
 	return first

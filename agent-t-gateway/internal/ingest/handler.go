@@ -60,8 +60,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	backoff := h.Back.BackoffMs()
-	if ms := backoff; ms > 0 {
-		writeJSON(w, http.StatusTooManyRequests, map[string]int{"backoff_ms": ms})
+	if backoff > 0 {
+		writeJSON(w, http.StatusTooManyRequests, map[string]int{"backoff_ms": backoff})
 		return
 	}
 	isGzip := strings.EqualFold(r.Header.Get("Content-Encoding"), "gzip")

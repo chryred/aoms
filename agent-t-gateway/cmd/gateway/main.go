@@ -35,9 +35,12 @@ func main() {
 	}, nil)
 	commands := store.NewCommands(store.PGCommandStore{Pool: pool})
 	writer.Dumps = commands
-	go commands.Run(ctx)
+	// Writer and commands outlive the HTTP server so in-flight requests finish first.
+	bgCtx, stopBg := context.WithCancel(context.Background())
+	defer stopBg()
+	go commands.Run(bgCtx)
 	writerDone := make(chan struct{})
-	go func() { writer.Run(ctx); close(writerDone) }() // final flush on shutdown
+	go func() { writer.Run(bgCtx); close(writerDone) }() // final flush on cancel
 
 	mux := http.NewServeMux()
 	mux.Handle("/t/v1/batch", &ingest.Handler{
@@ -48,15 +51,22 @@ func main() {
 
 	srv := &http.Server{Addr: cfg.Listen, Handler: mux, ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout: 30 * time.Second, IdleTimeout: 120 * time.Second}
-	go func() {
-		<-ctx.Done()
-		sc, c := context.WithTimeout(context.Background(), 5*time.Second)
-		defer c()
-		_ = srv.Shutdown(sc)
-	}()
 	log.Printf("agent-t-gateway listening on %s", cfg.Listen)
-	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		log.Fatal(err)
-	}
+	go func() {
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatal(err)
+		}
+	}()
+
+	<-ctx.Done()
+	// 1) stop accepting and wait for handlers, 2) final ClickHouse flush,
+	// 3) last command sync so dumps inserted in the final flush become 'done'.
+	sc, c := context.WithTimeout(context.Background(), 5*time.Second)
+	_ = srv.Shutdown(sc)
+	c()
+	stopBg()
 	<-writerDone
+	fc, fcancel := context.WithTimeout(context.Background(), 5*time.Second)
+	commands.Sync(fc)
+	fcancel()
 }

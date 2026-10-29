@@ -3,6 +3,7 @@ package store
 import (
 	"compress/gzip"
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -187,5 +188,103 @@ func TestDumpsInsertedAndAcked(t *testing.T) {
 	}
 	if len(q) != 1 || q[0] != "INSERT INTO agent_t.jvm_thread_dump FORMAT JSONEachRow" {
 		t.Fatalf("q=%v", q)
+	}
+}
+
+func TestBacklogDrainsInChunksAfterOutage(t *testing.T) {
+	const flushRows = 1000
+	var mu sync.Mutex
+	var down int32 = 1
+	var rows int
+	maxChunk := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if atomic.LoadInt32(&down) == 1 {
+			w.WriteHeader(500)
+			return
+		}
+		zr, _ := gzip.NewReader(r.Body)
+		b, _ := io.ReadAll(zr)
+		n := strings.Count(string(b), "\n") + 1
+		mu.Lock()
+		rows += n
+		if n > maxChunk {
+			maxChunk = n
+		}
+		mu.Unlock()
+	}))
+	defer srv.Close()
+	w := NewWriter(Config{URL: srv.URL, DB: "agent_t", FlushInterval: time.Hour, FlushRows: flushRows,
+		MaxQueueBytes: 1 << 30}, srv.Client())
+	w.Accept(testInst, &protocol.Batch{Tx: txs(3500, 0)}, 0)
+	if err := w.Flush(context.Background()); err == nil {
+		t.Fatal("expected error during outage")
+	}
+	if w.queuedBytes() == 0 {
+		t.Fatal("backlog must be retained")
+	}
+	atomic.StoreInt32(&down, 0)
+	if err := w.Flush(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if rows != 3500 || maxChunk > flushRows || w.queuedBytes() != 0 {
+		t.Fatalf("rows=%d maxChunk=%d queued=%d", rows, maxChunk, w.queuedBytes())
+	}
+}
+
+func TestPartialFailureRequeuesOnlyRemainderInOrder(t *testing.T) {
+	var calls int32
+	var mu sync.Mutex
+	var got []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := atomic.AddInt32(&calls, 1)
+		if n == 2 {
+			w.WriteHeader(503)
+			return
+		}
+		zr, _ := gzip.NewReader(r.Body)
+		b, _ := io.ReadAll(zr)
+		mu.Lock()
+		got = append(got, strings.Split(string(b), "\n")...)
+		mu.Unlock()
+	}))
+	defer srv.Close()
+	w := NewWriter(Config{URL: srv.URL, DB: "agent_t", FlushInterval: time.Hour, FlushRows: 2,
+		MaxQueueBytes: 1 << 30}, srv.Client())
+	for i := 0; i < 5; i++ {
+		w.PutDict("sql", fmt.Sprintf("%016x", i), "t")
+	}
+	if err := w.Flush(context.Background()); err == nil {
+		t.Fatal("expected failure on 2nd chunk")
+	}
+	if err := w.Flush(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 5 {
+		t.Fatalf("got %d rows, want 5 (no dupes/loss)", len(got))
+	}
+	for i, l := range got {
+		if !strings.Contains(l, fmt.Sprintf(`"id":%d,`, i)) {
+			t.Fatalf("order broken at %d: %s", i, l)
+		}
+	}
+}
+
+func TestHardCeilingShedsDictButNeverDumps(t *testing.T) {
+	w := NewWriter(Config{URL: "http://127.0.0.1:1", DB: "agent_t", FlushInterval: time.Hour,
+		FlushRows: 1 << 30, MaxQueueBytes: 2000}, nil)
+	w.Accept(testInst, &protocol.Batch{Dumps: []protocol.Dump{{CmdID: 1, Ts: 1761800000000, Text: "d"}}}, 0)
+	for i := 0; i < 100; i++ {
+		w.PutDict("sql", fmt.Sprintf("%016x", i), strings.Repeat("x", 100))
+	}
+	if q := w.queuedBytes(); q > 2000 {
+		t.Fatalf("queued=%d exceeds hard ceiling", q)
+	}
+	if w.Dropped().Dict == 0 {
+		t.Fatal("expected dict drops")
+	}
+	if n := len(w.bufs[tblDump].lines); n != 1 {
+		t.Fatalf("dump rows must never be shed, have %d", n)
 	}
 }
