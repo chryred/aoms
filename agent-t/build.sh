@@ -4,6 +4,7 @@
 #   test-legacy        JDK 7 (zulu, amd64), -source/-target 1.6, ASM 5.2
 #   test-modern        JDK 21 (temurin), --release 8, ASM 9.7
 #   jar                dist/{agent-t-legacy.jar, agent-t.jar, agent-t-attacher.jar} + SHA256SUMS
+#   it-attach          Docker integration test of the attacher (needs `jar` first): zulu 7, temurin 17, JRE-only 8
 #   install-artifacts  copy dist -> main-server/artifacts/agent-t/
 set -euo pipefail
 
@@ -139,22 +140,15 @@ else
   printf 'Premain-Class: com.synapsev.agentt.boot.AgentMain\nAgent-Class: com.synapsev.agentt.boot.AgentMain\nCan-Retransform-Classes: true\nCan-Redefine-Classes: true\nImplementation-Title: agent-t\nImplementation-Version: 0.1.0\n' > "$B/manifest.mf"
   if [ "$PROFILE" = legacy ]; then
     jar cfm build/dist/agent-t-legacy.jar "$B/manifest.mf" -C "$A" .
+    # attacher: built once with the legacy javac (-target 1.6), reflection only, runs on JDK 6-21.
+    mkdir -p "$B/att-classes" "$B/it-classes"
+    "${JAVAC[@]}" -d "$B/att-classes" attacher/src/main/java/com/synapsev/agentt/attacher/Attacher.java
+    printf 'Main-Class: com.synapsev.agentt.attacher.Attacher\nImplementation-Title: agent-t-attacher\n' > "$B/att-manifest.mf"
+    jar cfm build/dist/agent-t-attacher.jar "$B/att-manifest.mf" -C "$B/att-classes" .
+    # integration-test classes (run by build.sh it-attach)
+    "${JAVAC[@]}" -d "$B/it-classes" attacher/src/test/java/com/synapsev/agentt/attacher/*.java
   else
     jar cfm build/dist/agent-t.jar "$B/manifest.mf" -C "$A" .
-    # placeholder until Task G4 (attacher): empty main
-    mkdir -p "$B/att-src/com/synapsev/agentt/attach" "$B/att-classes"
-    cat > "$B/att-src/com/synapsev/agentt/attach/AttacherMain.java" <<'JAVA'
-package com.synapsev.agentt.attach;
-
-/** Placeholder: the real attacher arrives in Task G4. */
-public final class AttacherMain {
-    private AttacherMain() { }
-    public static void main(String[] args) { }
-}
-JAVA
-    javac -nowarn --release 8 -Xlint:-options -d "$B/att-classes" "$B/att-src/com/synapsev/agentt/attach/AttacherMain.java"
-    printf 'Main-Class: com.synapsev.agentt.attach.AttacherMain\nImplementation-Title: agent-t-attacher\n' > "$B/att-manifest.mf"
-    jar cfm build/dist/agent-t-attacher.jar "$B/att-manifest.mf" -C "$B/att-classes" .
   fi
 fi
 CONTAINER
@@ -177,11 +171,33 @@ do_install() {
   echo "installed -> $dest"
 }
 
+do_it_attach() {
+  for f in agent-t-legacy.jar agent-t.jar agent-t-attacher.jar; do
+    [ -f "$DIST/$f" ] && [ -d "$HERE/build/legacy/it-classes" ] || { echo "run build.sh jar first" >&2; exit 1; }
+  done
+  local fail=0 user=()
+  [ "$(uname -s)" = Linux ] && user=(--user "$(id -u):$(id -g)")
+  # it <image> <platform|-> <mode> <agent jar or ->
+  it() {
+    local image="$1" plat="$2" mode="$3" agent="$4" p=()
+    [ "$plat" != - ] && p=(--platform "$plat")
+    echo "== it-attach: $image ($mode)"
+    docker run --rm ${p[@]+"${p[@]}"} ${user[@]+"${user[@]}"} -v "$REPO":/w:ro -w /tmp "$image" \
+      java -cp /w/agent-t/build/legacy/it-classes com.synapsev.agentt.attacher.AttacherIT "$mode" \
+      /w/agent-t/build/dist/agent-t-attacher.jar ${agent:+/w/agent-t/build/dist/$agent} || fail=1
+  }
+  it "$LEGACY_IMAGE" linux/amd64 attach agent-t-legacy.jar
+  it eclipse-temurin:17-jdk - attach agent-t.jar
+  it eclipse-temurin:8-jre - nojdk ""
+  [ "$fail" = 0 ] && echo "it-attach PASS" || { echo "it-attach FAIL" >&2; exit 1; }
+}
+
 case "${1:-}" in
   fetch) do_fetch ;;
   test-legacy) require_fetched; run_container legacy test ;;
   test-modern) require_fetched; run_container modern test ;;
   jar) do_jar ;;
+  it-attach) do_it_attach ;;
   install-artifacts) do_install ;;
-  *) echo "usage: $0 {fetch|test-legacy|test-modern|jar|install-artifacts}" >&2; exit 2 ;;
+  *) echo "usage: $0 {fetch|test-legacy|test-modern|jar|it-attach|install-artifacts}" >&2; exit 2 ;;
 esac
