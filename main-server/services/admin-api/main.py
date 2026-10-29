@@ -29,6 +29,7 @@ from routes import ssl_certs as ssl_certs_router
 from routes import ssl_websocket as ssl_websocket_router
 from routes import ssl_root_ca as ssl_root_ca_router
 from routes import ssl_dmz as ssl_dmz_router
+from routes import apm as apm_router
 from services.ssh_session import run_cleanup_loop
 # knowledge_guides 컬렉션 초기화는 ADR-011 Hybrid 통일 이후 log-analyzer가 담당.
 # admin-api 측 qdrant_guides.ensure_collection 은 호환을 위해 noop으로 유지된다.
@@ -126,6 +127,7 @@ app.include_router(ssl_certs_router.router)
 app.include_router(ssl_websocket_router.router)
 app.include_router(ssl_root_ca_router.router)
 app.include_router(ssl_dmz_router.router)
+app.include_router(apm_router.router)
 
 
 @app.get("/health")
