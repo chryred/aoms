@@ -92,26 +92,47 @@ B="build/$PROFILE"
 rm -rf "$B"; mkdir -p "$B/classes" "$B/test-classes"
 if [ "$PROFILE" = legacy ]; then
   ASM=third_party/src/asm52
+  ASM_LEVEL=ASM5
   JAVAC=(javac -nowarn -source 1.6 -target 1.6 -encoding UTF-8 -Xlint:-options)
 else
   ASM=third_party/src/asm97
+  ASM_LEVEL=ASM9
   JAVAC=(javac -nowarn --release 8 -encoding UTF-8 -Xlint:-options)
 fi
-find "$ASM" core/src/main/java -name '*.java' > "$B/main.txt"
+# ASM API level differs per build (ASM 5.2 vs 9.7), so the instrument sources read it from a generated constant.
+mkdir -p "$B/gen/com/synapsev/agentt/instrument"
+cat > "$B/gen/com/synapsev/agentt/instrument/AsmApi.java" <<JAVA
+package com.synapsev.agentt.instrument;
+
+import com.synapsev.agentt.shaded.asm.Opcodes;
+
+final class AsmApi {
+    static final int LEVEL = Opcodes.$ASM_LEVEL;
+
+    private AsmApi() { }
+}
+JAVA
+find "$ASM" core/src/main/java bridge/src/main/java instrument/src/main/java boot/src/main/java "$B/gen" -name '*.java' > "$B/main.txt"
 "${JAVAC[@]}" -d "$B/classes" @"$B/main.txt"
 CP="third_party/lib/junit.jar:third_party/lib/hamcrest-core.jar"
 if [ "$ACTION" = test ]; then
-  find core/src/test/java -name '*.java' > "$B/test.txt"
+  find core/src/test/java bridge/src/test/java instrument/src/test/java boot/src/test/java -name '*.java' > "$B/test.txt"
   "${JAVAC[@]}" -cp "$B/classes:$CP" -d "$B/test-classes" @"$B/test.txt"
-  CLASSES=$(cd core/src/test/java && find . -name '*Test.java' | sed -e 's#^\./##' -e 's#\.java$##' -e 's#/#.#g' | sort | tr '\n' ' ')
+  CLASSES=$(for d in core bridge instrument boot; do (cd $d/src/test/java && find . -name '*Test.java'); done | sed -e 's#^\./##' -e 's#\.java$##' -e 's#/#.#g' | sort | tr '\n' ' ')
   java -Dagentt.repo.root=/w -cp "$B/classes:$B/test-classes:$CP" org.junit.runner.JUnitCore $CLASSES
 else
   mkdir -p build/dist
-  printf 'Implementation-Title: agent-t\nImplementation-Version: 0.1.0\n' > "$B/manifest.mf"
+  # The bridge classes must live on the bootstrap class path, so they ship as a nested jar resource, not top-level.
+  A="$B/agent-classes"
+  mkdir -p "$A/bridge"
+  cp -R "$B/classes/." "$A/"
+  rm -rf "$A/com/synapsev/agentt/bridge"
+  jar cf "$A/bridge/agent-t-bridge.jar" -C "$B/classes" com/synapsev/agentt/bridge
+  printf 'Premain-Class: com.synapsev.agentt.boot.AgentMain\nAgent-Class: com.synapsev.agentt.boot.AgentMain\nCan-Retransform-Classes: true\nCan-Redefine-Classes: true\nImplementation-Title: agent-t\nImplementation-Version: 0.1.0\n' > "$B/manifest.mf"
   if [ "$PROFILE" = legacy ]; then
-    jar cfm build/dist/agent-t-legacy.jar "$B/manifest.mf" -C "$B/classes" .
+    jar cfm build/dist/agent-t-legacy.jar "$B/manifest.mf" -C "$A" .
   else
-    jar cfm build/dist/agent-t.jar "$B/manifest.mf" -C "$B/classes" .
+    jar cfm build/dist/agent-t.jar "$B/manifest.mf" -C "$A" .
     # placeholder until Task G4 (attacher): empty main
     mkdir -p "$B/att-src/com/synapsev/agentt/attach" "$B/att-classes"
     cat > "$B/att-src/com/synapsev/agentt/attach/AttacherMain.java" <<'JAVA'
