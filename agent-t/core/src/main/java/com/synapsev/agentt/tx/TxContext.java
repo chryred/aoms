@@ -65,7 +65,7 @@ public final class TxContext {
     Map<Object, ConnState> conns;
     Map<Object, Boolean> extConns;
 
-    TxContext(Thread thread, int generation, long startTs, long startNano, long startCpuNanos) {
+    public TxContext(Thread thread, int generation, long startTs, long startNano, long startCpuNanos) {
         this.thread = thread;
         this.generation = generation;
         this.startTs = startTs;

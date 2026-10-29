@@ -1,5 +1,7 @@
 package com.synapsev.agentt.tx;
 
+import com.synapsev.agentt.active.ActiveRegistry;
+import com.synapsev.agentt.active.StackSampler;
 import com.synapsev.agentt.bridge.HookSink;
 import com.synapsev.agentt.conf.AgentConfig;
 import com.synapsev.agentt.id.Fnv64;
@@ -105,6 +107,8 @@ public final class TxTracker implements HookSink {
     private volatile int uriCacheVersion = Integer.MIN_VALUE;
     private final Map<Class<?>, Access> access = new ConcurrentHashMap<Class<?>, Access>();
     private final ThreadMXBean threads;
+    private volatile ActiveRegistry registry;
+    private volatile StackSampler sampler;
 
     public TxTracker(Out out, AgentConfig config) {
         this.out = out;
@@ -121,9 +125,19 @@ public final class TxTracker implements HookSink {
         this.threads = t;
     }
 
+    /** Connects the active-transaction registry and stack sampler (both optional). */
+    public void setActive(ActiveRegistry registry, StackSampler sampler) {
+        this.registry = registry;
+        this.sampler = sampler;
+    }
+
     /** Forgets in-flight contexts (kill switch): stale thread-locals are ignored from now on. */
     public void reset() {
         generation++;
+        ActiveRegistry reg = registry;
+        if (reg != null) {
+            reg.clear();
+        }
     }
 
     // ---- servlet / filter root ----
@@ -157,6 +171,10 @@ public final class TxTracker implements HookSink {
         c.uriId = u[1];
         c.addNode("http", c.method + " " + u[0], null, nano, -1);
         current.set(c);
+        ActiveRegistry reg = registry;
+        if (reg != null) {
+            reg.register(c);
+        }
         return c;
     }
 
@@ -175,6 +193,12 @@ public final class TxTracker implements HookSink {
             finish(c, resp, t);
         } catch (Throwable e) {
             AgentLog.debug("tx finish failed: " + e);
+        } finally {
+            // after finish(): the stack sampler's purge must not drop the frequency table before it is taken
+            ActiveRegistry reg = registry;
+            if (reg != null) {
+                reg.unregister(c);
+            }
         }
     }
 
@@ -221,11 +245,14 @@ public final class TxTracker implements HookSink {
             sql.add(s.agg);
         }
         r.sql = sql;
+        StackSampler smp = sampler;
+        List<TxRecord.StackSample> stacks = smp == null ? null : smp.take(c);
         if (DetailDecider.keep(r, config, System.currentTimeMillis())) {
             if (!c.nodes.isEmpty()) {
                 c.nodes.get(0).durationMs = r.elapsedMs;
             }
             r.nodes = c.nodes;
+            r.stacks = stacks;
             if (c.droppedNodes > 0) {
                 AgentLog.debug("node cap reached, dropped " + c.droppedNodes);
             }
