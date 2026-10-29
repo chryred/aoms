@@ -8,6 +8,8 @@ import com.synapsev.agentt.shaded.asm.MethodVisitor;
 import com.synapsev.agentt.shaded.asm.Opcodes;
 import java.lang.instrument.ClassFileTransformer;
 import java.security.ProtectionDomain;
+import java.util.Collections;
+import java.util.List;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -23,6 +25,16 @@ public final class AgentTransformer implements ClassFileTransformer {
     private final AtomicInteger transformed = new AtomicInteger();
     private final ThreadLocal<Boolean> busy = new ThreadLocal<Boolean>();
     private volatile boolean active = true;
+    private volatile List<String> excludeClasses = Collections.emptyList();
+
+    /** Class-name prefixes / globs that are never rewritten (takes effect on the next transform or retransform). */
+    public void setExcludeClasses(List<String> patterns) {
+        excludeClasses = patterns == null ? Collections.<String>emptyList() : patterns;
+    }
+
+    public List<String> getExcludeClasses() {
+        return excludeClasses;
+    }
 
     public void setActive(boolean on) {
         active = on;
@@ -37,7 +49,8 @@ public final class AgentTransformer implements ClassFileTransformer {
     }
 
     public byte[] transform(ClassLoader loader, String name, Class<?> redefined, ProtectionDomain pd, byte[] bytes) {
-        if (!active || name == null || bytes == null || busy.get() != null || !Matchers.eligible(name)) {
+        if (!active || name == null || bytes == null || busy.get() != null || !Matchers.eligible(name)
+                || Matchers.excluded(name, excludeClasses)) {
             return null;
         }
         busy.set(Boolean.TRUE);
@@ -62,7 +75,10 @@ public final class AgentTransformer implements ClassFileTransformer {
         }
     }
 
-    /** True when a loaded class belongs to an instrumented family (used to pick retransform targets). */
+    /**
+     * True when a loaded class belongs to an instrumented family (used to pick retransform targets). Exclusions
+     * are deliberately ignored: newly excluded classes must be retransformed to get their original bytes back.
+     */
     public boolean isCandidate(Class<?> c) {
         try {
             String name = c.getName().replace('.', '/');
@@ -90,7 +106,7 @@ public final class AgentTransformer implements ClassFileTransformer {
             @Override
             public MethodVisitor visitMethod(int access, String mname, String desc, String sig, String[] exc) {
                 MethodVisitor mv = super.visitMethod(access, mname, desc, sig, exc);
-                if (mv == null || (access & (Opcodes.ACC_ABSTRACT | Opcodes.ACC_NATIVE | Opcodes.ACC_BRIDGE
+                if (mv == null || (access & (Opcodes.ACC_ABSTRACT | Opcodes.ACC_NATIVE | Opcodes.ACC_STATIC | Opcodes.ACC_BRIDGE
                         | Opcodes.ACC_SYNTHETIC)) != 0) {
                     return mv;
                 }

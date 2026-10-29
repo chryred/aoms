@@ -107,6 +107,17 @@ public final class AgentRuntime {
         control.retransform(transformer);
     }
 
+    /** Applies a changed class-exclusion list and retransforms so excluded classes are restored. */
+    public synchronized void applyExcludes(java.util.List<String> patterns) {
+        if (patterns.equals(transformer.getExcludeClasses())) {
+            return;
+        }
+        transformer.setExcludeClasses(patterns);
+        if (installed) {
+            control.retransform(transformer);
+        }
+    }
+
     public synchronized void apply(boolean enabled) {
         if (enabled) {
             install(true);
@@ -122,8 +133,8 @@ public final class AgentRuntime {
                 Batch.AgentInfo.detect("0.1.0"), 1000);
         TxTracker tracker = new TxTracker(TxTracker.forSender(sender), config);
         final AgentRuntime rt = new AgentRuntime(new InstControl(inst), new AgentTransformer(), tracker);
+        rt.install(attached); // transformer first, then the sender thread
         sender.start();
-        rt.install(attached);
         Thread poller = new Thread("agent-t-control") {
             @Override
             public void run() {
@@ -131,6 +142,7 @@ public final class AgentRuntime {
                     try {
                         Thread.sleep(1000);
                         AgentLog.setLevel(config.logLevel);
+                        rt.applyExcludes(config.excludeClasses);
                         rt.apply(config.enabled);
                     } catch (InterruptedException e) {
                         return;

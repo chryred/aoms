@@ -35,7 +35,6 @@ public final class AgentMain {
             if (new File(agentDir, "DISABLE").exists()) {
                 return;
             }
-            System.setProperty(LOADED_MARKER, "true");
             File propsFile = new File(agentDir, "agent-t.properties");
             String override = argValue(args, "props");
             if (override != null) {
@@ -44,6 +43,7 @@ public final class AgentMain {
             AgentProperties props = AgentProperties.load(propsFile);
             appendBridge(inst);
             AgentRuntime.start(inst, props, attached);
+            System.setProperty(LOADED_MARKER, "true");
         } catch (Throwable t) {
             System.err.println("[agent-t] not started: " + t);
         }

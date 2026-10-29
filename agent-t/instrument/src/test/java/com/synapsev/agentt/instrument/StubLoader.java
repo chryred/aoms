@@ -18,6 +18,10 @@ import java.util.Set;
 public final class StubLoader extends ClassLoader {
     private final AgentTransformer transformer;
     public final Set<String> transformedNames = new HashSet<String>();
+    /** When true the loader behaves like an app loader that cannot see the bridge package. */
+    public boolean blockBridge;
+    /** Resource names (e.g. "testapp/BranchA.class") hidden from header lookups; loading is unaffected. */
+    public final Set<String> hiddenResources = new HashSet<String>();
 
     public StubLoader(AgentTransformer transformer) {
         super(StubLoader.class.getClassLoader());
@@ -37,10 +41,18 @@ public final class StubLoader extends ClassLoader {
     }
 
     @Override
+    public InputStream getResourceAsStream(String name) {
+        return hiddenResources.contains(name) ? null : super.getResourceAsStream(name);
+    }
+
+    @Override
     protected synchronized Class<?> loadClass(String name, boolean resolve) throws ClassNotFoundException {
         Class<?> c = findLoadedClass(name);
         if (c != null) {
             return c;
+        }
+        if (blockBridge && name.startsWith("com.synapsev.agentt.bridge.")) {
+            throw new ClassNotFoundException(name);
         }
         if (!name.startsWith("javax.servlet.") && !name.startsWith("testapp.")) {
             return super.loadClass(name, resolve);

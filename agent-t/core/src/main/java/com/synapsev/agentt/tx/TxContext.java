@@ -57,6 +57,7 @@ public final class TxContext {
     int sqlDepth;
     int extDepth;
     int fetchDepth;
+    int openDepth;
     AggState lastAgg;
     int droppedNodes;
     final Map<String, AggState> aggs = new LinkedHashMap<String, AggState>();

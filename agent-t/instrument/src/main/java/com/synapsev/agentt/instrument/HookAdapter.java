@@ -22,6 +22,7 @@ final class HookAdapter extends AdviceAdapter {
     private static final Method SQL_PREPARE = new Method("sqlPrepare", "(Ljava/lang/Object;Ljava/lang/String;)V");
     private static final Method FETCH_ENTER = new Method("fetchEnter", "(Ljava/lang/Object;)V");
     private static final Method FETCH = new Method("fetch", "(Ljava/lang/Object;Z)V");
+    private static final Method CONN_OPEN_ENTER = new Method("connOpenEnter", "(Ljava/lang/Object;)V");
     private static final Method CONN_OPEN = new Method("connOpen", "(Ljava/lang/Object;)V");
     private static final Method CONN_CLOSE = new Method("connClose", "(Ljava/lang/Object;)V");
     private static final Method CONN_COMMIT = new Method("connCommit", "(Ljava/lang/Object;)V");
@@ -31,6 +32,7 @@ final class HookAdapter extends AdviceAdapter {
 
     private final Matchers.Kind kind;
     private final int argCount;
+    private final Type returnType;
     private final Label start = new Label();
     private final Label end = new Label();
     private int token = -1;
@@ -40,18 +42,47 @@ final class HookAdapter extends AdviceAdapter {
         super(AsmApi.LEVEL, mv, access, name, desc);
         this.kind = kind;
         this.argCount = Type.getArgumentTypes(desc).length;
+        this.returnType = Type.getReturnType(desc);
+    }
+
+    /** Starts a region in which one hook call is made; any Throwable raised inside is discarded. */
+    private Label open() {
+        Label s = new Label();
+        mark(s);
+        return s;
+    }
+
+    /** Ends the region; the handler drops the Throwable (and pushes null when the hook returns a token). */
+    private void close(Label s, boolean returnsObject) {
+        Label e = new Label();
+        Label after = new Label();
+        mark(e);
+        goTo(after);
+        catchException(s, e, THROWABLE);
+        pop();
+        if (returnsObject) {
+            visitInsn(Opcodes.ACONST_NULL);
+        }
+        mark(after);
     }
 
     @Override
     protected void onMethodEnter() {
         switch (kind) {
-            case SERVLET:
+            case SERVLET: {
+                token = newLocal(OBJECT);
+                Label s = open();
                 loadArg(0);
                 loadArg(1);
                 invokeStatic(HOOKS, SERVLET_ENTER);
-                saveToken();
+                close(s, true);
+                storeLocal(token);
+                markGuarded();
                 break;
-            case SQL_EXEC:
+            }
+            case SQL_EXEC: {
+                token = newLocal(OBJECT);
+                Label s = open();
                 loadThis();
                 if (argCount > 0) {
                     loadArg(0);
@@ -59,22 +90,44 @@ final class HookAdapter extends AdviceAdapter {
                     visitInsn(Opcodes.ACONST_NULL);
                 }
                 invokeStatic(HOOKS, SQL_ENTER);
-                saveToken();
-                break;
-            case EXT:
-                loadThis();
-                invokeStatic(HOOKS, EXT_ENTER);
-                saveToken();
-                break;
-            case FETCH:
-                loadThis();
-                invokeStatic(HOOKS, FETCH_ENTER);
+                close(s, true);
+                storeLocal(token);
                 markGuarded();
                 break;
-            case CONN_CLOSE:
+            }
+            case EXT: {
+                token = newLocal(OBJECT);
+                Label s = open();
+                loadThis();
+                invokeStatic(HOOKS, EXT_ENTER);
+                close(s, true);
+                storeLocal(token);
+                markGuarded();
+                break;
+            }
+            case FETCH: {
+                Label s = open();
+                loadThis();
+                invokeStatic(HOOKS, FETCH_ENTER);
+                close(s, false);
+                markGuarded();
+                break;
+            }
+            case CONN_OPEN: {
+                Label s = open();
+                loadThis();
+                invokeStatic(HOOKS, CONN_OPEN_ENTER);
+                close(s, false);
+                markGuarded();
+                break;
+            }
+            case CONN_CLOSE: {
+                Label s = open();
                 loadThis();
                 invokeStatic(HOOKS, CONN_CLOSE);
+                close(s, false);
                 break;
+            }
             default:
                 break;
         }
@@ -82,9 +135,17 @@ final class HookAdapter extends AdviceAdapter {
 
     @Override
     protected void onMethodExit(int opcode) {
-        if (opcode == Opcodes.ATHROW) {
+        if (opcode == Opcodes.ATHROW || kind == Matchers.Kind.CONN_CLOSE) {
             return; // every throw leaves through the catch-all handler
         }
+        // The operand stack is discarded when a hook call fails, so the return value is parked in a local.
+        boolean hasValue = opcode != Opcodes.RETURN;
+        int ret = -1;
+        if (hasValue) {
+            ret = newLocal(returnType);
+            storeLocal(ret);
+        }
+        Label s = open();
         switch (kind) {
             case SERVLET:
                 loadLocal(token);
@@ -103,18 +164,17 @@ final class HookAdapter extends AdviceAdapter {
                 invokeStatic(HOOKS, EXT_EXIT);
                 break;
             case SQL_PREPARE:
-                dup();
+                loadLocal(ret);
                 loadArg(0);
                 invokeStatic(HOOKS, SQL_PREPARE);
                 break;
             case FETCH:
-                dup();
                 loadThis();
-                swap();
+                loadLocal(ret);
                 invokeStatic(HOOKS, FETCH);
                 break;
             case CONN_OPEN:
-                dup();
+                loadLocal(ret);
                 invokeStatic(HOOKS, CONN_OPEN);
                 break;
             case CONN_COMMIT:
@@ -128,6 +188,10 @@ final class HookAdapter extends AdviceAdapter {
             default:
                 break;
         }
+        close(s, false);
+        if (hasValue) {
+            loadLocal(ret);
+        }
     }
 
     @Override
@@ -137,6 +201,7 @@ final class HookAdapter extends AdviceAdapter {
             catchException(start, end, THROWABLE);
             int ex = newLocal(THROWABLE);
             storeLocal(ex);
+            Label s = open();
             switch (kind) {
                 case SERVLET:
                     loadLocal(token);
@@ -159,19 +224,18 @@ final class HookAdapter extends AdviceAdapter {
                     push(false);
                     invokeStatic(HOOKS, FETCH);
                     break;
+                case CONN_OPEN:
+                    visitInsn(Opcodes.ACONST_NULL);
+                    invokeStatic(HOOKS, CONN_OPEN);
+                    break;
                 default:
                     break;
             }
+            close(s, false);
             loadLocal(ex);
             throwException();
         }
         super.visitMaxs(maxStack, maxLocals);
-    }
-
-    private void saveToken() {
-        token = newLocal(OBJECT);
-        storeLocal(token);
-        markGuarded();
     }
 
     private void markGuarded() {

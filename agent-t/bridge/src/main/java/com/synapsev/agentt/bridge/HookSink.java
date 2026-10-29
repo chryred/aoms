@@ -20,6 +20,9 @@ public interface HookSink {
 
     void fetch(Object rs, boolean hasRow);
 
+    /** Called on entry of DataSource.getConnection; paired with exactly one {@link #connOpen} (null on failure). */
+    void connOpenEnter(Object dataSource);
+
     void connOpen(Object conn);
 
     void connClose(Object conn);

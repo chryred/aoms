@@ -15,6 +15,8 @@ public final class AgentConfig {
     public volatile long stackIntervalMs = 1000;
     /** URI prefixes/patterns to exclude from tracing. */
     public volatile List<String> exclude = Collections.emptyList();
+    /** Class-name prefixes or '*' globs (dots or slashes) that are never instrumented. */
+    public volatile List<String> excludeClasses = Collections.emptyList();
     /** Extra URI normalization rules: {regex, replacement}. */
     public volatile List<String[]> uriRules = Collections.emptyList();
     public volatile String logLevel = "info";
@@ -55,6 +57,15 @@ public final class AgentConfig {
                 }
             }
             exclude = ex;
+        }
+        if (m.get("exclude_classes") instanceof List) {
+            List<String> ex = new ArrayList<String>();
+            for (Object o : (List<?>) m.get("exclude_classes")) {
+                if (o instanceof String && ((String) o).trim().length() > 0) {
+                    ex.add(((String) o).trim());
+                }
+            }
+            excludeClasses = ex;
         }
         if (m.get("uri_rules") instanceof List) {
             List<String[]> rules = new ArrayList<String[]>();

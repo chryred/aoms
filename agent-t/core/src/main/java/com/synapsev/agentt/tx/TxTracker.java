@@ -322,8 +322,18 @@ public final class TxTracker implements HookSink {
 
     // ---- connections ----
 
+    public void connOpenEnter(Object dataSource) {
+        TxContext c = context();
+        if (c != null) {
+            c.openDepth++;
+        }
+    }
+
     public void connOpen(Object conn) {
         TxContext c = context();
+        if (c != null && c.openDepth > 0 && --c.openDepth > 0) {
+            return; // inner getConnection of a wrapping DataSource; the outermost one counts
+        }
         if (c == null || conn == null || c.conns().containsKey(conn)) {
             return;
         }

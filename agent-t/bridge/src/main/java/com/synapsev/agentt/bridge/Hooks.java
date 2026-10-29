@@ -98,6 +98,18 @@ public final class Hooks {
         }
     }
 
+    public static void connOpenEnter(Object dataSource) {
+        HookSink s = sink;
+        if (s == null) {
+            return;
+        }
+        try {
+            s.connOpenEnter(dataSource);
+        } catch (Throwable ignore) {
+            // never affect the host application
+        }
+    }
+
     public static void connOpen(Object conn) {
         HookSink s = sink;
         if (s == null) {

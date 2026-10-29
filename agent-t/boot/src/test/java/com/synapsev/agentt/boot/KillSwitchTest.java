@@ -107,4 +107,15 @@ public class KillSwitchTest {
         oneRequest();
         assertEquals(1, out.records.size());
     }
+
+    @Test
+    public void changedClassExclusionsRetransform() {
+        rt.install(false);
+        java.util.List<String> ex = java.util.Arrays.asList("com.acme.*");
+        rt.applyExcludes(ex);
+        assertEquals(ex, transformer.getExcludeClasses());
+        assertEquals(1, control.retransforms);
+        rt.applyExcludes(ex);
+        assertEquals("unchanged list does not retransform again", 1, control.retransforms);
+    }
 }

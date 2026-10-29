@@ -70,4 +70,18 @@ public class ConnectionAdviceTest {
         assertEquals(1, r.connClose);
         assertEquals(0, r.connUncommit);
     }
+
+    @Test
+    public void wrappingDataSourceCountsOnlyTheOutermostOpen() throws Exception {
+        DataSource wrapper = (DataSource) env.loader.loadClass("testapp.Make").getMethod("of", Class.class)
+                .invoke(null, env.loader.loadClass("testapp.WrapperDataSource"));
+        Object tok = env.begin("/conn");
+        Connection c = wrapper.getConnection();
+        c.close();
+        env.end(tok);
+        TxRecord r = env.records().get(0);
+        assertEquals(1, r.connOpen);
+        assertEquals(1, r.connClose);
+        assertEquals(0, r.connLeak);
+    }
 }

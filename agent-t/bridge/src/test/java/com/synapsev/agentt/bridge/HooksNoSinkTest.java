@@ -26,6 +26,7 @@ public class HooksNoSinkTest {
         Hooks.sqlExit(null, new RuntimeException());
         Hooks.fetchEnter(new Object());
         Hooks.fetch(new Object(), true);
+        Hooks.connOpenEnter(new Object());
         Hooks.connOpen(null);
         Hooks.connClose(new Object());
         Hooks.connCommit(new Object());
@@ -47,8 +48,15 @@ public class HooksNoSinkTest {
         Hooks.servletExit(null, null, null);
         Hooks.sqlPrepare(null, null);
         assertNull(Hooks.sqlEnter(null, null));
+        Hooks.sqlExit(null, null);
+        Hooks.fetchEnter(null);
         Hooks.fetch(null, false);
+        Hooks.connOpenEnter(null);
+        Hooks.connOpen(null);
         Hooks.connClose(null);
+        Hooks.connCommit(null);
+        Hooks.connRollback(null);
         assertNull(Hooks.extEnter(null));
+        Hooks.extExit(null, null);
     }
 }

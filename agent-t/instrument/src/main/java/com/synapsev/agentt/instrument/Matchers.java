@@ -57,7 +57,7 @@ final class Matchers {
         }
         if (anc.contains(CONNECTION)) {
             if ((name.equals("prepareStatement") || name.equals("prepareCall")) && desc.startsWith("(Ljava/lang/String;")
-                    && desc.indexOf(")Ljava/sql/") > 0) {
+                    && returnsObject(desc)) {
                 return Kind.SQL_PREPARE;
             }
             if (name.equals("close") && desc.equals("()V")) {
@@ -73,7 +73,7 @@ final class Matchers {
         if (anc.contains(RESULT_SET) && name.equals("next") && desc.equals("()Z")) {
             return Kind.FETCH;
         }
-        if (anc.contains(DATA_SOURCE) && name.equals("getConnection") && desc.endsWith(")Ljava/sql/Connection;")) {
+        if (anc.contains(DATA_SOURCE) && name.equals("getConnection") && returnsObject(desc)) {
             return Kind.CONN_OPEN;
         }
         if (anc.contains(HTTP_URL_CONNECTION)) {
@@ -85,6 +85,47 @@ final class Matchers {
             }
         }
         return null;
+    }
+
+    /** Return types are not compared exactly so covariant implementations match too. */
+    private static boolean returnsObject(String desc) {
+        return desc.indexOf(")L") > 0;
+    }
+
+    /** Class-name exclusion: prefix, or glob when the pattern contains '*' (dots or slashes). */
+    static boolean excluded(String internalName, java.util.List<String> patterns) {
+        for (int i = 0; i < patterns.size(); i++) {
+            String p = patterns.get(i).replace('.', '/');
+            if (p.indexOf('*') >= 0 ? glob(p, internalName) : internalName.startsWith(p)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean glob(String p, String s) {
+        int pi = 0;
+        int si = 0;
+        int star = -1;
+        int mark = 0;
+        while (si < s.length()) {
+            if (pi < p.length() && p.charAt(pi) == '*') {
+                star = pi++;
+                mark = si;
+            } else if (pi < p.length() && p.charAt(pi) == s.charAt(si)) {
+                pi++;
+                si++;
+            } else if (star >= 0) {
+                pi = star + 1;
+                si = ++mark;
+            } else {
+                return false;
+            }
+        }
+        while (pi < p.length() && p.charAt(pi) == '*') {
+            pi++;
+        }
+        return pi == p.length();
     }
 
     private static boolean isExecute(String n) {

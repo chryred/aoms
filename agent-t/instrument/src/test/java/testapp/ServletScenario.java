@@ -11,6 +11,7 @@ public class ServletScenario implements Runnable {
     public String uri = "/order/123";
     public String traceparent;
     public boolean withFilter = true;
+    public boolean merge;
 
     public void run() {
         final OrderServlet servlet = new OrderServlet();
@@ -25,6 +26,10 @@ public class ServletScenario implements Runnable {
                 servlet.service((HttpServletRequest) r, (HttpServletResponse) s);
             }
         };
-        new OrderFilter().doFilter(req, resp, chain);
+        if (merge) {
+            new MergeFilter().doFilter(req, resp, chain);
+        } else {
+            new OrderFilter().doFilter(req, resp, chain);
+        }
     }
 }
