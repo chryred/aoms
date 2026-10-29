@@ -38,25 +38,30 @@ public class SqlNormalizerTest {
     }
 
     @Test
-    public void hugeKoreanSqlIsCappedWithoutBrokenSurrogate() {
-        StringBuilder sb = new StringBuilder("select '");
+    public void hugeKoreanSqlIsTruncatedToCap() {
+        // Korean in identifiers (not inside a '...' literal), so nothing is replaced by '?' and truncation really happens
+        StringBuilder sb = new StringBuilder("select ");
         while (sb.length() < 65536) {
-            sb.append("한글");
+            sb.append("\uCEEC\uB7FC\uBA85 ");
         }
-        String big = sb.toString() + "' from dual";
-        String out = SqlNormalizer.normalize(big);
-        assertTrue(out.length() <= 8192);
+        String out = SqlNormalizer.normalize(sb.toString() + "from dual");
+        assertTrue("len=" + out.length(), out.length() <= 8192);
+        assertTrue("truncation must have happened, len=" + out.length(), out.length() > 8000);
+        assertFalse(Character.isHighSurrogate(out.charAt(out.length() - 1)));
+    }
 
-        // surrogate pairs right at the boundary
-        StringBuilder emoji = new StringBuilder("select ");
-        while (emoji.length() < 65536) {
-            emoji.append("x😀 ");
-        }
-        for (int pad = 0; pad < 3; pad++) {
-            String o = SqlNormalizer.normalize(repeat("a", pad) + emoji);
-            assertTrue(o.length() <= 8192);
-            assertFalse(Character.isHighSurrogate(o.charAt(o.length() - 1)));
-        }
+    @Test
+    public void highSurrogateAtLastIndexIsNotLeftIsolated() {
+        // 8191 'a' then an emoji: the high surrogate sits exactly at index 8191 (= max - 1)
+        String in = repeat("a", 8191) + "\uD83D\uDE00" + "bbb";
+        String out = SqlNormalizer.normalize(in);
+        assertTrue(out.length() <= 8192);
+        assertEquals(8191, out.length());
+        assertEquals('a', out.charAt(out.length() - 1));
+        // control: emoji one position earlier fits whole
+        String ok = SqlNormalizer.normalize(repeat("a", 8190) + "\uD83D\uDE00" + "bbb");
+        assertEquals(8192, ok.length());
+        assertTrue(Character.isLowSurrogate(ok.charAt(8191)));
     }
 
     @Test

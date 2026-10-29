@@ -43,10 +43,22 @@ public class UriNormalizerTest {
     public void cappedAt1024() {
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < 2000; i++) {
-            sb.append("/😀x");
+            sb.append("/abc");
         }
         String out = UriNormalizer.normalize(sb.toString(), NONE);
+        assertEquals(1024, out.length());
+    }
+
+    @Test
+    public void highSurrogateAtLastIndexIsNotLeftIsolated() {
+        StringBuilder sb = new StringBuilder("/");
+        for (int i = 0; i < 1022; i++) {
+            sb.append('a');
+        }
+        // "/" + 1022 'a' = 1023 chars; the emoji's high surrogate lands exactly at index 1023 (= max - 1)
+        String out = UriNormalizer.normalize(sb + "\uD83D\uDE00" + "b", NONE);
         assertTrue(out.length() <= 1024);
-        assertTrue(!Character.isHighSurrogate(out.charAt(out.length() - 1)));
+        assertEquals(1023, out.length());
+        assertEquals('a', out.charAt(out.length() - 1));
     }
 }

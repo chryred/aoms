@@ -34,8 +34,6 @@ public final class Sender {
     private static final long DRAIN_BYTES = 2L * 1024 * 1024;
     private static final long DICT_CHAR_BUDGET = 4L * 1024 * 1024;
     private static final int SENT_ID_LIMIT = 200000;
-    private static final long NETWORK_PAUSE_MS = 5000;
-    private static final long UNAUTH_PAUSE_MS = 60000;
 
     private static final class ActiveSnapshot {
         final List<ActiveEntry> top;
@@ -78,6 +76,8 @@ public final class Sender {
     private long reportedTx;
     private long pauseUntilNanos;
 
+    private volatile long networkPauseMs = 5000;
+    private volatile long unauthPauseMs = 60000;
     private volatile long backoffUntilNanos;
     private volatile CommandListener listener;
     private volatile boolean running;
@@ -88,6 +88,12 @@ public final class Sender {
         this.config = config;
         this.agent = agent;
         this.intervalMs = intervalMs;
+    }
+
+    /** Pause after a network/5xx failure and after a 401 (defaults 5s / 60s). */
+    public void setFailurePauses(long networkMs, long unauthMs) {
+        this.networkPauseMs = networkMs;
+        this.unauthPauseMs = unauthMs;
     }
 
     public void setCommandListener(CommandListener l) {
@@ -255,6 +261,9 @@ public final class Sender {
     }
 
     private void cycle() throws Exception {
+        // Records carried over from a failed batch are on their one and only retry.
+        final int retriedTx = retryTx.size();
+        final int retriedDumps = retryDumps.size();
         List<TxRecord> txs = new ArrayList<TxRecord>(retryTx);
         retryTx.clear();
         List<Batch.Dump> dumps = new ArrayList<Batch.Dump>(retryDumps);
@@ -309,8 +318,8 @@ public final class Sender {
                 return;
             }
             AgentLog.warn("post failed: " + e);
-            requeue(txs, dumps);
-            pauseFor(NETWORK_PAUSE_MS);
+            failed(txs, dumps, retriedTx, retriedDumps);
+            pauseFor(networkPauseMs);
             return;
         }
 
@@ -341,8 +350,8 @@ public final class Sender {
                 break;
             case 401:
                 AgentLog.warn("gateway auth failed (401), retry in 60s");
-                requeue(txs, dumps);
-                pauseFor(UNAUTH_PAUSE_MS);
+                failed(txs, dumps, retriedTx, retriedDumps);
+                pauseFor(unauthPauseMs);
                 break;
             case 429:
                 long backoff = parseBackoff(r.body, 1000);
@@ -350,13 +359,13 @@ public final class Sender {
                 for (int i = 0; i < txs.size(); i++) {
                     stripAccounted(txs.get(i));
                 }
-                requeue(txs, dumps);
+                failed(txs, dumps, retriedTx, retriedDumps);
                 pauseFor(backoff);
                 break;
             default:
                 AgentLog.warn("unexpected gateway status " + r.status);
-                requeue(txs, dumps);
-                pauseFor(NETWORK_PAUSE_MS);
+                failed(txs, dumps, retriedTx, retriedDumps);
+                pauseFor(networkPauseMs);
         }
     }
 
@@ -375,9 +384,29 @@ public final class Sender {
         dropDetail.incrementAndGet();
     }
 
-    private void requeue(List<TxRecord> txs, List<Batch.Dump> dumps) {
-        retryTx.addAll(txs);
-        retryDumps.addAll(dumps);
+    /**
+     * Failed send: the first {@code retriedTx}/{@code retriedDumps} entries already had their one retry,
+     * so they are discarded (counted as dropped); the rest get one retry on the next cycle.
+     */
+    private void failed(List<TxRecord> txs, List<Batch.Dump> dumps, int retriedTx, int retriedDumps) {
+        long freed = 0;
+        for (int i = 0; i < retriedTx; i++) {
+            TxRecord t = txs.get(i);
+            freed += t.estimateBytes();
+            if (t.hasDetail()) {
+                dropDetail.incrementAndGet();
+            }
+            if (t.sql != null) {
+                dropSql.addAndGet(t.sql.size());
+            }
+            dropTx.incrementAndGet();
+        }
+        for (int i = 0; i < retriedDumps; i++) {
+            freed += dumps.get(i).text.length() + 128L;
+        }
+        bytes.addAndGet(-freed);
+        retryTx.addAll(txs.subList(retriedTx, txs.size()));
+        retryDumps.addAll(dumps.subList(retriedDumps, dumps.size()));
     }
 
     private void release(List<TxRecord> txs, List<Batch.Dump> dumps) {
