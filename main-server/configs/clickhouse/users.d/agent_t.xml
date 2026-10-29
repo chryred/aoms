@@ -1,0 +1,28 @@
+<clickhouse>
+    <profiles>
+        <agent_t_profile>
+            <max_threads>2</max_threads>
+            <max_memory_usage>1610612736</max_memory_usage>
+            <max_concurrent_queries_for_user>8</max_concurrent_queries_for_user>
+        </agent_t_profile>
+    </profiles>
+    <users>
+        <!-- 비밀번호는 컨테이너 환경변수 AGENT_T_CH_PASSWORD (compose 가 .env 의 CLICKHOUSE_PASSWORD 를 매핑) 에서 주입.
+             CLICKHOUSE_PASSWORD 는 공식 이미지 entrypoint 가 default 사용자 설정으로 해석해 read-only 마운트와 충돌하므로 쓰지 않는다 -->
+        <agent_t>
+            <password from_env="AGENT_T_CH_PASSWORD"/>
+            <networks><ip>::/0</ip></networks>
+            <profile>agent_t_profile</profile>
+            <quota>default</quota>
+            <access_management>0</access_management>
+            <grants><query>GRANT ALL ON agent_t.*</query></grants>
+        </agent_t>
+        <!-- init SQL(docker-entrypoint-initdb.d)은 default 사용자로 실행 — 컨테이너 내부 localhost 에서만 허용 -->
+        <default>
+            <networks replace="replace">
+                <ip>127.0.0.1</ip>
+                <ip>::1</ip>
+            </networks>
+        </default>
+    </users>
+</clickhouse>
