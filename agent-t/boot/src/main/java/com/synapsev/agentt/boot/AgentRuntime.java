@@ -159,6 +159,30 @@ public final class AgentRuntime {
         rt.uninstall();
     }
 
+    /** Where thread dump results go (the Sender in production). */
+    interface DumpSink {
+        void offerDump(long cmdId, String text, boolean truncated);
+    }
+
+    /**
+     * Answers a gateway command. Every thread_dump gets a dumps[] reply, including rate-limited ones: the
+     * gateway only completes the command when a result arrives.
+     */
+    static void handleCommand(long id, String type, ThreadDumper dumper, DumpSink sink) {
+        if (!"thread_dump".equals(type)) {
+            return;
+        }
+        String[] d = dumper.dump(ThreadDumper.DEFAULT_MAX_BYTES);
+        if (d == null) {
+            AgentLog.warn("thread dump " + id + " rate limited");
+            sink.offerDump(id, RATE_LIMITED_TEXT, false);
+        } else {
+            sink.offerDump(id, d[0], Boolean.parseBoolean(d[1]));
+        }
+    }
+
+    static final String RATE_LIMITED_TEXT = "<요청 제한: JVM 당 1분에 1회>";
+
     /** A not-yet-started daemon thread that runs {@code task} every {@code periodMs}; failures are logged. */
     private static Thread daemon(String name, final long periodMs, final Runnable task) {
         Thread t = new Thread(name) {
@@ -193,15 +217,11 @@ public final class AgentRuntime {
         final ThreadDumper dumper = new ThreadDumper();
         sender.setCommandListener(new Sender.CommandListener() {
             public void onCommand(long id, String type) {
-                if (!"thread_dump".equals(type)) {
-                    return;
-                }
-                String[] d = dumper.dump(ThreadDumper.DEFAULT_MAX_BYTES);
-                if (d == null) {
-                    AgentLog.warn("thread dump " + id + " ignored: limited to one per minute");
-                } else {
-                    sender.offerDump(id, d[0], Boolean.parseBoolean(d[1]));
-                }
+                handleCommand(id, type, dumper, new DumpSink() {
+                    public void offerDump(long cmdId, String text, boolean truncated) {
+                        sender.offerDump(cmdId, text, truncated);
+                    }
+                });
             }
         });
         final Thread activeLoop = daemon("agent-t-active", 1000, new Runnable() {

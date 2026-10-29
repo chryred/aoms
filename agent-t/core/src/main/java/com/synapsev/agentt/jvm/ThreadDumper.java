@@ -11,12 +11,30 @@ public final class ThreadDumper {
     public static final int DEFAULT_MAX_BYTES = 2 * 1024 * 1024;
     static final long MIN_GAP_MS = 60000L;
 
+    /** Monotonic clock in nanoseconds (injectable for tests). */
+    interface Ticker {
+        long nanos();
+    }
+
+    private final Ticker ticker;
     private long lastDumpNanos;
     private boolean dumped;
 
+    public ThreadDumper() {
+        this(new Ticker() {
+            public long nanos() {
+                return System.nanoTime();
+            }
+        });
+    }
+
+    ThreadDumper(Ticker ticker) {
+        this.ticker = ticker;
+    }
+
     /** Returns {text, "true"|"false" (truncated)}, or null when the 60 s limit applies. */
     public synchronized String[] dump(int maxBytes) {
-        long now = System.nanoTime();
+        long now = ticker.nanos();
         if (dumped && now - lastDumpNanos < MIN_GAP_MS * 1000000L) {
             return null;
         }

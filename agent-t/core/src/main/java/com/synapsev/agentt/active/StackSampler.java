@@ -73,7 +73,7 @@ public final class StackSampler {
     public int sampleOnce(long nowMs) {
         long slow = config.slowMs;
         List<TxContext> targets = new ArrayList<TxContext>();
-        List<TxContext> all = registry.contexts();
+        List<TxContext> all = registry.contexts(nowMs);
         for (int i = 0; i < all.size(); i++) {
             TxContext c = all.get(i);
             if (nowMs - c.startTs >= slow) {
@@ -141,6 +141,11 @@ public final class StackSampler {
         } catch (Throwable e) {
             return new String[0];
         }
+        return frames(st);
+    }
+
+    /** Formats a stack: innermost first, agent/bridge frames dropped, at most {@link #MAX_FRAMES}. */
+    static String[] frames(StackTraceElement[] st) {
         if (st == null) {
             return new String[0];
         }

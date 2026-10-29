@@ -71,4 +71,20 @@ public class ActiveRegistryTest {
         c.phase = "ext";
         assertNull(r.snapshot(10, 3000, 10).top.get(0).sqlId);
     }
+
+    @Test
+    public void snapshotEvictsDeadThreadAndOldEntries() throws Exception {
+        ActiveRegistry r = new ActiveRegistry();
+        long now = System.currentTimeMillis();
+        Thread dead = new Thread("dead");
+        dead.start();
+        dead.join();
+        r.register(new TxContext(dead, 0, now - 1000, System.nanoTime(), -1));
+        r.register(ctx("old", now - 6L * 3600 * 1000 - 1));
+        r.register(ctx("ok", now - 1000));
+        ActiveRegistry.ActiveSnapshot s = r.snapshot(now, 3000, 10);
+        assertArrayEquals(new int[] {1, 0, 0}, s.buckets);
+        assertEquals("ok", s.top.get(0).traceId);
+        assertEquals(1, r.contexts(now).size());
+    }
 }

@@ -1,5 +1,6 @@
 package com.synapsev.agentt.active;
 
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNull;
@@ -65,7 +66,7 @@ public class StackSamplerTest {
     }
 
     @Test
-    public void dropsAgentFramesAndCapsSampleCount() throws Exception {
+    public void capsSampleCountAtTwenty() throws Exception {
         AgentConfig cfg = new AgentConfig();
         cfg.slowMs = 1000;
         ActiveRegistry reg = new ActiveRegistry();
@@ -78,11 +79,46 @@ public class StackSamplerTest {
             reg.register(ctx(sleeper, now - 5000 - i));
         }
         assertEquals(StackSampler.MAX_TARGETS, sampler.sampleOnce(now));
-        for (ActiveEntry e : reg.snapshot(now, 1000, 50).top) {
-            for (String f : e.stack) {
-                assertFalse(f, f.startsWith("com.synapsev.agentt."));
-            }
+    }
+
+    @Test
+    public void framesDropAgentPackageAndCap() {
+        StackTraceElement[] st = {
+            new StackTraceElement("com.synapsev.agentt.bridge.Hooks", "enter", "Hooks.java", 1),
+            new StackTraceElement("app.Svc", "run", "Svc.java", 5),
+            new StackTraceElement("com.synapsev.agentt.tx.TxTracker", "sqlEnter", "TxTracker.java", 9),
+            new StackTraceElement("app.Dao", "q", "Dao.java", 7)};
+        assertArrayEquals(new String[] {"app.Svc.run(Svc.java:5)", "app.Dao.q(Dao.java:7)"}, StackSampler.frames(st));
+        StackTraceElement[] deep = new StackTraceElement[100];
+        for (int i = 0; i < deep.length; i++) {
+            deep[i] = new StackTraceElement("app.C" + i, "m", "C.java", i);
         }
+        String[] f = StackSampler.frames(deep);
+        assertEquals(StackSampler.MAX_FRAMES, f.length);
+        assertEquals("app.C0.m(C.java:0)", f[0]);
+    }
+
+    @Test
+    public void evictsLeakedContexts() throws Exception {
+        AgentConfig cfg = new AgentConfig();
+        cfg.slowMs = 1000;
+        ActiveRegistry reg = new ActiveRegistry();
+        StackSampler sampler = new StackSampler(reg, cfg);
+        long now = System.currentTimeMillis();
+        Thread dead = new Thread("dead");
+        dead.start();
+        dead.join();
+        sleeper.setDaemon(true);
+        sleeper.start();
+        Thread.sleep(100);
+        reg.register(ctx(dead, now - 5000));
+        reg.register(ctx(sleeper, now - 7L * 3600 * 1000));
+        TxContext live = ctx(sleeper, now - 5000);
+        reg.register(live);
+        assertEquals(1, sampler.sampleOnce(now));
+        ActiveRegistry.ActiveSnapshot s = reg.snapshot(now, 1000, 10);
+        assertEquals(1, s.top.size());
+        assertArrayEquals(new int[] {0, 0, 1}, s.buckets);
     }
 
     @Test

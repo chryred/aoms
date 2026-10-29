@@ -24,6 +24,8 @@ public final class ActiveRegistry {
         }
     }
 
+    static final long MAX_AGE_MS = 6L * 60 * 60 * 1000;
+
     private final ConcurrentHashMap<TxContext, Boolean> active = new ConcurrentHashMap<TxContext, Boolean>();
     private volatile StackSampler sampler;
 
@@ -51,9 +53,20 @@ public final class ActiveRegistry {
         return active.containsKey(c);
     }
 
-    /** Snapshot of the current contexts (weakly consistent). */
-    List<TxContext> contexts() {
-        return new ArrayList<TxContext>(active.keySet());
+    /**
+     * Snapshot of the current contexts (weakly consistent). Contexts whose thread has died or that are older
+     * than {@link #MAX_AGE_MS} leaked (servletExit never ran) and are evicted here.
+     */
+    List<TxContext> contexts(long nowMs) {
+        List<TxContext> out = new ArrayList<TxContext>();
+        for (TxContext c : active.keySet()) {
+            if (!c.thread.isAlive() || nowMs - c.startTs > MAX_AGE_MS) {
+                active.remove(c);
+            } else {
+                out.add(c);
+            }
+        }
+        return out;
     }
 
     /**
@@ -62,7 +75,7 @@ public final class ActiveRegistry {
      */
     public ActiveSnapshot snapshot(long nowMs, long slowMs, int topN) {
         int[] buckets = new int[3];
-        List<TxContext> all = contexts();
+        List<TxContext> all = contexts(nowMs);
         Collections.sort(all, new Comparator<TxContext>() {
             public int compare(TxContext a, TxContext b) {
                 return a.startTs < b.startTs ? -1 : (a.startTs == b.startTs ? 0 : 1);
