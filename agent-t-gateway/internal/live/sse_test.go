@@ -133,3 +133,17 @@ func TestRingCapped(t *testing.T) {
 		t.Fatalf("ring=%d", n)
 	}
 }
+
+func TestInvalidSystemIDsRejected(t *testing.T) {
+	api, _ := newAPI()
+	tok := "Bearer " + mkToken(testSecret, "HS256", "access", time.Now().Add(time.Hour))
+	for _, h := range []func(http.ResponseWriter, *http.Request){api.Snapshot, api.Stream} {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest("GET", "/t/v1/x?system_ids=7,abc", nil)
+		req.Header.Set("Authorization", tok)
+		h(rec, req)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("code %d", rec.Code)
+		}
+	}
+}

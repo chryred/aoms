@@ -22,6 +22,7 @@ type TopItem struct {
 
 type UriCounter struct {
 	Cnt uint64
+	Err uint64
 	Ms  float64
 }
 
@@ -40,6 +41,7 @@ type AggEvent struct {
 	SlowCnt        int
 	UriTop, SqlTop []TopItem
 	Jvm            *protocol.JVM
+	Active         [3]int64 // latest active-transaction buckets (normal/warning/critical)
 	Dropped        protocol.Dropped
 	Counters       Counters
 }
@@ -89,7 +91,7 @@ func topOf(m map[string]*counter) []TopItem {
 	return out
 }
 
-func (c *Counters) addURI(uri string, ms float64) {
+func (c *Counters) addURI(uri string, ms float64, isErr bool) {
 	if _, ok := c.UriTotals[uri]; !ok {
 		named := len(c.UriTotals)
 		if _, has := c.UriTotals[OtherURI]; has {
@@ -101,6 +103,9 @@ func (c *Counters) addURI(uri string, ms float64) {
 	}
 	u := c.UriTotals[uri]
 	u.Cnt++
+	if isErr {
+		u.Err++
+	}
 	u.Ms += ms
 	c.UriTotals[uri] = u
 }

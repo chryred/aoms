@@ -85,6 +85,7 @@ type instState struct {
 	ring     []aggPayload
 	win      *window
 	cum      Counters
+	buckets  [3]int64
 	sampSec  int64
 	sampUsed int
 }
@@ -185,6 +186,7 @@ func (s *State) Accept(inst registry.Instance, b *protocol.Batch, offsetMs int64
 	is := s.get(inst)
 	is.lastSeen = now
 	is.active = activeJSON
+	is.buckets = b.Active.Buckets
 	w := is.win
 	slowTx := make([]point, 0)
 	rest := make([]point, 0, len(b.Tx))
@@ -204,7 +206,7 @@ func (s *State) Accept(inst registry.Instance, b *protocol.Batch, offsetMs int64
 			is.cum.SlowTotal++
 		}
 		bump(w.uri, uris[i], 1, ms)
-		is.cum.addURI(uris[i], ms)
+		is.cum.addURI(uris[i], ms, t.Error)
 		for j, q := range t.SQL {
 			bump(w.sql, sqlNames[i][j], q.Cnt, float64(q.Ms))
 		}
@@ -274,7 +276,7 @@ func (s *State) Aggregate() []AggEvent {
 			continue
 		}
 		ev := AggEvent{Inst: is.inst, Ts: now, Tps: float64(w.tx) / AggWindowSec, SlowCnt: w.slow,
-			UriTop: topOf(w.uri), SqlTop: topOf(w.sql), Jvm: w.jvm, Dropped: w.dropped, Counters: is.cum.clone()}
+			UriTop: topOf(w.uri), SqlTop: topOf(w.sql), Jvm: w.jvm, Dropped: w.dropped, Active: is.buckets, Counters: is.cum.clone()}
 		if w.tx > 0 {
 			ev.AvgMs = w.sumMs / float64(w.tx)
 			ev.ErrRate = float64(w.errs) / float64(w.tx)
