@@ -1251,3 +1251,85 @@ class AgentCommandOut(BaseModel):
     updated_at: UtcDatetime
 
     model_config = {"from_attributes": True}
+
+
+# ── APM (Agent-T) ────────────────────────────────────────────────────────
+class TxSummaryOut(BaseModel):
+    trace_id: str
+    span_id: str
+    parent_span: str = ""
+    system_id: int
+    system_name: Optional[str] = None
+    instance_role: str
+    start_ts: UtcDatetime
+    uri: str = ""
+    method: str = ""
+    status: int = 0
+    error: bool = False
+    exc_class: str = ""
+    elapsed_ms: int = 0
+    cpu_ms: int = 0
+    sql_ms: int = 0
+    sql_cnt: int = 0
+    fetch_cnt: int = 0
+    fetch_ms: int = 0
+    ext_ms: int = 0
+    ext_cnt: int = 0
+    conn_open: int = 0
+    conn_close: int = 0
+    conn_leak: int = 0
+    conn_uncommit: int = 0
+    user_ip: str = ""      # 마스킹됨
+    user_id: str = ""      # 마스킹됨
+    biz_key: str = ""
+    has_detail: bool = False
+
+
+class TxSqlOut(BaseModel):
+    sql_id: str            # uint64 → 16자 소문자 hex
+    sql_text: str = ""
+    cnt: int = 0
+    ms: int = 0
+    max_ms: int = 0
+    fetch_cnt: int = 0
+    fetch_ms: int = 0
+    err: int = 0
+
+
+class TxDetailBody(BaseModel):
+    nodes: Any = None
+    stacks: Any = None
+
+
+class TxDetailOut(BaseModel):
+    summary: TxSummaryOut
+    sql: List[TxSqlOut]
+    detail: Optional[TxDetailBody] = None
+    path: List[TxSummaryOut]
+
+
+class TxListOut(BaseModel):
+    items: List[TxSummaryOut]
+    has_more: bool
+
+
+class ScatterPoint(BaseModel):
+    ts: UtcDatetime
+    elapsed_ms: int
+    error: bool
+    trace_id: str
+    span_id: str
+    system_id: int
+
+
+class ScatterOut(BaseModel):
+    points: List[ScatterPoint]
+    truncated: bool
+
+
+class ApmSystemSummaryOut(BaseModel):
+    has_agent_t: bool
+    tps_1h: float = 0.0
+    avg_ms_1h: float = 0.0
+    slow_count_1h: int = 0
+    slow_threshold_ms: int = 3000
