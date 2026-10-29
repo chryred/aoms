@@ -10,7 +10,7 @@
 | `.claude/memory/code-layout.md` | 디렉터리 트리 + Server A/B 포트 맵 | 파일 위치·포트 확인 시 |
 | `.claude/memory/data-flows.md` | 메트릭 알림 / LLM 로그 분석 / 벡터 유사도 분류 / 분석 실패 처리 흐름 | 기능 추가·버그 추적 시 |
 | `.claude/memory/development-notes.md` | system_name 일관성, instance_role 의미, synapse_agent, 폐쇄망 배포, 담당자별 LLM 키 등 | 구현 세부사항 필요 시 |
-| `.claude/memory/adrs.md` | ADR-001 ~ 012 전문 + 유지 규칙 (ADR-011: FastEmbed+Hybrid+RAG, ADR-012: LLM Ollama 제거) | 아키텍처 결정 배경 재검토 시 |
+| `.claude/memory/adrs.md` | ADR-001 ~ 022 전문 + 유지 규칙 (ADR-011: FastEmbed+Hybrid+RAG, ADR-012: LLM Ollama 제거) | 아키텍처 결정 배경 재검토 시 |
 | `.claude/memory/implementation-status.md` | Phase 1 ~ Phase 10 구현 현황 표 | 이미 구현된 기능 확인 시 |
 | `.claude/memory/synapse-cli.md` | Go CLI 구조, config 경로 결정 이유, 배포 흐름, area_code 주의사항 | synapse-cli 수정·배포 작업 시 |
 | `.claude/memory/timezone-policy.md` | ADR-013 레이어별 UTC/KST 기준표 + 금지 패턴 | 타임존 관련 버그 추적·신규 datetime 필드 추가 시 |

@@ -785,7 +785,7 @@ Synapse는 이미 자체 username/password DB(`users` 테이블)를 보유하고
 5. **실시간은 SSE**(WebSocket 아님): 단방향 + 프록시 친화. 기존 알림 WS(`/ws/dashboard`)와는 송신 서비스가 달라 통합하지 않음.
 6. **admin-api**: `/api/v1/apm/*` 조회(ClickHouse, httpx async), APM 대시보드 CRUD(`apm_dashboards`), 스레드 덤프 명령(`agent_commands`), 설치 Job(SFTP + attach + 영구 적용, exec 채널 거부 시 PTY 폴백).
 7. **제거**: `otel-collector`, `tempo`, `n8n` 컨테이너와 OTel Java Agent 설치 경로·Tempo 조회 코드·`api/traces.ts`. JVM 힙·GC 는 GC 로그 tailing 대신 Agent-T MXBean(spec §6.10), 스레드 덤프는 SSH `kill -3` 대신 Agent-T 명령(spec §6.11)으로 대체. WF4/WF5 JSON 은 보존.
-8. **통합 결과**: Server A 컨테이너 11개 → 10개(`tempo`·`otel-collector`·`n8n` 제거, `clickhouse`·`agent-t-gateway` 추가).
+8. **통합 결과**: Server A 컨테이너 compose 기준 10개 → 9개 (운영 Server A 에는 타 프로젝트 sr_streamlit·sr_api 포함 12개 → 11개) (`tempo`·`otel-collector`·`n8n` 제거, `clickhouse`·`agent-t-gateway` 추가).
 
 **결과 / 영향**:
 - JDK 구분 없이 동일한 화면·데이터 모양의 트랜잭션 분석·실시간 모니터링 제공. 신규 서비스는 gateway 1개.

@@ -26,7 +26,7 @@ aoms/
 │       │   ├── CLAUDE.md              # admin-api 상세 가이드
 │       │   ├── main.py                # FastAPI 앱, lifespan
 │       │   ├── database.py            # DB 엔진, get_db() 의존성
-│       │   ├── models.py              # SQLAlchemy ORM (16개 테이블)
+│       │   ├── models.py              # SQLAlchemy ORM (41개 테이블)
 │       │   ├── schemas.py             # Pydantic 스키마
 │       │   ├── init.sql               # 운영 스키마 정본 (ADR-002)
 │       │   ├── migrations/            # 기존 운영 DB용 ALTER SQL

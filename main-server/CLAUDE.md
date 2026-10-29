@@ -51,7 +51,7 @@ docker compose -f docker-compose.dev.yml up -d alertmanager
 
 ## Agent-T 인프라 (ADR-022)
 
-- **컨테이너**: `synapse-clickhouse`(clickhouse-server 24.8), `synapse-agent-t-gateway`(Go) 추가. `tempo`·`otel-collector`·`n8n` 제거 → Server A 11개 → 10개. dev compose 는 `dev-clickhouse`/`dev-agent-t-gateway`.
+- **컨테이너**: `synapse-clickhouse`(clickhouse-server 24.8), `synapse-agent-t-gateway`(Go) 추가. `tempo`·`otel-collector`·`n8n` 제거 → Server A compose 기준 10개 → 9개 (운영 Server A 에는 타 프로젝트 sr_streamlit·sr_api 포함 12개 → 11개). dev compose 는 `dev-clickhouse`/`dev-agent-t-gateway`.
 - **포트 8330 게시**: WAS 서버의 Agent-T 가 gateway(`POST /t/v1/batch`)로 직접 접속하므로 호스트에 게시한다. 방화벽에서 WAS 대역만 허용. ClickHouse 8123/9000 은 호스트에 게시하지 않는다(컨테이너 네트워크 내부).
 - **ClickHouse DDL**: `configs/clickhouse/init/*.sql` 은 **빈 데이터 디렉터리의 최초 기동 때만** 실행된다(`/docker-entrypoint-initdb.d`). 이후 변경은 `configs/clickhouse/migrations/` 에 날짜 prefix SQL(`20261101_xxx.sql`)로 추가하고 수동 적용한다(init 파일은 최초 생성용 정본으로 같이 갱신). 사용자·한도 설정은 `configs/clickhouse/users.d/`, `config.d/limits.xml`.
 - **데이터 디렉터리**: 운영 `./services/clickhouse/data` 는 호스트에서 **uid 101(clickhouse)** 소유여야 한다 (`chown -R 101:101`, SELinux 라벨은 compose 의 `:z`). 소유자가 다르면 기동 직후 종료된다. 개발은 named volume `clickhouse_dev_data`.

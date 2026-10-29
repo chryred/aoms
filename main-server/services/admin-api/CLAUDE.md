@@ -37,7 +37,7 @@ make test-api        # 단위 테스트 (SQLite in-memory)
 admin-api/
 ├── main.py              # FastAPI 앱 초기화, 라우터 등록, lifespan(테이블 자동 생성 + SSH 세션 정리 루프 + Prometheus 분석 루프)
 ├── database.py          # DB 엔진·세션 팩토리, get_db() 의존성
-├── models.py            # SQLAlchemy ORM 모델 (16개 테이블 — agent_instances, agent_install_jobs 포함)
+├── models.py            # SQLAlchemy ORM 모델 (41개 테이블 — agent_instances, agent_install_jobs 포함)
 ├── schemas.py           # Pydantic 입출력 스키마 (LlmAgentConfig 스키마 포함)
                          # AlertHistory ISP(2-6): AlertHistoryBaseOut(공통) + AlertHistoryMetricOut/AlertHistoryLogOut(타입별)
                          # + AlertHistoryOut(슈퍼셋 하위 호환 — 라우트·프론트 JSON 와이어 포맷 유지)
