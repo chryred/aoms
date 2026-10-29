@@ -1220,11 +1220,31 @@ class SslCertStatusOut(BaseModel):
 
 
 # ── APM 대시보드 / Agent-T 명령 ─────────────────────────────────────────
+WidgetType = Literal[
+    "queue", "scatter", "active_list", "tps", "avg_ms", "err_rate", "uri_top", "sql_top",
+    "jvm_users_threads", "jvm_cpu", "jvm_heap_gc", "jvm_conn_pool",
+]
+
+
+class WidgetTarget(BaseModel):
+    system_ids: Optional[List[int]] = None
+    instance_role: Optional[str] = None
+
+
+class WidgetLayoutItem(BaseModel):
+    i: str = Field(min_length=1, max_length=64)
+    type: WidgetType
+    x: int = Field(ge=0)
+    y: int = Field(ge=0)
+    w: int = Field(ge=0)
+    h: int = Field(ge=0)
+    target: Optional[WidgetTarget] = None
+
+
 class ApmDashboardIn(BaseModel):
     name: str = Field(min_length=1, max_length=100)
-    layout: List[Any] = Field(default_factory=list)
+    layout: List[WidgetLayoutItem] = Field(default_factory=list, max_length=30)
     filters: Dict[str, Any] = Field(default_factory=dict)
-    is_shared_default: bool = False
 
 
 class ApmDashboardOut(BaseModel):
@@ -1238,6 +1258,23 @@ class ApmDashboardOut(BaseModel):
     updated_at: UtcDatetime
 
     model_config = {"from_attributes": True}
+
+
+class ThreadDumpCommandOut(BaseModel):
+    command_id: int
+
+
+class ThreadDumpListItem(BaseModel):
+    command_id: int
+    status: str
+    requested_at: UtcDatetime
+    truncated: Optional[bool] = None
+
+
+class ThreadDumpOut(BaseModel):
+    text: str
+    truncated: bool
+    ts: UtcDatetime
 
 
 class AgentCommandOut(BaseModel):

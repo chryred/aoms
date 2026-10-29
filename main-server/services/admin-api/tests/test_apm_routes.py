@@ -142,3 +142,13 @@ async def test_summary_with_agent(authed_client, db_session):
     body = resp.json()
     assert body["has_agent_t"] is True
     assert body["tps_1h"] == 2.0 and body["slow_count_1h"] == 3
+
+
+async def test_apm_clickhouse_error_maps_to_502(authed_client, db_session):
+    from services.clickhouse_client import ClickHouseError
+
+    s = await _system(db_session)
+    with patch("services.clickhouse_client.query", AsyncMock(side_effect=ClickHouseError("down"))):
+        resp = await authed_client.get("/api/v1/apm/transactions", params={"system_ids": [s.id]})
+    assert resp.status_code == 502
+    assert resp.json()["detail"] == "트랜잭션 저장소 조회 실패"
