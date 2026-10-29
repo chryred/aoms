@@ -365,7 +365,7 @@ async def analyze_with_vector_context(
         )
 
     # 4. Wave 1B: postmortem 병렬 조회 → 강화 프롬프트 구성 + LLM 호출
-    # trace_context / trace_tier는 run_analysis()에서 주입 (OTel 미적용 시 기본값 유지)
+    # trace_context / trace_tier는 run_analysis()에서 주입 (Agent-T 미적용 시 기본값 유지)
     top_results = anomaly_info.get("top_results", [])
     incident_ids = [
         r["payload"].get("incident_id")
@@ -1034,8 +1034,8 @@ async def run_analysis() -> dict:
         logger.error(f"시스템 목록 조회 실패: {e}")
         return results
 
-    # OTel gating: has_otel 시스템 set (dashboard API 재사용)
-    otel_system_ids: set[int] = set()
+    # Agent-T gating: has_agent_t 시스템 set (dashboard API 재사용)
+    agent_t_system_ids: set[int] = set()
     try:
         async with httpx.AsyncClient(timeout=5.0) as hc:
             health_resp = await hc.get(
@@ -1044,10 +1044,10 @@ async def run_analysis() -> dict:
             )
             if health_resp.status_code == 200:
                 for s in health_resp.json().get("systems", []):
-                    if s.get("has_otel"):
-                        otel_system_ids.add(s["system_id"])
+                    if s.get("has_agent_t"):
+                        agent_t_system_ids.add(s["system_id"])
     except Exception as exc:
-        logger.debug("OTel system set 조회 실패 (분석 계속): %s", exc)
+        logger.debug("Agent-T system set 조회 실패 (분석 계속): %s", exc)
 
     # ── 데이터 수집 (순차) + 분석 태스크 구성 ──────────────────────────────
     sem = asyncio.Semaphore(10)
@@ -1060,7 +1060,7 @@ async def run_analysis() -> dict:
 
         system_name = system["system_name"]
         system_id = system["id"]
-        has_otel = system_id in otel_system_ids
+        has_agent_t = system_id in agent_t_system_ids
 
         try:
             logs_by_role = await fetch_logs_for_system(system_name)
@@ -1073,7 +1073,7 @@ async def run_analysis() -> dict:
 
             trace_ctx = ""
             trace_ref_ids: list[str] = []
-            if has_otel:
+            if has_agent_t:
                 import time as _time
                 now_ns = int(_time.time() * 1e9)
                 start_ns = now_ns - 5 * 60 * 1_000_000_000
