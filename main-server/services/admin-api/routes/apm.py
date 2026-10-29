@@ -23,7 +23,18 @@ from services import clickhouse_client
 from services.apm_masking import mask_ip, mask_user
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/api/v1/apm", tags=["apm"])
+
+
+async def clickhouse_guard():
+    """라우터 의존성 — ClickHouse 조회 실패를 502 로 변환한다."""
+    try:
+        yield
+    except clickhouse_client.ClickHouseError:
+        logger.exception("ClickHouse 조회 실패")
+        raise HTTPException(status_code=502, detail="트랜잭션 저장소 조회 실패")
+
+
+router = APIRouter(prefix="/api/v1/apm", tags=["apm"], dependencies=[Depends(clickhouse_guard)])
 
 _DEFAULT_RANGE = timedelta(hours=1)
 _SUMMARY_COLUMNS = (
