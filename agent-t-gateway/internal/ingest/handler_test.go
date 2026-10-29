@@ -231,3 +231,11 @@ func sha(s string) string {
 	x := sha256.Sum256([]byte(s))
 	return hex.EncodeToString(x[:])
 }
+
+func TestMultiSinkFansOut(t *testing.T) {
+	a, b := &recSink{}, &recSink{}
+	MultiSink{a, b}.Accept(registry.Instance{}, &protocol.Batch{}, 5)
+	if a.n != 1 || b.n != 1 || b.offset != 5 {
+		t.Fatalf("a=%+v b=%+v", a, b)
+	}
+}
