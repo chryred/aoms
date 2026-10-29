@@ -8,7 +8,8 @@
 | `fetch` | ASM 5.2/9.7 소스, JUnit 4.13.2, hamcrest 1.3 다운로드 → `third_party/versions.properties` SHA256 검증(매 실행) → ASM 패키지를 `com.synapsev.agentt.shaded.asm` 으로 sed 이동 → `third_party/src/` (gitignore) |
 | `test-legacy` | `azul/zulu-openjdk:7`(`--platform linux/amd64`), `-source/-target 1.6`, ASM 5.2 |
 | `test-modern` | `eclipse-temurin:21-jdk`, `--release 8`, ASM 9.7 |
-| `jar` | `build/dist/{agent-t-legacy.jar, agent-t.jar, agent-t-attacher.jar, SHA256SUMS}` (attacher 는 G4 전까지 빈 main 자리표시) |
+| `jar` | `build/dist/{agent-t-legacy.jar, agent-t.jar, agent-t-attacher.jar, SHA256SUMS}` (attacher 는 legacy javac `-target 1.6` 로 한 번 빌드, JDK 6~21 공용) |
+| `it-attach` | `jar` 선행. Docker 통합 테스트: zulu 7(legacy jar)·temurin 17(modern jar) attach + `--check` 옵션 판정, `eclipse-temurin:8-jre` → `PRECHECK:no_tools_jar` |
 | `install-artifacts` | `build/dist` → `main-server/artifacts/agent-t/` |
 
 ## 모듈 (`build.sh` 가 전부 한 번에 컴파일, 테스트는 각 `*/src/test/java`)
@@ -21,6 +22,7 @@
 
 - ASM API 레벨은 빌드가 생성하는 `AsmApi.LEVEL`(legacy `ASM5`, modern `ASM9`) — instrument 소스는 ASM 5.2 에 있는 API 만 쓴다.
 - 계측은 메서드 본문만 변경(필드·메서드 추가 금지). `jakarta.servlet` 은 별도 빌드 없이 같은 코드에서 함께 매칭.
+| `attacher` | `Attacher`: `java -jar agent-t-attacher.jar [--check] <pid> [<agentJar> [args]]`. 종료코드 0 성공 / 2 전제조건 불충족(`PRECHECK:<reason>` 한 줄) / 1 기타. reason: `no_tools_jar` `attach_disabled` `dynamic_loading_disabled` `not_same_user` `tmpdir_not_writable` `jdk_too_old` `no_such_pid`. JDK 6~8 은 tools.jar 리플렉션, 9+ 는 jdk.attach. 대상 JVM 의 java 로 실행할 것 |
 
 ## 규칙
 - 코어는 Java 6 API 만 사용: 람다·diamond·try-with-resources·`java.util.Objects`·`Long.toUnsignedString` 금지.
