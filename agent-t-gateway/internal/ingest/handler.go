@@ -59,7 +59,8 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	if ms := h.Back.BackoffMs(); ms > 0 {
+	backoff := h.Back.BackoffMs()
+	if ms := backoff; ms > 0 {
 		writeJSON(w, http.StatusTooManyRequests, map[string]int{"backoff_ms": ms})
 		return
 	}
@@ -87,7 +88,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			SQL: nonNil(h.Dict.Missing("sql", referencedSQL(b))),
 			URI: nonNil(h.Dict.Missing("uri", referencedURI(b))),
 		},
-		BackoffMs: h.Back.BackoffMs(),
+		BackoffMs: backoff,
 	}
 	if resp.Commands == nil {
 		resp.Commands = []protocol.Command{}
