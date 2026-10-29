@@ -1,0 +1,12 @@
+import { mergeTop, pickAgg } from '@/lib/apm/liveData'
+import type { WidgetProps } from '@/components/apm/live/widgetRegistry'
+import { TopTable } from './TopTable'
+
+export function SqlTopWidget({ events, target }: WidgetProps) {
+  const rows = mergeTop(
+    pickAgg(events.agg, target),
+    (e) => e.sql_top,
+    (i) => i.sql,
+  )
+  return <TopTable head="SQL" rows={rows} />
+}
