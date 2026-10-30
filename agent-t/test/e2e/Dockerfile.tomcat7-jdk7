@@ -1,0 +1,18 @@
+# JDK7(amd64, Apple Silicon 에서는 에뮬레이션) + Tomcat 7.0.109 + e2e 웹앱(-source/-target 1.6)
+FROM --platform=linux/amd64 azul/zulu-openjdk:7 AS build
+RUN apt-get update -qq && apt-get install -y -qq curl ca-certificates >/dev/null
+RUN curl -fsSL https://archive.apache.org/dist/tomcat/tomcat-7/v7.0.109/bin/apache-tomcat-7.0.109.tar.gz | tar xz -C /opt \
+ && mv /opt/apache-tomcat-7.0.109 /opt/tomcat \
+ && curl -fsSL -o /opt/tomcat/lib/postgresql.jar https://repo1.maven.org/maven2/org/postgresql/postgresql/42.2.28.jre7/postgresql-42.2.28.jre7.jar
+COPY webapp /src
+RUN mkdir -p /war/WEB-INF/classes && javac -source 1.6 -target 1.6 -encoding UTF-8 -cp /opt/tomcat/lib/servlet-api.jar:/opt/tomcat/lib/postgresql.jar \
+      -d /war/WEB-INF/classes /src/src/e2e/*.java \
+ && cp /src/WEB-INF/web.xml /war/WEB-INF/ && cd /war && jar cf /ROOT.war .
+
+FROM --platform=linux/amd64 azul/zulu-openjdk:7
+COPY --from=build /opt/tomcat /opt/tomcat
+RUN rm -rf /opt/tomcat/webapps/*
+COPY --from=build /ROOT.war /opt/tomcat/webapps/ROOT.war
+ENV CATALINA_HOME=/opt/tomcat
+EXPOSE 8080
+CMD ["/opt/tomcat/bin/catalina.sh", "run"]
