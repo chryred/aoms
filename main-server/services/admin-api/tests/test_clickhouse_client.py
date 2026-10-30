@@ -23,6 +23,7 @@ async def test_clickhouse_client_parses_jsoneachrow(monkeypatch):
     assert seen["url"].params["param_c"] == "x' OR 1=1"
     assert seen["url"].params["param_d"] == "[1,2]"
     assert seen["url"].params["database"] == "agent_t"
+    assert seen["url"].params["max_execution_time"] == "10"
 
 
 async def test_clickhouse_client_raises_on_http_error(monkeypatch):

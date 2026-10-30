@@ -10,6 +10,7 @@ from typing import Any
 import httpx
 
 _TIMEOUT_SECONDS = 15.0
+_MAX_EXECUTION_SECONDS = 10  # 서버측 쿼리 상한 — HTTP 타임아웃(15s)보다 먼저 실패시켜 CH 점유를 막는다
 _transport: httpx.AsyncBaseTransport | None = None  # 테스트에서 MockTransport 주입
 
 
@@ -43,7 +44,10 @@ async def query(sql: str, params: dict | None = None) -> list[dict]:
     if user:
         headers["X-ClickHouse-User"] = user
         headers["X-ClickHouse-Key"] = os.getenv("CLICKHOUSE_PASSWORD", "")
-    qs = {"database": os.getenv("CLICKHOUSE_DB", "agent_t")}
+    qs = {
+        "database": os.getenv("CLICKHOUSE_DB", "agent_t"),
+        "max_execution_time": str(_MAX_EXECUTION_SECONDS),
+    }
     for name, value in (params or {}).items():
         qs[f"param_{name}"] = _format_param(value)
 
