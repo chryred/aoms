@@ -1,5 +1,11 @@
 # Agent-T Docker E2E 결과 (Task H1)
 
+## 현재 상태 요약 (fix round 2 기준, 상세는 아래)
+- **S1~S6, S8 PASS** (fix round 2 회귀 포함: S3b 커넥션 추적 JDK7·JDK17 40/40, S6 킬 스위치 max 25.3s ≤ 35s).
+- **S7·S10 은 환경 제약으로 판정 보류**: 개발 VM 메모리 부족(swap 가득)에서 S10 기본 큐 256MB 는 실패 post 9, 큐 64MB 는 PASS. gateway 코드 결함은 없는 것으로 판단하며 **운영 사양 서버에서 재측정 필요**.
+- D-H1-1(커넥션 추적), D-H1-2(전체 시스템 검색 쿼리)는 수정 확인. D-H1-3(ClickHouse 정지 중 지연)은 환경 요인 유력.
+- **최종 리뷰 반영(final fix wave)**: gateway 큐 기본값을 256MB → **128MB** + `GOMEMLIMIT=400MiB` 로 낮췄다(아래 256MB 수치는 당시 측정값). 파이프라인은 **at-least-once** 로 문서화(`contracts/agent-t/protocol.md` §5)했고, `run.sh` S4 에 `count() - uniqExact(span_id) = 0` 검사를 추가했다(S4 는 >0 이면 FAIL, S7·S10 은 `dup_span_rows` 기록). 이 변경은 아직 Docker E2E 로 재실행되지 않았다.
+
 실행 일시: 2026-10-30 (개발 Mac, Apple Silicon, Docker Desktop 3.8GB/10CPU). 하니스: `run.sh up|test|down`.
 시나리오 9(브라우저)는 controller 의 design-review/qa 담당.
 
@@ -102,7 +108,7 @@
 - **D-H1-1 수정 확인**: pgjdbc `BaseDataSource` 경로에서 conn_open/close 가 JDK7·JDK17 모두 40/40 집계(S3b PASS).
 - **D-H1-2 수정 확인(부분적 환경 제약)**: 두 단계 쿼리 후 전체 시스템 검색이 S7 부하 중 대부분 0.1~2.4s 에 200. VM 포화 극단 구간에서 1회 502(16.5s)는 남음 — 정상 환경에서 재확인 필요.
 - **D-H1-3 환경 요인 유력(gateway 코드 결함 없음)**: 소유자 회귀 테스트가 인입 경로가 ClickHouse 를 기다리지 않음을 보였고, 같은 시나리오가 큐 64MB 에서는 통과, 256MB 에서는 실패 9건으로 감소(이전 49~97). VM swap 가득·free<100MB 조건과 일치. 운영 사양 서버(dev 서버)에서 S10 을 재측정해 종결할 것.
-- 운영 메모: 개발 VM 처럼 메모리가 빠듯하면 `GATEWAY_CH_QUEUE_MAX_BYTES` 를 줄이면(64MB) 정지 중 429 로 명시적 backoff 가 동작해 에이전트 타임아웃이 없어진다 — 운영 기본값(256MB)은 서버 메모리 기준으로 재검토.
+- 운영 메모: 개발 VM 처럼 메모리가 빠듯하면 `GATEWAY_CH_QUEUE_MAX_BYTES` 를 줄이면(64MB) 정지 중 429 로 명시적 backoff 가 동작해 에이전트 타임아웃이 없어진다 — 운영 기본값은 이후 128MB(+`GOMEMLIMIT=400MiB`)로 낮췄다 — 서버 메모리 기준으로 재검토.
 
 ## 재현·운영 방법
 ```
