@@ -259,8 +259,9 @@ async def get_transaction_detail(
 
     sql_rows = await clickhouse_client.query(
         "SELECT sql_id, cnt, ms, max_ms, fetch_cnt, fetch_ms, err FROM agent_t.tx_sql "
-        "WHERE trace_id = {trace_id:String} AND span_id = {span_id:String} ORDER BY ms DESC",
-        {"trace_id": trace_id, "span_id": span_id},
+        "WHERE system_id = {system_id:UInt32} AND start_ts = {start_ts:DateTime64(3, 'UTC')} "
+        "AND trace_id = {trace_id:String} AND span_id = {span_id:String} ORDER BY ms DESC",
+        {"system_id": own["system_id"], "start_ts": own["start_ts"], "trace_id": trace_id, "span_id": span_id},
     )
     texts = await _dict_texts("dict_sql", [int(r["sql_id"]) for r in sql_rows])
     sql_items = [
@@ -278,8 +279,9 @@ async def get_transaction_detail(
     if summary.has_detail:
         detail_rows = await clickhouse_client.query(
             "SELECT nodes, stacks FROM agent_t.tx_detail "
-            "WHERE trace_id = {trace_id:String} AND span_id = {span_id:String} LIMIT 1",
-            {"trace_id": trace_id, "span_id": span_id},
+            "WHERE system_id = {system_id:UInt32} AND start_ts = {start_ts:DateTime64(3, 'UTC')} "
+            "AND trace_id = {trace_id:String} AND span_id = {span_id:String} LIMIT 1",
+            {"system_id": own["system_id"], "start_ts": own["start_ts"], "trace_id": trace_id, "span_id": span_id},
         )
         if detail_rows:
             detail = TxDetailBody(

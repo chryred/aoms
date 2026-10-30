@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import os
@@ -26,6 +27,9 @@ LOG_ANALYZER_URL = os.getenv("LOG_ANALYZER_URL", "http://log-analyzer:8000")
 
 router = APIRouter(prefix="/api/v1/alerts", tags=["alerts"])
 
+# 알림 수신 경로의 ClickHouse 조회 상한 — 느린 ClickHouse 가 알림 처리를 붙잡지 않게 한다
+_CLICKHOUSE_ALERT_TIMEOUT_S = 5.0
+
 DEFAULT_WEBHOOK_URL = os.getenv("TEAMS_WEBHOOK_URL", "")
 notifier = TeamsNotifier(default_webhook_url=DEFAULT_WEBHOOK_URL)
 
@@ -46,22 +50,25 @@ async def _find_related_trace_ids(db: AsyncSession, system_id: int) -> list[str]
         return []
     now = datetime.now(timezone.utc)
     try:
-        rows = await clickhouse_client.query(
-            "SELECT DISTINCT toString(trace_id) AS trace_id FROM agent_t.tx_summary"
-            " WHERE system_id = {system_id:UInt32} AND error = 1"
-            " AND start_ts BETWEEN {from_ts:DateTime64(3)} AND {to_ts:DateTime64(3)}"
-            " LIMIT {limit:UInt32}",
-            {
-                "system_id": system_id,
-                "from_ts": now - timedelta(seconds=60),
-                "to_ts": now + timedelta(seconds=60),
-                "limit": 5,
-            },
+        rows = await asyncio.wait_for(
+            clickhouse_client.query(
+                "SELECT toString(trace_id) AS tid, max(start_ts) AS last_ts FROM agent_t.tx_summary"
+                " WHERE system_id = {system_id:UInt32} AND error = 1"
+                " AND start_ts BETWEEN {from_ts:DateTime64(3, 'UTC')} AND {to_ts:DateTime64(3, 'UTC')}"
+                " GROUP BY tid ORDER BY last_ts DESC LIMIT {limit:UInt32}",
+                {
+                    "system_id": system_id,
+                    "from_ts": now - timedelta(seconds=60),
+                    "to_ts": now + timedelta(seconds=60),
+                    "limit": 5,
+                },
+            ),
+            timeout=_CLICKHOUSE_ALERT_TIMEOUT_S,
         )
-    except ClickHouseError as exc:
+    except (ClickHouseError, asyncio.TimeoutError) as exc:
         logger.warning("Agent-T 에러 trace 조회 실패 (알림 처리는 계속): %s", exc)
         return []
-    return [r["trace_id"] for r in rows if r.get("trace_id")]
+    return [r["tid"] for r in rows if r.get("tid")]
 
 
 

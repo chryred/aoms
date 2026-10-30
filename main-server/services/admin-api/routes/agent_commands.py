@@ -1,6 +1,8 @@
 """Agent-T 원격 명령 — 스레드 덤프 요청·목록·본문 조회 (본문은 ClickHouse jvm_thread_dump)."""
+from datetime import datetime, timedelta, timezone
+
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth import get_current_user
@@ -15,6 +17,12 @@ router = APIRouter(
 )
 
 _COMMAND = "thread_dump"
+# 이보다 오래 pending/sent 인 요청은 사라진 것으로 보고 failed 처리 (gateway 도 같은 기준으로 전달 중단)
+_STALE_AFTER = timedelta(seconds=120)
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 async def _get_agent_t(db: AsyncSession, agent_id: int) -> AgentInstance:
@@ -31,6 +39,15 @@ async def request_thread_dump(
     agent_id: int, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user),
 ):
     await _get_agent_t(db, agent_id)
+    now = _utcnow()
+    await db.execute(
+        update(AgentCommand).where(
+            AgentCommand.agent_instance_id == agent_id,
+            AgentCommand.command == _COMMAND,
+            AgentCommand.status.in_(["pending", "sent"]),
+            AgentCommand.created_at < now - _STALE_AFTER,
+        ).values(status="failed", updated_at=now)
+    )
     inflight = (await db.execute(
         select(AgentCommand.id).where(
             AgentCommand.agent_instance_id == agent_id,
@@ -42,6 +59,7 @@ async def request_thread_dump(
         raise HTTPException(status_code=409, detail="이미 처리 중인 스레드 덤프 요청이 있습니다")
     cmd = AgentCommand(
         agent_instance_id=agent_id, command=_COMMAND, status="pending", requested_by=user.id,
+        created_at=now, updated_at=now,
     )
     db.add(cmd)
     await db.commit()

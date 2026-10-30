@@ -413,7 +413,7 @@ async def test_alert_related_traces_from_clickhouse(authed_client: AsyncClient, 
     await _add_agent_t(authed_client, system["id"])
     await _set_agent_t_status(db_session, "running")
 
-    mock_query = AsyncMock(return_value=[{"trace_id": "a" * 32}, {"trace_id": "b" * 32}])
+    mock_query = AsyncMock(return_value=[{"tid": "a" * 32}, {"tid": "b" * 32}])
     with patch("routes.alerts.clickhouse_client.query", mock_query):
         resp = await authed_client.post("/api/v1/alerts/receive", json=ALERT_PAYLOAD)
 
@@ -421,13 +421,14 @@ async def test_alert_related_traces_from_clickhouse(authed_client: AsyncClient, 
     assert await _stored_trace_ids(db_session) == ["a" * 32, "b" * 32]
     sql, params = mock_query.call_args.args
     assert "agent_t.tx_summary" in sql and "error = 1" in sql
+    assert "DateTime64(3, 'UTC')" in sql and "ORDER BY last_ts DESC" in sql
     assert params["system_id"] == system["id"]
     assert params["limit"] == 5
 
 
 async def test_alert_related_traces_skipped_without_agent_t(authed_client: AsyncClient, db_session):
     await create_system(authed_client)
-    mock_query = AsyncMock(return_value=[{"trace_id": "a" * 32}])
+    mock_query = AsyncMock(return_value=[{"tid": "a" * 32}])
     with patch("routes.alerts.clickhouse_client.query", mock_query):
         resp = await authed_client.post("/api/v1/alerts/receive", json=ALERT_PAYLOAD)
 
@@ -447,4 +448,22 @@ async def test_alert_related_traces_clickhouse_error_swallowed(authed_client: As
 
     assert resp.status_code == 200
     assert resp.json()["processed"][0]["status"] == "no_webhook"
+    assert await _stored_trace_ids(db_session) is None
+
+
+async def test_alert_related_traces_clickhouse_timeout_swallowed(authed_client: AsyncClient, db_session, monkeypatch):
+    import asyncio
+    from routes import alerts
+    system = await create_system(authed_client)
+    await _add_agent_t(authed_client, system["id"])
+    await _set_agent_t_status(db_session, "running")
+    monkeypatch.setattr(alerts, "_CLICKHOUSE_ALERT_TIMEOUT_S", 0.05)
+
+    async def hang(*_a, **_k):
+        await asyncio.sleep(5)
+
+    with patch("routes.alerts.clickhouse_client.query", hang):
+        resp = await authed_client.post("/api/v1/alerts/receive", json=ALERT_PAYLOAD)
+
+    assert resp.status_code == 200
     assert await _stored_trace_ids(db_session) is None

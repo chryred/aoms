@@ -67,7 +67,7 @@ admin-api/
 │   └── oauth.py             # OIDC IdP (ADR-014): /.well-known/openid-configuration, /oauth/jwks, /oauth/authorize, /oauth/token, /oauth/userinfo, /api/v1/oauth/clients
 └── services/
     ├── agent_utils.py           # sanitize_promql_label — PromQL 레이블 인젝션 방지 공유 유틸
-    ├── agent_t_installer.py     # Agent-T 설치 Job — SSH→JVM 탐색→JDK 판별→SFTP→attach→영구 적용→gateway 확인 (spec §8). exec 채널 거부 시 `ssh_shell_exec`(PTY 셸) 폴백
+    ├── agent_t_installer.py     # Agent-T 설치 Job — SSH→JVM 탐색→JDK 판별→SFTP→attach→영구 적용→gateway 확인 (spec §8). exec 채널 거부 시 `ssh_shell_exec`(PTY 셸) 폴백. `instance_role` 기본값은 `jvm_match` 의 JEUS 서버명(없으면 호스트 짧은 이름), 시스템 내 중복 금지. properties 는 `.tmp`(600) 업로드 → 검증 → `mv -f`. `AGENT_T_GATEWAY_URL` 이 비었거나 컨테이너명·루프백이면 Job 실패. 「이미 적용됨」은 gateway 스냅샷의 host 까지 일치해야 함
     ├── clickhouse_client.py     # ClickHouse HTTP(JSONEachRow) 조회 클라이언트(httpx.AsyncClient). 실패는 `ClickHouseError` → 라우터 `clickhouse_guard` 가 502 로 변환
     ├── cooldown.py              # 알림 중복 발송 방지 (5분 쿨다운)
     ├── notification.py          # TeamsNotifier — Webhook POST 전송 + SSL CA 처리 (카드 빌드는 adaptive_card_builder에 위임)
@@ -106,7 +106,7 @@ admin-api/
 | `users` | 프론트엔드 인증 사용자. `role`: admin / operator. `is_approved`: admin 승인 여부 (Phase 0) |
 | `agent_instances` | 수집기 인스턴스 메타정보. `ssh_username` 저장(synapse_agent/agent_t 필수), password 저장 금지 (Phase 6). 동일 IP에 서로 다른 OS 계정으로 등록된 에이전트 간 혼용 차단: 제어 API가 세션 계정과 등록 계정 일치 여부 검증. `agent_type='db'`는 `label_info` JSON에 `db_type`(oracle/postgresql/mssql/mysql) + 연결 정보 저장 (Phase 9) |
 | `apm_dashboards` | APM 실시간 대시보드 레이아웃. `owner_user_id`(users FK, CASCADE), `layout`/`filters` JSONB, `is_shared_default`(공용 기본 대시보드, admin 만 지정). Agent-T (ADR-022) |
-| `agent_commands` | Agent-T 원격 명령 큐(현재 `thread-dump`). `status`: pending → sent → done/failed. gateway 가 2초 폴링으로 전달하고 덤프 적재 후 `result_ref`(=명령 id) 기록 |
+| `agent_commands` | Agent-T 원격 명령 큐(현재 `thread-dump`). `status`: pending → sent → done/failed. gateway 가 2초 폴링으로 전달하고 덤프 적재 후 `result_ref`(=명령 id) 기록. 120초 넘게 pending/sent 인 행은 새 요청 시 `failed` 로 정리되고 409 판정에서 제외, gateway 도 전달하지 않음 |
 | `agent_install_jobs` | 비동기 설치 Job 이력. `status`: pending/running/done/failed (Phase 6) |
 | `incidents` | 인시던트 라이프사이클 — 관련 알림을 하나의 사건으로 묶어 MTTA/MTTR 추적. `status`: open/acknowledged/investigating/resolved/closed |
 | `incident_timeline` | 인시던트 이벤트 타임라인 — `event_type`: alert_added / analysis_added / status_changed / comment |
@@ -245,7 +245,7 @@ HTTP 지연은 Prometheus 쿼리 자체에 임계치가 박혀 있어 V1 은 완
 **제어 공통 규칙:**
 - 모든 제어 요청은 `X-SSH-Session: {token}` 헤더 필수 (`db` 타입 예외 — SSH 불필요)
 - systemd 미사용 — nohup + PID 파일 방식
-- `agent_type`: `synapse_agent` | `db` | `agent_t` (otel_javaagent 는 ADR-022 로 제거)
+- `agent_type`: `synapse_agent` | `db` | `agent_t` (otel_javaagent 는 ADR-022 로 제거). `agent_t` 는 `label_info` 가 JSON 객체여야 하고(422) 같은 시스템 내 `instance_role` 중복은 409, start/stop/restart 는 400
 - `GET /{id}/live-status` — synapse_agent / db: Prometheus 쿼리 → last_seen, live_status, collectors_active 반환
 
 **Synapse agent `label_info` JSON 스키마 (synapse_agent 타입):**
@@ -630,7 +630,7 @@ log-analyzer → POST /api/v1/analysis
 | `CLICKHOUSE_DB` | `agent_t` | ClickHouse DB 명 |
 | `CLICKHOUSE_USER` | `agent_t` | ClickHouse 사용자 |
 | `CLICKHOUSE_PASSWORD` | 없음 (필수) | ClickHouse 비밀번호. compose 가 ClickHouse 컨테이너에는 `AGENT_T_CH_PASSWORD` 로 매핑 |
-| `AGENT_T_GATEWAY_URL` | `""` | Agent-T 설치 Job 이 에이전트 설정(`gateway.url`)에 심는 주소 — WAS 서버에서 접근 가능한 `http://{server-a-ip}:8330` |
+| `AGENT_T_GATEWAY_URL` | (필수, compose 에 기본값 없음) | Agent-T 설치 Job 이 에이전트 설정(`gateway.url`)에 심는 주소 — WAS 서버에서 접근 가능한 `http://{server-a-ip}:8330` |
 | `AGENT_T_ARTIFACT_DIR` | `/app/artifacts/agent-t` | 설치 Job 이 SFTP 로 올릴 jar(`agent-t.jar`/`agent-t-legacy.jar`/`agent-t-attacher.jar`)와 `SHA256SUMS` 위치. 불일치 시 설치 실패. 준비 절차는 `main-server/artifacts/agent-t/README.md` |
 | `UVICORN_MAX_REQUESTS` | `500` | 워커당 처리 요청 수 상한. 초과 시 graceful restart → glibc 힙 단편화 리셋. OOM 방지 핵심 설정 |
 | `UVICORN_MAX_REQUESTS_JITTER` | `100` | `UVICORN_MAX_REQUESTS`에 더할 랜덤 편차. 다중 워커 동시 재시작 방지 |

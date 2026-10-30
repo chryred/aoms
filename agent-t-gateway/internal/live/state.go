@@ -334,6 +334,7 @@ func (s *State) Run(ctx context.Context) {
 type snapInstance struct {
 	SystemID     int64           `json:"system_id"`
 	InstanceRole string          `json:"instance_role"`
+	Host         string          `json:"host"`
 	LastSeen     int64           `json:"last_seen"`
 	Active       json.RawMessage `json:"active"`
 	Agg          []aggPayload    `json:"agg"`
@@ -354,7 +355,7 @@ func (s *State) Snapshot(systemIDs map[int64]bool) any {
 			active = json.RawMessage(is.active)
 		}
 		list = append(list, snapInstance{SystemID: is.inst.SystemID, InstanceRole: is.inst.InstanceRole,
-			LastSeen: is.lastSeen, Active: active, Agg: agg})
+			Host: is.inst.Host, LastSeen: is.lastSeen, Active: active, Agg: agg})
 	}
 	sort.Slice(list, func(i, j int) bool {
 		if list[i].SystemID != list[j].SystemID {

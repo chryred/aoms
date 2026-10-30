@@ -141,6 +141,13 @@ async def test_detail_404_and_path_order(authed_client, db_session):
     assert body["sql"][0]["sql_id"] == "00000000000000ff"
     assert body["sql"][0]["sql_text"] == "SELECT ?"
     assert body["detail"]["nodes"] == [{"n": 1}]
+    # tx_sql / tx_detail 조회는 system_id + start_ts 로 가지치기돼야 한다 (전체 테이블 스캔 방지)
+    for call_idx in (2, 4):
+        sql, params = qm.call_args_list[call_idx].args
+        assert "system_id = {system_id:UInt32}" in sql
+        assert "start_ts = {start_ts:DateTime64(3, 'UTC')}" in sql
+        assert params["system_id"] == s.id
+        assert params["start_ts"] == "2026-10-30 01:00:01.000"
 
 
 async def test_scatter_small_range_not_truncated(authed_client, db_session):

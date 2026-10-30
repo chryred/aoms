@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, patch
 
 from models import AgentCommand, AgentInstance, System
@@ -107,3 +108,30 @@ async def test_get_dump_clickhouse_error_502(authed_client, db_session):
         resp = await authed_client.get(f"/api/v1/agents/{a.id}/thread-dumps/{c.id}")
     assert resp.status_code == 502
     assert resp.json()["detail"] == "트랜잭션 저장소 조회 실패"
+
+
+def _utc_ago(seconds):
+    return datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(seconds=seconds)
+
+
+async def test_stale_inflight_is_failed_and_does_not_block(authed_client, db_session):
+    a = await _agent(db_session)
+    stale_pending = AgentCommand(agent_instance_id=a.id, command="thread_dump", status="pending", created_at=_utc_ago(300))
+    stale_sent = AgentCommand(agent_instance_id=a.id, command="thread_dump", status="sent", created_at=_utc_ago(121))
+    db_session.add_all([stale_pending, stale_sent])
+    await db_session.flush()
+    resp = await authed_client.post(f"/api/v1/agents/{a.id}/thread-dump")
+    assert resp.status_code == 201
+    await db_session.refresh(stale_pending)
+    await db_session.refresh(stale_sent)
+    assert stale_pending.status == "failed" and stale_sent.status == "failed"
+
+
+async def test_fresh_inflight_still_409(authed_client, db_session):
+    a = await _agent(db_session)
+    fresh = AgentCommand(agent_instance_id=a.id, command="thread_dump", status="sent", created_at=_utc_ago(60))
+    db_session.add(fresh)
+    await db_session.flush()
+    assert (await authed_client.post(f"/api/v1/agents/{a.id}/thread-dump")).status_code == 409
+    await db_session.refresh(fresh)
+    assert fresh.status == "sent"
