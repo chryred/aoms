@@ -18,6 +18,28 @@ const POLL_INTERVAL_MS = 3_000
 const FALLBACK_RETRY_MS = 30_000
 const SNAPSHOT_TIMEOUT_MS = 10_000
 
+/** parent 취소 또는 timeout 시 abort 되는 신호. AbortSignal.any/timeout 미지원 브라우저는 수동 결합. */
+function signalWithTimeout(
+  parent: AbortSignal,
+  ms: number,
+): { signal: AbortSignal; cancel: () => void } {
+  if (typeof AbortSignal.any === 'function' && typeof AbortSignal.timeout === 'function') {
+    return { signal: AbortSignal.any([parent, AbortSignal.timeout(ms)]), cancel: () => {} }
+  }
+  const ac = new AbortController()
+  const onAbort = () => ac.abort()
+  if (parent.aborted) ac.abort()
+  else parent.addEventListener('abort', onAbort, { once: true })
+  const timer = setTimeout(() => ac.abort(), ms)
+  return {
+    signal: ac.signal,
+    cancel: () => {
+      clearTimeout(timer)
+      parent.removeEventListener('abort', onAbort)
+    },
+  }
+}
+
 const liveKey = (e: { system_id: number; instance_role: string }) =>
   `${e.system_id}:${e.instance_role}`
 
@@ -60,15 +82,16 @@ export function useApmLiveStream(systemIds: number[]): LiveData {
       })
 
     const fetchSnapshot = async (): Promise<boolean> => {
+      const { signal, cancel } = signalWithTimeout(ac.signal, SNAPSHOT_TIMEOUT_MS)
       try {
-        const resp = await fetchWithRefresh(`/t/v1/snapshot?${query}`, {
-          signal: AbortSignal.any([ac.signal, AbortSignal.timeout(SNAPSHOT_TIMEOUT_MS)]),
-        })
+        const resp = await fetchWithRefresh(`/t/v1/snapshot?${query}`, { signal })
         if (!resp.ok) return false
         applySnapshot((await resp.json()) as LiveSnapshot)
         return true
       } catch {
         return false
+      } finally {
+        cancel()
       }
     }
 

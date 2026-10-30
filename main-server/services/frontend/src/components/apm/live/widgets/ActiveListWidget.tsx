@@ -127,7 +127,7 @@ export function ActiveListWidget({ events, target }: WidgetProps) {
             </button>
           </div>
           <pre className="text-text-primary font-mono text-[11px] whitespace-pre-wrap">
-            {selected.stack || '스택 정보 없음'}
+            {selected.stack?.length ? selected.stack.join('\n') : '스택 정보 없음'}
           </pre>
         </div>
       )}

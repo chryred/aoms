@@ -181,7 +181,8 @@ export interface ActiveTop {
   elapsed_ms: number
   phase: string
   sql: string
-  stack: string
+  /** 프레임 문자열 배열 (gateway `[]string` — 샘플이 없으면 null) */
+  stack: string[] | null
 }
 
 export interface LiveActiveEvent {

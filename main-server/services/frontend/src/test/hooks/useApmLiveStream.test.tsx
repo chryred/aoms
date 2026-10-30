@@ -199,4 +199,47 @@ describe('useApmLiveStream', () => {
     unmount()
     expect(signal!.aborted).toBe(true)
   })
+
+  it('AbortSignal.any 가 없어도 snapshot 요청이 동작하고 언마운트 시 abort 된다', async () => {
+    const original = AbortSignal.any
+    // @ts-expect-error 구형 브라우저 흉내
+    AbortSignal.any = undefined
+    try {
+      let reqSignal: AbortSignal | undefined
+      fetchMock.mockImplementation((_u: string, init: { signal: AbortSignal }) => {
+        reqSignal = init.signal
+        return Promise.resolve(new Response(JSON.stringify({ instances: [] }), { status: 200 }))
+      })
+      openSse.mockImplementation(() => new Promise(() => {}))
+      const { unmount } = renderHook(() => useApmLiveStream([1]))
+      await waitFor(() => expect(reqSignal).toBeDefined())
+      expect(reqSignal!.aborted).toBe(false)
+      unmount()
+    } finally {
+      AbortSignal.any = original
+    }
+  })
+
+  it('AbortSignal.any 가 없을 때 timeout 이 지나면 snapshot 요청을 abort 한다', async () => {
+    vi.useFakeTimers()
+    const original = AbortSignal.any
+    // @ts-expect-error 구형 브라우저 흉내
+    AbortSignal.any = undefined
+    try {
+      let reqSignal: AbortSignal | undefined
+      fetchMock.mockImplementation((_u: string, init: { signal: AbortSignal }) => {
+        reqSignal = init.signal
+        return new Promise(() => {})
+      })
+      openSse.mockImplementation(() => new Promise(() => {}))
+      const { unmount } = renderHook(() => useApmLiveStream([1]))
+      await vi.waitFor(() => expect(reqSignal).toBeDefined())
+      expect(reqSignal!.aborted).toBe(false)
+      await vi.advanceTimersByTimeAsync(10_001)
+      expect(reqSignal!.aborted).toBe(true)
+      unmount()
+    } finally {
+      AbortSignal.any = original
+    }
+  })
 })
