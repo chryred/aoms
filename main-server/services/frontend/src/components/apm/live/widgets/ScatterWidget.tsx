@@ -2,6 +2,7 @@ import { useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useApmScatter } from '@/hooks/queries/useApmScatter'
 import {
+  canvasFont,
   cssVar,
   niceMax,
   pointsInRect,
@@ -115,7 +116,7 @@ export function ScatterWidget({ events, target, slowMs }: WidgetProps) {
       normal: cssVar(LEVEL_VAR.normal),
       warning: cssVar(LEVEL_VAR.warning),
     }
-    ctx.font = '10px sans-serif'
+    ctx.font = canvasFont(10)
     ctx.fillStyle = colors.text
     ctx.strokeStyle = colors.border
     ctx.textAlign = 'right'
@@ -127,8 +128,9 @@ export function ScatterWidget({ events, target, slowMs }: WidgetProps) {
       ctx.stroke()
       ctx.fillText(`${Math.round(yMax * f)}`, PAD.l - 4, y + 3)
     }
-    ctx.textAlign = 'center'
     for (const f of [0, 0.5, 1]) {
+      // 양 끝 라벨은 캔버스 밖으로 잘리지 않도록 정렬 기준을 바꾼다
+      ctx.textAlign = f === 0 ? 'left' : f === 1 ? 'right' : 'center'
       ctx.fillText(
         formatKST(new Date(tMin + (tMax - tMin) * f), 'HH:mm:ss'),
         scale.x(tMin + (tMax - tMin) * f),
