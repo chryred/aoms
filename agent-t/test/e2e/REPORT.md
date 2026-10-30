@@ -86,6 +86,24 @@
 2. 에이전트 로그에 버퍼 지표가 없음(`Sender.bufferedBytes()` 미출력) — 하니스는 class histogram·GC 후 힙으로 대체. 5분 주기 또는 drop 시 로그 권장.
 3. `docker stats` 의 gateway 인입량 근사 ≈ 67~77 B/tx(gzip), ClickHouse 디스크 ≈ 63 B(summary)+58 B(sql)/tx.
 
+## Fix round 2 (merge feat/agent-t 8ccf0b9, 새 jar·gateway·admin-api 재배포 후 재실행)
+재배포: `git merge feat/agent-t`, `agent-t/build.sh jar` → 두 Tomcat 재기동 후 재attach(S1), gateway 이미지를 병합 소스로 재빌드, admin-api 재시작(frontend 유지). 원본: `results-committed/fix2-*`.
+
+**Docker VM 메모리(각 run-info.txt)**: S1~S6 실행 직전 free 1.2GB 였으나 swap 1010/1024MB. S10 직후·S7 직전 free 62~70MB, swap 1024/1024MB(가득) — dev 스택 외 `synq-opensearch`·`dev-clickhouse` 등 다른 작업 컨테이너가 같은 VM 을 공유. 아래 S7·S10 은 **환경 제약 실행(environment-limited)** 으로 표기하며 FAIL 로 확정하지 않는다.
+
+| 시나리오 | 결과 |
+|---|---|
+| S1~S6 회귀 (`fix2-s1-s6`) | 전부 PASS. S1 attach 1.3s, S2 20/20 trace 연결, S3 JDK7·JDK17 `/db` 40/40 SQL≥3, **S3b 커넥션 추적 JDK7 40/40·JDK17 40/40 PASS(D-H1-1 수정 확인)**, S4 53,069=53,069, S5 p95 25.1→25.2ms, S6 3회 min 17.9s / max 25.3s(≤35s) |
+| S7 (`fix2-s7`) | **환경 제약 — 판정 보류.** swap 가득·free 66MB·부하 평균 5.8→16. 송신 1.93M/3.0M, 실패 post 667, 적재 지연 기록값 정지(99999999). `/apm/transactions` 전체 시스템 프로브 8회 중 7회 200(0.12~2.4s, 이전엔 6회 중 3회 502), 1회 502(16.5s, VM 포화 중). api `/systems` p95 4.9→3.7ms(통과). 호스트·VM 이 조용했던 최초 실행(쿼리 프로브 전, 호스트 조용)은 모든 기준 충족(위 S7 상세 표) |
+| S10 기본 큐 256MB (`fix2-s10`) | 환경 제약. 실패 post 9(이전 49/97/56), 프로브 p99 2.1s, max 6.7s — 개선됐으나 기준 미달. rows 201,024 ≈ sent 201,966(dropped 0, 전량 적재) |
+| S10 큐 64MB (`fix2-s10-q64`, `E2E_CH_QUEUE_MAX_BYTES=67108864`) | **PASS** — 실패 post 0, 명시적 429 392건, 프로브 p99 519ms / max 3.0s, rows 209,025 ≥ sent 203,196, dropped 0. VM free 70MB·swap 가득 상태에서도 통과 → 백로그가 작으면 이 VM 에서 정지 영향이 사라짐 |
+
+### 결함 상태
+- **D-H1-1 수정 확인**: pgjdbc `BaseDataSource` 경로에서 conn_open/close 가 JDK7·JDK17 모두 40/40 집계(S3b PASS).
+- **D-H1-2 수정 확인(부분적 환경 제약)**: 두 단계 쿼리 후 전체 시스템 검색이 S7 부하 중 대부분 0.1~2.4s 에 200. VM 포화 극단 구간에서 1회 502(16.5s)는 남음 — 정상 환경에서 재확인 필요.
+- **D-H1-3 환경 요인 유력(gateway 코드 결함 없음)**: 소유자 회귀 테스트가 인입 경로가 ClickHouse 를 기다리지 않음을 보였고, 같은 시나리오가 큐 64MB 에서는 통과, 256MB 에서는 실패 9건으로 감소(이전 49~97). VM swap 가득·free<100MB 조건과 일치. 운영 사양 서버(dev 서버)에서 S10 을 재측정해 종결할 것.
+- 운영 메모: 개발 VM 처럼 메모리가 빠듯하면 `GATEWAY_CH_QUEUE_MAX_BYTES` 를 줄이면(64MB) 정지 중 429 로 명시적 backoff 가 동작해 에이전트 타임아웃이 없어진다 — 운영 기본값(256MB)은 서버 메모리 기준으로 재검토.
+
 ## 재현·운영 방법
 ```
 agent-t/test/e2e/run.sh up       # Tomcat·PG·Prometheus·ClickHouse·gateway 컨테이너 + 호스트 admin-api(8080)·frontend(3001) + 시드

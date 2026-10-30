@@ -1,0 +1,7 @@
+S1 PASS - attach 후 5초 내 snapshot 등장: attach 1.3s, 비정상 응답 7=0 9=0
+S2 PASS - JDK7→JDK17 trace 연결: trace=15da466b5f076b7f5a0c49c811de5a69 rows=2 path/systems=2 2 연결된 trace 20/20
+S3 PASS - 커넥션 open/close 추적: JDK7 40/40, JDK17 40/40
+S3 PASS - 상세 보존 규칙: JDK7 /db 40건 SQL 3건 이상 40/40, JDK17 /db 40건; ok detail 9/300, slow 6/6, error 8/8, slow gap 3501ms
+S4 PASS - 전량 수집: hey=53069 tx_summary=53069 차이 0.000%
+S5 PASS - gateway 중단 내성: p95 25.1→25.2ms (Δ0.10; pause Δ0.10), 에이전트 객체 1.89MB(pause 1.89MB), 힙Δ 2.67MB, 재개 rows=6911
+S6 PASS - 킬 스위치(3회): 중단까지 min 17.9s / max 25.3s (≤35s), 재활성 시 재attach 없이 재개, 서비스 실패응답 0

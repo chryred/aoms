@@ -594,7 +594,7 @@ d=json.load(sys.stdin)["data"]["result"]; print(d[0]["value"][1] if d else "NA")
 
 cmd_test() {
   : > "$RES/summary.txt"; : > "$RES/metrics.env"
-  { echo "run_id=$RUN_ID"; echo "start=$(date -u +%FT%TZ)"; echo "load_avg=$(uptime | sed 's/.*load averages*: //')"; } > "$RES/run-info.txt"
+  { echo "docker_vm_mem:"; docker run --rm alpine free -m 2>&1 | sed 's/^/  /'; echo "run_id=$RUN_ID"; echo "start=$(date -u +%FT%TZ)"; echo "load_avg=$(uptime | sed 's/.*load averages*: //')"; } > "$RES/run-info.txt"
   login 2>/dev/null || { echo "admin-api 로그인 실패 — 'run.sh up' 먼저"; exit 1; }
   local list=("$@"); [ ${#list[@]} -eq 0 ] && list=(1 2 3 4 5 6 7 8 10)
   for n in "${list[@]}"; do log "=== 시나리오 $n ==="; "s$n"; done
