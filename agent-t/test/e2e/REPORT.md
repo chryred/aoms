@@ -18,8 +18,9 @@
 | 3 | 상세 보존 규칙 | PASS | `/slow` 6/6 상세, `/error` 8/8 상세, `/ok` 5/300(1.7%) 상세, `/slow` 호출 트리 gap 3503ms |
 | 4 | 전량 수집 | PASS | hey 200 응답 52,855 == tx_summary 52,855 (차이 0.000%), 881 rps |
 | 5 | gateway 중단 내성 | PASS | p95 24.7→24.5ms (Δ-0.2), 중단 60s 동안 실패 응답 0, 에이전트 객체 1.9MB(상한 8MB), 힙Δ +4.2MB(GC 후), `docker pause`(무응답) p95 Δ0, 재기동 후 수신 재개 |
-| 6 | 킬 스위치 | PASS | `PATCH /agents/{id}` label_info.enabled=false → 17.6s(1차 실행 24.8s) 후 수집 중단, 서비스 실패 0; enabled=true 로 재attach 없이 수집 재개 |
-| 7 | 5,000 TPS × 10분 | 부분 | 아래 참조 — 유효 실행은 최초 1회 |
+| 6 | 킬 스위치 | PASS | 3회 토글 min 5.4s / max 16.1s (기준 ≤35s), 재attach 없이 재개, 서비스 실패 0 |
+| 10 | ClickHouse 45s 정지 내성 | FAIL(결정적 재현) | D-H1-3 |
+| 7 | 5,000 TPS × 10분 | 최초 실행 PASS급 / 재실행 FAIL | 아래 + Fix round 1(D-H1-2/3) |
 | 8 | 에이전트 오버헤드(JDK17) | PASS | CPU 13.65%→13.17%(Δ-0.48pt), 요청당 CPU 156.9→149.1µs, p95 25.27→24.93ms, 힙 +1.9MB |
 
 ### 시나리오 7 상세 (agentsim 50 JVM, 5,000 TPS, 10분, 최초 실행: 호스트 조용·ClickHouse 신규)
@@ -34,30 +35,64 @@
 | 압축 저장 | tx_summary 62.6 B/행, tx_sql 58.1 B/행 (tx 1건 ≈ 요약 1행 + SQL 1행 ≈ 121 B 디스크) |
 | 수신 바이트 | gateway 수신 ≈ 67~77 B/tx (gzip 후, 근사 — 컨테이너 NetIO 델타) |
 - admin-api p95 퇴행은 기준선이 서브밀리초대(2.4ms)라 상대값이 타이머 해상도·노이즈에 지배됨. 판정 기준을 "상대 ≤20% 또는 절대 ≤ +1ms"로 `run.sh` 에 명시했다(엄격히 상대값만 보면 FAIL). 기준선 3회 중앙값/부하 2시점 최댓값 방식으로 바꾼 재실행은 호스트 오염으로 무효.
-- 오염된 재실행(참고): 실행 2 — 실패 post 159, 지연 max 9.2s, ClickHouse CPU 최대 138%; 실행 3 — 실패 post 1,413, 지연 p95 34s. 원인은 호스트 과부하(DNS·PG·Prometheus·ClickHouse 요청 타임아웃). 다만 ClickHouse 가 느려지면 gateway 가 429 가 아니라 요청 타임아웃(10s)으로 보이는 점은 개선 후보(Observations 참조).
+- 오염된 재실행(참고): 실행 2 — 실패 post 159, 지연 max 9.2s, ClickHouse CPU 최대 138%; 실행 3 — 실패 post 1,413, 지연 p95 34s. 당시에는 호스트 과부하로 판단했으나 Fix round 1 의 S10 재현으로 ClickHouse 포화·정지와의 인과 가능성이 확인됨 (D-H1-3).
 
 ### 용량 추정 보정값 (spec §7.6 입력)
 - tx 1건 디스크: tx_summary 62.6 B + tx_sql 58.1 B(시뮬레이터 SQL 1건/tx) ≈ 121 B/tx(상세 1% 별도, tx_detail 66 B/행). 5,000 TPS × 86,400s × 7일 ≈ 3.0G 행 → 요약+SQL 약 360GB(시뮬레이터 트랜잭션 기준; 실제 SQL 수·URI 분포에 따라 변동).
 - 5,000 TPS 에서 gateway ≈ 0.2~0.3 코어, ClickHouse ≈ 0.1~0.4 코어(상한 대비 여유 큼). 기준 환경은 위 한계 참조.
 - 에이전트: 요청당 CPU 추가분 측정 오차 이내(±8µs/req), 힙 추가 ≈ 2MB, 전송 중단 시 버퍼 ≈ 2MB 로 상한 내.
 
-## Defects found
-H1 이 확인한 기능 결함은 없음(시나리오 1~6, 8 모두 통과). 아래는 관찰 사항·개선 제안.
+## Controller decisions (fix round 1)
+- S7 admin-api 기준: "상대 ≤20% 또는, 기준선 p95 < 10ms 일 때 절대 ≤ +1ms" 채택.
+- S6 킬 스위치 기준: ≤35s (레지스트리 30s 갱신 + 1s 전송 + 여유). 이 설계에서 킬 스위치 경로는 에이전트별 `label_info.enabled`.
 
-### Observations (코드 수정 소유자에게 전달)
-1. **킬 스위치 최악 지연이 30초 목표에 근접** — gateway 레지스트리 30초 주기 갱신(`agent-t-gateway/internal/registry`) + 에이전트 1초 전송 주기이므로 최악 ≈ 31초. 측정 17.6s / 24.8s. 제안: 설정 변경 시 레지스트리 즉시 갱신 트리거(예: admin-api 가 PATCH 후 gateway 에 reload 호출) 또는 주기 15초.
-2. **에이전트 로그에 버퍼 지표가 없음** — brief 는 "에이전트 로그의 버퍼 지표"로 8MB 상한을 확인하라고 했으나 `Sender.bufferedBytes()` 는 로그에 출력되지 않는다(`agent-t/core/.../transport/Sender.java`). 하니스는 `jcmd GC.class_histogram`의 `com.synapsev.agentt.*` 객체 바이트와 GC 후 힙 증가로 대체 측정했다. 제안: 5분마다 또는 drop 발생 시 `buffer_bytes`·`dropped` 를 INFO 로그.
-3. **ClickHouse·Prometheus 지연 시 gateway 인입 타임아웃** — 오염 실행에서 `clickhouse flush ... deadline exceeded` 중 agentsim post 가 10s 타임아웃(429 가 아님). `Backpressure` 80% 규칙이 바이트 큐 기준이라 flush 가 느린 초반에는 핸들러가 블록될 수 있음(미확정 — 호스트 오염 때문에 재현 조건 불명). dev 서버에서 ClickHouse CPU 상한(1.5코어)을 일부러 포화시켜 재확인 권장.
-4. `conn_open/conn_close` 는 `DataSource.getConnection` 경로만 집계(설계대로). 하니스 `/db` 는 `PGSimpleDataSource` 를 사용해 이 경로를 태운다. `DriverManager` 직접 사용 앱은 커넥션 지표 0 이 정상.
-5. JDK7 에서 attach 시 retransform `ok=3 failed=0`, JDK17 은 `ok=7 failed=0` — JDK7 쪽 대상 클래스가 더 적게 로딩된 상태에서의 정상 동작(StackMapTable 오류 없음).
+## Fix round 1 결과 (원본: `results-committed/<run-id>/`)
+| 항목 | 결과 |
+|---|---|
+| S6 킬 스위치 3회(위상 +0/+9/+19s) | PASS — 중단까지 5.4 / 16.1 / 8.9s (min 5.4, max 16.1, 기준 ≤35s), 재활성 후 재attach 없이 재개(18/27/21s), 서비스 실패 0 (`fix1-s6s10`). 첫 시도는 다른 작업의 `pkill -f .bin/hey` 로 부하기가 죽어 무효 → hey 바이너리를 `.bin/e2e-hey` 로 개명해 재발 방지 |
+| S3 JDK7 JDBC (attach 전 `/db` 호출 → attach → `/db`) | PASS — JDK7 `/db` 40건 모두 sql_cnt≥3, tx_sql 행 존재, JDK17 동일 (`fix1-s1s3`). tomcat7 은 처음부터 e2e-postgres 에 연결돼 있었음 |
+| S3b 커넥션 open/close 추적 | **FAIL** — D-H1-1 |
+| S7 재실행(`fix1-s7`, 부하 평균 4.4 → 종료 시 11) | **FAIL** — D-H1-2/D-H1-3. 3.0M 중 1.39M 만 송신(실패 post 1,201), ClickHouse CPU 최대 178%, `/apm/transactions` 전체 시스템 검색 프로브 6회 중 3회 502(15~17s). api `/systems` p95 2.7→3.3ms(+0.6ms 통과) |
+| S10 ClickHouse 45s 정지 | **FAIL, 결정적 재현** — D-H1-3 |
+| `dropped` 검사 | Prometheus 결과가 비면 FAIL 로 수정(`NA`). S7 은 `agent_t_dropped_total{system_name="e2e-sys-sim"}` 사용 |
+| 결과 보관 | 실행별 `results/<run-id>/`(타임스탬프, 덮어쓰기 없음) + `E2E_PUBLISH=1` 시 `results-committed/<run-id>/` 로 summary·metrics·run-info 복사 |
+| `down` | pid 파일에 기록한 프로세스(와 자식)만 종료, 8080/3001 을 모르는 프로세스가 점유 중이면 `up` 이 즉시 실패, `down` 은 경고만 |
+
+참고: 최초 S7(호스트 조용, 쿼리 부하 없음)은 PASS 급 수치(위 S7 상세 표). 재실행에서 달라진 점은 호스트 부하와 **S7 중 30초마다 보낸 `/apm/transactions` 전체 시스템 검색 프로브**이다.
+
+## Defects found
+기능 결함 후보 3건. (S1~S5·S8 은 영향 없음)
+
+### D-H1-1 (의심, 미확정) 커넥션 open/close 가 항상 0 — instrument
+- 증상: `PGSimpleDataSource.getConnection()` 경유 `/db`(SQL 3건·fetch 3건은 정상 집계)에서 `tx_summary.conn_open/conn_close` 가 JDK7·JDK17 모두 40/40건 0 (`results-committed/fix1-s1s3`). conn_close 도 0 이므로 DataSource 매칭 하나만의 문제는 아닐 수 있음.
+- 가설: `agent-t/instrument/.../Matchers.java:76` `anc.contains(DATA_SOURCE)` — pgjdbc 에서 `getConnection()` 은 `BaseDataSource` 에 선언되고 `BaseDataSource` 자체는 `javax.sql.DataSource` 를 구현하지 않아(서브클래스 `PGSimpleDataSource` 가 구현) 선언 클래스 기준 상위 판정에서 빠진다. `Connection.close`(`Matchers.java:63`)도 구현 클래스 `PgConnection` 상속 사슬에서 매칭이 안 되는지 확인 필요. 커넥션 풀(Tomcat JDBC/HikariCP/JEUS)로도 재현 확인 권장.
+- 제안: 하니스에 풀 DataSource 경로 추가 후 소유 태스크(G2)에서 상위 타입 판정을 "선언 클래스의 어느 조상이든 DataSource 를 구현하고 서브클래스가 구현하는 경우" 까지 확장.
+
+### D-H1-2 `/api/v1/apm/transactions` 전체 시스템 검색이 ClickHouse 를 포화(502) — admin-api D2 쿼리 비용
+- 재현: S7(5,000 TPS, 3개 시스템 약 1시간 분량) 중 `GET /api/v1/apm/transactions?system_ids=1&system_ids=2&system_ids=3&limit=100` 30초마다 호출 → 6회 중 3회 502(소요 15.3/15.6/17.2s), 나머지는 0.17~0.82s (`results-committed/fix1-s7/s7-apm-probe.txt`). admin-api 로그 `ClickHouseError: ClickHouse 연결 실패`(httpx 타임아웃), QA 가 본 `Memory limit exceeded 1.6GiB` 와 동일 계열.
+- 원인 가설: `main-server/services/admin-api/routes/apm.py` `search_transactions` 마지막 쿼리(`ORDER BY start_ts DESC LIMIT … OFFSET …`, 약 L200-210)가 다수 system_id 에 대해 테이블 정렬키 `(system_id, start_ts)` 의 read-in-order 최적화를 못 쓰고 범위 내 전 행(27개 컬럼, 문자열 포함)을 읽고 정렬한다. 1시간×5,000TPS ≈ 18M 행. ClickHouse 가 1.5코어/1.6GiB 한도에 닿아 같은 서버의 적재 INSERT 도 지연된다(S7 재실행에서 송신량 50% 미만, 적재 지연 기록값 99999999=정지).
+- 제안 수정: (1) 1단계로 `trace_id, span_id, start_ts` 만 `ORDER BY start_ts DESC LIMIT n` 으로 뽑고 2단계에서 해당 키로 전체 컬럼 조회, (2) 시스템별로 `LIMIT n` 쿼리 후 Python 에서 병합, (3) 기본 조회 구간을 15분 이하로 제한하고 `max_execution_time`/`max_memory_usage` 쿼리 설정 부여, (4) 쿼리 사용자 `agent_t_profile` 에 읽기·쓰기 프로필 분리(적재용 사용자와 조회용 사용자).
+
+### D-H1-3 ClickHouse 정지/포화 시 gateway 인입 지연·타임아웃 (의심 결함, 미해결)
+- 결정적 재현(S10): 2,000 TPS agentsim 중 ClickHouse `docker pause` 45초 → agentsim 실패 post 49 / 97 / 56 건(3회 모두, 429 아님), 프로브 최대 지연 18.4 / 13.2 / 10.4s. 타임라인(`fix1-s10c/s10-timeline.txt`): 정지 12초 후부터 지연 증가(0.5→4.5s), 이후 한 요청이 22.8s 걸리고 정지 해제 직전 회복. 모든 JVM 이 동시에 영향(실패 수가 JVM 수 49 의 배수 근처). 적재 행은 결국 전량 도착(rows ≥ sent, dropped 0).
+- 배제한 원인: 호스트→컨테이너 포트포워딩 문제 아님(agentsim 을 dev-net 내부 컨테이너에서 실행해도 실패 56, `fix1-s10-indocker`). 대조군: 같은 방식으로 **tomcat7 을 pause 하면 PASS**(실패 0, p99 806ms, `fix1-s10-control-pause-tomcat7`) → ClickHouse 정지와 인과가 있음.
+- goroutine dump(정지+25초, `fix1-s10-dump/s10-dump-last.txt`): 인입 핸들러 goroutine 이 1개(`protocol.Decode` gunzip 중)뿐이고 `Writer.mu`/`flushMu` 등 뮤텍스 대기 goroutine 없음 → "핸들러가 락에서 막힘" 가설은 반증, 클라이언트 요청이 핸들러에 도달하기 전(accept/read 단계)에 지연되는 것으로 보임. 정확한 병목은 미확정.
+- 후보(미검증): ① `agent-t-gateway/internal/store/writer.go` flush 실패 시 재큐잉(`append(lines[off:len:len], w.bufs[t].lines...)`, 약 L297-302) 및 `insert` 의 30s 클라이언트 타임아웃(L78)로 flush goroutine 이 오래 점유되며 GC·CPU(컨테이너 cpus=1.0)를 압박, ② 백로그 JSON 라인 수십만 개의 GC 압력(gateway CPU 상한 1코어), ③ Docker pause 시 브리지 네트워크 영향(대조군으로 상당 부분 배제).
+- 다음 단계 제안: gateway 에 `net/http/pprof`(또는 `/metrics` 핸들러 지연 히스토그램)를 추가해 정지 중 CPU/GC/네트워크 프로파일 확보, 컨테이너 cpus 상한 해제 대조 실행, `docker pause` 대신 ClickHouse 를 느리게 만드는 방식(`SYSTEM STOP MERGES` 무관, 쿼리 부하)과 비교.
+- 결과 해석: 에이전트 쪽은 영향 없음(WAS 스레드 비차단, 버퍼 상한 내). 데이터 손실도 없으나 에이전트의 post 타임아웃·재전송 증가.
+
+### Observations
+1. 킬 스위치 최악 지연: 3회 측정 5.4/16.1/8.9s(앞선 측정 17.6·24.8s) — 이론 최악 ≈31s, 승인된 기준 35s 이내.
+2. 에이전트 로그에 버퍼 지표가 없음(`Sender.bufferedBytes()` 미출력) — 하니스는 class histogram·GC 후 힙으로 대체. 5분 주기 또는 drop 시 로그 권장.
+3. `docker stats` 의 gateway 인입량 근사 ≈ 67~77 B/tx(gzip), ClickHouse 디스크 ≈ 63 B(summary)+58 B(sql)/tx.
 
 ## 재현·운영 방법
 ```
 agent-t/test/e2e/run.sh up       # Tomcat·PG·Prometheus·ClickHouse·gateway 컨테이너 + 호스트 admin-api(8080)·frontend(3001) + 시드
-agent-t/test/e2e/run.sh test     # 시나리오 1~8 (E2E_LOAD_DURATION=2m 로 7번 단축 가능). 일부만: run.sh test 2 3
+agent-t/test/e2e/run.sh test     # 시나리오 1~8,10 (E2E_LOAD_DURATION=2m 로 7번 단축 가능). 일부만: run.sh test 2 3
 agent-t/test/e2e/run.sh down     # 전부 중지·볼륨 삭제
 ```
-- 결과 파일: `results/summary.txt`, `results/metrics.env`, 시나리오별 hey 출력(gitignore).
+- 결과 파일: `results/<run-id>/`(gitignore; `results/latest` 링크). `E2E_PUBLISH=1 E2E_RUN_ID=<id> run.sh test 7` 이면 summary/metrics 를 `results-committed/<id>/` 에 복사. 시나리오 10 변형: `E2E_SIM_IN_DOCKER=1`(agentsim 컨테이너 실행), `E2E_S10_PAUSE=<컨테이너>`(대조군), `E2E_S10_QUIT=1`(정지+25초 goroutine dump, 수치 무효).
 - 사전 요구: Docker, Go, `agent-t/build.sh fetch && jar` (up 이 자동 수행), npm.
 
 ### 브라우저 확인용 (시나리오 9)
