@@ -62,7 +62,13 @@ const emptyLive = (over: Partial<LiveData> = {}): LiveData => ({
 })
 
 function fakeCtx() {
-  return new Proxy({}, { get: () => () => {}, set: () => true })
+  return new Proxy(
+    {},
+    {
+      get: (_t, prop) => (prop === 'measureText' ? () => ({ width: 10 }) : () => {}),
+      set: () => true,
+    },
+  )
 }
 
 function renderPage(url = '/apm/live') {

@@ -35,7 +35,7 @@ export function TxPathTab({ path, current }: { path: TxSummary[]; current: TxSum
               </div>
               <div className="bg-bg-deep relative mt-1 h-3 rounded-sm">
                 <div
-                  className={`absolute h-3 rounded-sm ${r.error ? 'bg-critical' : 'bg-accent'}`}
+                  className={`absolute h-3 rounded-sm ${r.error ? 'bg-critical' : 'bg-text-secondary'}`}
                   style={{
                     left: `${(offset / span) * 100}%`,
                     width: `${Math.max(0.5, (r.elapsed_ms / span) * 100)}%`,
