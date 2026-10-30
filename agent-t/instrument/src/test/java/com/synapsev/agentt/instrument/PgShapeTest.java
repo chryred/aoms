@@ -46,15 +46,22 @@ public class PgShapeTest {
     }
 
     @Test
-    public void unrelatedClassWithCovariantFactoryIsCounted() throws Exception {
-        Object provider = env.loader.loadClass("testapp.ConnectionProvider").newInstance();
+    public void unrelatedClassGetConnectionAccessorIsNotAnOpen() throws Exception {
+        DataSource ds = (DataSource) make("testapp.PgSimpleDataSource");
+        Object accessor = env.loader.loadClass("testapp.ConnectionProvider").newInstance();
         Object tok = env.begin("/db");
-        Connection c = (Connection) provider.getClass().getMethod("getConnection").invoke(provider);
+        Connection c = ds.getConnection();
+        // like Tomcat-JDBC PooledConnection.getConnection(): hands back a stored physical connection
+        accessor.getClass().getMethod("getConnection").invoke(accessor);
+        accessor.getClass().getMethod("getConnection").invoke(accessor);
         c.close();
         env.end(tok);
+        assertEquals(0, env.transformer.failures());
+        assertTrue(!env.loader.transformedNames.contains("testapp.ConnectionProvider"));
         TxRecord r = env.records().get(0);
         assertEquals(1, r.connOpen);
         assertEquals(1, r.connClose);
+        assertEquals(0, r.connLeak);
     }
 
     @Test

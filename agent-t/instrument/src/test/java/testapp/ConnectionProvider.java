@@ -1,8 +1,13 @@
 package testapp;
 
-/** Unrelated type (no JDBC supertypes) with a covariant connection factory. */
+/** Mimics Tomcat-JDBC PooledConnection: no JDBC supertypes, accessor returning a stored physical connection. */
 public class ConnectionProvider {
+    private PgConn physical;
+
     public PgConn getConnection() {
-        return (PgConn) Make.of(PgConn.class);
+        if (physical == null) {
+            physical = (PgConn) Make.of(PgConn.class);
+        }
+        return physical;
     }
 }

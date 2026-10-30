@@ -12,6 +12,7 @@ final class Matchers {
     private static final String RESULT_SET = "java/sql/ResultSet";
     private static final String DATA_SOURCE = "javax/sql/DataSource";
     private static final String COMMON_DATA_SOURCE = "javax/sql/CommonDataSource";
+    private static final String POOLED_CONNECTION = "javax/sql/PooledConnection";
     private static final String DB_META_DATA = "java/sql/DatabaseMetaData";
     static final String CONNECTION_TYPE = CONNECTION;
     private static final String HTTP_URL_CONNECTION = "java/net/HttpURLConnection";
@@ -36,28 +37,7 @@ final class Matchers {
     /** True when the class belongs to at least one instrumented family. */
     static boolean interesting(String name, Set<String> anc) {
         return isHttpServlet(name) || hasFilter(anc) || anc.contains(STATEMENT) || anc.contains(CONNECTION)
-                || anc.contains(RESULT_SET) || anc.contains(DATA_SOURCE) || anc.contains(COMMON_DATA_SOURCE) || anc.contains(HTTP_URL_CONNECTION);
-    }
-
-    /**
-     * Cheap raw-bytes test: does the class file mention "getConnection" at all? Connection factories are matched
-     * by method shape in any class (pgjdbc declares it in a base class that does not implement DataSource).
-     */
-    static boolean mentionsGetConnection(byte[] b) {
-        byte[] n = {'g', 'e', 't', 'C', 'o', 'n', 'n', 'e', 'c', 't', 'i', 'o', 'n'};
-        outer:
-        for (int i = 0; i <= b.length - n.length; i++) {
-            if (b[i] != 'g') {
-                continue;
-            }
-            for (int j = 1; j < n.length; j++) {
-                if (b[i + j] != n[j]) {
-                    continue outer;
-                }
-            }
-            return true;
-        }
-        return false;
+                || anc.contains(RESULT_SET) || anc.contains(DATA_SOURCE) || anc.contains(COMMON_DATA_SOURCE) || anc.contains(POOLED_CONNECTION) || anc.contains(HTTP_URL_CONNECTION);
     }
 
     /**
@@ -105,8 +85,10 @@ final class Matchers {
             if (anc.contains(DATA_SOURCE) && returnsObject(desc)) {
                 return Kind.CONN_OPEN;
             }
-            // Factory shape in any class: Statement/DatabaseMetaData/ResultSet.getConnection return an existing one.
-            if (returnsConnection && (desc.startsWith("()") || desc.startsWith("(Ljava/lang/String;Ljava/lang/String;)"))
+            // Factory shape, only in data-source / pooled-connection families (pgjdbc's BaseDataSource is a
+            // CommonDataSource but no DataSource). Accessors in other classes (e.g. a pool's PooledConnection
+            // returning its physical connection) and Statement/DatabaseMetaData/ResultSet are not opens.
+            if (returnsConnection && (anc.contains(COMMON_DATA_SOURCE) || anc.contains(POOLED_CONNECTION)) && (desc.startsWith("()") || desc.startsWith("(Ljava/lang/String;Ljava/lang/String;)"))
                     && !anc.contains(STATEMENT) && !anc.contains(DB_META_DATA) && !anc.contains(RESULT_SET)) {
                 return Kind.CONN_OPEN;
             }

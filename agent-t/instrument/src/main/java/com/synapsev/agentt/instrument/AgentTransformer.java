@@ -57,7 +57,7 @@ public final class AgentTransformer implements ClassFileTransformer {
         busy.set(Boolean.TRUE);
         try {
             Set<String> anc = redefined != null ? resolver.ancestors(redefined) : resolver.ancestors(name, bytes, loader);
-            if (!Matchers.interesting(name, anc) && !Matchers.mentionsGetConnection(bytes)) {
+            if (!Matchers.interesting(name, anc)) {
                 return null;
             }
             byte[] out = rewrite(loader, name, anc, bytes);
