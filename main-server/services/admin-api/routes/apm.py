@@ -199,14 +199,34 @@ async def search_transactions(
         where.append("trace_id = {trace_id:String}")
         params["trace_id"] = trace_id
 
-    params.update({"limit": limit + 1, "offset": offset})
-    rows = await clickhouse_client.query(
-        f"SELECT {_SUMMARY_COLUMNS} FROM agent_t.tx_summary WHERE " + " AND ".join(where) +
-        " ORDER BY start_ts DESC LIMIT {limit:UInt32} OFFSET {offset:UInt32}",
-        params,
+    # 1단계: 좁은 컬럼(start_ts, span_id)만 정렬해 상위 N 키를 뽑는다 (넓은 행 정렬은 메모리 한도 초과)
+    where_sql = " AND ".join(where)
+    keys = await clickhouse_client.query(
+        "SELECT start_ts, span_id FROM agent_t.tx_summary WHERE " + where_sql +
+        " ORDER BY start_ts DESC LIMIT {top_n:UInt32} SETTINGS optimize_read_in_order = 1",
+        {**params, "top_n": offset + limit + 1},
     )
-    has_more = len(rows) > limit
-    return TxListOut(items=await _build_summaries(db, rows[:limit]), has_more=has_more)
+    has_more = len(keys) > offset + limit
+    page_keys = keys[offset:offset + limit]
+    if not page_keys:
+        return TxListOut(items=[], has_more=False)
+
+    # 2단계: 해당 키의 전체 컬럼만 조회 (시간 범위·system_id 로 파티션/정렬키 가지치기)
+    ts_values = [k["start_ts"] for k in page_keys]
+    rows = await clickhouse_client.query(
+        f"SELECT {_SUMMARY_COLUMNS} FROM agent_t.tx_summary WHERE "
+        "system_id IN {system_ids:Array(UInt32)} AND span_id IN {span_ids:Array(String)} "
+        "AND start_ts >= {min_ts:DateTime64(3, 'UTC')} AND start_ts <= {max_ts:DateTime64(3, 'UTC')}",
+        {
+            "system_ids": system_ids,
+            "span_ids": [k["span_id"] for k in page_keys],
+            "min_ts": min(ts_values),
+            "max_ts": max(ts_values),
+        },
+    )
+    by_key = {(r["start_ts"], r["span_id"]): r for r in rows}
+    ordered = [by_key[(k["start_ts"], k["span_id"])] for k in page_keys if (k["start_ts"], k["span_id"]) in by_key]
+    return TxListOut(items=await _build_summaries(db, ordered), has_more=has_more)
 
 
 def _parse_json(text_value):
