@@ -1,0 +1,1 @@
+S10 FAIL - ClickHouse 45s 정지 내성: agentsim 실패 post 9(타임아웃/연결오류, 429 아님); 프로브 p99 2136.2ms (≥1s);  (p99 2136.2ms max 6656.4ms, 429=0 failed=9 rows=201024 sent=201966 dropped=0)

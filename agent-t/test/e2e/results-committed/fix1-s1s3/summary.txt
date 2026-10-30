@@ -1,0 +1,3 @@
+S1 PASS - attach 후 5초 내 snapshot 등장: attach 1.3s, 비정상 응답 7=0 9=0
+S3 FAIL - 커넥션 open/close 추적: DataSource.getConnection(PGSimpleDataSource) 경유 /db 에서 conn_open/close>0 건수 JDK7 0/40, JDK17 0/40 (Defects found D-H1-1)
+S3 PASS - 상세 보존 규칙: JDK7 /db 40건 sql>=3·conn정상 40/0, JDK17 /db 40건; ok detail 3/300, slow 6/6, error 8/8, slow gap 3501ms

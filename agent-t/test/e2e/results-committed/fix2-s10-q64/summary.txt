@@ -1,0 +1,1 @@
+S10 PASS - ClickHouse 45s 정지 내성: 실패 post 0(429=392), 프로브 p99 519.2ms max 3029.2ms, rows=209025 sent=203196 dropped=0

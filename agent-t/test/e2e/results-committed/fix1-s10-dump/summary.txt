@@ -1,0 +1,1 @@
+S10 FAIL - ClickHouse 45s 정지 내성: agentsim 실패 post 3125(타임아웃/연결오류, 429 아님); 적재 60359 < 송신-drop 102828;  (p99 566.1ms max 5972.8ms, 429=0 failed=3125 rows=60359 sent=102828 dropped=0)

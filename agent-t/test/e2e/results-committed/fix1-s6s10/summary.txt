@@ -1,0 +1,2 @@
+S6 PASS - 킬 스위치(3회): 중단까지 min 5.4s / max 16.1s (≤35s), 재활성 시 재attach 없이 재개, 서비스 실패응답 0
+S10 FAIL - ClickHouse 45s 정지 내성: agentsim 실패 post 49(타임아웃/연결오류, 429 아님);  (p99 642.2ms max 18414.9ms, 429=0 failed=49 rows=202934 sent=198932 dropped=0)

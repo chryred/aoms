@@ -1,0 +1,5 @@
+run_id=fix1-s10-indocker
+start=2026-10-30T04:04:00Z
+load_avg=3.09 4.21 6.17
+end=2026-10-30T04:06:50Z
+load_avg_end=5.32 5.31 6.31
