@@ -11,6 +11,10 @@ final class Matchers {
     private static final String CONNECTION = "java/sql/Connection";
     private static final String RESULT_SET = "java/sql/ResultSet";
     private static final String DATA_SOURCE = "javax/sql/DataSource";
+    private static final String COMMON_DATA_SOURCE = "javax/sql/CommonDataSource";
+    private static final String POOLED_CONNECTION = "javax/sql/PooledConnection";
+    private static final String DB_META_DATA = "java/sql/DatabaseMetaData";
+    static final String CONNECTION_TYPE = CONNECTION;
     private static final String HTTP_URL_CONNECTION = "java/net/HttpURLConnection";
 
     private Matchers() { }
@@ -33,10 +37,14 @@ final class Matchers {
     /** True when the class belongs to at least one instrumented family. */
     static boolean interesting(String name, Set<String> anc) {
         return isHttpServlet(name) || hasFilter(anc) || anc.contains(STATEMENT) || anc.contains(CONNECTION)
-                || anc.contains(RESULT_SET) || anc.contains(DATA_SOURCE) || anc.contains(HTTP_URL_CONNECTION);
+                || anc.contains(RESULT_SET) || anc.contains(DATA_SOURCE) || anc.contains(COMMON_DATA_SOURCE) || anc.contains(POOLED_CONNECTION) || anc.contains(HTTP_URL_CONNECTION);
     }
 
-    static Kind match(String cls, Set<String> anc, String name, String desc) {
+    /**
+     * @param returnsConnection whether the method's return type is java.sql.Connection or a subtype (resolved by the
+     *                          caller, only needed for getConnection)
+     */
+    static Kind match(String cls, Set<String> anc, String name, String desc, boolean returnsConnection) {
         for (int i = 0; i < SERVLET_NS.length; i++) {
             String ns = SERVLET_NS[i];
             if (cls.equals(ns + "/http/HttpServlet") && name.equals("service")
@@ -73,8 +81,17 @@ final class Matchers {
         if (anc.contains(RESULT_SET) && name.equals("next") && desc.equals("()Z")) {
             return Kind.FETCH;
         }
-        if (anc.contains(DATA_SOURCE) && name.equals("getConnection") && returnsObject(desc)) {
-            return Kind.CONN_OPEN;
+        if (name.equals("getConnection")) {
+            if (anc.contains(DATA_SOURCE) && returnsObject(desc)) {
+                return Kind.CONN_OPEN;
+            }
+            // Factory shape, only in data-source / pooled-connection families (pgjdbc's BaseDataSource is a
+            // CommonDataSource but no DataSource). Accessors in other classes (e.g. a pool's PooledConnection
+            // returning its physical connection) and Statement/DatabaseMetaData/ResultSet are not opens.
+            if (returnsConnection && (anc.contains(COMMON_DATA_SOURCE) || anc.contains(POOLED_CONNECTION)) && (desc.startsWith("()") || desc.startsWith("(Ljava/lang/String;Ljava/lang/String;)"))
+                    && !anc.contains(STATEMENT) && !anc.contains(DB_META_DATA) && !anc.contains(RESULT_SET)) {
+                return Kind.CONN_OPEN;
+            }
         }
         if (anc.contains(HTTP_URL_CONNECTION)) {
             if ((name.equals("connect") && desc.equals("()V"))

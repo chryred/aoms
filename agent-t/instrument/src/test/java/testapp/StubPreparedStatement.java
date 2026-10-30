@@ -7,6 +7,11 @@ import java.sql.SQLException;
 public abstract class StubPreparedStatement implements PreparedStatement {
     public String sql = "";
 
+    /** Like real drivers: returns the statement's connection, which is not a new connection being opened. */
+    public java.sql.Connection getConnection() {
+        return (java.sql.Connection) Make.of(StubConnection.class);
+    }
+
     /** Ternary and loop on purpose: instrumenting this method needs recomputed stack map frames. */
     public boolean execute() {
         int n = sql.length() > 3 ? 3 : 1;

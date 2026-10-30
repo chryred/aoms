@@ -82,6 +82,13 @@ final class HierarchyResolver {
         return out;
     }
 
+    /** Supertypes (including itself) of a class known only by name; unreadable headers just end the walk. */
+    boolean isSubtype(String name, ClassLoader loader, String target) {
+        Set<String> out = new HashSet<String>();
+        visit(name, loader, out, 0);
+        return out.contains(target);
+    }
+
     /** Same for an already loaded class (retransform path). */
     Set<String> ancestors(Class<?> c) {
         Set<String> out = new HashSet<String>();
