@@ -6,6 +6,11 @@ export function cssVar(name: string): string {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim()
 }
 
+/** Canvas 텍스트용 앱 폰트(--font-sans). 하드코딩 'sans-serif' 금지. */
+export function canvasFont(px: number): string {
+  return `${px}px ${cssVar('--font-sans') || 'sans-serif'}`
+}
+
 /** 해상도(DPR) 보정 후 2D 컨텍스트 반환. jsdom 등 canvas 미지원이면 null. */
 export function prepareCanvas(
   canvas: HTMLCanvasElement | null,

@@ -31,24 +31,60 @@ async def test_transactions_requires_system_ids(authed_client):
     assert resp.status_code == 422
 
 
+def _keys(rows):
+    return [{"start_ts": r["start_ts"], "span_id": r["span_id"]} for r in rows]
+
+
 async def test_transactions_masks_and_has_more(authed_client, db_session):
     s = await _system(db_session)
-    rows = [_row(i, system_id=s.id) for i in range(101)]
-    qm = AsyncMock(side_effect=[rows, [{"id": "7", "text": "/a/b"}]])
+    rows = [_row(i, system_id=s.id, start_ts=f"2026-10-30 01:{59 - i % 60:02d}:00.000") for i in range(101)]
+    page = rows[:100]
+    # 2단계 결과는 순서 무관 (1단계 순서로 재정렬되어야 한다)
+    qm = AsyncMock(side_effect=[_keys(rows), list(reversed(page)), [{"id": "7", "text": "/a/b"}]])
     with patch("services.clickhouse_client.query", qm):
         resp = await authed_client.get("/api/v1/apm/transactions", params={"system_ids": [s.id]})
     assert resp.status_code == 200
     body = resp.json()
     assert body["has_more"] is True
-    assert len(body["items"]) == 100
+    assert [i["span_id"] for i in body["items"]] == [r["span_id"] for r in page]
     first = body["items"][0]
     assert first["user_ip"] == "10.253.21.*" and first["user_ip"].endswith("*")
     assert first["user_id"] == "ab****"
     assert first["uri"] == "/a/b"
     assert first["system_name"] == "sys-a"
     assert first["start_ts"].endswith("Z")
-    # limit+1 조회
-    assert qm.await_args_list[0].args[1]["limit"] == 101
+    # 1단계: 좁은 컬럼 + limit+offset+1, 2단계: 키 기반 전체 컬럼
+    p1_sql, p1_params = qm.await_args_list[0].args
+    assert p1_sql.startswith("SELECT start_ts, span_id FROM") and "optimize_read_in_order" in p1_sql
+    assert p1_params["top_n"] == 101
+    p2_sql, p2_params = qm.await_args_list[1].args
+    assert "span_id IN {span_ids:Array(String)}" in p2_sql and "cpu_ms" in p2_sql
+    assert p2_params["span_ids"] == [r["span_id"] for r in page]
+    assert p2_params["system_ids"] == [s.id]
+    assert p2_params["min_ts"] == min(r["start_ts"] for r in page)
+    assert p2_params["max_ts"] == max(r["start_ts"] for r in page)
+
+
+async def test_transactions_offset_and_no_more(authed_client, db_session):
+    s = await _system(db_session)
+    rows = [_row(i, system_id=s.id) for i in range(7)]
+    qm = AsyncMock(side_effect=[_keys(rows), rows[5:7], [{"id": "7", "text": "/a"}]])
+    with patch("services.clickhouse_client.query", qm):
+        resp = await authed_client.get(
+            "/api/v1/apm/transactions", params={"system_ids": [s.id], "limit": 5, "offset": 5})
+    body = resp.json()
+    assert body["has_more"] is False
+    assert [i["span_id"] for i in body["items"]] == [r["span_id"] for r in rows[5:7]]
+    assert qm.await_args_list[0].args[1]["top_n"] == 11
+
+
+async def test_transactions_skips_phase2_when_empty(authed_client, db_session):
+    s = await _system(db_session)
+    qm = AsyncMock(return_value=[])
+    with patch("services.clickhouse_client.query", qm):
+        resp = await authed_client.get("/api/v1/apm/transactions", params={"system_ids": [s.id]})
+    assert resp.json() == {"items": [], "has_more": False}
+    assert qm.await_count == 1
 
 
 async def test_transactions_rejects_range_beyond_retention(authed_client, db_session):
@@ -65,7 +101,7 @@ async def test_transactions_rejects_range_beyond_retention(authed_client, db_ses
 async def test_query_uses_bound_params(authed_client, db_session):
     s = await _system(db_session)
     evil = "x' OR 1=1"
-    qm = AsyncMock(side_effect=[[{"id": "7"}], [], ])
+    qm = AsyncMock(side_effect=[[{"id": "7"}], []])
     with patch("services.clickhouse_client.query", qm):
         resp = await authed_client.get("/api/v1/apm/transactions", params={
             "system_ids": [s.id], "uri": evil, "user_id": evil, "trace_id": evil,

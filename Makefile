@@ -170,6 +170,7 @@ run-api: _check-env
 	@echo "→ admin-api 시작 (http://localhost:8080)"
 	@echo "  Swagger UI: http://localhost:8080/docs"
 	cd $(ADMIN_API_DIR) && set -a && source $(ENV_FILE) && set +a && \
+		export AGENT_T_ARTIFACT_DIR=$(MAIN_SERVER)/artifacts/agent-t && \
 		$(UVICORN) main:app --host 0.0.0.0 --port 8080 --reload
 
 .PHONY: run-frontend
@@ -190,7 +191,7 @@ test-api:
 
 .PHONY: test-analyzer
 test-analyzer:
-	cd main-server/services/log-analyzer && ../../../venv/bin/python -m pytest -v
+	cd $(ANALYZER_DIR) && $(PYTHON) -m pytest -v
 
 .PHONY: test-gateway
 test-gateway:
@@ -201,7 +202,7 @@ test-agent-t:
 	agent-t/build.sh test-legacy && agent-t/build.sh test-modern
 
 .PHONY: test-all
-test-all: test-api
+test-all: test-api test-analyzer test-gateway
 
 # ── 빌드 (운영 배포용 이미지) ────────────────────────────────────────────────
 .PHONY: build

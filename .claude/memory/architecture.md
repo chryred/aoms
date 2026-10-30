@@ -22,7 +22,14 @@
                ──http──▶   Ollama (Server B)
                ──http──▶   Qdrant (Server B)
   frontend    ──http───▶   admin-api (React `/feedback/submit` → `POST /api/v1/feedback`)
-  PostgreSQL  (admin-api 전용; n8n 컨테이너는 기동되지만 현재 미사용)
+  PostgreSQL  (admin-api 전용; gateway 는 agent_instances/systems 읽기 + agent_commands 폴링)
+
+[ WAS 서버들 ]  Agent-T (Java 에이전트, JDK 1.6~21)
+  Agent-T ──http POST /t/v1/batch (Bearer 토큰, 1초 배치)──▶ agent-t-gateway (Server A :8330)
+  agent-t-gateway ──HTTP JSONEachRow──▶ ClickHouse (agent_t DB, 트랜잭션 7일)
+                  ──remote write(5초 집계)──▶ Prometheus
+                  ──SSE /t/v1/stream, snapshot──▶ frontend (nginx `/t/` 프록시)
+  admin-api ──HTTP 조회──▶ ClickHouse (`/api/v1/apm/*`) / log-analyzer ──▶ ClickHouse (trace_summarizer)
 ```
 
 ---
@@ -55,6 +62,7 @@ LOG_ANALYZER_URL    http://log-analyzer:8000
 
 **인바운드:**
 - 내부 스케줄러 (`_scheduler`, `_hourly_agg_scheduler` 등) — 주기별 자동 실행 (n8n 의존 제거, ADR-006)
+- `trace_summarizer` — ClickHouse(`agent_t.tx_summary`) 느린·에러 트랜잭션 요약을 LLM 프롬프트에 주입 (Agent-T, ADR-022)
 - `POST /analyze/trigger` — 수동 트리거 (디버그/운영용)
 
 **아웃바운드:**
@@ -100,14 +108,15 @@ ANALYSIS_INTERVAL_SECONDS   300
 | `agent_instances` | admin-api (Phase 6) | 수집기 인스턴스 메타정보. `ssh_username` 저장, password 저장 금지 |
 | `agent_install_jobs` | admin-api (Phase 6) | 비동기 설치 Job 이력. status: pending/running/done/failed |
 | `users` | admin-api (Phase 0) | 프론트엔드 인증 사용자. role: admin/operator. is_approved |
-| n8n 스키마 | (미사용) | n8n 컨테이너는 기동되지만 WF3/WF12 제거 후 실제 워크플로우 없음. 스키마는 컨테이너 기동 시 보존 |
+| `apm_dashboards` | admin-api (Agent-T) | APM 실시간 대시보드 레이아웃/필터. 소유자별 + 공용 기본 1개 |
+| `agent_commands` | admin-api (Agent-T) | Agent-T 원격 명령 큐(스레드 덤프). gateway 가 폴링·전달 |
 
 ---
 
-### n8n (포트 5678 · 현재 미사용)
+### n8n (Agent-T 도입으로 컨테이너 제거 · 보류 워크플로우 JSON 만 보존)
 
 > 과거 WF1~WF12 워크플로우 대부분이 log-analyzer 내부 스케줄러 / admin-api 직접 호출 / frontend 직결로 이관·제거됨 (ADR-006).
-> 컨테이너 자체는 향후 WF4/WF5 재활용 대비로 docker-compose에 유지.
+> 컨테이너는 ADR-022 에서 제거(WF4/WF5 는 향후 log-analyzer 스케줄러로 이관 예정, JSON 은 `main-server/n8n-workflows/` 보존).
 
 | WF | 트리거 | 설명 | 상태 |
 |---|---|---|---|

@@ -3,7 +3,7 @@ import { buildCallTree } from '@/lib/apm/callTree'
 import type { TxNode } from '@/types/apm'
 
 const KIND_BAR: Record<string, string> = {
-  http: 'bg-accent',
+  http: 'bg-text-secondary',
   sql: 'bg-normal',
   ext: 'bg-warning',
   gap: 'bg-border',

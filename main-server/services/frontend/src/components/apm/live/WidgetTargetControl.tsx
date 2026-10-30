@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Crosshair } from 'lucide-react'
 import { NeuMultiSelect } from '@/components/neumorphic/NeuMultiSelect'
 import { NeuSelect } from '@/components/neumorphic/NeuSelect'
@@ -24,6 +24,22 @@ export function WidgetTargetControl({
   onChange,
 }: WidgetTargetControlProps) {
   const [open, setOpen] = useState(false)
+  const wrapRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e: MouseEvent) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false)
+    }
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open])
   const ids = target?.system_ids ?? []
   const role = target?.instance_role ?? ''
   const emit = (next: Target) => {
@@ -34,7 +50,7 @@ export function WidgetTargetControl({
   }
   const roleOptions = role && !roles.includes(role) ? [...roles, role] : roles
   return (
-    <div className="relative">
+    <div ref={wrapRef} className="relative">
       <button
         type="button"
         aria-label={`${title} 대상`}

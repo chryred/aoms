@@ -1,5 +1,5 @@
 import { useContext, useEffect, useMemo, useRef } from 'react'
-import { cssVar, prepareCanvas, useElementSize } from '@/lib/apm/canvas'
+import { canvasFont, cssVar, prepareCanvas, useElementSize } from '@/lib/apm/canvas'
 import { pickActive } from '@/lib/apm/liveData'
 import { hitBar, queueBars, queueGeometry } from '@/lib/apm/queueBuckets'
 import { LiveContext } from '@/components/apm/live/LiveContext'
@@ -40,8 +40,15 @@ export function QueueWidget({ events, target }: WidgetProps) {
       critical: cssVar(LEVEL_VAR.critical),
       text: cssVar('--color-text-secondary'),
     }
-    ctx.font = '11px sans-serif'
+    ctx.font = canvasFont(11)
     ctx.textAlign = 'center'
+    const pitch = rects.length > 1 ? rects[1].x - rects[0].x : width
+    const widest = Math.max(
+      0,
+      ...bars.map((b) => ctx.measureText(`${systemName(b.system_id)}/${b.instance_role}`).width),
+    )
+    const labelStep = Math.max(1, Math.ceil((widest + 6) / Math.max(1, pitch)))
+    let lastRight = -Infinity
     rects.forEach((r, i) => {
       const dim = queueFilter !== null && queueFilter !== r.key
       ctx.globalAlpha = dim ? 0.35 : 1
@@ -51,11 +58,14 @@ export function QueueWidget({ events, target }: WidgetProps) {
       }
       ctx.globalAlpha = 1
       ctx.fillStyle = colors.text
-      ctx.fillText(
-        `${systemName(bars[i].system_id)}/${bars[i].instance_role}`.slice(0, 14),
-        r.x + r.w / 2,
-        height - 4,
-      )
+      // 라벨 솎아내기: 막대 간격이 좁으면 k 개마다 하나만 그려 겹침을 막는다
+      const full = `${systemName(bars[i].system_id)}/${bars[i].instance_role}`
+      if (i % labelStep !== 0) return
+      const half = ctx.measureText(full).width / 2
+      const cx = Math.min(Math.max(r.x + r.w / 2, half), width - half)
+      if (cx - half < lastRight + 4) return
+      lastRight = cx + half
+      ctx.fillText(full, cx, height - 4)
     })
   }, [bars, width, height, queueFilter, systemName])
 

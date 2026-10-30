@@ -39,8 +39,15 @@ export function NeuMultiSelect({
 
   useEffect(() => {
     if (isOpen) {
+      const onKey = (e: KeyboardEvent) => {
+        if (e.key === 'Escape') setIsOpen(false)
+      }
       document.addEventListener('mousedown', handleClickOutside)
-      return () => document.removeEventListener('mousedown', handleClickOutside)
+      document.addEventListener('keydown', onKey)
+      return () => {
+        document.removeEventListener('mousedown', handleClickOutside)
+        document.removeEventListener('keydown', onKey)
+      }
     }
   }, [isOpen, handleClickOutside])
 
@@ -83,7 +90,7 @@ export function NeuMultiSelect({
           'bg-bg-base w-full rounded-sm',
           'border-border border',
           'shadow-neu-inset',
-          'flex items-center justify-between gap-2 px-3 py-2 text-sm',
+          'flex items-center justify-between gap-2 px-4 py-2.5 text-sm',
           'focus:ring-accent focus:ring-offset-bg-base focus:ring-1 focus:ring-offset-2 focus:outline-none',
           isAllSelected ? 'text-text-secondary' : 'text-text-primary',
         )}
