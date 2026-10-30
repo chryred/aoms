@@ -76,6 +76,6 @@ public class FrameSafetyTest {
         assertTrue(Matchers.excluded("com/acme/Foo", Arrays.asList("com/acme/*o")));
         assertFalse(Matchers.excluded("com/other/Foo", Arrays.asList("com.acme", "*Bar")));
         assertNotNull(Matchers.match("javax/servlet/http/HttpServlet", new java.util.HashSet<String>(),
-                "service", "(Ljavax/servlet/http/HttpServletRequest;Ljavax/servlet/http/HttpServletResponse;)V"));
+                "service", "(Ljavax/servlet/http/HttpServletRequest;Ljavax/servlet/http/HttpServletResponse;)V", false));
     }
 }

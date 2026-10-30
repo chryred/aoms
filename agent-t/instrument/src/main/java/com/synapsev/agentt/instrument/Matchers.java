@@ -11,6 +11,9 @@ final class Matchers {
     private static final String CONNECTION = "java/sql/Connection";
     private static final String RESULT_SET = "java/sql/ResultSet";
     private static final String DATA_SOURCE = "javax/sql/DataSource";
+    private static final String COMMON_DATA_SOURCE = "javax/sql/CommonDataSource";
+    private static final String DB_META_DATA = "java/sql/DatabaseMetaData";
+    static final String CONNECTION_TYPE = CONNECTION;
     private static final String HTTP_URL_CONNECTION = "java/net/HttpURLConnection";
 
     private Matchers() { }
@@ -33,10 +36,35 @@ final class Matchers {
     /** True when the class belongs to at least one instrumented family. */
     static boolean interesting(String name, Set<String> anc) {
         return isHttpServlet(name) || hasFilter(anc) || anc.contains(STATEMENT) || anc.contains(CONNECTION)
-                || anc.contains(RESULT_SET) || anc.contains(DATA_SOURCE) || anc.contains(HTTP_URL_CONNECTION);
+                || anc.contains(RESULT_SET) || anc.contains(DATA_SOURCE) || anc.contains(COMMON_DATA_SOURCE) || anc.contains(HTTP_URL_CONNECTION);
     }
 
-    static Kind match(String cls, Set<String> anc, String name, String desc) {
+    /**
+     * Cheap raw-bytes test: does the class file mention "getConnection" at all? Connection factories are matched
+     * by method shape in any class (pgjdbc declares it in a base class that does not implement DataSource).
+     */
+    static boolean mentionsGetConnection(byte[] b) {
+        byte[] n = {'g', 'e', 't', 'C', 'o', 'n', 'n', 'e', 'c', 't', 'i', 'o', 'n'};
+        outer:
+        for (int i = 0; i <= b.length - n.length; i++) {
+            if (b[i] != 'g') {
+                continue;
+            }
+            for (int j = 1; j < n.length; j++) {
+                if (b[i + j] != n[j]) {
+                    continue outer;
+                }
+            }
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * @param returnsConnection whether the method's return type is java.sql.Connection or a subtype (resolved by the
+     *                          caller, only needed for getConnection)
+     */
+    static Kind match(String cls, Set<String> anc, String name, String desc, boolean returnsConnection) {
         for (int i = 0; i < SERVLET_NS.length; i++) {
             String ns = SERVLET_NS[i];
             if (cls.equals(ns + "/http/HttpServlet") && name.equals("service")
@@ -73,8 +101,15 @@ final class Matchers {
         if (anc.contains(RESULT_SET) && name.equals("next") && desc.equals("()Z")) {
             return Kind.FETCH;
         }
-        if (anc.contains(DATA_SOURCE) && name.equals("getConnection") && returnsObject(desc)) {
-            return Kind.CONN_OPEN;
+        if (name.equals("getConnection")) {
+            if (anc.contains(DATA_SOURCE) && returnsObject(desc)) {
+                return Kind.CONN_OPEN;
+            }
+            // Factory shape in any class: Statement/DatabaseMetaData/ResultSet.getConnection return an existing one.
+            if (returnsConnection && (desc.startsWith("()") || desc.startsWith("(Ljava/lang/String;Ljava/lang/String;)"))
+                    && !anc.contains(STATEMENT) && !anc.contains(DB_META_DATA) && !anc.contains(RESULT_SET)) {
+                return Kind.CONN_OPEN;
+            }
         }
         if (anc.contains(HTTP_URL_CONNECTION)) {
             if ((name.equals("connect") && desc.equals("()V"))

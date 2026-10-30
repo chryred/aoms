@@ -6,6 +6,7 @@ import com.synapsev.agentt.shaded.asm.ClassVisitor;
 import com.synapsev.agentt.shaded.asm.ClassWriter;
 import com.synapsev.agentt.shaded.asm.MethodVisitor;
 import com.synapsev.agentt.shaded.asm.Opcodes;
+import com.synapsev.agentt.shaded.asm.Type;
 import java.lang.instrument.ClassFileTransformer;
 import java.security.ProtectionDomain;
 import java.util.Collections;
@@ -56,7 +57,7 @@ public final class AgentTransformer implements ClassFileTransformer {
         busy.set(Boolean.TRUE);
         try {
             Set<String> anc = redefined != null ? resolver.ancestors(redefined) : resolver.ancestors(name, bytes, loader);
-            if (!Matchers.interesting(name, anc)) {
+            if (!Matchers.interesting(name, anc) && !Matchers.mentionsGetConnection(bytes)) {
                 return null;
             }
             byte[] out = rewrite(loader, name, anc, bytes);
@@ -88,6 +89,12 @@ public final class AgentTransformer implements ClassFileTransformer {
         }
     }
 
+    private boolean returnsConnection(String desc, ClassLoader loader) {
+        Type r = Type.getReturnType(desc);
+        return r.getSort() == Type.OBJECT
+                && resolver.isSubtype(r.getInternalName(), loader, Matchers.CONNECTION_TYPE);
+    }
+
     private byte[] rewrite(final ClassLoader loader, final String name, final Set<String> anc, byte[] bytes) {
         ClassReader cr = new ClassReader(bytes);
         if ((cr.getAccess() & Opcodes.ACC_INTERFACE) != 0) {
@@ -110,7 +117,8 @@ public final class AgentTransformer implements ClassFileTransformer {
                         | Opcodes.ACC_SYNTHETIC)) != 0) {
                     return mv;
                 }
-                Matchers.Kind k = Matchers.match(name, anc, mname, desc);
+                boolean connRet = mname.equals("getConnection") && returnsConnection(desc, loader);
+                Matchers.Kind k = Matchers.match(name, anc, mname, desc, connRet);
                 if (k == null) {
                     return mv;
                 }
