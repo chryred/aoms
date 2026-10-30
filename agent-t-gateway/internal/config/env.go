@@ -33,7 +33,7 @@ func Load() Config {
 		PrometheusRemoteWrite: str("PROMETHEUS_REMOTE_WRITE_URL", ""),
 		FlushInterval:         dur("GATEWAY_FLUSH_INTERVAL", time.Second),
 		FlushRows:             int(num("GATEWAY_FLUSH_ROWS", 10000)),
-		CHQueueMaxBytes:       num("GATEWAY_CH_QUEUE_MAX_BYTES", 268435456),
+		CHQueueMaxBytes:       num("GATEWAY_CH_QUEUE_MAX_BYTES", 134217728),
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"sync"
 	"testing"
+	"time"
 
 	"synapse/agent-t-gateway/internal/protocol"
 )
@@ -71,5 +72,20 @@ func TestCommandsPendingSentDone(t *testing.T) {
 	}
 	if got := c.Pending(4); len(got) != 1 || got[0].ID != 8 {
 		t.Fatalf("agent 4: %v", got)
+	}
+}
+
+func TestStalePendingCommandIsNotDelivered(t *testing.T) {
+	now := time.Date(2026, 10, 31, 12, 0, 0, 0, time.UTC)
+	fs := &fakeCmdStore{pending: []CommandRow{
+		{ID: 1, AgentID: 3, Command: "thread_dump", CreatedAt: now.Add(-121 * time.Second)},
+		{ID: 2, AgentID: 3, Command: "thread_dump", CreatedAt: now.Add(-30 * time.Second)},
+	}}
+	c := NewCommands(fs)
+	c.now = func() time.Time { return now }
+	c.Sync(context.Background())
+	got := c.Pending(3)
+	if len(got) != 1 || got[0].ID != 2 {
+		t.Fatalf("only the fresh command may be delivered: %v", got)
 	}
 }
