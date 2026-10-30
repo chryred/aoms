@@ -137,7 +137,8 @@ services:
       - "8330:8330"
     environment:
       - GATEWAY_LISTEN=:8330
-      - GATEWAY_PG_DSN=postgres://synapse:synapse@postgres:5432/synapse?sslmode=disable
+      - GATEWAY_PG_DSN=postgres://synapse@postgres:5432/synapse?sslmode=disable
+      - PGPASSWORD=synapse
       - SECRET_KEY=${SECRET_KEY:-dev-secret-key}
       - CLICKHOUSE_URL=http://clickhouse:8123
       - CLICKHOUSE_DB=agent_t
@@ -146,7 +147,8 @@ services:
       - PROMETHEUS_REMOTE_WRITE_URL=http://prometheus:9090/api/v1/write
       - GATEWAY_FLUSH_INTERVAL=1s
       - GATEWAY_FLUSH_ROWS=10000
-      - GATEWAY_CH_QUEUE_MAX_BYTES=268435456
+      - GATEWAY_CH_QUEUE_MAX_BYTES=134217728
+      - GOMEMLIMIT=400MiB
     depends_on:
       postgres:
         condition: service_healthy

@@ -304,7 +304,7 @@ OTLP 는 더 이상 사용하지 않는다(수신처가 gateway 로 바뀜). 직
   - `GET /t/v1/stream?system_id=&instance=` — SSE (프론트, JWT — admin-api 와 같은 SECRET_KEY 로 검증)
   - `GET /t/v1/snapshot?system_id=` — 최초 진입·SSE 폴백용 현재 상태
   - `GET /healthz`, `GET /metrics`(gateway 자체 지표: 수신·적재·버림 카운터)
-- ClickHouse 적재: 1초 또는 1만 행마다 테이블별 한 번에 INSERT. ClickHouse 장애 시 메모리 대기열 상한(기본 256MB)까지 보관 후 오래된 것부터 버림 + 카운터.
+- ClickHouse 적재: 1초 또는 1만 행마다 테이블별 한 번에 INSERT. ClickHouse 장애 시 메모리 대기열 상한(기본 128MB, 컨테이너 `GOMEMLIMIT=400MiB`)까지 보관 후 오래된 것부터 버림 + 카운터.
 - 노출 포트는 WAS 대역에서 접근 가능해야 함 — 방화벽 요청 포함 (포트 번호 빌더 결정).
 - 수평 분할은 비목표. JVM 수 100 초과 또는 CPU 상한 지속 도달 시 §7.6 이전 계획으로 대응.
 

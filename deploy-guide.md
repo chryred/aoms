@@ -147,7 +147,7 @@ admin-api Dockerfile은 **멀티스테이지 빌드**입니다.
 ```bash
 cd /path/to/aoms
 
-# 전체 빌드 (admin-api, log-analyzer, frontend)
+# 전체 빌드 (admin-api, log-analyzer, frontend, agent-t-gateway + ClickHouse 이미지 pull/save)
 ./build-images.sh
 
 # 결과물 확인
@@ -155,6 +155,8 @@ ls -lh main-server/*.tar.gz
 # main-server/synapse-admin-api-1.0.tar.gz   (agent-v + synapse CLI + OIDC 키 포함)
 # main-server/synapse-log-analyzer-1.0.tar.gz  (~500MB — 모델 미포함)
 # main-server/synapse-frontend-1.0.tar.gz
+# main-server/synapse-agent-t-gateway-1.0.tar.gz   (Agent-T 수신 게이트웨이)
+# main-server/clickhouse-server-24.8.tar.gz        (clickhouse/clickhouse-server:24.8 — 폐쇄망 반입 필수)
 ```
 
 > **모델 분리 배포 구조**: log-analyzer 이미지는 더 이상 ONNX 모델을 번들하지 않습니다 (~500MB).  
@@ -189,6 +191,8 @@ REMOTE_DIR="/app/synapse"
 scp main-server/synapse-admin-api-1.0.tar.gz     $SERVER_A:$REMOTE_DIR/images/
 scp main-server/synapse-log-analyzer-1.0.tar.gz  $SERVER_A:$REMOTE_DIR/images/
 scp main-server/synapse-frontend-1.0.tar.gz      $SERVER_A:$REMOTE_DIR/images/
+scp main-server/synapse-agent-t-gateway-1.0.tar.gz $SERVER_A:$REMOTE_DIR/images/
+scp main-server/clickhouse-server-24.8.tar.gz     $SERVER_A:$REMOTE_DIR/images/
 
 # ── Server A — 인프라 이미지 (offline 패키지) ───────────────
 scp aoms-offline/docker-images/prometheus-v3.10.0.tar              $SERVER_A:$REMOTE_DIR/images/
@@ -466,9 +470,11 @@ cd /app/synapse/images
 docker load < synapse-admin-api-1.0.tar.gz
 docker load < synapse-log-analyzer-1.0.tar.gz
 docker load < synapse-frontend-1.0.tar.gz
+docker load < synapse-agent-t-gateway-1.0.tar.gz
+docker load < clickhouse-server-24.8.tar.gz     # clickhouse/clickhouse-server:24.8
 
 # 로드 확인
-docker images | grep synapse
+docker images | grep -E "synapse|clickhouse"
 ```
 
 > `synapse-admin-api:1.0`에는 세 바이너리가 번들됩니다:

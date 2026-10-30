@@ -169,7 +169,7 @@ services:
       - CLICKHOUSE_DB=${CLICKHOUSE_DB:-agent_t}
       - CLICKHOUSE_USER=${CLICKHOUSE_USER:-agent_t}
       - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD:?CLICKHOUSE_PASSWORD must be set}
-      - AGENT_T_GATEWAY_URL=${AGENT_T_GATEWAY_URL:-http://agent-t-gateway:8330}
+      - AGENT_T_GATEWAY_URL=${AGENT_T_GATEWAY_URL:?AGENT_T_GATEWAY_URL must be the WAS-reachable gateway URL}
       # chat
       - CHAT_ATTACHMENT_DIR=${CHAT_ATTACHMENT_DIR:-/attaches/chat-attachments}
       # Knowledge
@@ -311,13 +311,15 @@ services:
       - synapse-net
 
   agent-t-gateway:
+    image: synapse-agent-t-gateway:1.0    # build-images.sh 로 빌드·save → 폐쇄망에서 load
     build: ../agent-t-gateway
     container_name: synapse-agent-t-gateway
     ports:
       - "8330:8330"
     environment:
       - GATEWAY_LISTEN=:8330
-      - GATEWAY_PG_DSN=postgres://${DB_USER}:${DB_PASSWORD}@postgres:5432/synapse?sslmode=disable
+      - GATEWAY_PG_DSN=postgres://${DB_USER}@postgres:5432/synapse?sslmode=disable
+      - PGPASSWORD=${DB_PASSWORD}   # pgx 가 환경변수에서 읽음 — DSN(로그·에러)에 비밀번호를 싣지 않는다
       - SECRET_KEY=${SECRET_KEY}
       - CLICKHOUSE_URL=http://clickhouse:8123
       - CLICKHOUSE_DB=agent_t
@@ -326,7 +328,8 @@ services:
       - PROMETHEUS_REMOTE_WRITE_URL=http://prometheus:9090/api/v1/write
       - GATEWAY_FLUSH_INTERVAL=1s
       - GATEWAY_FLUSH_ROWS=10000
-      - GATEWAY_CH_QUEUE_MAX_BYTES=268435456
+      - GATEWAY_CH_QUEUE_MAX_BYTES=134217728
+      - GOMEMLIMIT=400MiB   # mem_limit 512m 아래에서 GC 가 먼저 동작하도록
     mem_limit: 512m
     cpus: '1'
     depends_on:
