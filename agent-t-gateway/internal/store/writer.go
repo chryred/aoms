@@ -52,7 +52,21 @@ type DumpAcker interface {
 // DropStats counts rows discarded under queue pressure.
 type DropStats struct{ Detail, SQL, Summary, Dict int64 }
 
-type buffer struct{ lines [][]byte }
+type buffer struct {
+	lines [][]byte
+	ids   []string // dict tables only: agent-side ids parallel to lines (for cache eviction)
+}
+
+// chunk is one ClickHouse insert unit. Its token is fixed at creation so a retry of the
+// exact same body (e.g. after a timeout that actually committed) is deduplicated by
+// ClickHouse; a failed chunk is re-queued whole and never re-chunked with newer rows.
+type chunk struct {
+	lines [][]byte
+	size  int64
+	acks  []int64  // thread-dump command ids, parallel to lines (dump table only)
+	ids   []string // dict ids, parallel to lines (dict tables only)
+	token string
+}
 
 // Writer batches rows per table and inserts them into ClickHouse over HTTP.
 // It implements ingest.Sink and ingest.Backpressure.
@@ -60,15 +74,21 @@ type Writer struct {
 	cfg    Config
 	client *http.Client
 	Dumps  DumpAcker // optional
+	// OnDictLost is told when a dict row is shed or permanently rejected, so the
+	// in-memory cache forgets the id and agents are asked for the text again (need_dict).
+	OnDictLost func(kind, id string)
 
 	mu     sync.Mutex
 	bufs   map[string]*buffer
-	queued int64 // bytes held in buffers or in flight
+	retry  map[string][]*chunk // failed chunks awaiting re-insert, oldest first
+	seq    uint64              // chunk token counter
+	queued int64               // bytes held in buffers or in flight
 	// dumpAcks are cmd ids whose thread-dump rows are queued; acked once the insert resolves.
 	dumpAcks []int64
 	kick     chan struct{}
 
 	flushMu sync.Mutex // serialises flushes
+	epoch   int64      // makes tokens unique across gateway restarts
 
 	droppedDetail, droppedSQL, droppedSummary, droppedDict atomic.Int64
 }
@@ -83,7 +103,8 @@ func NewWriter(cfg Config, client *http.Client) *Writer {
 	if cfg.FlushRows <= 0 {
 		cfg.FlushRows = 10000
 	}
-	w := &Writer{cfg: cfg, client: client, bufs: map[string]*buffer{}, kick: make(chan struct{}, 1)}
+	w := &Writer{cfg: cfg, client: client, bufs: map[string]*buffer{}, retry: map[string][]*chunk{},
+		kick: make(chan struct{}, 1), epoch: time.Now().UnixNano()}
 	for _, t := range allTables {
 		w.bufs[t] = &buffer{}
 	}
@@ -152,6 +173,7 @@ func (w *Writer) PutDict(kind, id, text string) {
 	w.mu.Lock()
 	buf := w.bufs[table]
 	buf.lines = append(buf.lines, line)
+	buf.ids = append(buf.ids, id)
 	w.queued += int64(len(line))
 	full := len(buf.lines) >= w.cfg.FlushRows
 	w.shedLocked()
@@ -162,47 +184,79 @@ func (w *Writer) PutDict(kind, id, text string) {
 }
 
 // shedLocked drops the oldest rows (detail, then SQL, then summary, then dict) until under the limit.
+// Chunks waiting for a retry are older than buffered rows and go first, as a whole.
 func (w *Writer) shedLocked() {
 	for w.queued > w.cfg.MaxQueueBytes {
 		dropped := false
 		for _, t := range dropOrder {
-			buf := w.bufs[t]
-			if len(buf.lines) == 0 {
-				continue
+			if w.shedOneLocked(t) {
+				dropped = true
+				break
 			}
-			w.queued -= int64(len(buf.lines[0]))
-			buf.lines[0] = nil
-			buf.lines = buf.lines[1:]
-			switch t {
-			case tblDetail:
-				w.droppedDetail.Add(1)
-			case tblSQL:
-				w.droppedSQL.Add(1)
-			default:
-				w.droppedSummary.Add(1)
-			}
-			dropped = true
-			break
 		}
 		if dropped {
 			continue
 		}
 		// Hard ceiling: only dict rows may still be shed. Dump rows are never dropped.
 		for _, t := range []string{tblDictSQL, tblDictURI} {
-			buf := w.bufs[t]
-			if len(buf.lines) == 0 {
-				continue
+			if w.shedOneLocked(t) {
+				dropped = true
+				break
 			}
-			w.queued -= int64(len(buf.lines[0]))
-			buf.lines[0] = nil
-			buf.lines = buf.lines[1:]
-			w.droppedDict.Add(1)
-			dropped = true
-			break
 		}
 		if !dropped {
 			return
 		}
+	}
+}
+
+func (w *Writer) shedOneLocked(t string) bool {
+	if rc := w.retry[t]; len(rc) > 0 {
+		c := rc[0]
+		w.retry[t] = rc[1:]
+		w.queued -= c.size
+		w.countDropped(t, int64(len(c.lines)))
+		w.dictLost(t, c.ids)
+		return true
+	}
+	buf := w.bufs[t]
+	if len(buf.lines) == 0 {
+		return false
+	}
+	w.queued -= int64(len(buf.lines[0]))
+	buf.lines[0] = nil
+	buf.lines = buf.lines[1:]
+	if len(buf.ids) > 0 {
+		w.dictLost(t, buf.ids[:1])
+		buf.ids = buf.ids[1:]
+	}
+	w.countDropped(t, 1)
+	return true
+}
+
+func (w *Writer) countDropped(t string, n int64) {
+	switch t {
+	case tblDetail:
+		w.droppedDetail.Add(n)
+	case tblSQL:
+		w.droppedSQL.Add(n)
+	case tblDictSQL, tblDictURI:
+		w.droppedDict.Add(n)
+	default:
+		w.droppedSummary.Add(n)
+	}
+}
+
+func (w *Writer) dictLost(t string, ids []string) {
+	if w.OnDictLost == nil || len(ids) == 0 {
+		return
+	}
+	kind := "uri"
+	if t == tblDictSQL {
+		kind = "sql"
+	}
+	for _, id := range ids {
+		w.OnDictLost(kind, id)
 	}
 }
 
@@ -259,46 +313,55 @@ func (w *Writer) Run(ctx context.Context) {
 // Flush inserts every non-empty table buffer.
 func (w *Writer) Flush(ctx context.Context) error { return w.flush(ctx, 1) }
 
-// flush inserts tables holding at least minRows rows. Returns the first error.
+// flush inserts tables holding at least minRows rows, plus any chunks awaiting a retry.
+// Returns the first error.
 func (w *Writer) flush(ctx context.Context, minRows int) error {
 	w.flushMu.Lock()
 	defer w.flushMu.Unlock()
 	var first error
 	for _, t := range allTables {
 		w.mu.Lock()
+		chunks := w.retry[t]
+		w.retry[t] = nil
 		buf := w.bufs[t]
-		if len(buf.lines) == 0 || len(buf.lines) < minRows {
-			w.mu.Unlock()
-			continue
-		}
-		lines := buf.lines
-		buf.lines = nil
-		var acks []int64
-		if t == tblDump {
-			acks, w.dumpAcks = w.dumpAcks, nil
+		if len(buf.lines) > 0 && len(buf.lines) >= minRows {
+			lines, ids := buf.lines, buf.ids
+			buf.lines, buf.ids = nil, nil
+			var acks []int64
+			if t == tblDump {
+				acks, w.dumpAcks = w.dumpAcks, nil
+			}
+			// Split into chunks of at most FlushRows so a backlog after an outage drains in
+			// bounded requests. Each chunk gets its dedup token once, here.
+			for off := 0; off < len(lines); off += w.cfg.FlushRows {
+				end := off + w.cfg.FlushRows
+				if end > len(lines) {
+					end = len(lines)
+				}
+				c := &chunk{lines: lines[off:end:end]}
+				for _, l := range c.lines {
+					c.size += int64(len(l))
+				}
+				if acks != nil {
+					c.acks = acks[off:end:end]
+				}
+				if len(ids) > 0 {
+					c.ids = ids[off:end:end]
+				}
+				w.seq++
+				c.token = fmt.Sprintf("%s-%x-%d", t, w.epoch, w.seq)
+				chunks = append(chunks, c)
+			}
 		}
 		w.mu.Unlock()
 
-		// Insert in chunks of at most FlushRows so a backlog after an outage drains in
-		// bounded requests. On a transient failure only the unsent remainder is re-queued.
-		for off := 0; off < len(lines); {
-			end := off + w.cfg.FlushRows
-			if end > len(lines) {
-				end = len(lines)
-			}
-			chunk := lines[off:end]
-			var size int64
-			for _, l := range chunk {
-				size += int64(len(l))
-			}
-			retry, err := w.insert(ctx, t, chunk)
+		for i, c := range chunks {
+			retry, err := w.insert(ctx, t, c)
 			if err != nil && retry {
-				// Put the unsent rows back in front of anything queued meanwhile; still counted in w.queued.
+				// Re-queue this chunk and everything after it, whole and in order. They stay
+				// counted in w.queued and may be shed (as units) under pressure.
 				w.mu.Lock()
-				w.bufs[t].lines = append(lines[off:len(lines):len(lines)], w.bufs[t].lines...)
-				if t == tblDump {
-					w.dumpAcks = append(acks[off:len(acks):len(acks)], w.dumpAcks...)
-				}
+				w.retry[t] = append(chunks[i:len(chunks):len(chunks)], w.retry[t]...)
 				w.mu.Unlock()
 				if first == nil {
 					first = err
@@ -306,27 +369,30 @@ func (w *Writer) flush(ctx context.Context, minRows int) error {
 				break
 			}
 			w.mu.Lock()
-			w.queued -= size
+			w.queued -= c.size
+			if err != nil {
+				w.dictLost(t, c.ids)
+			}
 			w.mu.Unlock()
 			if t == tblDump && w.Dumps != nil {
-				for _, id := range acks[off:end] {
+				for _, id := range c.acks {
 					w.Dumps.Done(id, err == nil)
 				}
 			}
 			if err != nil {
-				log.Printf("clickhouse %s: discarding %d rows: %v", t, len(chunk), err)
+				log.Printf("clickhouse %s: discarding %d rows: %v", t, len(c.lines), err)
 				if first == nil {
 					first = err
 				}
 			}
-			off = end
 		}
 	}
 	return first
 }
 
-// insert posts one JSONEachRow body. retry=true for transient failures (network, 5xx, 429).
-func (w *Writer) insert(ctx context.Context, table string, lines [][]byte) (retry bool, err error) {
+// insert posts one JSONEachRow body, tagged with the chunk's deduplication token. retry=true for transient failures (network, 5xx, 429).
+func (w *Writer) insert(ctx context.Context, table string, c *chunk) (retry bool, err error) {
+	lines := c.lines
 	var body bytes.Buffer
 	zw := gzip.NewWriter(&body)
 	for i, l := range lines {
@@ -338,7 +404,10 @@ func (w *Writer) insert(ctx context.Context, table string, lines [][]byte) (retr
 	if err := zw.Close(); err != nil {
 		return false, err
 	}
-	q := url.Values{"query": {fmt.Sprintf("INSERT INTO %s.%s FORMAT JSONEachRow", w.cfg.DB, table)}}
+	q := url.Values{
+		"query":                      {fmt.Sprintf("INSERT INTO %s.%s FORMAT JSONEachRow", w.cfg.DB, table)},
+		"insert_deduplication_token": {c.token},
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, w.cfg.URL+"/?"+q.Encode(), &body)
 	if err != nil {
 		return false, err

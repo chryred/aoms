@@ -34,6 +34,12 @@ main-server/
     └── log-analyzer/           # FastAPI — LLM 로그 분석, 벡터 유사도 분석
 ```
 
+> **n8n 컨테이너는 제거되었다** (운영·dev compose 모두). `n8n-workflows/` 의 WF4(일일 리포트)/WF5(에스컬레이션)
+> JSON 은 향후 log-analyzer 이관 시 참조용으로만 보존한다.
+>
+> **Agent-T**: `clickhouse`(`clickhouse/clickhouse-server:24.8`)와 `agent-t-gateway`(`synapse-agent-t-gateway:1.0`,
+> 소스 `../agent-t-gateway`)가 compose 에 포함된다. 두 이미지는 `build-images.sh` 가 빌드·pull 후 tar.gz 로 저장한다(폐쇄망 반입 대상).
+
 ---
 
 ## 로컬 개발 환경 구성
@@ -171,6 +177,8 @@ cd services/admin-api
 # 모니터링 서버로 scp 전송
 scp main-server/aoms-admin-api-1.0.tar.gz     user@server:/app/aoms/
 scp main-server/aoms-log-analyzer-1.0.tar.gz  user@server:/app/aoms/
+scp main-server/synapse-agent-t-gateway-1.0.tar.gz user@server:/app/aoms/
+scp main-server/clickhouse-server-24.8.tar.gz      user@server:/app/aoms/
 ```
 
 ### 서버에서 배포
@@ -179,6 +187,8 @@ scp main-server/aoms-log-analyzer-1.0.tar.gz  user@server:/app/aoms/
 # 이미지 로드
 docker load < aoms-admin-api-1.0.tar.gz
 docker load < aoms-log-analyzer-1.0.tar.gz
+docker load < synapse-agent-t-gateway-1.0.tar.gz   # Agent-T 게이트웨이
+docker load < clickhouse-server-24.8.tar.gz        # clickhouse/clickhouse-server:24.8
 
 # .env 파일 확인/수정
 vi /app/aoms/.env

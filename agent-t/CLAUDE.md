@@ -23,6 +23,7 @@
 
 - ASM API 레벨은 빌드가 생성하는 `AsmApi.LEVEL`(legacy `ASM5`, modern `ASM9`) — instrument 소스는 ASM 5.2 에 있는 API 만 쓴다.
 - `getConnection()`/`getConnection(String,String)`(반환 타입이 `java.sql.Connection` 또는 하위 타입, static·bridge 제외)은 조상에 `javax.sql.CommonDataSource` 또는 `javax.sql.PooledConnection` 이 있는 클래스에서만 "커넥션 open" 으로 계측한다(pgjdbc `BaseDataSource` 는 `DataSource` 가 아니라 `CommonDataSource` 만 구현). `Statement`/`ResultSet`/`DatabaseMetaData` 계열과, 풀이 물리 커넥션을 돌려주는 접근자(Tomcat-JDBC `PooledConnection` 등 JDBC 상위 타입이 없는 클래스)는 open 이 아니다. 바깥쪽 호출만 집계(깊이 가드).
+- `TxTracker` 의 요청/응답 클래스 → 접근자 캐시는 `WeakHashMap<Class,Access>` + `Method` `WeakReference`(값이 키 클래스를 강하게 잡지 않음; 비면 재탐색). webapp 언로드 후 클래스로더가 고정되지 않아야 한다(`TxTrackerAccessLeakTest`).
 - 계측은 메서드 본문만 변경(필드·메서드 추가 금지). `jakarta.servlet` 은 별도 빌드 없이 같은 코드에서 함께 매칭.
 
 ## 규칙

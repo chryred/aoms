@@ -147,3 +147,17 @@ func TestInvalidSystemIDsRejected(t *testing.T) {
 		}
 	}
 }
+
+func TestSnapshotIncludesHost(t *testing.T) {
+	api, st := newAPI()
+	inst := testInst
+	inst.Host = "10.0.0.5"
+	st.Accept(inst, batchWith(1, 0, 0), 0)
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/t/v1/snapshot?system_ids=7", nil)
+	req.Header.Set("Authorization", "Bearer "+mkToken(testSecret, "HS256", "access", time.Now().Add(time.Hour)))
+	api.Snapshot(rec, req)
+	if !strings.Contains(rec.Body.String(), `"host":"10.0.0.5"`) {
+		t.Fatalf("snapshot must carry the instance host: %s", rec.Body.String())
+	}
+}

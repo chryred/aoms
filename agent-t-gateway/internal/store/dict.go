@@ -67,3 +67,15 @@ func (d *Dict) Put(kind, id, text string) {
 		d.persist.PutDict(kind, id, text)
 	}
 }
+
+// Evict forgets an id whose text was shed or rejected before reaching ClickHouse,
+// so the next batch that references it gets it back in need_dict.
+func (d *Dict) Evict(kind, id string) {
+	k := dictKey(kind, id)
+	d.mu.Lock()
+	if el, ok := d.items[k]; ok {
+		d.ll.Remove(el)
+		delete(d.items, k)
+	}
+	d.mu.Unlock()
+}

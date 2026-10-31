@@ -339,7 +339,7 @@ describe('위젯 상호작용', () => {
     elapsed_ms: ms,
     phase: 'sql',
     sql: 'select 1',
-    stack: 'at Foo.bar',
+    stack: ['at Foo.bar', 'at Baz.qux'],
   })
   const live = () =>
     emptyLive({
@@ -490,7 +490,9 @@ describe('위젯 상호작용', () => {
     ] as never)
     renderPage()
     await userEvent.click(await screen.findByText('/slow'))
-    expect(screen.getByText('at Foo.bar')).toBeInTheDocument()
+    const stackPre = screen.getByText(/at Foo\.bar/)
+    expect(stackPre.tagName).toBe('PRE')
+    expect(stackPre.textContent).toBe('at Foo.bar\nat Baz.qux')
 
     vi.mocked(apmApi.requestThreadDump).mockResolvedValueOnce({ command_id: 1 })
     await userEvent.click(screen.getByRole('button', { name: '스레드 덤프' }))

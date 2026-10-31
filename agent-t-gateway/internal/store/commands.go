@@ -14,11 +14,17 @@ import (
 
 const commandPollInterval = 2 * time.Second
 
+// staleCommandAge: a pending command older than this is never delivered (admin-api
+// marks it failed and lets the operator request a new dump).
+const staleCommandAge = 120 * time.Second
+
 // CommandRow is one agent_commands row in status 'pending'.
 type CommandRow struct {
 	ID      int64
 	AgentID int64
 	Command string
+	// CreatedAt is naive UTC from PG; zero means unknown (never treated as stale).
+	CreatedAt time.Time
 }
 
 // CommandStore is the PG access behind Commands; PGCommandStore is the real one, tests use fakes.
@@ -32,6 +38,7 @@ type CommandStore interface {
 // polled/updated by Run so the ingest path never waits on the database.
 type Commands struct {
 	store CommandStore
+	now   func() time.Time // naive-UTC comparisons use time.Now().UTC(); tests override
 
 	mu      sync.Mutex
 	byAgent map[int64][]protocol.Command
@@ -45,7 +52,7 @@ type doneItem struct {
 }
 
 func NewCommands(store CommandStore) *Commands {
-	return &Commands{store: store, byAgent: map[int64][]protocol.Command{}}
+	return &Commands{store: store, now: func() time.Time { return time.Now().UTC() }, byAgent: map[int64][]protocol.Command{}}
 }
 
 // Pending returns (and hands off) the commands waiting for this agent instance.
@@ -111,6 +118,9 @@ func (c *Commands) Sync(ctx context.Context) {
 		if inflight[r.ID] {
 			continue
 		}
+		if !r.CreatedAt.IsZero() && c.now().Sub(r.CreatedAt) > staleCommandAge {
+			continue
+		}
 		m[r.AgentID] = append(m[r.AgentID], protocol.Command{ID: r.ID, Type: r.Command})
 	}
 	c.byAgent = m
@@ -135,7 +145,7 @@ type PGCommandStore struct{ Pool *pgxpool.Pool }
 
 func (p PGCommandStore) LoadPending(ctx context.Context) ([]CommandRow, error) {
 	rows, err := p.Pool.Query(ctx,
-		`SELECT id, agent_instance_id, command FROM agent_commands WHERE status = 'pending' ORDER BY id`)
+		`SELECT id, agent_instance_id, command, created_at FROM agent_commands WHERE status = 'pending' ORDER BY id`)
 	if err != nil {
 		return nil, err
 	}
@@ -143,7 +153,7 @@ func (p PGCommandStore) LoadPending(ctx context.Context) ([]CommandRow, error) {
 	var out []CommandRow
 	for rows.Next() {
 		var r CommandRow
-		if err := rows.Scan(&r.ID, &r.AgentID, &r.Command); err != nil {
+		if err := rows.Scan(&r.ID, &r.AgentID, &r.Command, &r.CreatedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, r)

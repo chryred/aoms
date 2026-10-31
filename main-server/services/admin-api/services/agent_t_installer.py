@@ -45,7 +45,8 @@ _CONFIRM_TIMEOUT_S = 30
 _CONFIRM_INTERVAL_S = 3
 _ENV_FILE = "agent-t-env.sh"
 _ATTACHER_JAR = "agent-t-attacher.jar"
-_SAFE_VALUE_RE = re.compile(r"^[A-Za-z0-9_.-]{1,100}$")
+_SAFE_VALUE_RE = re.compile(r"[A-Za-z0-9_.-]{1,100}")  # fullmatch 로만 사용 ($ 는 끝 개행을 허용한다)
+_UNREACHABLE_GATEWAY_HOSTS = frozenset({"agent-t-gateway", "localhost", "127.0.0.1", "::1"})
 
 
 # ── 원격 실행 ────────────────────────────────────────────────────────────────
@@ -139,10 +140,16 @@ async def fetch_snapshot(system_id: int, user) -> list[dict]:
         return []
 
 
-def find_instance(instances: list[dict], system_id: int, instance_role: str) -> dict | None:
+def find_instance(
+    instances: list[dict], system_id: int, instance_role: str, host: str | None = None
+) -> dict | None:
+    """host 를 주면 gateway 스냅샷의 host 까지 일치해야 한다 (다른 서버의 같은 role 오인 방지)."""
     for inst in instances:
-        if inst.get("system_id") == system_id and inst.get("instance_role") == instance_role:
-            return inst
+        if inst.get("system_id") != system_id or inst.get("instance_role") != instance_role:
+            continue
+        if host is not None and inst.get("host") != host:
+            continue
+        return inst
     return None
 
 
@@ -187,6 +194,35 @@ def _jeus_server_name(info: dict, jvm_match: str) -> str:
     return name.strip()
 
 
+def default_instance_role(info: dict, host: str) -> str:
+    """instance_role 미지정 시 기본값: jvm_match 의 JEUS 서버명(`-Dsic_server1` → `sic_server1`),
+    안전하지 않은 값이면 호스트 짧은 이름(IP 는 그대로)."""
+    cand = _jeus_server_name(info, (info.get("jvm_match") or "").strip())
+    if _SAFE_VALUE_RE.fullmatch(cand):
+        return cand
+    return host if re.fullmatch(r"[\d.]+", host or "") else (host or "").split(".")[0]
+
+
+def validate_gateway_url(url: str) -> str:
+    """WAS 에서 접근 가능한 gateway URL 인지 확인한다 (컨테이너 내부 이름·루프백은 WAS 에서 닿지 않는다)."""
+    from urllib.parse import urlparse
+
+    url = (url or "").strip()
+    if not url:
+        raise ValueError(
+            "AGENT_T_GATEWAY_URL 이 비어 있습니다. WAS 에서 접근 가능한 gateway 주소(예: http://<server-a-ip>:8330)를 설정하세요."
+        )
+    if not re.fullmatch(r"https?://\S+", url):
+        raise ValueError(f"AGENT_T_GATEWAY_URL 형식이 올바르지 않습니다: {url[:80]!r}")
+    host = (urlparse(url).hostname or "").lower()
+    if not host or host in _UNREACHABLE_GATEWAY_HOSTS:
+        raise ValueError(
+            f"AGENT_T_GATEWAY_URL 의 호스트 {host!r} 는 WAS 에서 접근할 수 없습니다. "
+            "Server A 의 IP/호스트명으로 설정하세요 (예: http://<server-a-ip>:8330)."
+        )
+    return url
+
+
 # ── 설치 Job ─────────────────────────────────────────────────────────────────
 
 async def run_install(job_id: str, agent: AgentInstance, session: dict) -> None:
@@ -221,7 +257,7 @@ async def run_install(job_id: str, agent: AgentInstance, session: dict) -> None:
         service_type = info.get("service_type", "standalone")
         service_path = _validate_path(info.get("service_path", ""), "service_path")
         install_dir = _validate_path(info.get("install_dir") or "~/agent-t", "install_dir")
-        instance_role = info.get("instance_role", "was")
+        instance_role = info.get("instance_role") or default_instance_role(info, agent.host)
         immediate = info.get("immediate", True) is not False
         permanent = info.get("permanent", True) is not False
 
@@ -235,8 +271,29 @@ async def run_install(job_id: str, agent: AgentInstance, session: dict) -> None:
         sys_name = sys_obj.system_name if sys_obj else "unknown"
         # properties 줄바꿈 주입 방지 — 원격 작업 전에 검증
         for field, value in (("instance_role", instance_role), ("system_name", sys_name)):
-            if not _SAFE_VALUE_RE.match(str(value)):
+            if not _SAFE_VALUE_RE.fullmatch(str(value)):
                 raise ValueError(f"{field}: 영문·숫자·_.- 만 허용되며 1~100자여야 합니다 ({str(value)[:40]!r})")
+
+        gateway_url = validate_gateway_url(os.getenv("AGENT_T_GATEWAY_URL", ""))
+
+        async with AsyncSessionLocal() as db:
+            others = (await db.execute(
+                select(AgentInstance).where(
+                    AgentInstance.system_id == agent.system_id,
+                    AgentInstance.agent_type == "agent_t",
+                    AgentInstance.id != agent.id,
+                )
+            )).scalars().all()
+        for other in others:
+            try:
+                other_role = (json.loads(other.label_info or "{}") or {}).get("instance_role")
+            except (TypeError, ValueError, AttributeError):
+                continue
+            if other_role == instance_role:
+                raise ValueError(
+                    f"같은 시스템에 instance_role '{instance_role}' 인 Agent-T 가 이미 있습니다 (agent {other.id}). "
+                    "label_info.instance_role 을 다르게 지정하세요."
+                )
 
         install_dir = await _expand_tilde(session, install_dir)
         service_path = await _expand_tilde(session, service_path)
@@ -295,6 +352,8 @@ async def run_install(job_id: str, agent: AgentInstance, session: dict) -> None:
         q_dir = shlex.quote(install_dir)
         props_path = f"{install_dir}/agent-t.properties"
         q_props = shlex.quote(props_path)
+        tmp_props_path = f"{props_path}.tmp"
+        q_tmp_props = shlex.quote(tmp_props_path)
 
         # 재실행(jeus_confirm 등) 시 실행 중 에이전트의 토큰을 바꾸지 않는다
         token = None
@@ -309,7 +368,6 @@ async def run_install(job_id: str, agent: AgentInstance, session: dict) -> None:
         if token is None:
             token = secrets.token_urlsafe(32)
         token_sha = hashlib.sha256(token.encode("utf-8")).hexdigest()
-        gateway_url = os.getenv("AGENT_T_GATEWAY_URL", "")
         properties = (
             f"gateway.url={gateway_url}\n"
             f"agent.token={token}\n"
@@ -321,26 +379,34 @@ async def run_install(job_id: str, agent: AgentInstance, session: dict) -> None:
         code, _, err = await _exec(session, f"mkdir -p {q_dir}/logs")
         if code != 0:
             raise RuntimeError(f"설치 디렉터리 생성 실패: {err.strip()}")
-        # 토큰 파일은 업로드 전에 600 으로 만든 뒤 내용을 채운다 (putfo 는 기존 모드를 유지)
-        code, _, err = await _exec(session, f"umask 077; : > {q_props}; chmod 600 {q_props}")
+        # 토큰 파일은 임시 파일(.tmp)에 600 으로 만들어 채우고 검증한 뒤 mv 로 교체한다.
+        # 실행 중인 에이전트가 읽는 기존 properties 는 업로드가 성공하기 전까지 건드리지 않는다.
+        code, _, err = await _exec(session, f"umask 077; : > {q_tmp_props}; chmod 600 {q_tmp_props}")
         if code != 0:
-            raise RuntimeError(f"agent-t.properties 생성 실패: {err.strip()}")
+            raise RuntimeError(f"agent-t.properties 임시 파일 생성 실패: {err.strip()}")
         await asyncio.to_thread(ssh_put_binary, *conn, f"{install_dir}/{jar_name}", jar_bytes)
         await asyncio.to_thread(ssh_put_binary, *conn, f"{install_dir}/{_ATTACHER_JAR}", attacher_bytes)
         await asyncio.to_thread(ssh_put_file, *conn, f"{install_dir}/SHA256SUMS", sums)
-        await asyncio.to_thread(ssh_put_file, *conn, props_path, properties)
-        code, mode_out, err = await _exec(session, f"stat -c %a {q_props}")
+        await asyncio.to_thread(ssh_put_file, *conn, tmp_props_path, properties)
+        code, mode_out, err = await _exec(session, f"stat -c %a {q_tmp_props}")
         if code != 0 or mode_out.strip() != "600":
+            await _exec(session, f"rm -f {q_tmp_props}")
             raise RuntimeError(
                 f"agent-t.properties 권한이 600 이 아닙니다 ({mode_out.strip() or err.strip() or '확인 실패'})"
             )
+        code, _, err = await _exec(session, f"mv -f {q_tmp_props} {q_props}")
+        if code != 0:
+            raise RuntimeError(f"agent-t.properties 교체 실패: {err.strip()}")
         code, _, err = await _exec(session, f"cd {q_dir} && sha256sum -c SHA256SUMS")
         if code != 0:
             raise RuntimeError(f"SHA256 검증 실패: {err.strip()}")
         _log("    SHA256 검증 완료")
 
         # 토큰 해시 저장 (평문은 원격 properties 에만 존재)
-        new_info = {**info, "agent_token_sha256": token_sha, "jdk_major": major, "jar": jar_name}
+        new_info = {
+            **info, "instance_role": instance_role,
+            "agent_token_sha256": token_sha, "jdk_major": major, "jar": jar_name,
+        }
         async with AsyncSessionLocal() as db:
             await db.execute(
                 update(AgentInstance).where(AgentInstance.id == agent.id).values(label_info=json.dumps(new_info))
@@ -353,7 +419,7 @@ async def run_install(job_id: str, agent: AgentInstance, session: dict) -> None:
         attached = False
         already_live = False
         if immediate and is_fresh(find_instance(
-            await fetch_snapshot(agent.system_id, _service_principal()), agent.system_id, instance_role
+            await fetch_snapshot(agent.system_id, _service_principal()), agent.system_id, instance_role, agent.host
         )):
             already_live = True
             _log("[4/7] 이미 적용됨 — gateway 에서 인스턴스가 확인되어 attach 를 건너뜁니다.")
@@ -403,7 +469,7 @@ async def run_install(job_id: str, agent: AgentInstance, session: dict) -> None:
             deadline = time.monotonic() + _CONFIRM_TIMEOUT_S
             while True:
                 inst = find_instance(
-                    await fetch_snapshot(agent.system_id, _service_principal()), agent.system_id, instance_role
+                    await fetch_snapshot(agent.system_id, _service_principal()), agent.system_id, instance_role, agent.host
                 )
                 if is_fresh(inst):
                     agent_status = "running"
@@ -475,7 +541,7 @@ async def _jeus_precheck(session, conn, info, jvm_match, service_path, javaagent
     if not service_path:
         raise ValueError("JEUS 영구 적용에는 service_path(도메인 디렉터리)가 필요합니다.")
     server_name = _jeus_server_name(info, jvm_match)
-    if not server_name or not _SAFE_VALUE_RE.match(server_name):
+    if not server_name or not _SAFE_VALUE_RE.fullmatch(server_name):
         raise ValueError(f"jvm_match 에서 JEUS 서버명을 알 수 없습니다. label_info.server_name 을 지정하세요 ({jvm_match!r}).")
     domain_xml = f"{service_path}/config/domain.xml"
     xml_text = await asyncio.to_thread(ssh_read_file, *conn, domain_xml)

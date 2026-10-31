@@ -148,6 +148,8 @@ async def start_agent(
     current_user=Depends(get_current_user),
 ):
     agent = await _get_agent_or_404(agent_id, db)
+    if agent.agent_type == "agent_t":
+        raise HTTPException(400, "Agent-T 는 시작/중지할 프로세스가 없습니다 (WAS JVM 에 로드되는 javaagent). 킬 스위치는 label_info.enabled 로 제어하세요.")
 
     # DB 에이전트: SSH 없이 상태만 변경 → 수집 루프가 자동 재개
     if agent.agent_type == "db":
@@ -211,6 +213,8 @@ async def stop_agent(
     current_user=Depends(get_current_user),
 ):
     agent = await _get_agent_or_404(agent_id, db)
+    if agent.agent_type == "agent_t":
+        raise HTTPException(400, "Agent-T 는 시작/중지할 프로세스가 없습니다 (WAS JVM 에 로드되는 javaagent). 킬 스위치는 label_info.enabled 로 제어하세요.")
 
     # DB 에이전트: SSH 없이 상태만 변경 → 수집 루프가 자동 중단
     if agent.agent_type == "db":
@@ -257,6 +261,8 @@ async def restart_agent(
     current_user=Depends(get_current_user),
 ):
     agent = await _get_agent_or_404(agent_id, db)
+    if agent.agent_type == "agent_t":
+        raise HTTPException(400, "Agent-T 는 시작/중지할 프로세스가 없습니다 (WAS JVM 에 로드되는 javaagent). 킬 스위치는 label_info.enabled 로 제어하세요.")
 
     # DB 에이전트: SSH 없이 상태만 running으로 설정
     if agent.agent_type == "db":
@@ -1182,7 +1188,7 @@ async def get_agent_live_status(
             info = json.loads(agent.label_info or "{}")
         except Exception:
             pass
-        instance_role = info.get("instance_role", "was")
+        instance_role = info.get("instance_role") or agent_t_installer.default_instance_role(info, agent.host)
         instances = await agent_t_installer.fetch_snapshot(agent.system_id, current_user)
         inst = agent_t_installer.find_instance(instances, agent.system_id, instance_role)
         last_seen, age_secs = agent_t_installer.last_seen_age(inst.get("last_seen") if inst else None)

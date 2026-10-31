@@ -14,15 +14,18 @@ import com.synapsev.agentt.norm.UriNormalizer;
 import com.synapsev.agentt.transport.Sender;
 import java.lang.management.ManagementFactory;
 import java.lang.management.ThreadMXBean;
+import java.lang.ref.WeakReference;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.WeakHashMap;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -88,13 +91,52 @@ public final class TxTracker implements HookSink {
         }
     }
 
-    /** Cached reflective accessors for one request or response class (null Method = not available). */
+    /**
+     * One lazily resolved reflective accessor. The Method is held only weakly: a Method strongly
+     * references its declaring class, and a webapp class kept alive by this cache would pin the
+     * whole webapp classloader after an undeploy. When the reference is cleared the method is
+     * resolved again from the target's class.
+     */
+    private static final class Slot {
+        private final String name;
+        private final Class<?>[] params;
+        private volatile WeakReference<Method> ref;
+        private volatile boolean absent;
+
+        Slot(String name, Class<?>[] params) {
+            this.name = name;
+            this.params = params;
+        }
+
+        /** The method for target's class, or null when it has none. Never null-pointers. */
+        Method get(Object target) {
+            if (absent || target == null) {
+                return null;
+            }
+            WeakReference<Method> r = ref;
+            Method m = r == null ? null : r.get();
+            if (m == null) {
+                m = find(target.getClass(), name, params);
+                if (m == null) {
+                    absent = true;
+                    return null;
+                }
+                ref = new WeakReference<Method>(m);
+            }
+            return m;
+        }
+    }
+
+    /**
+     * Accessors for one request or response class. Must not strongly reach that class (it is the
+     * value of a WeakHashMap keyed by the class), so it holds only names and weak Method references.
+     */
     private static final class Access {
-        Method uri;
-        Method method;
-        Method remoteAddr;
-        Method header;
-        Method status;
+        final Slot uri = new Slot("getRequestURI", NO_ARGS);
+        final Slot method = new Slot("getMethod", NO_ARGS);
+        final Slot remoteAddr = new Slot("getRemoteAddr", NO_ARGS);
+        final Slot header = new Slot("getHeader", STRING_ARG);
+        final Slot status = new Slot("getStatus", NO_ARGS);
     }
 
     private final Out out;
@@ -105,7 +147,9 @@ public final class TxTracker implements HookSink {
     private final Map<String, String[]> sqlCache = new ConcurrentHashMap<String, String[]>();
     private final Map<String, String[]> uriCache = new ConcurrentHashMap<String, String[]>();
     private volatile int uriCacheVersion = Integer.MIN_VALUE;
-    private final Map<Class<?>, Access> access = new ConcurrentHashMap<Class<?>, Access>();
+    // weak keys: a webapp's request/response classes must not outlive its classloader
+    private final Map<Class<?>, Access> access =
+            Collections.synchronizedMap(new WeakHashMap<Class<?>, Access>());
     private final ThreadMXBean threads;
     private volatile ActiveRegistry registry;
     private volatile StackSampler sampler;
@@ -151,15 +195,15 @@ public final class TxTracker implements HookSink {
             return null; // nested filter/servlet: only the outermost is the root
         }
         Access a = accessFor(req);
-        String uri = str(call(a == null ? null : a.uri, req, null));
+        String uri = str(call(a == null ? null : a.uri.get(req), req, null));
         if (excluded(uri)) {
             return null;
         }
         long nano = System.nanoTime();
         TxContext c = new TxContext(Thread.currentThread(), generation, System.currentTimeMillis(), nano, cpuNow());
-        c.method = str(call(a == null ? null : a.method, req, null));
-        c.userIp = str(call(a == null ? null : a.remoteAddr, req, null));
-        TraceParent p = TraceParent.parse(str(call(a == null ? null : a.header, req, new Object[] {"traceparent"})));
+        c.method = str(call(a == null ? null : a.method.get(req), req, null));
+        c.userIp = str(call(a == null ? null : a.remoteAddr.get(req), req, null));
+        TraceParent p = TraceParent.parse(str(call(a == null ? null : a.header.get(req), req, new Object[] {"traceparent"})));
         if (p != null) {
             c.traceId = p.traceId;
             c.parentSpan = p.spanId;
@@ -214,7 +258,7 @@ public final class TxTracker implements HookSink {
         r.uriId = c.uriId;
         int status = 0;
         Access ra = accessFor(resp);
-        Object st = call(ra == null ? null : ra.status, resp, null);
+        Object st = call(ra == null ? null : ra.status.get(resp), resp, null);
         if (st instanceof Number) {
             status = ((Number) st).intValue();
         }
@@ -539,11 +583,6 @@ public final class TxTracker implements HookSink {
         Access a = access.get(k);
         if (a == null) {
             a = new Access();
-            a.uri = find(k, "getRequestURI", NO_ARGS);
-            a.method = find(k, "getMethod", NO_ARGS);
-            a.remoteAddr = find(k, "getRemoteAddr", NO_ARGS);
-            a.header = find(k, "getHeader", STRING_ARG);
-            a.status = find(k, "getStatus", NO_ARGS);
             access.put(k, a);
         }
         return a;

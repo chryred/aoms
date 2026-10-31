@@ -288,3 +288,98 @@ func TestHardCeilingShedsDictButNeverDumps(t *testing.T) {
 		t.Fatalf("dump rows must never be shed, have %d", n)
 	}
 }
+
+func TestRetriedChunkKeepsTokenAndBodyAndIsNotMergedWithNewRows(t *testing.T) {
+	type req struct{ token, body string }
+	var mu sync.Mutex
+	var reqs []req
+	var calls int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		zr, _ := gzip.NewReader(r.Body)
+		b, _ := io.ReadAll(zr)
+		mu.Lock()
+		reqs = append(reqs, req{r.URL.Query().Get("insert_deduplication_token"), string(b)})
+		mu.Unlock()
+		if atomic.AddInt32(&calls, 1) == 1 {
+			// Commit happened, but the client sees a failure (timeout-after-commit).
+			w.WriteHeader(503)
+		}
+	}))
+	defer srv.Close()
+	w := NewWriter(Config{URL: srv.URL, DB: "agent_t", FlushInterval: time.Hour, FlushRows: 3,
+		MaxQueueBytes: 1 << 30}, srv.Client())
+	w.Accept(testInst, &protocol.Batch{Tx: txs(2, 0)}, 0)
+	if err := w.Flush(context.Background()); err == nil {
+		t.Fatal("expected failure")
+	}
+	// New rows arrive before the retry; they must not join the failed chunk.
+	w.Accept(testInst, &protocol.Batch{Tx: txs(2, 0)}, 0)
+	if err := w.Flush(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(reqs) != 3 {
+		t.Fatalf("requests=%d want 3 (fail, retry, new rows)", len(reqs))
+	}
+	if reqs[0].token == "" || reqs[0].token != reqs[1].token || reqs[0].body != reqs[1].body {
+		t.Fatalf("retry must carry the same token and body: %+v", reqs[:2])
+	}
+	if reqs[2].token == reqs[0].token {
+		t.Fatal("new chunk must get a new token")
+	}
+	if w.queuedBytes() != 0 {
+		t.Fatalf("queued=%d", w.queuedBytes())
+	}
+}
+
+func TestShedDictRowEvictsCacheEntry(t *testing.T) {
+	w := NewWriter(Config{URL: "http://127.0.0.1:1", DB: "agent_t", FlushInterval: time.Hour,
+		FlushRows: 1 << 30, MaxQueueBytes: 1500}, nil)
+	d := NewDict(w, 100)
+	w.OnDictLost = d.Evict
+	for i := 0; i < 50; i++ {
+		d.Put("sql", fmt.Sprintf("%016x", i), strings.Repeat("x", 100))
+	}
+	if w.Dropped().Dict == 0 {
+		t.Fatal("expected dict drops")
+	}
+	if m := d.Missing("sql", []string{fmt.Sprintf("%016x", 0)}); len(m) != 1 {
+		t.Fatalf("shed id must be re-requested via need_dict, missing=%v", m)
+	}
+	if m := d.Missing("sql", []string{fmt.Sprintf("%016x", 49)}); len(m) != 0 {
+		t.Fatalf("surviving id must stay known, missing=%v", m)
+	}
+}
+
+func TestRejectedDictInsertEvictsCacheEntry(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(400) }))
+	defer srv.Close()
+	w := NewWriter(Config{URL: srv.URL, DB: "agent_t", FlushInterval: time.Hour, FlushRows: 1 << 30,
+		MaxQueueBytes: 1 << 30}, srv.Client())
+	d := NewDict(w, 100)
+	w.OnDictLost = d.Evict
+	d.Put("uri", "00000000000000aa", "/x")
+	_ = w.Flush(context.Background())
+	if m := d.Missing("uri", []string{"00000000000000aa"}); len(m) != 1 {
+		t.Fatalf("rejected id must be forgotten, missing=%v", m)
+	}
+}
+
+func TestShedDropsWholeRetryChunkFirst(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(503) }))
+	defer srv.Close()
+	w := NewWriter(Config{URL: srv.URL, DB: "agent_t", FlushInterval: time.Hour, FlushRows: 1 << 30,
+		MaxQueueBytes: 3000}, srv.Client())
+	w.Accept(testInst, &protocol.Batch{Tx: txs(3, 20)}, 0)
+	_ = w.Flush(context.Background()) // everything now sits in retry chunks
+	for i := 0; i < 5; i++ {
+		w.Accept(testInst, &protocol.Batch{Tx: txs(3, 20)}, 0)
+	}
+	if q := w.queuedBytes(); q > 3000 {
+		t.Fatalf("queued=%d exceeds limit with retry chunks present", q)
+	}
+	if w.Dropped().Detail == 0 {
+		t.Fatal("expected detail drops")
+	}
+}

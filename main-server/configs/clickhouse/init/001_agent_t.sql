@@ -1,5 +1,7 @@
 -- Agent-T ClickHouse 스키마 (spec §7.3). 멱등: 모든 문장 IF NOT EXISTS.
 -- 시간은 UTC 저장. 보관일은 gateway 가 계산한 expire_at 으로 행 단위 TTL 삭제.
+-- dict_sql/dict_uri 는 TTL 없음(last_seen 이 최초 1회만 기록돼 TTL 이면 사용 중 ID 가 삭제됨).
+-- 이벤트 4개 테이블은 insert_deduplication_token 중복 제거(window 1000 블록).
 CREATE DATABASE IF NOT EXISTS agent_t;
 
 CREATE TABLE IF NOT EXISTS agent_t.tx_summary
@@ -38,7 +40,8 @@ CREATE TABLE IF NOT EXISTS agent_t.tx_summary
 ENGINE = MergeTree
 PARTITION BY toYYYYMMDD(start_ts)
 ORDER BY (system_id, start_ts)
-TTL expire_at DELETE;
+TTL expire_at DELETE
+SETTINGS non_replicated_deduplication_window = 1000;
 
 CREATE TABLE IF NOT EXISTS agent_t.tx_sql
 (
@@ -58,7 +61,8 @@ CREATE TABLE IF NOT EXISTS agent_t.tx_sql
 ENGINE = MergeTree
 PARTITION BY toYYYYMMDD(start_ts)
 ORDER BY (system_id, start_ts, span_id)
-TTL expire_at DELETE;
+TTL expire_at DELETE
+SETTINGS non_replicated_deduplication_window = 1000;
 
 CREATE TABLE IF NOT EXISTS agent_t.tx_detail
 (
@@ -73,7 +77,8 @@ CREATE TABLE IF NOT EXISTS agent_t.tx_detail
 ENGINE = MergeTree
 PARTITION BY toYYYYMMDD(start_ts)
 ORDER BY (system_id, span_id)
-TTL expire_at DELETE;
+TTL expire_at DELETE
+SETTINGS non_replicated_deduplication_window = 1000;
 
 CREATE TABLE IF NOT EXISTS agent_t.jvm_thread_dump
 (
@@ -88,7 +93,8 @@ CREATE TABLE IF NOT EXISTS agent_t.jvm_thread_dump
 ENGINE = MergeTree
 PARTITION BY toYYYYMMDD(ts)
 ORDER BY (system_id, ts)
-TTL expire_at DELETE;
+TTL expire_at DELETE
+SETTINGS non_replicated_deduplication_window = 1000;
 
 CREATE TABLE IF NOT EXISTS agent_t.dict_sql
 (
@@ -97,8 +103,7 @@ CREATE TABLE IF NOT EXISTS agent_t.dict_sql
     last_seen  DateTime('UTC')
 )
 ENGINE = ReplacingMergeTree(last_seen)
-ORDER BY id
-TTL last_seen + INTERVAL 30 DAY;
+ORDER BY id;
 
 CREATE TABLE IF NOT EXISTS agent_t.dict_uri
 (
@@ -107,5 +112,4 @@ CREATE TABLE IF NOT EXISTS agent_t.dict_uri
     last_seen  DateTime('UTC')
 )
 ENGINE = ReplacingMergeTree(last_seen)
-ORDER BY id
-TTL last_seen + INTERVAL 30 DAY;
+ORDER BY id;

@@ -15,9 +15,9 @@ SESSION = {"host": "10.0.0.5", "port": 22, "username": "jeussic", "password": "p
 FIXTURE = Path(__file__).parent / "fixtures" / "jeus_domain_min.xml"
 
 
-def _inst_at(age_s: float = 0):
+def _inst_at(age_s: float = 0, role: str = "sic_server1", host: str = "10.0.0.5"):
     import time
-    return {"system_id": 1, "instance_role": "was", "last_seen": int((time.time() - age_s) * 1000)}
+    return {"system_id": 1, "instance_role": role, "host": host, "last_seen": int((time.time() - age_s) * 1000)}
 
 
 class Remote:
@@ -87,7 +87,7 @@ async def env(db_session, monkeypatch, tmp_path):
     (art / "agent-t-legacy.jar").write_bytes(b"legacy")
     (art / "agent-t-attacher.jar").write_bytes(b"attacher")
     monkeypatch.setenv("AGENT_T_ARTIFACT_DIR", str(art))
-    monkeypatch.setenv("AGENT_T_GATEWAY_URL", "http://gw:8330")
+    monkeypatch.setenv("AGENT_T_GATEWAY_URL", "http://10.9.9.9:8330")
 
     monkeypatch.setattr(database, "AsyncSessionLocal", async_sessionmaker(db_session.bind, expire_on_commit=False))
     remote = Remote()
@@ -211,16 +211,22 @@ async def test_token_hash_stored_not_plaintext(env):
     agent = await env.make({"jvm_match": "-Dsic_server1", "permanent": False})
     await inst.run_install("job1", agent, SESSION)
     info = json.loads((await _agent(env, agent)).label_info)
-    props = env.remote.files["/home/jeussic/agent-t/agent-t.properties"]
+    props = env.remote.files["/home/jeussic/agent-t/agent-t.properties.tmp"]
     token = next(l.split("=", 1)[1] for l in props.splitlines() if l.startswith("agent.token="))
     import hashlib
     assert info["agent_token_sha256"] == hashlib.sha256(token.encode()).hexdigest()
     assert token not in json.dumps(info)
     assert token not in (await _job(env)).logs
-    prep = "umask 077; : > /home/jeussic/agent-t/agent-t.properties; chmod 600 /home/jeussic/agent-t/agent-t.properties"
+    tmp = "/home/jeussic/agent-t/agent-t.properties.tmp"
+    prep = f"umask 077; : > {tmp}; chmod 600 {tmp}"
     ev = env.remote.events
-    assert ev.index(("exec", prep)) < ev.index(("put", "/home/jeussic/agent-t/agent-t.properties"))
-    assert "gateway.url=http://gw:8330" in props
+    assert ev.index(("exec", prep)) < ev.index(("put", tmp))
+    # 검증 후 mv 로 교체 — 기존 properties 는 업로드 성공 전까지 건드리지 않는다
+    mv = f"mv -f {tmp} /home/jeussic/agent-t/agent-t.properties"
+    assert ev.index(("put", tmp)) < ev.index(("exec", "stat -c %a " + tmp)) < ev.index(("exec", mv))
+    assert ("put", "/home/jeussic/agent-t/agent-t.properties") not in ev
+    assert info["instance_role"] == "sic_server1"
+    assert "gateway.url=http://10.9.9.9:8330" in props
 
 
 async def test_falls_back_to_shell_exec(env):
@@ -277,9 +283,8 @@ async def test_parse_java_major():
 
 
 async def test_live_status_agent_t_uses_gateway_snapshot(env, authed_client, monkeypatch):
-    import time
     agent = await env.make({"jvm_match": "-Dsic_server1", "instance_role": "was"})
-    env.snapshots[0] = [{"system_id": 1, "instance_role": "was", "last_seen": int(time.time() * 1000)}]
+    env.snapshots[0] = [_inst_at(role="was")]
     resp = await authed_client.get(f"/api/v1/agents/{agent.id}/live-status")
     body = resp.json()
     assert resp.status_code == 200
@@ -341,7 +346,7 @@ async def test_rerun_keeps_token_and_skips_attach_when_live(env):
     await inst.run_install("job1", agent, SESSION)
     first = json.loads((await _agent(env, agent)).label_info)
     props_path = "/home/jeussic/agent-t/agent-t.properties"
-    first_props = env.remote.files[props_path]
+    first_props = env.remote.files[props_path + ".tmp"]
     assert env.remote.attached
 
     # 재실행: 원격 properties 가 이미 있고 gateway 에도 보인다
@@ -361,7 +366,7 @@ async def test_rerun_keeps_token_and_skips_attach_when_live(env):
     assert not any("agent-t-attacher.jar" in c for c in env.remote.exec_calls)
     second = json.loads((await _agent(env, agent)).label_info)
     assert second["agent_token_sha256"] == first["agent_token_sha256"]
-    assert env.remote.files[props_path] == first_props
+    assert env.remote.files[props_path + ".tmp"] == first_props
     assert (await _agent(env, agent)).status == "running"
     assert "-javaagent:" in env.remote.files[path]  # jeus_confirm 으로 반영됨
 
@@ -374,3 +379,57 @@ async def test_stale_gateway_entry_does_not_skip_attach_or_confirm(env):
     assert job.status == "done"
     assert env.remote.attached and "이미 적용됨" not in job.logs
     assert (await _agent(env, agent)).status == "installed"  # 확인 단계도 stale 은 불인정
+
+
+async def test_safe_value_re_rejects_trailing_newline():
+    assert inst._SAFE_VALUE_RE.fullmatch("sic_server1")
+    assert not inst._SAFE_VALUE_RE.fullmatch("sic_server1\n")
+
+
+async def test_default_role_from_jeus_server_name_then_host():
+    assert inst.default_instance_role({"jvm_match": "-Dsic_server1"}, "10.0.0.5") == "sic_server1"
+    assert inst.default_instance_role({"jvm_match": "-Djeus.server=sic_server2", "server_name": "sic_server2"}, "h") == "sic_server2"
+    assert inst.default_instance_role({"jvm_match": "/opt/jeus/bin/x y"}, "was01.corp.local") == "was01"
+    assert inst.default_instance_role({"jvm_match": "/opt/jeus/bin/x y"}, "10.0.0.5") == "10.0.0.5"
+
+
+async def test_already_applied_requires_same_host(env):
+    # 같은 system·role 이지만 다른 서버의 인스턴스가 보인다 → attach 를 건너뛰면 안 된다
+    env.snapshots[0] = [_inst_at(host="10.0.0.99")]
+    agent = await env.make({"jvm_match": "-Dsic_server1", "permanent": False})
+    await inst.run_install("job1", agent, SESSION)
+    job = await _job(env)
+    assert job.status == "done", job.error
+    assert env.remote.attached and "이미 적용됨" not in job.logs
+
+
+async def test_duplicate_role_in_system_fails_install(env):
+    other = AgentInstance(system_id=1, agent_type="agent_t", host="10.0.0.9", ssh_username="u",
+                          label_info=json.dumps({"instance_role": "sic_server1"}), status="running")
+    env.db.add(other)
+    await env.db.commit()
+    agent = await env.make({"jvm_match": "-Dsic_server1", "permanent": False})
+    await inst.run_install("job1", agent, SESSION)
+    job = await _job(env)
+    assert job.status == "failed" and "sic_server1" in job.error
+    assert env.remote.events == []
+
+
+@pytest.mark.parametrize("url", [
+    "", "http://agent-t-gateway:8330", "http://localhost:8330", "http://127.0.0.1:8330", "not-a-url",
+])
+async def test_unreachable_gateway_url_rejected_before_remote(env, monkeypatch, url):
+    monkeypatch.setenv("AGENT_T_GATEWAY_URL", url)
+    agent = await env.make({"jvm_match": "-Dsic_server1", "permanent": False})
+    await inst.run_install("job1", agent, SESSION)
+    job = await _job(env)
+    assert job.status == "failed" and "AGENT_T_GATEWAY_URL" in job.error
+    assert env.remote.events == []
+
+
+async def test_failed_properties_check_keeps_existing_file(env):
+    env.remote.mode = "644"
+    agent = await env.make({"jvm_match": "-Dsic_server1", "permanent": False})
+    await inst.run_install("job1", agent, SESSION)
+    assert ("put", "/home/jeussic/agent-t/agent-t.properties") not in env.remote.events
+    assert any(c.startswith("rm -f ") and c.endswith("agent-t.properties.tmp") for c in env.remote.exec_calls)

@@ -68,3 +68,11 @@ JVM 당 약 1초마다 1회 전송. 본문 최상위 필드:
 - `commands`: 에이전트가 실행할 명령. 결과는 이후 배치 `dumps` 로 회신(`cmd_id` 매칭).
 - `need_dict`: 사전에 없어 원문을 요청하는 ID 목록. 다음 배치 `dict` 에 포함.
 - `backoff_ms`: 0 이 아니면 해당 시간만큼 전송 지연.
+
+## 5. 전달 보장 (at-least-once)
+
+파이프라인 전체는 **at-least-once** 이다. 중복 제거 범위는 구간별로 다르다.
+
+- **gateway → ClickHouse**: 청크마다 고정된 `insert_deduplication_token` 을 보내고 실패한 청크는 같은 토큰·같은 본문으로 통째 재시도한다. 커밋 후 타임아웃이 나도 ClickHouse 가 중복을 제거한다 (`non_replicated_deduplication_window = 1000`, 최근 1000 블록 한정).
+- **에이전트 → gateway**: 에이전트가 읽기 타임아웃 후 같은 배치를 재전송하면 gateway 는 이를 구별하지 못한다 (배치 단위 멱등 키 없음). 이미 수신·적재된 배치가 한 번 더 들어오면 `tx_summary`/`tx_sql` 등에 **중복 행**이 생길 수 있다. 의도된 한계이며 코드로 막지 않는다.
+- 소비자(조회·집계)는 `span_id` 중복 가능성을 알고 있어야 한다. E2E 는 `count() - uniqExact(span_id)` 로 중복 비율을 기록한다.

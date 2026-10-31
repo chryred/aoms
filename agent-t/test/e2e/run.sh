@@ -276,8 +276,12 @@ s4() {
   rows=$(ch "SELECT count() FROM tx_summary s JOIN (SELECT id FROM dict_uri WHERE text='/ok') d ON d.id=s.uri_id WHERE system_id=$ID_E2E_SYS_B AND start_ts >= toDateTime64('$t0',3,'UTC') AND start_ts <= toDateTime64('$t1',3,'UTC')")
   local diff pct
   diff=$((rows-hey_ok)); pct=$(awk -v d="$diff" -v n="$hey_ok" 'BEGIN{printf "%.3f", (d<0?-d:d)*100/n}')
-  metric S4_hey_ok "$hey_ok"; metric S4_tx_summary_rows "$rows"; metric S4_diff_pct "$pct"; metric S4_rps "$(hey_stat "$RES/s4-hey.txt" rps)"
-  if cmp_le "$pct" 0.5; then result 4 "전량 수집" PASS "hey=$hey_ok tx_summary=$rows 차이 ${pct}%"
+  # 파이프라인은 at-least-once — 같은 span 이 두 번 적재되면 count() - uniqExact(span_id) > 0
+  local dup
+  dup=$(ch "SELECT count() - uniqExact(span_id) FROM tx_summary s JOIN (SELECT id FROM dict_uri WHERE text='/ok') d ON d.id=s.uri_id WHERE system_id=$ID_E2E_SYS_B AND start_ts >= toDateTime64('$t0',3,'UTC') AND start_ts <= toDateTime64('$t1',3,'UTC')")
+  metric S4_hey_ok "$hey_ok"; metric S4_tx_summary_rows "$rows"; metric S4_diff_pct "$pct"; metric S4_rps "$(hey_stat "$RES/s4-hey.txt" rps)"; metric S4_dup_span_rows "$dup"
+  if [ "${dup:-1}" -gt 0 ]; then result 4 "전량 수집" FAIL "중복 적재 span ${dup:-?}행 (count()-uniqExact(span_id) > 0; hey=$hey_ok tx_summary=$rows 차이 ${pct}%)"
+  elif cmp_le "$pct" 0.5; then result 4 "전량 수집" PASS "hey=$hey_ok tx_summary=$rows 차이 ${pct}% 중복 span 0"
   else result 4 "전량 수집" FAIL "hey=$hey_ok tx_summary=$rows 차이 ${pct}% (>0.5%)"; fi
 }
 
@@ -446,6 +450,7 @@ v='$LOAD_DURATION'; m=re.match(r'(\d+)([smh])',v); n=int(m.group(1)); print(n*{'
   local rej; rej=$(sed -n 's/.*rejected_429=\([0-9]*\).*/\1/p' "$RES/s7-agentsim.txt")
   local failed; failed=$(sed -n 's/.*failed=\([0-9]*\).*/\1/p' "$RES/s7-agentsim.txt")
   local rows; rows=$(ch "SELECT count() FROM tx_summary WHERE system_id=$ID_E2E_SYS_SIM AND start_ts >= toDateTime64('$t0',3,'UTC')")
+  local dup; dup=$(ch "SELECT count() - uniqExact(span_id) FROM tx_summary WHERE system_id=$ID_E2E_SYS_SIM AND start_ts >= toDateTime64('$t0',3,'UTC')")
   local dropped; dropped=$(curl -s "http://localhost:19090/api/v1/query" --data-urlencode 'query=sum(agent_t_dropped_total{system_name="e2e-sys-sim"})' | "$PY" -c 'import sys,json
 d=json.load(sys.stdin)["data"]["result"]; print(d[0]["value"][1] if d else "NA")')
   local lag_max lag_p95
@@ -469,7 +474,7 @@ print(int(b(sys.argv[2].split("/")[0])-b(sys.argv[1].split("/")[0])))
 PYEOF
 )
   wire_per_tx=$(awk -v r="$rx_b" -v n="$sent" 'BEGIN{printf "%.1f", r/n}')
-  metric S7_sent_tx "$sent"; metric S7_rows "$rows"; metric S7_rejected_429 "$rej"; metric S7_failed_posts "$failed"; metric S7_dropped_total "$dropped"
+  metric S7_sent_tx "$sent"; metric S7_rows "$rows"; metric S7_dup_span_rows "$dup"; metric S7_rejected_429 "$rej"; metric S7_failed_posts "$failed"; metric S7_dropped_total "$dropped"
   metric S7_lag_max_ms "$lag_max"; metric S7_lag_p95_ms "$lag_p95"
   metric S7_gateway_cpu_avg_pct "$gw_avg"; metric S7_gateway_cpu_max_pct "$gw_max"; metric S7_clickhouse_cpu_avg_pct "$ch_avg"; metric S7_clickhouse_cpu_max_pct "$ch_max"
   metric S7_gateway_mem_max "$gw_mem"
@@ -484,8 +489,8 @@ PYEOF
   cmp_le "$ch_avg" 150 || { pass=0; why+="clickhouse CPU avg ${ch_avg}%; "; }
   # 베이스라인이 서브밀리초대라 상대값이 노이즈에 지배됨 → 상대 ≤20% 또는 절대 ≤+1ms(hey 해상도·타이머 노이즈 하한) 중 하나면 통과
   { cmp_le "$degr" 20 || cmp_le "$dabs" 1; } || { pass=0; why+="admin-api p95 +${degr}% (+${dabs}ms); "; }
-  [ $pass -eq 1 ] && result 7 "5,000 TPS 용량" PASS "sent=$sent rows=$rows dropped=$dropped lag p95=${lag_p95}ms max=${lag_max}ms gw CPU ${gw_avg}%/${gw_max}% ch CPU ${ch_avg}%/${ch_max}% api p95 ${p95b}→${p95l}ms(+${degr}%)" \
-                  || result 7 "5,000 TPS 용량" FAIL "$why (sent=$sent rows=$rows lag p95=${lag_p95}ms max=${lag_max}ms gw ${gw_avg}%/${gw_max}% ch ${ch_avg}%/${ch_max}% api ${p95b}→${p95l}ms)"
+  [ $pass -eq 1 ] && result 7 "5,000 TPS 용량" PASS "sent=$sent rows=$rows dup_span=$dup dropped=$dropped lag p95=${lag_p95}ms max=${lag_max}ms gw CPU ${gw_avg}%/${gw_max}% ch CPU ${ch_avg}%/${ch_max}% api p95 ${p95b}→${p95l}ms(+${degr}%)" \
+                  || result 7 "5,000 TPS 용량" FAIL "$why (sent=$sent rows=$rows dup_span=$dup lag p95=${lag_p95}ms max=${lag_max}ms gw ${gw_avg}%/${gw_max}% ch ${ch_avg}%/${ch_max}% api ${p95b}→${p95l}ms)"
 }
 
 # 8. 에이전트 오버헤드 (JDK17 native): bare(OFF) vs 에이전트 부착(ON), 교차 2회
@@ -570,10 +575,11 @@ PYEOF
   p99=$(hey_stat "$RES/s10-probe.txt" p99); slow=$(awk '/Slowest:/{print $2*1000}' "$RES/s10-probe.txt")
   bad=$(( $(hey_stat "$RES/s10-probe.txt" total) - $(hey_stat "$RES/s10-probe.txt" ok) ))
   rows=$(ch "SELECT count() FROM tx_summary WHERE system_id=$ID_E2E_SYS_SIM AND start_ts >= toDateTime64('$t0',3,'UTC')")
+  local dup; dup=$(ch "SELECT count() - uniqExact(span_id) FROM tx_summary WHERE system_id=$ID_E2E_SYS_SIM AND start_ts >= toDateTime64('$t0',3,'UTC')")
   dropped=$(curl -s "http://localhost:19090/api/v1/query" --data-urlencode 'query=sum(agent_t_dropped_total{system_name="e2e-sys-sim"})' | "$PY" -c 'import sys,json
 d=json.load(sys.stdin)["data"]["result"]; print(d[0]["value"][1] if d else "NA")')
   metric S10_sent_tx "$sent"; metric S10_rejected_429 "$rej"; metric S10_failed_posts "$failed"; metric S10_probe_p99_ms "$p99"
-  metric S10_probe_max_ms "$slow"; metric S10_probe_non200 "$bad"; metric S10_rows "$rows"; metric S10_dropped "$dropped"
+  metric S10_probe_max_ms "$slow"; metric S10_probe_non200 "$bad"; metric S10_rows "$rows"; metric S10_dropped "$dropped"; metric S10_dup_span_rows "$dup"
   local pass=1 why=""
   [ "${failed:-1}" -eq 0 ] || { pass=0; why+="agentsim 실패 post ${failed}(타임아웃/연결오류, 429 아님); "; }
   [ -n "$p99" ] && cmp_le "$p99" 999 || { pass=0; why+="프로브 p99 ${p99:-?}ms (≥1s); "; }
@@ -581,9 +587,9 @@ d=json.load(sys.stdin)["data"]["result"]; print(d[0]["value"][1] if d else "NA")
   local expect; expect=$(( sent - ${dropped%.*} ))
   [ "$rows" -ge "$(( expect * 995 / 1000 ))" ] || { pass=0; why+="적재 $rows < 송신-drop $expect; "; }
   if [ $pass -eq 1 ]; then
-    result 10 "ClickHouse 45s 정지 내성" PASS "실패 post 0(429=$rej), 프로브 p99 ${p99}ms max ${slow}ms, rows=$rows sent=$sent dropped=$dropped"
+    result 10 "ClickHouse 45s 정지 내성" PASS "실패 post 0(429=$rej), 프로브 p99 ${p99}ms max ${slow}ms, rows=$rows dup_span=$dup sent=$sent dropped=$dropped"
   else
-    result 10 "ClickHouse 45s 정지 내성" FAIL "$why (p99 ${p99}ms max ${slow}ms, 429=$rej failed=$failed rows=$rows sent=$sent dropped=$dropped)"
+    result 10 "ClickHouse 45s 정지 내성" FAIL "$why (p99 ${p99}ms max ${slow}ms, 429=$rej failed=$failed rows=$rows dup_span=$dup sent=$sent dropped=$dropped)"
     log "S10: 실패 증거 수집 (gateway 로그·goroutine dump)"
     docker logs e2e-gateway >"$RES/s10-gateway.log" 2>&1
     docker stats --no-stream >"$RES/s10-docker-stats.txt" 2>&1
