@@ -1,6 +1,10 @@
 -- Agent-T final fix: dict TTL 제거 + 중복 적재 방지.
--- 기존 설치(001_agent_t.sql 이 이미 적용된 ClickHouse)에서 한 번 실행한다.
--- 신규 설치는 init/001_agent_t.sql 이 이미 반영되어 있으므로 실행해도 무해하다.
+-- 2026-10-31 이전의 init SQL 로 초기화된 ClickHouse 에만 **한 번** 적용한다.
+-- 신규 설치(현재 init/001_agent_t.sql 은 이미 dict TTL 이 없음)는 실행하지 말 것:
+-- 테이블에 TTL 이 없으면 REMOVE TTL 이 "Code: 36 Table doesn't have any table TTL expression" 으로 실패한다.
+-- 두 번째 실행도 마찬가지다. MODIFY SETTING 문장은 멱등이다.
+-- 적용: clickhouse-client --multiquery < 20261031_dict_no_ttl.sql
+--   일부만 적용된 경우: clickhouse-client --multiquery --ignore-error < 20261031_dict_no_ttl.sql
 
 -- dict_*: last_seen 은 최초 1회만 기록되므로 TTL 이 사용 중인 ID 의 텍스트를 삭제했다.
 ALTER TABLE agent_t.dict_sql REMOVE TTL;
