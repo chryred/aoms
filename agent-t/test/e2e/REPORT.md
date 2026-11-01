@@ -110,6 +110,13 @@
 - **D-H1-3 환경 요인 유력(gateway 코드 결함 없음)**: 소유자 회귀 테스트가 인입 경로가 ClickHouse 를 기다리지 않음을 보였고, 같은 시나리오가 큐 64MB 에서는 통과, 256MB 에서는 실패 9건으로 감소(이전 49~97). VM swap 가득·free<100MB 조건과 일치. 운영 사양 서버(dev 서버)에서 S10 을 재측정해 종결할 것.
 - 운영 메모: 개발 VM 처럼 메모리가 빠듯하면 `GATEWAY_CH_QUEUE_MAX_BYTES` 를 줄이면(64MB) 정지 중 429 로 명시적 backoff 가 동작해 에이전트 타임아웃이 없어진다 — 운영 기본값은 이후 128MB(+`GOMEMLIMIT=400MiB`)로 낮췄다 — 서버 메모리 기준으로 재검토.
 
+## Fix round 3 (하니스 집계 경계 보정, S10 재실행)
+- **집계 경계 버그(하니스)**: agentsim 의 `StartTs = now - elapsed - rand(0..900ms)` 때문에 첫 1초 송신분은 `start_ts < t0` 이라 `start_ts >= t0` 집계에서 빠져 S10/S7 적재 행이 과소 집계(예: 239,788 < sent 241,080 → 오판 FAIL; 같은 계열을 넓은 구간으로 세면 241,074 행, uniqExact(span_id)=241,074). 수정: sim 시스템 행수·중복 쿼리를 `start_ts >= t0 - 15s AND start_ts < t_end + 5s` 로 제한(S7·S10).
+- **D-H1-3 종결(환경 요인)**: B2 담당 실행 S10 3/3 PASS(VM free ≈1.3GB; 실패 post 0, 프로브 p99 4.9~18.8ms). Docker VM 메모리 부족(swap 가득)이 원인으로 확정.
+- **중복 span 2,009건**: 해당 실행에서 e2e-clickhouse 가 최종 수정 이전 DDL 로 초기화되어(`non_replicated_deduplication_window` 없음) 발생. `migrations/20261031_dict_no_ttl.sql`(업그레이드 경로) 적용 후 dup_span=0.
+- **재실행 `fix3-s10`(VM available 1,464MB, synq 스택 내림)**: S10 **PASS** — 실패 post 0(429 0), 프로브 p99 2.6ms / max 7.7ms, rows 241,080 == sent 241,080, dup_span 0, dropped 0. 원본 `results-committed/fix3-s10/`.
+- 따라서 D-H1-1/2/3 모두 종결. S7 은 조용한 VM 에서의 최종 재측정만 남음(`E2E_PUBLISH=1 run.sh test 7`, 새 경계 적용).
+
 ## 재현·운영 방법
 ```
 agent-t/test/e2e/run.sh up       # Tomcat·PG·Prometheus·ClickHouse·gateway 컨테이너 + 호스트 admin-api(8080)·frontend(3001) + 시드
