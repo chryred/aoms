@@ -1,0 +1,4 @@
+<clickhouse>
+    <!-- 컨테이너 mem_limit(3g) 대비 서버 전체 메모리 사용 상한 비율 -->
+    <max_server_memory_usage_to_ram_ratio>0.8</max_server_memory_usage_to_ram_ratio>
+</clickhouse>

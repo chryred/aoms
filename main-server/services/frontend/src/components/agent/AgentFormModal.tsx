@@ -7,7 +7,7 @@ import { useSSHSessionStore } from '@/store/sshSessionStore'
 import { useAgentFormLogic, AGENT_TYPES } from '@/hooks/useAgentFormLogic'
 import { SynapseAgentForm } from './forms/SynapseAgentForm'
 import { DbAgentForm } from './forms/DbAgentForm'
-import { OtelAgentForm } from './forms/OtelAgentForm'
+import { AgentTForm } from './forms/AgentTForm'
 import type { AgentInstance, OsType, ServerType } from '@/types/agent'
 import type { System } from '@/types/system'
 
@@ -24,7 +24,7 @@ export function AgentFormModal({ systems, onClose, onCreated }: AgentFormModalPr
 
   const isSynapse = form.agentType === 'synapse_agent'
   const isDb = form.agentType === 'db'
-  const isOtel = form.agentType === 'otel_javaagent'
+  const isAgentT = form.agentType === 'agent_t'
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
@@ -128,7 +128,7 @@ export function AgentFormModal({ systems, onClose, onCreated }: AgentFormModalPr
           {/* 타입별 폼 */}
           {isDb && <DbAgentForm form={form} />}
           {isSynapse && <SynapseAgentForm form={form} />}
-          {isOtel && <OtelAgentForm form={form} systems={systems} />}
+          {isAgentT && <AgentTForm form={form} />}
 
           {form.error && (
             <p className="bg-critical-card-bg text-critical rounded-sm px-3 py-2 text-xs">

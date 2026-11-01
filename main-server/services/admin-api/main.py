@@ -11,7 +11,7 @@ from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
 from database import engine, Base, AsyncSessionLocal
 from routes import alerts, analysis, contacts, feedback, systems
 from routes import collector_config, aggregations, reports, auth as auth_router
-from routes import agents as agents_router, agents_control as agents_control_router, dashboard, websocket, llm_config, traces as traces_router
+from routes import agents as agents_router, agents_control as agents_control_router, dashboard, websocket, llm_config
 from routes import incidents as incidents_router
 from routes import chat, chat_attachments, chat_tools as chat_tools_router, chat_executor_configs
 from routes import alert_exclusions as alert_exclusions_router
@@ -29,6 +29,7 @@ from routes import ssl_certs as ssl_certs_router
 from routes import ssl_websocket as ssl_websocket_router
 from routes import ssl_root_ca as ssl_root_ca_router
 from routes import ssl_dmz as ssl_dmz_router
+from routes import apm as apm_router, apm_dashboards as apm_dashboards_router, agent_commands as agent_commands_router
 from services.ssh_session import run_cleanup_loop
 # knowledge_guides 컬렉션 초기화는 ADR-011 Hybrid 통일 이후 log-analyzer가 담당.
 # admin-api 측 qdrant_guides.ensure_collection 은 호환을 위해 noop으로 유지된다.
@@ -106,7 +107,6 @@ app.include_router(agents_control_router.router)
 app.include_router(dashboard.router)
 app.include_router(websocket.router)
 app.include_router(llm_config.router)
-app.include_router(traces_router.router)
 app.include_router(chat.router)
 app.include_router(chat_attachments.router)
 app.include_router(chat_tools_router.router)
@@ -126,6 +126,9 @@ app.include_router(ssl_certs_router.router)
 app.include_router(ssl_websocket_router.router)
 app.include_router(ssl_root_ca_router.router)
 app.include_router(ssl_dmz_router.router)
+app.include_router(apm_router.router)
+app.include_router(apm_dashboards_router.router)
+app.include_router(agent_commands_router.router)
 
 
 @app.get("/health")

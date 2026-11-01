@@ -26,6 +26,9 @@ CREATE TABLE IF NOT EXISTS systems (
     system_type     VARCHAR(50)  NOT NULL DEFAULT 'was',    -- 'web' | 'was' | 'db' | 'middleware' | 'other'
     status          VARCHAR(20)  DEFAULT 'active',
     teams_webhook_url TEXT,
+    environment     VARCHAR(10)  NOT NULL DEFAULT 'prod',   -- 'dev' | 'prod' (Agent-T)
+    tx_slow_threshold_ms INTEGER NOT NULL DEFAULT 3000,     -- Agent-T 느린 트랜잭션 기준(ms)
+    tx_retention_days    INTEGER NOT NULL DEFAULT 7,        -- Agent-T 상세 보관 일수 (1~30)
     created_at      TIMESTAMP DEFAULT NOW(),
     updated_at      TIMESTAMP DEFAULT NOW()
 );
@@ -148,8 +151,8 @@ CREATE TABLE IF NOT EXISTS alert_history (
     acknowledged_by     VARCHAR(100),
     escalated           BOOLEAN DEFAULT FALSE,
     error_message       TEXT,                                   -- LLM/분석 실패 이력: NULL=성공, 값=실패 사유
-    -- Phase OTel: 메트릭 알림 ↔ trace 링크
-    related_trace_ids   JSONB,                                  -- Alertmanager 수신 시점 ±60s 에러 trace top 3 (NULL = OTel 미적용)
+    -- Agent-T: 메트릭 알림 ↔ 트랜잭션 trace 링크
+    related_trace_ids   JSONB,                                  -- Alertmanager 수신 시점 ±60s 에러 트랜잭션 trace_id top 3 (Agent-T trace id, ClickHouse agent_t 조회 키. NULL = Agent-T 미적용)
     -- 인시던트 연결
     incident_id         INTEGER REFERENCES incidents(id) ON DELETE SET NULL,
     -- log_analysis 타입일 때 연결된 log_analysis_history (예외 처리 UI용 templates 조회)
@@ -182,9 +185,9 @@ CREATE TABLE IF NOT EXISTS log_analysis_history (
     qdrant_point_id  VARCHAR(36),
     has_solution     BOOLEAN DEFAULT FALSE,
     error_message    TEXT,                                     -- LLM/분석 실패 이력: NULL=성공, 값=실패 사유
-    -- Phase OTel: 분산 추적 상관 컬럼
-    referenced_trace_ids  JSONB,                              -- ["a1b2c3d4…", ...] 최대 5개 (NULL = OTel 미적용)
-    trace_summary_text    TEXT,                               -- 프롬프트 주입 원문 (감사·디버그용, NULL = OTel 미적용)
+    -- Agent-T: 트랜잭션 상관 컬럼 (과거 OTel/Tempo 시기 컬럼명 유지)
+    referenced_trace_ids  JSONB,                              -- ["a1b2c3d4…", ...] 최대 5개 (Agent-T trace id. NULL = Agent-T 미적용)
+    trace_summary_text    TEXT,                               -- 프롬프트 주입 원문 (감사·디버그용, NULL = Agent-T 미적용)
     -- 인시던트 연결
     incident_id      INTEGER REFERENCES incidents(id) ON DELETE SET NULL,
     -- 예외 처리 (alert_exclusions.id 연결, NULL = 정상 분석)
@@ -411,7 +414,7 @@ CREATE TABLE IF NOT EXISTS agent_instances (
     os_type      VARCHAR(20),               -- 'linux' | 'windows' — 에이전트 설치 서버 OS (Phase 9)
     server_type  VARCHAR(50),               -- 'web' | 'was' | 'db' | 'middleware' | 'other' (Phase 9)
     pid_file     VARCHAR(500),               -- PID 파일 경로
-    ssh_username VARCHAR(100),               -- SSH 접속 계정 (synapse_agent/otel_javaagent 전용; NULL=검증 스킵)
+    ssh_username VARCHAR(100),               -- SSH 접속 계정 (synapse_agent/agent_t 전용; NULL=검증 스킵)
     label_info   TEXT,                       -- JSON: system_name, instance_role 등
     status       VARCHAR(20) DEFAULT 'unknown',  -- installed | running | stopped | unknown
     created_at   TIMESTAMP DEFAULT NOW(),
@@ -434,6 +437,34 @@ CREATE TABLE IF NOT EXISTS agent_install_jobs (
 );
 
 CREATE INDEX IF NOT EXISTS idx_install_jobs_job_id ON agent_install_jobs(job_id);
+
+-- ── APM 대시보드 (Agent-T) ─────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS apm_dashboards (
+    id                SERIAL PRIMARY KEY,
+    owner_user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name              VARCHAR(100) NOT NULL,
+    layout            JSONB NOT NULL DEFAULT '[]'::jsonb,
+    filters           JSONB NOT NULL DEFAULT '{}'::jsonb,
+    is_shared_default BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at        TIMESTAMP DEFAULT NOW(),
+    updated_at        TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_apm_dashboards_owner ON apm_dashboards(owner_user_id);
+
+-- ── Agent-T 원격 명령 큐 ───────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS agent_commands (
+    id                SERIAL PRIMARY KEY,
+    agent_instance_id INTEGER NOT NULL REFERENCES agent_instances(id) ON DELETE CASCADE,
+    command           VARCHAR(30) NOT NULL,
+    status            VARCHAR(20) NOT NULL DEFAULT 'pending',  -- pending | sent | done | failed
+    result_ref        VARCHAR(100),
+    requested_by      INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_at        TIMESTAMP DEFAULT NOW(),
+    updated_at        TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_agent_commands_agent_status ON agent_commands(agent_instance_id, status);
 
 -- ── 챗봇 (ReAct) 관련 테이블 ───────────────────────────────────────────
 -- UUID PK 위해 pgcrypto 확장 필요

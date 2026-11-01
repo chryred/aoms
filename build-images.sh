@@ -21,7 +21,12 @@ ADMIN_API_DOCKERFILE="$SERVICES_DIR/admin-api/Dockerfile"
 IMAGES_STANDARD=(
   "synapse-log-analyzer:$TAG:$SERVICES_DIR/log-analyzer"
   "synapse-frontend:$TAG:$SERVICES_DIR/frontend"
+  "synapse-agent-t-gateway:$TAG:$SCRIPT_DIR/agent-t-gateway"
 )
+
+# 외부 이미지 — 빌드 없이 pull 후 save (폐쇄망 반입용). docker-compose.yml 의 image 와 동일 태그.
+CLICKHOUSE_IMAGE="clickhouse/clickhouse-server:24.8"
+CLICKHOUSE_TARFILE="$OUTPUT_DIR/clickhouse-server-24.8.tar.gz"
 
 # ── 색상 출력 ────────────────────────────────────────────────
 RED='\033[0;31m'
@@ -60,8 +65,19 @@ do_build() {
     echo ""
   done
 
+  info "ClickHouse 이미지 pull: $CLICKHOUSE_IMAGE"
+  docker pull --platform "$PLATFORM" "$CLICKHOUSE_IMAGE" \
+    || error "$CLICKHOUSE_IMAGE pull 실패"
+  success "pull 완료: $CLICKHOUSE_IMAGE"
+  echo ""
+
   # ── 저장 (병렬) ─────────────────────────────────────────────
   info "모든 이미지 병렬 저장 시작..."
+
+  (
+    docker save "$CLICKHOUSE_IMAGE" | pigz -p 2 > "$CLICKHOUSE_TARFILE"
+    success "저장 완료: $CLICKHOUSE_IMAGE  ($(du -sh "$CLICKHOUSE_TARFILE" | cut -f1))"
+  ) &
 
   (
     tarfile="$OUTPUT_DIR/synapse-admin-api-${TAG}.tar.gz"
@@ -91,10 +107,14 @@ do_build() {
     echo "  - $OUTPUT_DIR/${name}-${tag}.tar.gz"
   done
   echo ""
+  echo "  - $CLICKHOUSE_TARFILE"
+  echo ""
   echo "Linux 서버 배포 명령어:"
   echo "  docker load < synapse-admin-api-${TAG}.tar.gz"
   echo "  docker load < synapse-log-analyzer-${TAG}.tar.gz"
   echo "  docker load < synapse-frontend-${TAG}.tar.gz"
+  echo "  docker load < synapse-agent-t-gateway-${TAG}.tar.gz"
+  echo "  docker load < clickhouse-server-24.8.tar.gz"
 }
 
 # ── 모델 export ─────────────────────────────────────────────
@@ -169,6 +189,11 @@ do_clean() {
       success "파일 삭제: $tarfile"
     fi
   done
+
+  if [ -f "$CLICKHOUSE_TARFILE" ]; then
+    rm -f "$CLICKHOUSE_TARFILE"
+    success "파일 삭제: $CLICKHOUSE_TARFILE"
+  fi
 
   # 바이너리 임시 복사본 정리 (빌드 실패 시 잔류할 수 있음)
   BIN_DIR="$SERVICES_DIR/admin-api/bin"

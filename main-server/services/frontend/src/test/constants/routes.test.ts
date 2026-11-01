@@ -28,3 +28,11 @@ describe('ROUTES', () => {
     expect(ROUTES.agentDetail(3)).toBe('/agents/3')
   })
 })
+
+describe('ROUTES APM', () => {
+  it('APM 라우트', () => {
+    expect(ROUTES.APM_LIVE).toBe('/apm/live')
+    expect(ROUTES.APM_TRANSACTIONS).toBe('/apm/transactions')
+    expect(ROUTES.apmTx('abc', 'def')).toBe('/apm/tx/abc/def')
+  })
+})

@@ -11,7 +11,7 @@
 
 ```
 .env.local
-  └──(docker compose up)──▶ dev-n8n, dev-prometheus, dev-alertmanager 컨테이너
+  └──(docker compose up)──▶ dev-prometheus, dev-alertmanager 컨테이너
 ```
 
 > `.env.local` 수정 후에는 반드시 해당 컨테이너를 재시작해야 새 값이 반영됩니다.
@@ -19,7 +19,7 @@
 ```bash
 # 예: TEAMS_WEBHOOK_URL 변경 후
 cd main-server
-docker compose -f docker-compose.dev.yml up -d n8n
+docker compose -f docker-compose.dev.yml up -d alertmanager
 ```
 
 ### 환경변수별 담당 서비스
@@ -35,6 +35,9 @@ docker compose -f docker-compose.dev.yml up -d n8n
 | `FASTEMBED_CACHE_PATH` / `HF_HUB_OFFLINE` | log-analyzer | 폐쇄망 ONNX 사전 스테이징 경로 + 오프라인 모드 (ADR-011) |
 | `QDRANT_URL` | log-analyzer | 벡터 DB. 컬렉션 차원 1024 (ADR-011) |
 | `LLM_TYPE` | admin-api, log-analyzer | `devx`/`claude`/`openai` — `llm_client.py` Strategy가 라우팅 (ADR-001). ADR-012: ollama 폐지 |
+| `CLICKHOUSE_URL` / `CLICKHOUSE_DB` / `CLICKHOUSE_USER` / `CLICKHOUSE_PASSWORD` | admin-api, agent-t-gateway | ClickHouse 접속. 비밀번호는 ClickHouse 컨테이너 안에서 `AGENT_T_CH_PASSWORD` 로 매핑(이미지 entrypoint 가 `CLICKHOUSE_PASSWORD` 를 default 사용자 설정으로 해석하므로 컨테이너에 그 이름으로 넘기지 않는다) |
+| `AGENT_T_GATEWAY_URL` / `AGENT_T_ARTIFACT_DIR` | admin-api | 설치 Job 이 에이전트에 심는 gateway 주소 — **필수, WAS 에서 닿는 `http://{server-a-ip}:8330`** (compose 기본값 없음, 컨테이너명·루프백은 설치 Job 이 거부) / 에이전트 jar 디렉터리 (`artifacts/agent-t/`) |
+| `GATEWAY_PG_DSN` / `GATEWAY_LISTEN` / `PROMETHEUS_REMOTE_WRITE_URL` | agent-t-gateway | PG(`agent_instances`·`systems` 캐시, `agent_commands`) / 수신 포트 `:8330` / 5초 집계 remote write 대상(비면 비활성). `SECRET_KEY` 는 admin-api 와 동일 값 필수. 큐 상한 `GATEWAY_CH_QUEUE_MAX_BYTES` 기본 128MB + `GOMEMLIMIT=400MiB`. PG 비밀번호는 DSN 이 아니라 `PGPASSWORD` 로 전달 |
 | `STEP_CA_INTERMEDIATE_CERT` | admin-api | 사설 CA intermediate 인증서 경로 (`/app/secrets/ssl/intermediate_ca.crt`) — leaf 직접 서명 (ADR-019) |
 | `STEP_CA_INTERMEDIATE_KEY` | admin-api | 사설 CA intermediate 개인키(무암호 PEM) 경로 (`/app/secrets/ssl/intermediate_ca_key`) — `ssl_issuer.sign_leaf`가 로드 |
 | `STEP_CA_CERT_DIR` | admin-api | 발급 결과 저장 루트 (`/app/ssl/certs`, `CERT_BASE`). `wildcard/`·`{domain}/` 하위에 fullchain.cer/cert.key/ca.cer |
@@ -43,6 +46,18 @@ docker compose -f docker-compose.dev.yml up -d n8n
 | `SSL_DEPLOY_PUBKEY_PATH` | admin-api | 배포용 SSH public key 경로 (`/app/secrets/ssl/deploy_key.pub`) |
 
 > SSL 발급은 ADR-019로 acme.sh/Step-CA(ACME http-01) → intermediate 키 `cryptography` 직접 서명으로 전환됨. `STEPPATH`/`STEP_CA_ACME_URL`/`ACMESH_PATH` 및 `secrets/step`·`secrets/.acme.sh` 마운트는 내부망 경로에서 제거. DMZ(`ssl_dmz.py`)만 acme.sh http-01 번들 유지. 상세: `docs/ssl-automation.md`.
+
+---
+
+## Agent-T 인프라 (ADR-022)
+
+- **컨테이너**: `synapse-clickhouse`(clickhouse-server 24.8), `synapse-agent-t-gateway`(Go) 추가. `tempo`·`otel-collector`·`n8n` 제거 → Server A compose 기준 10개 → 9개 (운영 Server A 에는 타 프로젝트 sr_streamlit·sr_api 포함 12개 → 11개). dev compose 는 `dev-clickhouse`/`dev-agent-t-gateway`. gateway 는 `image: synapse-agent-t-gateway:1.0`(`build-images.sh` 가 빌드·save), ClickHouse 이미지는 같은 스크립트가 pull·save 해 폐쇄망에 반입한다.
+- **포트 8330 게시**: WAS 서버의 Agent-T 가 gateway(`POST /t/v1/batch`)로 직접 접속하므로 호스트에 게시한다. 방화벽에서 WAS 대역만 허용. ClickHouse 8123/9000 은 호스트에 게시하지 않는다(컨테이너 네트워크 내부).
+- **ClickHouse DDL**: `configs/clickhouse/init/*.sql` 은 **빈 데이터 디렉터리의 최초 기동 때만** 실행된다(`/docker-entrypoint-initdb.d`). 이후 변경은 `configs/clickhouse/migrations/` 에 날짜 prefix SQL(`20261101_xxx.sql`)로 추가하고 수동 적용한다(init 파일은 최초 생성용 정본으로 같이 갱신). 적용 대기: `20261031_dict_no_ttl.sql`(dict TTL 제거 + 이벤트 테이블 dedup window) — 2026-10-31 이전 init 으로 만든 ClickHouse 에만 1회 적용(`clickhouse-client --multiquery < file`, 부분 적용됐으면 `--ignore-error` 로 재실행). 신규 설치는 실행 금지(`REMOVE TTL` 이 Code 36 으로 실패). 사용자·한도 설정은 `configs/clickhouse/users.d/`, `config.d/limits.xml`.
+- **데이터 디렉터리**: 운영 `./services/clickhouse/data` 는 호스트에서 **uid 101(clickhouse)** 소유여야 한다 (`chown -R 101:101`, SELinux 라벨은 compose 의 `:z`). 소유자가 다르면 기동 직후 종료된다. 개발은 named volume `clickhouse_dev_data`.
+- **비밀번호**: `.env` 의 `CLICKHOUSE_PASSWORD` 하나로 admin-api·gateway 에 주입, ClickHouse 컨테이너에는 `AGENT_T_CH_PASSWORD` 로 매핑. 운영은 필수값(기본값 없음), 개발 기본값만 존재.
+- **Prometheus remote write**: gateway 가 5초 집계를 `agent_t_*` 시계열로 Prometheus remote write 로 푼다 → Prometheus 기동 옵션 `--web.enable-remote-write-receiver` 필요. 대상은 `PROMETHEUS_REMOTE_WRITE_URL`(예: `http://prometheus:9090/api/v1/write`).
+- **에이전트 jar**: `main-server/artifacts/agent-t/` (repo 미포함, `agent-t/build.sh install-artifacts` 로 생성). 절차는 해당 디렉터리 README.
 
 ---
 

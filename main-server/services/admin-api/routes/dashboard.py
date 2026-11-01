@@ -401,14 +401,14 @@ async def get_dashboard_health(
     summary["total_log_critical"] = sum(1 for r in _log_stat_rows if r.severity == "critical")
     summary["total_log_warning"]  = sum(1 for r in _log_stat_rows if r.severity == "warning")
 
-    # OTel gating: installed/running otel_javaagent 보유 system_id 집합 (한 번에 조회)
-    otel_result = await db.execute(
+    # Agent-T gating: installed/running agent_t 보유 system_id 집합 (한 번에 조회)
+    agent_t_result = await db.execute(
         text(
             "SELECT DISTINCT system_id FROM agent_instances"
-            " WHERE agent_type='otel_javaagent' AND status IN ('running', 'installed')"
+            " WHERE agent_type='agent_t' AND status IN ('running', 'installed')"
         )
     )
-    otel_system_ids = {row[0] for row in otel_result.fetchall()}
+    agent_t_system_ids = {row[0] for row in agent_t_result.fetchall()}
 
     for sys in systems:
         health = await _get_system_health(db, sys.id, sys.system_name)
@@ -420,7 +420,7 @@ async def get_dashboard_health(
             "status":         health.status,
             "reason":         health.reason,
             "proactive_count": health.proactive_count,
-            "has_otel":       sys.id in otel_system_ids,
+            "has_agent_t":    sys.id in agent_t_system_ids,
             "instances":      health.instances,
         })
 

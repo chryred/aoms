@@ -11,10 +11,9 @@ import {
   ChevronDown,
 } from 'lucide-react'
 import { useSystemDetailHealth, type MetricAlert } from '@/hooks/queries/useDashboardHealth'
-import { useMetricDashboard, HOURS_MAP } from '@/hooks/useMetricDashboard'
+import { useMetricDashboard } from '@/hooks/useMetricDashboard'
 import type { TimeRange } from '@/hooks/useMetricDashboard'
-import { TraceDotChart } from '@/components/dashboard/TraceDotChart'
-import { TraceDetailPanel } from '@/components/trace/TraceDetailPanel'
+import { ApmSummaryCard } from '@/components/apm/ApmSummaryCard'
 import { ROUTES } from '@/constants/routes'
 import { LoadingSkeleton } from '@/components/common/LoadingSkeleton'
 import { ErrorCard } from '@/components/common/ErrorCard'
@@ -205,7 +204,6 @@ export function DashboardSystemDetailPage() {
   useRegisterScreenContext({ system_id: systemId })
 
   const [timeRange, setTimeRange] = useState<TimeRange>('6h')
-  const [selectedTraceId, setSelectedTraceId] = useState<string | null>(null)
 
   const { data: detail, isLoading, error, refetch } = useSystemDetailHealth(systemId)
   const acknowledgeAlert = useAcknowledgeAlert()
@@ -219,7 +217,6 @@ export function DashboardSystemDetailPage() {
     popupClosing,
     closeChartPopup,
     adaptiveStep,
-    hasOtel,
     minuteData,
     minuteLoading,
     processSummary,
@@ -314,28 +311,10 @@ export function DashboardSystemDetailPage() {
         </section>
       )}
 
-      {/* 성능 분석 (OTel) */}
+      {/* 성능 분석 (Agent-T) */}
       <section className="space-y-4">
         <h2 className="text-text-primary text-lg font-semibold">성능 분석</h2>
-        {hasOtel ? (
-          <TraceDotChart
-            systemId={numericId}
-            systemName={detail.display_name}
-            windowMinutes={HOURS_MAP[timeRange] * 60}
-            height={280}
-            onTraceSelect={setSelectedTraceId}
-          />
-        ) : (
-          <NeuCard className="text-text-secondary py-6 text-center text-sm">
-            OTel Java 수집기가 등록되지 않았습니다.
-            <Link
-              to={ROUTES.AGENTS}
-              className="text-accent hover:text-accent/80 ml-2 font-medium underline-offset-2 hover:underline"
-            >
-              에이전트 관리에서 등록하기 →
-            </Link>
-          </NeuCard>
-        )}
+        <ApmSummaryCard systemId={numericId} />
       </section>
 
       {/* 활성 이슈 (메트릭 + 로그분석 통합) */}
@@ -487,8 +466,6 @@ export function DashboardSystemDetailPage() {
           </div>
         )}
       </section>
-
-      <TraceDetailPanel traceId={selectedTraceId} onClose={() => setSelectedTraceId(null)} />
 
       {/* 담당자 */}
       <section className="space-y-4">

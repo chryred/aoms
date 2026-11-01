@@ -23,7 +23,7 @@ help:
 	@echo "synapse 로컬 개발 명령어"
 	@echo "────────────────────────────────────────────────"
 	@echo "  인프라"
-	@echo "    make dev-up         로컬 인프라 시작 (postgres, prometheus, qdrant 등)"
+	@echo "    make dev-up         로컬 인프라 시작 (postgres, prometheus, qdrant, clickhouse 등)"
 	@echo "    make dev-down       로컬 인프라 중지"
 	@echo "    make dev-restart    로컬 인프라 재시작"
 	@echo "    make dev-clean      인프라 중지 + 볼륨 삭제 (DB 초기화)"
@@ -44,6 +44,9 @@ help:
 	@echo ""
 	@echo "  테스트 (단위)"
 	@echo "    make test-api       admin-api 단위 테스트"
+	@echo "    make test-analyzer  log-analyzer 단위 테스트"
+	@echo "    make test-gateway   agent-t-gateway(Go) 테스트"
+	@echo "    make test-agent-t   agent-t(Java) legacy+modern 테스트"
 	@echo "    make test-all       전체 테스트"
 	@echo ""
 	@echo "  테스트 데이터 주입 (실서버 없이 전체 파이프라인 검증)"
@@ -96,6 +99,8 @@ dev-up:
 	@echo "  alertmanager: localhost:9093"
 	@echo "  grafana     : localhost:3000  (admin/admin)"
 	@echo "  qdrant      : localhost:6333"
+	@echo "  clickhouse  : localhost:8123  (agent_t)"
+	@echo "  agent-t-gw  : localhost:8330"
 
 .PHONY: dev-down
 dev-down:
@@ -165,6 +170,7 @@ run-api: _check-env
 	@echo "→ admin-api 시작 (http://localhost:8080)"
 	@echo "  Swagger UI: http://localhost:8080/docs"
 	cd $(ADMIN_API_DIR) && set -a && source $(ENV_FILE) && set +a && \
+		export AGENT_T_ARTIFACT_DIR=$(MAIN_SERVER)/artifacts/agent-t && \
 		$(UVICORN) main:app --host 0.0.0.0 --port 8080 --reload
 
 .PHONY: run-frontend
@@ -183,8 +189,20 @@ run-analyzer: _check-env
 test-api:
 	cd $(ADMIN_API_DIR) && $(PYTHON) -m pytest -v
 
+.PHONY: test-analyzer
+test-analyzer:
+	cd $(ANALYZER_DIR) && $(PYTHON) -m pytest -v
+
+.PHONY: test-gateway
+test-gateway:
+	cd agent-t-gateway && go test ./...
+
+.PHONY: test-agent-t
+test-agent-t:
+	agent-t/build.sh test-legacy && agent-t/build.sh test-modern
+
 .PHONY: test-all
-test-all: test-api
+test-all: test-api test-analyzer test-gateway
 
 # ── 빌드 (운영 배포용 이미지) ────────────────────────────────────────────────
 .PHONY: build

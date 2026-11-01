@@ -24,7 +24,7 @@ const AGENT_TYPE_OPTIONS: Array<{ value: AgentType | 'all'; label: string }> = [
   { value: 'all', label: '전체' },
   { value: 'synapse_agent', label: 'Synapse 수집기' },
   { value: 'db', label: 'DB 수집기' },
-  { value: 'otel_javaagent', label: 'OTel Java 수집기' },
+  { value: 'agent_t', label: 'Agent-T (트랜잭션)' },
 ]
 
 type HealthFilter = 'all' | 'stale'
@@ -148,7 +148,7 @@ export function AgentListPage() {
     <div>
       <PageHeader
         title="에이전트 관리"
-        description="Synapse 수집기 / DB 수집기 / OTel Java 수집기 설치·제어"
+        description="Synapse 수집기 / DB 수집기 / Agent-T 설치·제어"
         action={
           <div className="flex flex-wrap items-center gap-2">
             {sessionActive ? (

@@ -132,6 +132,7 @@ services:
     volumes:
       - ./services/attaches/knowledge-docs:/attaches/knowledge-docs:z
       - ./services/attaches/chat-attachments:/attaches/chat-attachments:z
+      - ./artifacts/agent-t:/app/artifacts/agent-t:ro,z
     environment:
       - DATABASE_URL=postgresql+asyncpg://synapse:${DB_PASSWORD}@postgres:5432/synapse
       - TEAMS_WEBHOOK_URL=${TEAMS_WEBHOOK_URL}
@@ -162,8 +163,13 @@ services:
       - DB_COLLECT_INTERVAL_SECS=${DB_COLLECT_INTERVAL_SECS:-${ORACLE_COLLECT_INTERVAL_SECS:-60}}
       - AGENT_BINARY_PATH=${AGENT_BINARY_PATH:-/app/bin/agent-v}
       - SYNAPSE_CLI_BINARY_PATH=${SYNAPSE_CLI_BINARY_PATH:-/app/bin/synapse}
-      # OTel / Tempo
-      - TEMPO_URL=${TEMPO_URL:-http://tempo:3200}
+      # Agent-T (ClickHouse 조회 + gateway 실시간 SSE)
+      - AGENT_T_ARTIFACT_DIR=/app/artifacts/agent-t
+      - CLICKHOUSE_URL=${CLICKHOUSE_URL:-http://clickhouse:8123}
+      - CLICKHOUSE_DB=${CLICKHOUSE_DB:-agent_t}
+      - CLICKHOUSE_USER=${CLICKHOUSE_USER:-agent_t}
+      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD:?CLICKHOUSE_PASSWORD must be set}
+      - AGENT_T_GATEWAY_URL=${AGENT_T_GATEWAY_URL:?AGENT_T_GATEWAY_URL must be the WAS-reachable gateway URL}
       # chat
       - CHAT_ATTACHMENT_DIR=${CHAT_ATTACHMENT_DIR:-/attaches/chat-attachments}
       # Knowledge
@@ -233,6 +239,11 @@ services:
       - SPARSE_EMBED_MODEL=${SPARSE_EMBED_MODEL:-Qdrant/bm25}
       - HF_HUB_OFFLINE=1                 # 폐쇄망 안전장치: 로컬 번들만 사용
       - QDRANT_URL=${QDRANT_URL}
+      # Agent-T ClickHouse (집계·분석용)
+      - CLICKHOUSE_URL=${CLICKHOUSE_URL:-http://clickhouse:8123}
+      - CLICKHOUSE_DB=${CLICKHOUSE_DB:-agent_t}
+      - CLICKHOUSE_USER=${CLICKHOUSE_USER:-agent_t}
+      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD:?CLICKHOUSE_PASSWORD must be set}
       # JIRA, Conflence 동기화
       - JIRA_URL=${JIRA_URL}              # Jira 서버 주소
       - JIRA_TOKEN=${JIRA_TOKEN}          # Jira API 토큰 (Bearer)
@@ -270,81 +281,61 @@ services:
     networks:
       - synapse-net
 
-  tempo:
-    image: grafana/tempo:2.9.2
-    container_name: synapse-tempo
-    command: ["-config.file=/etc/tempo/tempo.yml"]
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8
+    container_name: synapse-clickhouse
+    # 포트 미공개 — synapse-net 내부(8123 HTTP)에서만 접근
     volumes:
-      - ./configs/tempo/tempo.yml:/etc/tempo/tempo.yml:ro,z
-      - ./services/tempo:/var/tempo:z
-    mem_limit: 1g
-    cpus: '0.5'
-    restart: unless-stopped
-    logging: *default-logging
-    networks:
-      - synapse-net
-
-  otel-collector:
-    image: otel/opentelemetry-collector-contrib:0.123.0
-    container_name: synapse-otel-collector
-    command: ["--config=/etc/otel/otel-collector-config.yml"]
-    volumes:
-      - ./configs/otel-collector/otel-collector-config.yml:/etc/otel/otel-collector-config.yml:ro,z
-    ports:
-      # 127.0.0.1 바인딩 — 외부 네트워크에서 무인증 span 주입 방지
-      - "127.0.0.1:4317:4317"   # OTLP gRPC
-      - "127.0.0.1:4318:4318"   # OTLP HTTP
-    mem_limit: 2g
-    cpus: '0.5'
+      - ./services/clickhouse/data:/var/lib/clickhouse:z
+      - ./configs/clickhouse/init:/docker-entrypoint-initdb.d:ro,z
+      - ./configs/clickhouse/users.d:/etc/clickhouse-server/users.d:ro,z
+      # config.d 디렉터리 통째 마운트 시 이미지의 docker_related_config.xml(listen 0.0.0.0)이 가려져 외부 접속 불가 — 파일 단위 마운트
+      - ./configs/clickhouse/config.d/limits.xml:/etc/clickhouse-server/config.d/limits.xml:ro,z
+    environment:
+      # CLICKHOUSE_PASSWORD 이름은 이미지 entrypoint 가 default 사용자 설정으로 해석하므로 사용 금지
+      - AGENT_T_CH_PASSWORD=${CLICKHOUSE_PASSWORD:?CLICKHOUSE_PASSWORD must be set}
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    mem_limit: 3g
+    cpus: '1.5'
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:13133/"]
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8123/ping || exit 1"]
       interval: 10s
       timeout: 5s
-      retries: 3
-    depends_on:
-      - tempo
+      retries: 5
     restart: unless-stopped
     logging: *default-logging
     networks:
       - synapse-net
 
-  n8n:
-    image: n8nio/n8n:1.44.0
-    container_name: synapse-n8n
+  agent-t-gateway:
+    image: synapse-agent-t-gateway:1.0    # build-images.sh 로 빌드·save → 폐쇄망에서 load
+    build: ../agent-t-gateway
+    container_name: synapse-agent-t-gateway
     ports:
-      - "5678:5678"
+      - "8330:8330"
     environment:
-      - N8N_HOST=0.0.0.0
-      - N8N_PORT=5678
-      - N8N_PROTOCOL=http
-      - WEBHOOK_URL=http://${MONITORING_SERVER_IP}:5678/
-      - N8N_BASIC_AUTH_ACTIVE=true
-      - N8N_BASIC_AUTH_USER=${N8N_USER:-admin}
-      - N8N_BASIC_AUTH_PASSWORD=${N8N_PASSWORD}
-      - DB_TYPE=postgresdb
-      - DB_POSTGRESDB_HOST=postgres
-      - DB_POSTGRESDB_PORT=5432
-      - DB_POSTGRESDB_DATABASE=synapse
-      - DB_POSTGRESDB_USER=${DB_USER}
-      - DB_POSTGRESDB_PASSWORD=${DB_PASSWORD}
-      - DB_POSTGRESDB_SCHEMA=n8n
-      - GENERIC_TIMEZONE=Asia/Seoul
-      - N8N_LOG_LEVEL=info
-      # 워크플로우 내 $env 변수 접근 허용
-      - N8N_BLOCK_ENV_ACCESS_IN_NODE=false
-      # 서비스 URL (Docker 내부 네트워크)
-      - LOG_ANALYZER_URL=http://log-analyzer:8000
-      - ADMIN_API_URL=http://admin-api:8080
-      - TEAMS_WEBHOOK_URL=${TEAMS_WEBHOOK_URL}
-      - QDRANT_URL=${QDRANT_URL}
-      - LLM_API_URL=${LLM_API_URL}
-      - LLM_API_KEY=${LLM_API_KEY}
-    volumes:
-      - n8n_data:/home/node/.n8n
+      - GATEWAY_LISTEN=:8330
+      - GATEWAY_PG_DSN=postgres://${DB_USER}@postgres:5432/synapse?sslmode=disable
+      - PGPASSWORD=${DB_PASSWORD}   # pgx 가 환경변수에서 읽음 — DSN(로그·에러)에 비밀번호를 싣지 않는다
+      - SECRET_KEY=${SECRET_KEY}
+      - CLICKHOUSE_URL=http://clickhouse:8123
+      - CLICKHOUSE_DB=agent_t
+      - CLICKHOUSE_USER=agent_t
+      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD:?CLICKHOUSE_PASSWORD must be set}
+      - PROMETHEUS_REMOTE_WRITE_URL=http://prometheus:9090/api/v1/write
+      - GATEWAY_FLUSH_INTERVAL=1s
+      - GATEWAY_FLUSH_ROWS=10000
+      - GATEWAY_CH_QUEUE_MAX_BYTES=134217728
+      - GOMEMLIMIT=400MiB   # mem_limit 512m 아래에서 GC 가 먼저 동작하도록
     mem_limit: 512m
-    cpus: '0.5'
+    cpus: '1'
     depends_on:
       postgres:
+        condition: service_healthy
+      clickhouse:
         condition: service_healthy
     restart: unless-stopped
     logging: *default-logging
@@ -353,7 +344,6 @@ services:
 
 volumes:
   grafana_data:
-  n8n_data:
 
 networks:
   synapse-net:

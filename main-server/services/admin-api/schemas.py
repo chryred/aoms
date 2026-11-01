@@ -1,6 +1,6 @@
 from datetime import datetime, date
 from decimal import Decimal
-from typing import Annotated, Any, Dict, List, Optional
+from typing import Annotated, Any, Dict, List, Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from pydantic.functional_serializers import PlainSerializer
 
@@ -31,6 +31,9 @@ class SystemCreate(BaseModel):
     description: Optional[str] = None
     status: str = "active"
     teams_webhook_url: Optional[str] = None
+    environment: Literal['dev', 'prod'] = 'prod'
+    tx_slow_threshold_ms: int = Field(3000, ge=100, le=600000)
+    tx_retention_days: int = Field(7, ge=1, le=30)
 
 
 class SystemUpdate(BaseModel):
@@ -38,6 +41,9 @@ class SystemUpdate(BaseModel):
     description: Optional[str] = None
     status: Optional[str] = None
     teams_webhook_url: Optional[str] = None
+    environment: Optional[Literal['dev', 'prod']] = None
+    tx_slow_threshold_ms: Optional[int] = Field(None, ge=100, le=600000)
+    tx_retention_days: Optional[int] = Field(None, ge=1, le=30)
 
 
 class SystemOut(BaseModel):
@@ -47,6 +53,9 @@ class SystemOut(BaseModel):
     description: Optional[str]
     status: str
     teams_webhook_url: Optional[str]
+    environment: str
+    tx_slow_threshold_ms: int
+    tx_retention_days: int
     created_at: UtcDatetime
     updated_at: UtcDatetime
 
@@ -551,7 +560,7 @@ class LogAnalysisCreate(BaseModel):
     templates:         Optional[list[str]]  = None
     # 예외 처리 count 임계값 검증용: {template: count} 매핑 (5분 윈도우 합계)
     template_counts:   Optional[dict[str, int]] = None
-    # OTel trace 상관
+    # Agent-T trace 상관
     referenced_trace_ids: Optional[list[str]] = None
     trace_summary_text:   Optional[str]       = None
     # 실에러/알림성 분리 분류 건수 + per-template 분류
@@ -799,13 +808,13 @@ class AgentInstanceCreate(BaseModel):
     system_id: int
     host: str
     agent_type: str = Field(
-        pattern="^(alloy|node_exporter|jmx_exporter|synapse_agent|db|otel_javaagent|cli)$"
+        pattern="^(alloy|node_exporter|jmx_exporter|synapse_agent|agent_t|db|cli)$"
     )
     install_path: Optional[str] = None   # db 에이전트는 바이너리 없음
     config_path: Optional[str] = None    # db 에이전트는 설정 파일 없음
     port: Optional[int] = None
     pid_file: Optional[str] = None
-    ssh_username: Optional[str] = None  # synapse_agent/otel_javaagent 전용 — 라우터에서 필수 검증
+    ssh_username: Optional[str] = None  # synapse_agent/agent_t 전용 — 라우터에서 필수 검증
     label_info: Optional[str] = None   # JSON string
     os_type: Optional[str] = None      # 'linux' | 'windows'
     server_type: Optional[str] = None  # 'web' | 'was' | 'db' | 'middleware' | 'other'
@@ -843,7 +852,7 @@ class AgentInstanceOut(BaseModel):
     config_path: Optional[str]    # db 에이전트는 null
     port: Optional[int]
     pid_file: Optional[str]
-    ssh_username: Optional[str]   # synapse_agent/otel_javaagent 전용; NULL이면 계정 검증 스킵
+    ssh_username: Optional[str]   # synapse_agent/agent_t 전용; NULL이면 계정 검증 스킵
     label_info: Optional[str]
     os_type: Optional[str]
     server_type: Optional[str]
@@ -1208,3 +1217,156 @@ class SslCertStatusOut(BaseModel):
     """인증서 현황 대시보드 — 서버 + 최신 스냅샷"""
     server:   SslServerOut
     snapshot: Optional[SslCertSnapshotOut]
+
+
+# ── APM 대시보드 / Agent-T 명령 ─────────────────────────────────────────
+WidgetType = Literal[
+    "queue", "scatter", "active_list", "tps", "avg_ms", "err_rate", "uri_top", "sql_top",
+    "jvm_users_threads", "jvm_cpu", "jvm_heap_gc", "jvm_conn_pool",
+]
+
+
+class WidgetTarget(BaseModel):
+    system_ids: Optional[List[int]] = None
+    instance_role: Optional[str] = None
+
+
+class WidgetLayoutItem(BaseModel):
+    i: str = Field(min_length=1, max_length=64)
+    type: WidgetType
+    x: int = Field(ge=0)
+    y: int = Field(ge=0)
+    w: int = Field(ge=0)
+    h: int = Field(ge=0)
+    target: Optional[WidgetTarget] = None
+
+
+class ApmDashboardIn(BaseModel):
+    name: str = Field(min_length=1, max_length=100)
+    layout: List[WidgetLayoutItem] = Field(default_factory=list, max_length=30)
+    filters: Dict[str, Any] = Field(default_factory=dict)
+
+
+class ApmDashboardOut(BaseModel):
+    id: int
+    owner_user_id: int
+    name: str
+    layout: List[Any]
+    filters: Dict[str, Any]
+    is_shared_default: bool
+    created_at: UtcDatetime
+    updated_at: UtcDatetime
+
+    model_config = {"from_attributes": True}
+
+
+class ThreadDumpCommandOut(BaseModel):
+    command_id: int
+
+
+class ThreadDumpListItem(BaseModel):
+    command_id: int
+    status: str
+    requested_at: UtcDatetime
+    truncated: Optional[bool] = None
+
+
+class ThreadDumpOut(BaseModel):
+    text: str
+    truncated: bool
+    ts: UtcDatetime
+
+
+class AgentCommandOut(BaseModel):
+    id: int
+    agent_instance_id: int
+    command: str
+    status: str
+    result_ref: Optional[str]
+    requested_by: Optional[int]
+    created_at: UtcDatetime
+    updated_at: UtcDatetime
+
+    model_config = {"from_attributes": True}
+
+
+# ── APM (Agent-T) ────────────────────────────────────────────────────────
+class TxSummaryOut(BaseModel):
+    trace_id: str
+    span_id: str
+    parent_span: str = ""
+    system_id: int
+    system_name: Optional[str] = None
+    instance_role: str
+    start_ts: UtcDatetime
+    uri: str = ""
+    method: str = ""
+    status: int = 0
+    error: bool = False
+    exc_class: str = ""
+    elapsed_ms: int = 0
+    cpu_ms: int = 0
+    sql_ms: int = 0
+    sql_cnt: int = 0
+    fetch_cnt: int = 0
+    fetch_ms: int = 0
+    ext_ms: int = 0
+    ext_cnt: int = 0
+    conn_open: int = 0
+    conn_close: int = 0
+    conn_leak: int = 0
+    conn_uncommit: int = 0
+    user_ip: str = ""      # 마스킹됨
+    user_id: str = ""      # 마스킹됨
+    biz_key: str = ""
+    has_detail: bool = False
+
+
+class TxSqlOut(BaseModel):
+    sql_id: str            # uint64 → 16자 소문자 hex
+    sql_text: str = ""
+    cnt: int = 0
+    ms: int = 0
+    max_ms: int = 0
+    fetch_cnt: int = 0
+    fetch_ms: int = 0
+    err: int = 0
+
+
+class TxDetailBody(BaseModel):
+    nodes: Any = None
+    stacks: Any = None
+
+
+class TxDetailOut(BaseModel):
+    summary: TxSummaryOut
+    sql: List[TxSqlOut]
+    detail: Optional[TxDetailBody] = None
+    path: List[TxSummaryOut]
+
+
+class TxListOut(BaseModel):
+    items: List[TxSummaryOut]
+    has_more: bool
+
+
+class ScatterPoint(BaseModel):
+    ts: UtcDatetime
+    elapsed_ms: int
+    error: bool
+    trace_id: str
+    span_id: str
+    system_id: int
+
+
+class ScatterOut(BaseModel):
+    points: List[ScatterPoint]
+    truncated: bool
+
+
+class ApmSystemSummaryOut(BaseModel):
+    has_agent_t: bool
+    tps_1h: float = 0.0
+    avg_ms_1h: float = 0.0
+    slow_count_1h: int = 0
+    slow_threshold_ms: int = 3000

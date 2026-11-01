@@ -562,7 +562,7 @@ async def _process_single_config(
     sem: asyncio.Semaphore,
     config: dict,
     hour_bucket_iso: str,
-    otel_system_ids: set[int] | None = None,
+    agent_t_system_ids: set[int] | None = None,
     contacts_map: dict[int, list[dict]] | None = None,
 ) -> dict:
     """
@@ -655,10 +655,10 @@ async def _process_single_config(
             if not anomaly_detected:
                 return {"status": "ok", "system": system_name, "anomaly": False}
 
-            # OTel gating: running otel_javaagent 있는 시스템이면 hourly trace context 조회
+            # Agent-T gating: Agent-T 수집 중인 시스템이면 hourly trace context 조회
             trace_section = ""
-            has_otel = otel_system_ids is not None and system_id in otel_system_ids
-            if has_otel:
+            has_agent_t = agent_t_system_ids is not None and system_id in agent_t_system_ids
+            if has_agent_t:
                 import time as _time
                 now_ns = int(_time.time() * 1e9)
                 start_ns = now_ns - 3600 * 1_000_000_000
@@ -886,16 +886,16 @@ async def run_hourly_aggregation() -> dict:
             logger.info("활성 수집기 설정 없음")
             return {"processed": 0, "skipped": 0, "anomalies": 0, "errors": 0}
 
-        # OTel gating: has_otel 시스템 set 조회
-        otel_system_ids: set[int] = set()
+        # Agent-T gating: has_agent_t 시스템 set 조회
+        agent_t_system_ids: set[int] = set()
         try:
             health_resp = await client.get(f"{ADMIN_API_URL}/api/v1/dashboard/system-health", timeout=5.0)
             if health_resp.status_code == 200:
                 for s in health_resp.json().get("systems", []):
-                    if s.get("has_otel"):
-                        otel_system_ids.add(s["system_id"])
+                    if s.get("has_agent_t"):
+                        agent_t_system_ids.add(s["system_id"])
         except Exception as exc:
-            logger.debug("hourly OTel system set 조회 실패: %s", exc)
+            logger.debug("hourly Agent-T system set 조회 실패: %s", exc)
 
         # 담당자 멘션용 contacts 선조회 (시스템별 병렬)
         unique_sids = {cfg["system_id"] for cfg in configs}
@@ -904,7 +904,7 @@ async def run_hourly_aggregation() -> dict:
 
         sem = asyncio.Semaphore(20)
         tasks = [
-            _process_single_config(client, sem, cfg, hour_bucket_iso, otel_system_ids, contacts_map)
+            _process_single_config(client, sem, cfg, hour_bucket_iso, agent_t_system_ids, contacts_map)
             for cfg in configs
         ]
         results = await asyncio.gather(*tasks, return_exceptions=True)

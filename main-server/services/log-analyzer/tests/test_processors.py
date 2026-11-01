@@ -81,15 +81,15 @@ class TestRunAnalysis:
             "was1": [{"template": "NullPointerException", "count": 3}],
         }
 
-        # OTel 헬스체크는 실패시켜서 has_otel=False 경로
-        otel_class, _ = _make_async_client_cm({})
+        # Agent-T 헬스체크는 실패시켜서 has_agent_t=False 경로
+        agent_t_class, _ = _make_async_client_cm({})
 
         with patch("analyzer.get_systems", AsyncMock(return_value=active_systems)), \
              patch("analyzer.fetch_logs_for_system", AsyncMock(return_value=logs_by_role)), \
              patch("analyzer.get_agent_code_for_area", AsyncMock(return_value="agent_log")), \
              patch("analyzer._analyze_one_role",
                    AsyncMock(return_value={"status": "analyzed", "label": "was-test/was1"})), \
-             patch("analyzer.httpx.AsyncClient", otel_class):
+             patch("analyzer.httpx.AsyncClient", agent_t_class):
             result = await analyzer.run_analysis()
 
         assert result["analyzed"] == 1
@@ -107,13 +107,13 @@ class TestRunAnalysis:
             {"id": 1, "system_name": "inactive-sys", "status": "inactive"},
         ]
         fetch_mock = AsyncMock()
-        otel_class, _ = _make_async_client_cm({})
+        agent_t_class, _ = _make_async_client_cm({})
 
         with patch("analyzer.get_systems", AsyncMock(return_value=systems)), \
              patch("analyzer.fetch_logs_for_system", fetch_mock), \
              patch("analyzer.get_agent_code_for_area", AsyncMock(return_value="agent_log")), \
              patch("analyzer._analyze_one_role", AsyncMock()), \
-             patch("analyzer.httpx.AsyncClient", otel_class):
+             patch("analyzer.httpx.AsyncClient", agent_t_class):
             result = await analyzer.run_analysis()
 
         assert result["skipped"] == 1
@@ -127,13 +127,13 @@ class TestRunAnalysis:
 
         systems = [{"id": 2, "system_name": "quiet-sys", "status": "active"}]
         analyze_mock = AsyncMock()
-        otel_class, _ = _make_async_client_cm({})
+        agent_t_class, _ = _make_async_client_cm({})
 
         with patch("analyzer.get_systems", AsyncMock(return_value=systems)), \
              patch("analyzer.fetch_logs_for_system", AsyncMock(return_value={})), \
              patch("analyzer.get_agent_code_for_area", AsyncMock(return_value="agent_log")), \
              patch("analyzer._analyze_one_role", analyze_mock), \
-             patch("analyzer.httpx.AsyncClient", otel_class):
+             patch("analyzer.httpx.AsyncClient", agent_t_class):
             result = await analyzer.run_analysis()
 
         assert result["no_logs"] == 1

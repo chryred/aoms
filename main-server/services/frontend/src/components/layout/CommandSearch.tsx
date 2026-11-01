@@ -16,6 +16,8 @@ const NAV_ITEMS: NavItem[] = [
   { to: '/dashboard', label: '대시보드', group: '운영' },
   { to: '/grafana-dashboard', label: 'Grafana 대시보드', group: '운영' },
   { to: '/trends', label: '장애 예측', group: '운영' },
+  { to: '/apm/live', label: '실시간 모니터링', group: '트랜잭션' },
+  { to: '/apm/transactions', label: '트랜잭션 분석', group: '트랜잭션' },
   { to: '/alerts', label: '알림 이력', group: '알림' },
   { to: '/incidents', label: '인시던트', group: '알림' },
   { to: '/feedback/manage', label: '해결책 관리', group: '알림' },

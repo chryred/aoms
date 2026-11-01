@@ -7,6 +7,9 @@ export interface System {
   description: string | null
   status: SystemStatus
   teams_webhook_url: string | null
+  environment?: string
+  tx_slow_threshold_ms?: number
+  tx_retention_days?: number
   created_at: string
   updated_at: string
 }
@@ -23,6 +26,9 @@ export interface SystemCreate {
   description?: string
   status?: SystemStatus
   teams_webhook_url?: string
+  environment?: 'dev' | 'prod'
+  tx_slow_threshold_ms?: number
+  tx_retention_days?: number
 }
 
 export type SystemUpdate = Partial<Omit<SystemCreate, 'system_name'>>

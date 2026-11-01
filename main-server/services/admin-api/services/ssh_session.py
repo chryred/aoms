@@ -102,6 +102,48 @@ def ssh_exec(host: str, port: int, username: str, password: str, command: str) -
         client.close()
 
 
+def ssh_shell_exec(
+    host: str, port: int, username: str, password: str, command: str, timeout: int = 60
+) -> tuple[int, str, str]:
+    """PTY 셸 세션으로 명령 실행 → (exit_code, output, "").
+
+    exec 채널을 거부하는 서버(예: 10.253.21.78)용 폴백. invoke_shell 후 시작/종료 마커를
+    echo 하여 출력 구간과 종료코드를 추출한다. PTY 는 stderr 를 분리하지 않으므로 stderr 는 빈 문자열.
+    동기 함수 — asyncio.to_thread로 호출.
+    """
+    import re
+    import time
+
+    marker = f"__AGT_{uuid.uuid4().hex}__"
+    client = _ssh_connect(host, port, username, password)
+    try:
+        chan = client.invoke_shell(width=250, height=50)
+        try:
+            chan.send(f"echo {marker}S; {command}\necho {marker}$?\n")
+            end_re = re.compile(rf"{marker}(\d+)")
+            buf = ""
+            deadline = time.monotonic() + timeout
+            while time.monotonic() < deadline:
+                if chan.recv_ready():
+                    buf += chan.recv(65536).decode("utf-8", errors="replace")
+                    if end_re.search(buf):
+                        break
+                else:
+                    time.sleep(0.05)
+            m = end_re.search(buf)
+            if not m:
+                raise SSHError(f"PTY 셸 명령 시간 초과 ({timeout}초): {command[:80]}")
+            text = buf[: m.start()].replace("\r\n", "\n").replace("\r", "\n")
+            start = re.search(rf"^{marker}S[ \t]*\n", text, re.MULTILINE)
+            if start:
+                text = text[start.end():]
+            return int(m.group(1)), text, ""
+        finally:
+            chan.close()
+    finally:
+        client.close()
+
+
 def ssh_put_file(host: str, port: int, username: str, password: str, remote_path: str, content: str) -> None:
     """파일 내용을 원격 경로에 쓴다. 동기 함수 — asyncio.to_thread로 호출."""
     import io

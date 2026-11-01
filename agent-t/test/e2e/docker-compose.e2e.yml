@@ -1,0 +1,131 @@
+# Agent-T E2E 하니스. dev 스택(main-server/docker-compose.dev.yml)과 컨테이너명·포트가 겹치지 않도록
+# 독립 프로젝트(agent-t-e2e)로 구성한다. 설정 파일(init.sql, clickhouse init/users/limits)은 dev 와 동일 파일을 마운트.
+# 호스트 포트: postgres 15432, prometheus 19090, clickhouse 18123, gateway 8330, tomcat7 18081, tomcat9 18082, tomcat9-bare 18083
+# admin-api(8080)·frontend(3001)는 호스트에서 직접 실행 (run.sh up).
+name: agent-t-e2e
+
+x-tomcat-env: &tomcat-env
+  CATALINA_OPTS: "-Xms192m -Xmx192m"
+  DB_URL: "jdbc:postgresql://postgres:5432/synapse"
+  DB_USER: synapse
+  DB_PASSWORD: synapse
+
+services:
+  postgres:
+    image: postgres:16.13-alpine
+    container_name: e2e-postgres
+    ports: ["15432:5432"]
+    environment:
+      - POSTGRES_DB=synapse
+      - POSTGRES_USER=synapse
+      - POSTGRES_PASSWORD=synapse
+    volumes:
+      - ../../../main-server/configs/postgres/init.sql:/docker-entrypoint-initdb.d/01_init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U synapse -d synapse"]
+      interval: 3s
+      timeout: 5s
+      retries: 20
+    networks: [dev-net]
+
+  prometheus:
+    image: prom/prometheus:v3.11.3
+    container_name: e2e-prometheus
+    ports: ["19090:9090"]
+    volumes:
+      - ./prometheus.e2e.yml:/etc/prometheus/prometheus.yml:ro
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.retention.time=1d'
+      - '--web.enable-remote-write-receiver'
+    networks: [dev-net]
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8
+    container_name: e2e-clickhouse
+    cpus: 1.5          # spec §7.6 상한
+    mem_limit: 2g      # 개발 Mac(Docker 3.8GB) 제약으로 운영 3GB 대신 2GB
+    ports: ["18123:8123"]
+    environment:
+      - AGENT_T_CH_PASSWORD=agent_t_dev
+    volumes:
+      - ../../../main-server/configs/clickhouse/init:/docker-entrypoint-initdb.d:ro
+      - ../../../main-server/configs/clickhouse/users.d:/etc/clickhouse-server/users.d:ro
+      - ../../../main-server/configs/clickhouse/config.d/limits.xml:/etc/clickhouse-server/config.d/limits.xml:ro
+    ulimits:
+      nofile: {soft: 262144, hard: 262144}
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8123/ping || exit 1"]
+      interval: 3s
+      timeout: 5s
+      retries: 20
+    networks: [dev-net]
+
+  agent-t-gateway:
+    build: ../../../agent-t-gateway
+    container_name: e2e-gateway
+    cpus: 1.0          # spec §7.6 상한
+    ports: ["8330:8330"]
+    environment:
+      - GATEWAY_LISTEN=:8330
+      - GATEWAY_PG_DSN=postgres://synapse:synapse@postgres:5432/synapse?sslmode=disable
+      - SECRET_KEY=${E2E_SECRET_KEY:-e2e-dev-secret-key-not-for-prod}
+      - CLICKHOUSE_URL=http://clickhouse:8123
+      - CLICKHOUSE_DB=agent_t
+      - CLICKHOUSE_USER=agent_t
+      - CLICKHOUSE_PASSWORD=agent_t_dev
+      - PROMETHEUS_REMOTE_WRITE_URL=http://prometheus:9090/api/v1/write
+      - GATEWAY_FLUSH_INTERVAL=1s
+      - GATEWAY_FLUSH_ROWS=10000
+      - GATEWAY_CH_QUEUE_MAX_BYTES=${E2E_CH_QUEUE_MAX_BYTES:-134217728}
+    depends_on:
+      postgres: {condition: service_healthy}
+      clickhouse: {condition: service_healthy}
+    networks: [dev-net]
+
+  # JDK7 (amd64 에뮬레이션) — 대상 A. /ext 가 tomcat9 의 /db 를 호출
+  tomcat7:
+    build:
+      context: .
+      dockerfile: Dockerfile.tomcat7-jdk7
+    platform: linux/amd64
+    container_name: e2e-tomcat7
+    ports: ["18081:8080"]
+    environment:
+      <<: *tomcat-env
+      EXT_URL: "http://tomcat9:8080/db"
+    volumes:
+      - ./.work/agent7:/opt/agent-t
+    depends_on:
+      postgres: {condition: service_healthy}
+    networks: [dev-net]
+
+  # JDK17 (네이티브) — 대상 B
+  tomcat9:
+    build:
+      context: .
+      dockerfile: Dockerfile.tomcat9-jdk17
+    container_name: e2e-tomcat9
+    ports: ["18082:8080"]
+    environment: *tomcat-env
+    volumes:
+      - ./.work/agent9:/opt/agent-t
+    depends_on:
+      postgres: {condition: service_healthy}
+    networks: [dev-net]
+
+  # 에이전트를 절대 붙이지 않는 기준선 (시나리오 8 OFF 측)
+  tomcat9-bare:
+    build:
+      context: .
+      dockerfile: Dockerfile.tomcat9-jdk17
+    container_name: e2e-tomcat9-bare
+    ports: ["18083:8080"]
+    environment: *tomcat-env
+    depends_on:
+      postgres: {condition: service_healthy}
+    networks: [dev-net]
+
+networks:
+  dev-net:
+    driver: bridge

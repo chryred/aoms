@@ -1,0 +1,77 @@
+{
+  "v": 1,
+  "seq": 123,
+  "ts": 1761800000000,
+  "cfg_v": 4,
+  "agent": {"version": "0.1.0", "jvm": "1.7.0_79", "pid": 42318, "host": "scdep-isic-wasdev", "start_ts": 1761790000000},
+  "active": {
+    "buckets": [12, 2, 1],
+    "top": [
+      {"trace_id": "4bf92f3577b34da6a3ce929d0e0e4736", "span_id": "00f067aa0ba902b7", "thread": "http-8080-exec-1", "uri_id": "a1b2c3d4e5f60718", "start_ts": 1761799995000, "phase": "sql", "sql_id": "1122334455667788", "stack": ["oracle.jdbc.driver.T4CPreparedStatement.executeForRows(T4CPreparedStatement.java:1203)", "com.shinsegae.order.OrderDao.select(OrderDao.java:88)", "com.shinsegae.order.OrderService.list(OrderService.java:41)"]},
+      {"trace_id": "0af7651916cd43dd8448eb211c80319c", "span_id": "b7ad6b7169203331", "thread": "http-8080-exec-2", "uri_id": "a1b2c3d4e5f60718", "start_ts": 1761799998500, "phase": "run", "sql_id": null, "stack": ["com.shinsegae.order.OrderService.calc(OrderService.java:77)"]}
+    ]
+  },
+  "tx": [
+    {
+      "trace_id": "5b8aa5a2d2c872e8321cf37308d69df2", "span_id": "051581bf3cb55c13", "parent_span": "",
+      "start_ts": 1761799990000, "elapsed_ms": 85, "method": "GET", "uri_id": "a1b2c3d4e5f60718", "status": 200, "error": false, "exc": "",
+      "cpu_ms": 12, "sql_ms": 30, "sql_cnt": 2, "fetch_cnt": 20, "fetch_ms": 4, "ext_ms": 0, "ext_cnt": 0,
+      "conn_open": 1, "conn_close": 1, "conn_leak": 0, "conn_uncommit": 0,
+      "user_ip": "10.20.30.41", "user_id": "u1001", "biz_key": "",
+      "sql": [
+        {"sql_id": "1122334455667788", "cnt": 1, "ms": 25, "max_ms": 25, "fetch_cnt": 20, "fetch_ms": 4, "err": 0},
+        {"sql_id": "8877665544332211", "cnt": 1, "ms": 5, "max_ms": 5, "fetch_cnt": 0, "fetch_ms": 0, "err": 0}
+      ],
+      "detail": null
+    },
+    {
+      "trace_id": "c3f1a9d27e5b4a60b8d4e1f2a3b4c5d6", "span_id": "e457b5a2e4d86d97", "parent_span": "",
+      "start_ts": 1761799980000, "elapsed_ms": 4210, "method": "POST", "uri_id": "f0e1d2c3b4a59687", "status": 200, "error": false, "exc": "",
+      "cpu_ms": 310, "sql_ms": 3800, "sql_cnt": 3, "fetch_cnt": 5000, "fetch_ms": 420, "ext_ms": 0, "ext_cnt": 0,
+      "conn_open": 1, "conn_close": 1, "conn_leak": 0, "conn_uncommit": 0,
+      "user_ip": "10.20.30.52", "user_id": "u2002", "biz_key": "ORD-20261030-0001",
+      "sql": [
+        {"sql_id": "99aabbccddeeff00", "cnt": 3, "ms": 3800, "max_ms": 3500, "fetch_cnt": 5000, "fetch_ms": 420, "err": 0}
+      ],
+      "detail": {
+        "nodes": [
+          {"i": 0, "p": -1, "k": "http", "n": "POST /order/submit", "s": 0, "d": 4210, "sql_id": ""},
+          {"i": 1, "p": 0, "k": "sql", "n": "select ... from order_line", "s": 20, "d": 3500, "sql_id": "99aabbccddeeff00"},
+          {"i": 2, "p": 0, "k": "sql", "n": "update stock", "s": 3600, "d": 200, "sql_id": "99aabbccddeeff00"},
+          {"i": 3, "p": 0, "k": "ext", "n": "http://pay.internal/approve", "s": 3850, "d": 300, "sql_id": ""}
+        ],
+        "stacks": [
+          {"f": ["oracle.jdbc.driver.T4CPreparedStatement.executeForRows(T4CPreparedStatement.java:1203)", "com.shinsegae.order.OrderDao.lines(OrderDao.java:120)"], "c": 3},
+          {"f": ["com.shinsegae.order.OrderService.submit(OrderService.java:64)"], "c": 1}
+        ]
+      }
+    },
+    {
+      "trace_id": "9d2e7c41a8f04b3da1c6e5f7b8091a2b", "span_id": "3c4d5e6f70819a2b", "parent_span": "",
+      "start_ts": 1761799999000, "elapsed_ms": 120, "method": "GET", "uri_id": "0a1b2c3d4e5f6071", "status": 500, "error": true, "exc": "java.sql.SQLException",
+      "cpu_ms": 8, "sql_ms": 100, "sql_cnt": 1, "fetch_cnt": 0, "fetch_ms": 0, "ext_ms": 0, "ext_cnt": 0,
+      "conn_open": 1, "conn_close": 1, "conn_leak": 0, "conn_uncommit": 0,
+      "user_ip": "10.20.30.63", "user_id": "", "biz_key": "",
+      "sql": [
+        {"sql_id": "aabbccddeeff0011", "cnt": 1, "ms": 100, "max_ms": 100, "fetch_cnt": 0, "fetch_ms": 0, "err": 1}
+      ],
+      "detail": null
+    }
+  ],
+  "dict": {
+    "sql": {
+      "1122334455667788": "select * from orders where id = ?",
+      "8877665544332211": "select count(*) from order_line where order_id = ?",
+      "99aabbccddeeff00": "select * from order_line where order_id = ? order by seq",
+      "aabbccddeeff0011": "select * from member where member_no = ?"
+    },
+    "uri": {
+      "a1b2c3d4e5f60718": "/order/{n}",
+      "f0e1d2c3b4a59687": "/order/submit",
+      "0a1b2c3d4e5f6071": "/member/{n}"
+    }
+  },
+  "jvm": {"ts": 1761800000000, "heap_used": 734003200, "heap_max": 2147483648, "nonheap_used": 156000000, "gc_count": 412, "gc_ms": 9850, "threads": 187, "cpu_ratio": 0.37, "classes": 21345},
+  "dumps": [{"cmd_id": 7, "ts": 1761799999500, "text": "\"http-8080-exec-1\" #31 prio=5 tid=0x00007f nid=0x1a2b runnable\n   java.lang.Thread.State: RUNNABLE\n\tat oracle.jdbc.driver.T4CPreparedStatement.executeForRows(T4CPreparedStatement.java:1203)\n", "truncated": false}],
+  "dropped": {"detail": 0, "sql": 0, "tx": 0}
+}

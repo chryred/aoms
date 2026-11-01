@@ -1,7 +1,8 @@
+import asyncio
 import json
 import logging
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -13,7 +14,9 @@ from auth import get_current_user
 from database import get_db
 from models import AlertHistory, IncidentTimeline, LogAnalysisHistory
 from schemas import AlertHistoryOut, AlertmanagerPayload, AcknowledgeRequest, AlertsTemplatesRequest, AlertTemplatesOut
+from services import clickhouse_client
 from services.alert_utils import get_system_and_contacts
+from services.clickhouse_client import ClickHouseError
 from services.cooldown import is_in_cooldown, make_alert_key, record_sent
 from services.incident_service import get_or_create_incident
 from services.notification import TeamsNotifier
@@ -21,12 +24,51 @@ from .websocket import notify_alert_fired, notify_alert_resolved
 
 logger = logging.getLogger(__name__)
 LOG_ANALYZER_URL = os.getenv("LOG_ANALYZER_URL", "http://log-analyzer:8000")
-TEMPO_URL = os.getenv("TEMPO_URL", "http://tempo:3200")
 
 router = APIRouter(prefix="/api/v1/alerts", tags=["alerts"])
 
+# 알림 수신 경로의 ClickHouse 조회 상한 — 느린 ClickHouse 가 알림 처리를 붙잡지 않게 한다
+_CLICKHOUSE_ALERT_TIMEOUT_S = 5.0
+
 DEFAULT_WEBHOOK_URL = os.getenv("TEAMS_WEBHOOK_URL", "")
 notifier = TeamsNotifier(default_webhook_url=DEFAULT_WEBHOOK_URL)
+
+
+async def _find_related_trace_ids(db: AsyncSession, system_id: int) -> list[str]:
+    """agent_t(running|installed) 시스템의 알림 시각 ±60s 에러 트랜잭션 trace_id (최대 5개).
+
+    ClickHouse 장애가 알림 수신을 막지 않도록 ClickHouseError 는 경고만 남기고 빈 목록을 반환한다.
+    """
+    has_agent_t = await db.execute(
+        text(
+            "SELECT EXISTS(SELECT 1 FROM agent_instances"
+            " WHERE system_id=:sid AND agent_type='agent_t' AND status IN ('running', 'installed'))"
+        ),
+        {"sid": system_id},
+    )
+    if not has_agent_t.scalar():
+        return []
+    now = datetime.now(timezone.utc)
+    try:
+        rows = await asyncio.wait_for(
+            clickhouse_client.query(
+                "SELECT toString(trace_id) AS tid, max(start_ts) AS last_ts FROM agent_t.tx_summary"
+                " WHERE system_id = {system_id:UInt32} AND error = 1"
+                " AND start_ts BETWEEN {from_ts:DateTime64(3, 'UTC')} AND {to_ts:DateTime64(3, 'UTC')}"
+                " GROUP BY tid ORDER BY last_ts DESC LIMIT {limit:UInt32}",
+                {
+                    "system_id": system_id,
+                    "from_ts": now - timedelta(seconds=60),
+                    "to_ts": now + timedelta(seconds=60),
+                    "limit": 5,
+                },
+            ),
+            timeout=_CLICKHOUSE_ALERT_TIMEOUT_S,
+        )
+    except (ClickHouseError, asyncio.TimeoutError) as exc:
+        logger.warning("Agent-T 에러 trace 조회 실패 (알림 처리는 계속): %s", exc)
+        return []
+    return [r["tid"] for r in rows if r.get("tid")]
 
 
 
@@ -185,41 +227,11 @@ async def receive_alertmanager(
             actor_name="system",
         ))
 
-        # OTel gating: running otel_javaagent가 있으면 ±60s 에러 trace 조회
+        # Agent-T 보유 시스템: 알림 ±60s 에러 트랜잭션 trace_id (최대 5개) 연결
         if system_id:
-            try:
-                otel_check = await db.execute(
-                    text(
-                        "SELECT EXISTS(SELECT 1 FROM agent_instances"
-                        " WHERE system_id=:sid AND agent_type='otel_javaagent' AND status='running')"
-                    ),
-                    {"sid": system_id},
-                )
-                if otel_check.scalar():
-                    alert_ts = datetime.now(timezone.utc)
-                    start_ns = int((alert_ts.timestamp() - 60) * 1e9)
-                    end_ns = int((alert_ts.timestamp() + 60) * 1e9)
-                    system_name_for_trace = system_name
-                    traceql = (
-                        f'{{ resource.service.name="{system_name_for_trace}"'
-                        f' && status=error }}'
-                    )
-                    async with httpx.AsyncClient(timeout=5.0) as tc:
-                        tresp = await tc.get(
-                            f"{TEMPO_URL}/api/search",
-                            params={"q": traceql, "start": start_ns, "end": end_ns, "limit": 3},
-                        )
-                        tresp.raise_for_status()
-                        trace_data = tresp.json()
-                    trace_ids = [
-                        t["traceID"]
-                        for t in trace_data.get("traces", [])[:3]
-                        if t.get("traceID")
-                    ]
-                    if trace_ids:
-                        history.related_trace_ids = trace_ids
-            except Exception as exc:
-                logger.debug("Tempo error trace query failed (non-critical): %s", exc)
+            trace_ids = await _find_related_trace_ids(db, system_id)
+            if trace_ids:
+                history.related_trace_ids = trace_ids
 
         sent = False
         if webhook_url:

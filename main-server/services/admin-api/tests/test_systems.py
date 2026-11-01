@@ -80,3 +80,24 @@ async def test_delete_system(authed_client: AsyncClient):
 async def test_delete_system_not_found(authed_client: AsyncClient):
     resp = await authed_client.delete("/api/v1/systems/9999")
     assert resp.status_code == 404
+
+
+# ── Agent-T 기준정보 3컬럼 ───────────────────────────────────────────────────
+
+async def test_create_system_defaults(authed_client: AsyncClient):
+    data = await create_system(authed_client)
+
+    assert data["environment"] == "prod"
+    assert data["tx_slow_threshold_ms"] == 3000
+    assert data["tx_retention_days"] == 7
+
+
+async def test_update_system_retention_bounds(authed_client: AsyncClient):
+    created = await create_system(authed_client)
+    url = f"/api/v1/systems/{created['id']}"
+
+    assert (await authed_client.patch(url, json={"tx_retention_days": 31})).status_code == 422
+    assert (await authed_client.patch(url, json={"tx_retention_days": 0})).status_code == 422
+    resp = await authed_client.patch(url, json={"tx_retention_days": 30})
+    assert resp.status_code == 200
+    assert resp.json()["tx_retention_days"] == 30

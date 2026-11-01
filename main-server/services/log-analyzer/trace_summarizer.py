@@ -1,15 +1,19 @@
 """
-OTel Trace Context 요약기 (Phase OTel)
+Agent-T Trace Context 요약기
 
-Tempo /api/search를 조회해 tier별 예산에 맞는 요약 텍스트와 trace_id 목록을 반환.
+ClickHouse(agent_t.tx_summary)에서 해당 시스템의 느린·에러 트랜잭션 상위를 조회해
+tier별 예산에 맞는 요약 텍스트와 trace_id 목록을 반환.
 
 - 실패 시 ('', []) 반환 → analyzer는 현행 유지 (ADR-002 준수)
-- freshness 보정: end_ts에서 (decision_wait=5s + buffer=10s) = 15s earlier로 조회
-- trace_id 포맷: 앞 8자 prefix + "…" (Frontend prefix 검색 호환)
+- 줄 포맷: "{uri} {elapsed_ms}ms sql {sql_ms}ms/{sql_cnt} {exc}"
+- system_name → system_id 는 admin-api /api/v1/systems 결과를 300초 캐시
+- 값은 ClickHouse 쿼리 파라미터({name:Type} + param_<name>)로만 전달
 """
 
+import json
 import logging
 import os
+import re
 import time
 from typing import Literal
 
@@ -17,7 +21,16 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-TEMPO_URL = os.getenv("TEMPO_URL", "http://tempo:3200")
+CLICKHOUSE_URL = os.getenv("CLICKHOUSE_URL", "http://clickhouse:8123")
+_db = os.getenv("CLICKHOUSE_DB", "agent_t")
+CLICKHOUSE_DB = _db if re.fullmatch(r"[A-Za-z0-9_]+", _db) else "agent_t"
+CLICKHOUSE_USER = os.getenv("CLICKHOUSE_USER", "default")
+CLICKHOUSE_PASSWORD = os.getenv("CLICKHOUSE_PASSWORD", "")
+ADMIN_API_URL = os.getenv("ADMIN_API_URL", "http://admin-api:8080")
+
+_SYSTEMS_TTL = 300.0
+_QUERY_LIMIT = 20
+_DEFAULT_SLOW_MS = 3000
 
 # tier별 trace summary 예산 (자 단위)
 _TIER_BUDGET = {
@@ -25,6 +38,41 @@ _TIER_BUDGET = {
     "hourly": 300,
     "daily":  200,
 }
+
+# system_name → system_id 캐시 ({"at": 적재시각, "map": {...}})
+_systems_cache: dict = {}
+
+_SQL = """
+SELECT toString(t.trace_id) AS trace_id, d.text AS uri, t.elapsed_ms AS elapsed_ms,
+       t.sql_ms AS sql_ms, t.sql_cnt AS sql_cnt, t.exc_class AS exc_class
+FROM __DB__.tx_summary AS t
+LEFT JOIN (
+    SELECT id, argMax(text, last_seen) AS text
+    FROM __DB__.dict_uri
+    GROUP BY id
+) AS d ON t.uri_id = d.id
+WHERE t.system_id = {system_id:UInt32}
+  AND t.start_ts >= fromUnixTimestamp64Milli({start_ms:Int64}, 'UTC')
+  AND t.start_ts < fromUnixTimestamp64Milli({end_ms:Int64}, 'UTC')
+  AND (t.error = 1 OR t.elapsed_ms >= {slow_ms:UInt32} OR t.conn_leak > 0 OR t.conn_uncommit > 0)
+ORDER BY t.error DESC, t.elapsed_ms DESC
+LIMIT {limit:UInt32}
+FORMAT JSONEachRow
+""".replace("__DB__", CLICKHOUSE_DB)
+
+
+async def _resolve_system(client: httpx.AsyncClient, system_name: str) -> tuple[int, int] | None:
+    """system_name -> (system_id, slow_ms)"""
+    now = time.monotonic()
+    if not _systems_cache or now - _systems_cache.get("at", 0.0) > _SYSTEMS_TTL:
+        resp = await client.get(f"{ADMIN_API_URL}/api/v1/systems")
+        resp.raise_for_status()
+        _systems_cache["map"] = {
+            s["system_name"]: (s["id"], s.get("tx_slow_threshold_ms") or _DEFAULT_SLOW_MS)
+            for s in resp.json()
+        }
+        _systems_cache["at"] = now
+    return _systems_cache["map"].get(system_name)
 
 
 async def build_trace_context(
@@ -34,119 +82,62 @@ async def build_trace_context(
     tier: Literal["5min", "hourly", "daily"],
 ) -> tuple[str, list[str]]:
     """
-    Tempo 조회 → tier별 예산 맞춘 요약 반환.
+    ClickHouse 조회 → tier별 예산 맞춘 요약 반환 (elapsed 내림차순 줄 목록).
 
-    freshness 보정: end_ts_ns에서 15s earlier로 조회.
+    예산 초과 시 뒤쪽(덜 느린) 줄부터 버린다.
     실패 시 ('', []) 반환 → analyzer는 계속 진행 (ADR-002 준수).
 
     Returns:
         (summary_text, referenced_trace_ids)
     """
-    # freshness 보정: tail_sampling decision_wait(5s) + buffer(10s)
-    adjusted_end_ns = end_ts_ns - 15_000_000_000
-
-    traceql = f'{{ resource.service.name="{system_name}" }}'
-    error_traceql = f'{{ resource.service.name="{system_name}" && status=error }}'
-
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            # 전체 trace (latency 계산용)
-            all_resp = await client.get(
-                f"{TEMPO_URL}/api/search",
+            resolved = await _resolve_system(client, system_name)
+            if resolved is None:
+                return ("", [])
+            system_id, slow_ms = resolved
+            resp = await client.post(
+                CLICKHOUSE_URL,
                 params={
-                    "q": traceql,
-                    "start": start_ts_ns,
-                    "end": adjusted_end_ns,
-                    "limit": 500,
+                    "database": CLICKHOUSE_DB,
+                    "param_system_id": system_id,
+                    "param_slow_ms": slow_ms,
+                    "param_start_ms": start_ts_ns // 1_000_000,
+                    "param_end_ms": end_ts_ns // 1_000_000,
+                    "param_limit": _QUERY_LIMIT,
+                },
+                content=_SQL.encode("utf-8"),
+                headers={
+                    "X-ClickHouse-User": CLICKHOUSE_USER,
+                    "X-ClickHouse-Key": CLICKHOUSE_PASSWORD,
                 },
             )
-            all_resp.raise_for_status()
-            all_traces = all_resp.json().get("traces", [])
-
-            # 에러 trace
-            err_resp = await client.get(
-                f"{TEMPO_URL}/api/search",
-                params={
-                    "q": error_traceql,
-                    "start": start_ts_ns,
-                    "end": adjusted_end_ns,
-                    "limit": 50,
-                },
-            )
-            err_resp.raise_for_status()
-            error_traces = err_resp.json().get("traces", [])
-
+            resp.raise_for_status()
+            rows = [json.loads(ln) for ln in resp.text.splitlines() if ln.strip()]
     except Exception as exc:
-        logger.debug("Tempo query failed for %s/%s: %s", system_name, tier, exc)
+        logger.debug("Agent-T trace query failed for %s/%s: %s", system_name, tier, exc)
         return ("", [])
 
-    if not all_traces:
-        return ("", [])
-
-    durations = sorted(
-        float(t.get("durationMs", 0)) for t in all_traces if t.get("durationMs")
-    )
-    n = len(durations)
-    error_count = len(error_traces)
-
-    def pct(lst: list, p: float) -> float:
-        if not lst:
-            return 0.0
-        return lst[max(0, int(len(lst) * p / 100) - 1)]
-
-    p50 = pct(durations, 50)
-    p95 = pct(durations, 95)
-    p99 = pct(durations, 99)
-    error_rate = round(error_count / n * 100, 1) if n else 0.0
-
-    # top 에러 trace_id (8자 prefix + …)
-    top_errors = error_traces[:3]
-    referenced_ids = [t["traceID"] for t in top_errors if t.get("traceID")]
-    short_ids = [tid[:8] + "…" for tid in referenced_ids]
-
-    if tier == "5min":
-        # (a) 에러 trace 상위 3개 (b) p50/p95/p99 (c) top 3 slow endpoints (d) call path
-        slow_ep = sorted(all_traces, key=lambda t: float(t.get("durationMs", 0)), reverse=True)
-        slow_top = [
-            f"{t.get('rootTraceName', '?')}({float(t.get('durationMs', 0)):.0f}ms)"
-            for t in slow_ep[:3]
-        ]
-        error_lines = [
-            f"{sid}|{t.get('rootTraceName', '?')}|{float(t.get('durationMs', 0)):.0f}ms"
-            for sid, t in zip(short_ids, top_errors)
-        ]
-        parts = [
-            f"trace:{n}건 err:{error_count}({error_rate}%)",
-            f"p50/p95/p99={p50:.0f}/{p95:.0f}/{p99:.0f}ms",
-        ]
-        if error_lines:
-            parts.append("err:" + " ".join(error_lines))
-        if slow_top:
-            parts.append("slow:" + " ".join(slow_top))
-        summary = " | ".join(parts)
-
-    elif tier == "hourly":
-        # (a) 에러율 (b) p95 추이 (c) 상위 3개 문제 endpoint
-        ep_counts: dict[str, int] = {}
-        for t in all_traces:
-            key = t.get("rootTraceName", "?")
-            ep_counts[key] = ep_counts.get(key, 0) + 1
-        top_ep = sorted(ep_counts.items(), key=lambda x: x[1], reverse=True)[:3]
-        ep_str = " ".join(f"{k}({v})" for k, v in top_ep)
-        summary = f"trace:{n} err:{error_count}({error_rate}%) p95={p95:.0f}ms top:{ep_str}"
-
-    else:  # daily
-        # (a) 에러 피크 시간대 (b) 일 평균 p95 (c) 가장 잦은 error 패턴 1개
-        peak_ep = max(
-            (t.get("rootTraceName", "?") for t in error_traces),
-            key=lambda x: sum(1 for t in error_traces if t.get("rootTraceName") == x),
-            default="없음",
-        ) if error_traces else "없음"
-        summary = f"총trace:{n} err:{error_count}({error_rate}%) p95={p95:.0f}ms 주요에러:{peak_ep}"
-
-    # 예산 내 잘라내기
     budget = _TIER_BUDGET[tier]
-    if len(summary) > budget:
-        summary = summary[:budget - 1] + "…"
+    lines: list[str] = []
+    trace_ids: list[str] = []
+    used = 0
+    for r in rows:
+        line = (
+            f"{r.get('uri') or '?'} {r['elapsed_ms']}ms "
+            f"sql {r['sql_ms']}ms/{r['sql_cnt']} {r.get('exc_class') or ''}"
+        ).rstrip()
+        sep = 1 if lines else 0
+        remaining = budget - used - sep
+        if remaining <= 0:
+            break
+        if len(line) > remaining:
+            if lines:
+                break
+            line = line[:remaining - 1] + "…"
+        cost = len(line) + sep
+        lines.append(line)
+        trace_ids.append(r["trace_id"])
+        used += cost
 
-    return (summary, referenced_ids)
+    return ("\n".join(lines), trace_ids)

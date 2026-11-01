@@ -10,7 +10,7 @@ SSH 인증:
   - GET/POST /api/v1/agents
   - GET/PATCH/DELETE /api/v1/agents/{id}
 
-에이전트 제어·설치·라이브 상태·OTel 설치는 routes/agents_control.py 참조.
+에이전트 제어·설치·라이브 상태는 routes/agents_control.py 참조.
 """
 
 import asyncio
@@ -99,6 +99,42 @@ async def list_agents(
     return result.scalars().all()
 
 
+async def _check_agent_t_label(
+    db: AsyncSession, system_id: int, label_info: Optional[str], exclude_id: Optional[int] = None
+) -> None:
+    """agent_t label_info: JSON 객체여야 하고(422), 같은 시스템의 다른 agent_t 와 instance_role 이 겹치면 안 된다(409).
+    gateway registry·ClickHouse 키가 (system_id, instance_role) 이라 중복되면 두 JVM 의 데이터가 섞인다."""
+    if label_info is None:
+        return
+    try:
+        info = json.loads(label_info)
+    except (TypeError, ValueError):
+        info = None
+    if not isinstance(info, dict):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="agent_t 의 label_info 는 JSON 객체여야 합니다.",
+        )
+    role = info.get("instance_role")
+    if not role:
+        return
+    q = select(AgentInstance).where(
+        AgentInstance.system_id == system_id, AgentInstance.agent_type == "agent_t"
+    )
+    if exclude_id is not None:
+        q = q.where(AgentInstance.id != exclude_id)
+    for other in (await db.execute(q)).scalars().all():
+        try:
+            other_info = json.loads(other.label_info or "{}")
+        except (TypeError, ValueError):
+            continue
+        if isinstance(other_info, dict) and other_info.get("instance_role") == role:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"같은 시스템에 instance_role '{role}' 인 Agent-T 가 이미 있습니다 (agent {other.id}).",
+            )
+
+
 @router.post("/agents", response_model=AgentInstanceOut, status_code=201)
 async def create_agent(
     body: AgentInstanceCreate,
@@ -150,12 +186,15 @@ async def create_agent(
         # 연결 테스트 성공 → 등록과 동시에 running (수집 시작)
         body.status = "running"
 
-    # synapse_agent / otel_javaagent: SSH 계정 필수 (혼용 차단)
-    if body.agent_type in ("synapse_agent", "otel_javaagent") and not body.ssh_username:
+    # synapse_agent / agent_t: SSH 계정 필수 (혼용 차단)
+    if body.agent_type in ("synapse_agent", "agent_t") and not body.ssh_username:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="synapse_agent·otel_javaagent 에이전트는 SSH 계정(ssh_username)이 필수입니다.",
+            detail="synapse_agent·agent_t 에이전트는 SSH 계정(ssh_username)이 필수입니다.",
         )
+
+    if body.agent_type == "agent_t":
+        await _check_agent_t_label(db, body.system_id, body.label_info)
 
     agent = AgentInstance(**body.model_dump())
     db.add(agent)
@@ -330,7 +369,10 @@ async def update_agent(
     agent = await db.get(AgentInstance, agent_id)
     if not agent:
         raise HTTPException(404, "에이전트를 찾을 수 없습니다.")
-    for field, value in body.model_dump(exclude_unset=True).items():
+    changes = body.model_dump(exclude_unset=True)
+    if agent.agent_type == "agent_t" and changes.get("label_info") is not None:
+        await _check_agent_t_label(db, agent.system_id, changes["label_info"], exclude_id=agent.id)
+    for field, value in changes.items():
         setattr(agent, field, value)
     await db.commit()
     await db.refresh(agent)
