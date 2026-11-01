@@ -1,0 +1,9 @@
+docker_vm_mem:
+                total        used        free      shared  buff/cache   available
+  Mem:           3667        2027         293           4        1346        1464
+  Swap:          1024        1010          14
+run_id=fix3-s10
+start=2026-11-01T23:46:44Z
+load_avg=6.79 5.74 6.08
+end=2026-11-01T23:49:32Z
+load_avg_end=3.67 5.00 5.74

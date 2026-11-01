@@ -449,8 +449,8 @@ v='$LOAD_DURATION'; m=re.match(r'(\d+)([smh])',v); n=int(m.group(1)); print(n*{'
   local sent; sent=$(sed -n 's/.*sent_tx=\([0-9]*\).*/\1/p' "$RES/s7-agentsim.txt")
   local rej; rej=$(sed -n 's/.*rejected_429=\([0-9]*\).*/\1/p' "$RES/s7-agentsim.txt")
   local failed; failed=$(sed -n 's/.*failed=\([0-9]*\).*/\1/p' "$RES/s7-agentsim.txt")
-  local rows; rows=$(ch "SELECT count() FROM tx_summary WHERE system_id=$ID_E2E_SYS_SIM AND start_ts >= toDateTime64('$t0',3,'UTC')")
-  local dup; dup=$(ch "SELECT count() - uniqExact(span_id) FROM tx_summary WHERE system_id=$ID_E2E_SYS_SIM AND start_ts >= toDateTime64('$t0',3,'UTC')")
+  local rows; rows=$(ch "SELECT count() FROM tx_summary WHERE system_id=$ID_E2E_SYS_SIM AND start_ts >= toDateTime64('$t0',3,'UTC') - 15 AND start_ts < toDateTime64('$t1',3,'UTC') + 5")
+  local dup; dup=$(ch "SELECT count() - uniqExact(span_id) FROM tx_summary WHERE system_id=$ID_E2E_SYS_SIM AND start_ts >= toDateTime64('$t0',3,'UTC') - 15 AND start_ts < toDateTime64('$t1',3,'UTC') + 5")
   local dropped; dropped=$(curl -s "http://localhost:19090/api/v1/query" --data-urlencode 'query=sum(agent_t_dropped_total{system_name="e2e-sys-sim"})' | "$PY" -c 'import sys,json
 d=json.load(sys.stdin)["data"]["result"]; print(d[0]["value"][1] if d else "NA")')
   local lag_max lag_p95
@@ -574,8 +574,9 @@ PYEOF
   failed=$(sed -n 's/.*failed=\([0-9]*\).*/\1/p' "$RES/s10-agentsim.txt")
   p99=$(hey_stat "$RES/s10-probe.txt" p99); slow=$(awk '/Slowest:/{print $2*1000}' "$RES/s10-probe.txt")
   bad=$(( $(hey_stat "$RES/s10-probe.txt" total) - $(hey_stat "$RES/s10-probe.txt" ok) ))
-  rows=$(ch "SELECT count() FROM tx_summary WHERE system_id=$ID_E2E_SYS_SIM AND start_ts >= toDateTime64('$t0',3,'UTC')")
-  local dup; dup=$(ch "SELECT count() - uniqExact(span_id) FROM tx_summary WHERE system_id=$ID_E2E_SYS_SIM AND start_ts >= toDateTime64('$t0',3,'UTC')")
+  local tend; tend=$(ch_now)   # agentsim StartTs = now - elapsed - rand(0..900ms) 이므로 t0-15s ~ tend+5s 로 경계 보정
+  rows=$(ch "SELECT count() FROM tx_summary WHERE system_id=$ID_E2E_SYS_SIM AND start_ts >= toDateTime64('$t0',3,'UTC') - 15 AND start_ts < toDateTime64('$tend',3,'UTC') + 5")
+  local dup; dup=$(ch "SELECT count() - uniqExact(span_id) FROM tx_summary WHERE system_id=$ID_E2E_SYS_SIM AND start_ts >= toDateTime64('$t0',3,'UTC') - 15 AND start_ts < toDateTime64('$tend',3,'UTC') + 5")
   dropped=$(curl -s "http://localhost:19090/api/v1/query" --data-urlencode 'query=sum(agent_t_dropped_total{system_name="e2e-sys-sim"})' | "$PY" -c 'import sys,json
 d=json.load(sys.stdin)["data"]["result"]; print(d[0]["value"][1] if d else "NA")')
   metric S10_sent_tx "$sent"; metric S10_rejected_429 "$rej"; metric S10_failed_posts "$failed"; metric S10_probe_p99_ms "$p99"
