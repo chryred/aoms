@@ -28,6 +28,8 @@ main-server/artifacts/agent-t/SHA256SUMS
 !main-server/services/frontend/public/**/*.png
 # 설치·온보딩 가이드 화면 캡처 (setup-guide.src.html 빌드 원본)
 !docs/setup-guide-images/*.png
+# 사용자 매뉴얼 화면 캡처 (user-manual.src.html 빌드 원본)
+!docs/user-manual-images/*.png
 ems-mcp/
 .gstack/
 *.tar.gz

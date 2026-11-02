@@ -1981,7 +1981,7 @@ async def _process_single_trend_alert(
                 actions.append({
                     "type": "Action.OpenUrl",
                     "title": "대시보드 보기",
-                    "url": f"{_frontend_url}/trend-alerts",
+                    "url": f"{_frontend_url}/trends",
                 })
 
             content: dict = {
