@@ -36,7 +36,7 @@ docker compose -f docker-compose.dev.yml up -d alertmanager
 | `QDRANT_URL` | log-analyzer | 벡터 DB. 컬렉션 차원 1024 (ADR-011) |
 | `LLM_TYPE` | admin-api, log-analyzer | `devx`/`claude`/`openai` — `llm_client.py` Strategy가 라우팅 (ADR-001). ADR-012: ollama 폐지 |
 | `CLICKHOUSE_URL` / `CLICKHOUSE_DB` / `CLICKHOUSE_USER` / `CLICKHOUSE_PASSWORD` | admin-api, agent-t-gateway | ClickHouse 접속. 비밀번호는 ClickHouse 컨테이너 안에서 `AGENT_T_CH_PASSWORD` 로 매핑(이미지 entrypoint 가 `CLICKHOUSE_PASSWORD` 를 default 사용자 설정으로 해석하므로 컨테이너에 그 이름으로 넘기지 않는다) |
-| `AGENT_T_GATEWAY_URL` / `AGENT_T_ARTIFACT_DIR` | admin-api | 설치 Job 이 에이전트에 심는 gateway 주소 — **필수, WAS 에서 닿는 `http://{server-a-ip}:8330`** (compose 기본값 없음, 컨테이너명·루프백은 설치 Job 이 거부) / 에이전트 jar 디렉터리 (`artifacts/agent-t/`) |
+| `AGENT_T_GATEWAY_URL` / `AGENT_T_ARTIFACT_DIR` | admin-api | 설치 Job 이 에이전트에 심는 gateway 주소 — **필수, WAS 에서 닿는 `http://{server-a-ip}:8330`** (compose 기본값 없음, 컨테이너명·루프백은 설치 Job 이 거부) / 에이전트 jar 디렉터리 (이미지 내 `/app/bin/agent-t`) |
 | `GATEWAY_PG_DSN` / `GATEWAY_LISTEN` / `PROMETHEUS_REMOTE_WRITE_URL` | agent-t-gateway | PG(`agent_instances`·`systems` 캐시, `agent_commands`) / 수신 포트 `:8330` / 5초 집계 remote write 대상(비면 비활성). `SECRET_KEY` 는 admin-api 와 동일 값 필수. 큐 상한 `GATEWAY_CH_QUEUE_MAX_BYTES` 기본 128MB + `GOMEMLIMIT=400MiB`. PG 비밀번호는 DSN 이 아니라 `PGPASSWORD` 로 전달 |
 | `STEP_CA_INTERMEDIATE_CERT` | admin-api | 사설 CA intermediate 인증서 경로 (`/app/secrets/ssl/intermediate_ca.crt`) — leaf 직접 서명 (ADR-019) |
 | `STEP_CA_INTERMEDIATE_KEY` | admin-api | 사설 CA intermediate 개인키(무암호 PEM) 경로 (`/app/secrets/ssl/intermediate_ca_key`) — `ssl_issuer.sign_leaf`가 로드 |
@@ -57,7 +57,7 @@ docker compose -f docker-compose.dev.yml up -d alertmanager
 - **데이터 디렉터리**: 운영 `./services/clickhouse/data` 는 호스트에서 **uid 101(clickhouse)** 소유여야 한다 (`chown -R 101:101`, SELinux 라벨은 compose 의 `:z`). 소유자가 다르면 기동 직후 종료된다. 개발은 named volume `clickhouse_dev_data`.
 - **비밀번호**: `.env` 의 `CLICKHOUSE_PASSWORD` 하나로 admin-api·gateway 에 주입, ClickHouse 컨테이너에는 `AGENT_T_CH_PASSWORD` 로 매핑. 운영은 필수값(기본값 없음), 개발 기본값만 존재.
 - **Prometheus remote write**: gateway 가 5초 집계를 `agent_t_*` 시계열로 Prometheus remote write 로 푼다 → Prometheus 기동 옵션 `--web.enable-remote-write-receiver` 필요. 대상은 `PROMETHEUS_REMOTE_WRITE_URL`(예: `http://prometheus:9090/api/v1/write`).
-- **에이전트 jar**: agent-v 와 같이 **admin-api 이미지에 포함**(Dockerfile COPY → `/app/artifacts/agent-t/`, 마운트 없음). 빌드 입력은 `main-server/artifacts/agent-t/`(repo 미포함, `agent-t/build.sh jar` → `agent-t/build.sh install-artifacts` 로 생성) — `build-images.sh` 가 4개 파일·SHA256SUMS 를 먼저 확인한다. jar 교체 = admin-api 이미지 재빌드·반입. 절차는 해당 디렉터리 README.
+- **에이전트 jar**: agent-v(`agent/dist/agent-v` → `/app/bin/agent-v`)와 같은 구조 — `agent-t/build.sh jar` 가 만든 `agent-t/dist/`(git 추적)를 admin-api Dockerfile 이 `/app/bin/agent-t/` 로 COPY(마운트 없음). `build-images.sh` 가 4개 파일·SHA256SUMS 를 먼저 확인한다. jar 교체 = admin-api 이미지 재빌드·반입. 절차는 `agent-t/CLAUDE.md` "배포".
 
 ---
 

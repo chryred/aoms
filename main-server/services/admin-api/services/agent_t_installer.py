@@ -85,14 +85,14 @@ def parse_java_major(version_output: str) -> int:
 
 
 def _artifact_dir() -> str:
-    return os.getenv("AGENT_T_ARTIFACT_DIR", "/app/artifacts/agent-t")
+    return os.getenv("AGENT_T_ARTIFACT_DIR", "/app/bin/agent-t")
 
 
 def _read_artifact(name: str) -> bytes:
     path = os.path.join(_artifact_dir(), name)
     if not os.path.exists(path):
         raise FileNotFoundError(
-            f"Agent-T 아티팩트를 찾을 수 없습니다: {path} (main-server/artifacts/agent-t/README.md 참고)"
+            f"Agent-T 아티팩트를 찾을 수 없습니다: {path} (agent-t/build.sh jar 로 agent-t/dist/ 생성 후 admin-api 이미지 재빌드)"
         )
     with open(path, "rb") as f:
         return f.read()

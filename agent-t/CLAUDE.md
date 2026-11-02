@@ -8,9 +8,14 @@
 | `fetch` | ASM 5.2/9.7 소스, JUnit 4.13.2, hamcrest 1.3 다운로드 → `third_party/versions.properties` SHA256 검증(매 실행) → ASM 패키지를 `com.synapsev.agentt.shaded.asm` 으로 sed 이동 → `third_party/src/` (gitignore) |
 | `test-legacy` | `azul/zulu-openjdk:7`(`--platform linux/amd64`), `-source/-target 1.6`, ASM 5.2 |
 | `test-modern` | `eclipse-temurin:21-jdk`, `--release 8`, ASM 9.7 |
-| `jar` | `build/dist/{agent-t-legacy.jar, agent-t.jar, agent-t-attacher.jar, SHA256SUMS}` (attacher 는 legacy javac `-target 1.6` 로 한 번 빌드, JDK 6~21 공용) |
+| `jar` | `dist/{agent-t-legacy.jar, agent-t.jar, agent-t-attacher.jar, SHA256SUMS}` (attacher 는 legacy javac `-target 1.6` 로 한 번 빌드, JDK 6~21 공용) |
 | `it-attach` | `jar` 선행. Docker 통합 테스트: zulu 7(legacy jar)·temurin 17(modern jar) attach + `--check` 옵션 판정, `eclipse-temurin:8-jre` → `PRECHECK:no_tools_jar` |
-| `install-artifacts` | `build/dist` → `main-server/artifacts/agent-t/` (admin-api 이미지 빌드 입력, Dockerfile 이 COPY) |
+
+## 배포 (agent-v 와 동일 구조)
+- `dist/` 는 **git 추적**(agent-v 의 `agent/dist/agent-v` 와 같음). admin-api Dockerfile 이 `agent-t/dist/` 를 `/app/bin/agent-t/` 로 COPY → 폐쇄망 반입은 admin-api 이미지 tar 하나(jar 별도 반입 없음). `build-images.sh` 가 빌드 전 4개 파일·SHA256SUMS 일치를 확인한다.
+- 설치 Job(`admin-api/services/agent_t_installer.py`)은 `AGENT_T_ARTIFACT_DIR`(기본 `/app/bin/agent-t`, 로컬 `make run-api` 는 `agent-t/dist`)에서 jar 를 읽어 SHA256SUMS 대조 후 SFTP 로 WAS 에 올린다. 대상 JDK 로 `agent-t.jar`(8~21)/`agent-t-legacy.jar`(1.6~1.7) 자동 선택. 불일치 시 설치 실패.
+- jar 교체: `./build.sh jar` → `dist/` 커밋 → `build-images.sh` → admin-api 이미지 반입·재기동. 이미 설치된 서버는 재설치 시 갱신. `fetch` 는 인터넷 필요(폐쇄망 안에서는 빌드하지 않음).
+- tools.jar 없는 JRE·`-XX:+DisableAttachMechanism` 서버는 즉시 적용 불가 → 설치 Job 이 `PRECHECK:*` 를 남기고 영구 적용(기동 옵션 주입)만 해 다음 재기동부터 적용.
 
 ## 모듈 (`build.sh` 가 전부 한 번에 컴파일, 테스트는 각 `*/src/test/java`)
 | 모듈 | 내용 |

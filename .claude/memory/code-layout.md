@@ -20,7 +20,6 @@ aoms/
 │   ├── .env.local.example             # 로컬 환경변수 템플릿
 │   ├── configs/dev/                   # 로컬 최소 설정 파일
 │   ├── configs/clickhouse/            # init/ (최초 DDL), users.d/, config.d/limits.xml (Agent-T)
-│   ├── artifacts/agent-t/             # 에이전트 jar + SHA256SUMS — admin-api 이미지 빌드 입력 (repo 미포함, README 만)
 │   └── services/
 │       ├── admin-api/
 │       │   ├── CLAUDE.md              # admin-api 상세 가이드
@@ -52,7 +51,7 @@ aoms/
 │           ├── trace_summarizer.py              # Agent-T: ClickHouse 조회 → tier별 trace context 텍스트 (ADR-022)
 │           └── tests/                           # pytest (JSON 파싱 등)
 ├── agent/                             # synapse_agent Rust 단일 바이너리 수집기 (Phase 6)
-├── agent-t/                           # Agent-T Java 트랜잭션 에이전트 (core/bridge/instrument/boot/attacher, build.sh) — ADR-022
+├── agent-t/                           # Agent-T Java 트랜잭션 에이전트 (core/bridge/instrument/boot/attacher, build.sh, dist/ = 배포 jar·git 추적) — ADR-022
 ├── agent-t-gateway/                   # Agent-T 수집 게이트웨이 (Go, :8330) — ADR-022
 ├── contracts/agent-t/                 # 에이전트↔gateway 전송 계약 (protocol.md)
 └── sub-server/

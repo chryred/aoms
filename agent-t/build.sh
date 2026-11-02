@@ -5,13 +5,13 @@
 #   test-modern        JDK 21 (temurin), --release 8, ASM 9.7
 #   jar                dist/{agent-t-legacy.jar, agent-t.jar, agent-t-attacher.jar} + SHA256SUMS
 #   it-attach          Docker integration test of the attacher (needs `jar` first): zulu 7, temurin 17, JRE-only 8
-#   install-artifacts  copy dist -> main-server/artifacts/agent-t/
+# dist/ is tracked in git and COPY'd into the admin-api image as /app/bin/agent-t/ (same as agent/dist/agent-v).
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$HERE/.." && pwd)"
 TP="$HERE/third_party"
-DIST="$HERE/build/dist"
+DIST="$HERE/dist"
 LEGACY_IMAGE="azul/zulu-openjdk:7"
 MODERN_IMAGE="eclipse-temurin:21-jdk"
 
@@ -130,7 +130,7 @@ if [ "$ACTION" = test ]; then
   CLASSES=$(for d in core bridge instrument boot; do (cd $d/src/test/java && find . -name '*Test.java'); done | sed -e 's#^\./##' -e 's#\.java$##' -e 's#/#.#g' | sort | tr '\n' ' ')
   java "${VERIFY[@]}" -Dagentt.repo.root=/w -cp "$B/classes:$B/test-classes:$CP" org.junit.runner.JUnitCore $CLASSES
 else
-  mkdir -p build/dist
+  mkdir -p dist
   # The bridge classes must live on the bootstrap class path, so they ship as a nested jar resource, not top-level.
   A="$B/agent-classes"
   mkdir -p "$A/bridge"
@@ -139,16 +139,16 @@ else
   jar cf "$A/bridge/agent-t-bridge.jar" -C "$B/classes" com/synapsev/agentt/bridge
   printf 'Premain-Class: com.synapsev.agentt.boot.AgentMain\nAgent-Class: com.synapsev.agentt.boot.AgentMain\nCan-Retransform-Classes: true\nCan-Redefine-Classes: true\nImplementation-Title: agent-t\nImplementation-Version: 0.1.0\n' > "$B/manifest.mf"
   if [ "$PROFILE" = legacy ]; then
-    jar cfm build/dist/agent-t-legacy.jar "$B/manifest.mf" -C "$A" .
+    jar cfm dist/agent-t-legacy.jar "$B/manifest.mf" -C "$A" .
     # attacher: built once with the legacy javac (-target 1.6), reflection only, runs on JDK 6-21.
     mkdir -p "$B/att-classes" "$B/it-classes"
     "${JAVAC[@]}" -d "$B/att-classes" attacher/src/main/java/com/synapsev/agentt/attacher/Attacher.java
     printf 'Main-Class: com.synapsev.agentt.attacher.Attacher\nImplementation-Title: agent-t-attacher\n' > "$B/att-manifest.mf"
-    jar cfm build/dist/agent-t-attacher.jar "$B/att-manifest.mf" -C "$B/att-classes" .
+    jar cfm dist/agent-t-attacher.jar "$B/att-manifest.mf" -C "$B/att-classes" .
     # integration-test classes (run by build.sh it-attach)
     "${JAVAC[@]}" -d "$B/it-classes" attacher/src/test/java/com/synapsev/agentt/attacher/*.java
   else
-    jar cfm build/dist/agent-t.jar "$B/manifest.mf" -C "$A" .
+    jar cfm dist/agent-t.jar "$B/manifest.mf" -C "$A" .
   fi
 fi
 CONTAINER
@@ -161,14 +161,6 @@ do_jar() {
   run_container modern jar
   ( cd "$DIST" && for f in agent-t-legacy.jar agent-t.jar agent-t-attacher.jar; do echo "$(sha256_of "$f")  $f"; done > SHA256SUMS )
   cat "$DIST/SHA256SUMS"
-}
-
-do_install() {
-  [ -f "$DIST/SHA256SUMS" ] || { echo "run build.sh jar first" >&2; exit 1; }
-  local dest="$REPO/main-server/artifacts/agent-t"
-  mkdir -p "$dest"
-  cp "$DIST"/*.jar "$DIST/SHA256SUMS" "$dest/"
-  echo "installed -> $dest"
 }
 
 do_it_attach() {
@@ -184,7 +176,7 @@ do_it_attach() {
     echo "== it-attach: $image ($mode)"
     docker run --rm ${p[@]+"${p[@]}"} ${user[@]+"${user[@]}"} -v "$REPO":/w:ro -w /tmp "$image" \
       java -cp /w/agent-t/build/legacy/it-classes com.synapsev.agentt.attacher.AttacherIT "$mode" \
-      /w/agent-t/build/dist/agent-t-attacher.jar ${agent:+/w/agent-t/build/dist/$agent} || fail=1
+      /w/agent-t/dist/agent-t-attacher.jar ${agent:+/w/agent-t/dist/$agent} || fail=1
   }
   it "$LEGACY_IMAGE" linux/amd64 attach agent-t-legacy.jar
   it eclipse-temurin:17-jdk - attach agent-t.jar
@@ -198,6 +190,5 @@ case "${1:-}" in
   test-modern) require_fetched; run_container modern test ;;
   jar) do_jar ;;
   it-attach) do_it_attach ;;
-  install-artifacts) do_install ;;
-  *) echo "usage: $0 {fetch|test-legacy|test-modern|jar|it-attach|install-artifacts}" >&2; exit 2 ;;
+  *) echo "usage: $0 {fetch|test-legacy|test-modern|jar|it-attach}" >&2; exit 2 ;;
 esac

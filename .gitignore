@@ -20,9 +20,6 @@ main-server/services/attaches/knowledge-docs/*
 main-server/services/attaches/chat-attachments/*
 !main-server/services/attaches/chat-attachments/.gitkeep
 node_modules/
-# Agent-T 배포 산출물 — 빌드 후 수동 배치 (README.md 만 추적)
-main-server/artifacts/agent-t/*.jar
-main-server/artifacts/agent-t/SHA256SUMS
 # 임시 스크린샷 / playwright 산출물
 *.png
 !main-server/services/frontend/public/**/*.png

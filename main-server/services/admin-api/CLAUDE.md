@@ -631,7 +631,7 @@ log-analyzer → POST /api/v1/analysis
 | `CLICKHOUSE_USER` | `agent_t` | ClickHouse 사용자 |
 | `CLICKHOUSE_PASSWORD` | 없음 (필수) | ClickHouse 비밀번호. compose 가 ClickHouse 컨테이너에는 `AGENT_T_CH_PASSWORD` 로 매핑 |
 | `AGENT_T_GATEWAY_URL` | (필수, compose 에 기본값 없음) | Agent-T 설치 Job 이 에이전트 설정(`gateway.url`)에 심는 주소 — WAS 서버에서 접근 가능한 `http://{server-a-ip}:8330` |
-| `AGENT_T_ARTIFACT_DIR` | `/app/artifacts/agent-t` | 설치 Job 이 SFTP 로 올릴 jar(`agent-t.jar`/`agent-t-legacy.jar`/`agent-t-attacher.jar`)와 `SHA256SUMS` 위치. 이미지 빌드 시 Dockerfile 이 COPY(agent-v 와 동일, 마운트 없음). 불일치 시 설치 실패. 준비 절차는 `main-server/artifacts/agent-t/README.md` |
+| `AGENT_T_ARTIFACT_DIR` | `/app/bin/agent-t` | 설치 Job 이 SFTP 로 올릴 jar(`agent-t.jar`/`agent-t-legacy.jar`/`agent-t-attacher.jar`)와 `SHA256SUMS` 위치. Dockerfile 이 `agent-t/dist/` 를 COPY(agent-v 와 동일, 마운트 없음). 불일치 시 설치 실패. 절차는 `agent-t/CLAUDE.md` "배포" |
 | `UVICORN_MAX_REQUESTS` | `500` | 워커당 처리 요청 수 상한. 초과 시 graceful restart → glibc 힙 단편화 리셋. OOM 방지 핵심 설정 |
 | `UVICORN_MAX_REQUESTS_JITTER` | `100` | `UVICORN_MAX_REQUESTS`에 더할 랜덤 편차. 다중 워커 동시 재시작 방지 |
 

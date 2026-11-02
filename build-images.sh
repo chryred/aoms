@@ -47,9 +47,9 @@ do_build() {
 
   # ── 빌드 (순차) ─────────────────────────────────────────────
   # Agent-T jar 는 이미지에 포함된다 — 사전 빌드 산출물 확인
-  AGENT_T_ARTIFACTS="$SCRIPT_DIR/main-server/artifacts/agent-t"
+  AGENT_T_ARTIFACTS="$SCRIPT_DIR/agent-t/dist"
   for f in agent-t.jar agent-t-legacy.jar agent-t-attacher.jar SHA256SUMS; do
-    [ -f "$AGENT_T_ARTIFACTS/$f" ] || error "Agent-T 아티팩트 없음: $AGENT_T_ARTIFACTS/$f — 먼저 'agent-t/build.sh jar && agent-t/build.sh install-artifacts' 실행"
+    [ -f "$AGENT_T_ARTIFACTS/$f" ] || error "Agent-T 아티팩트 없음: $AGENT_T_ARTIFACTS/$f — 먼저 'agent-t/build.sh jar' 실행"
   done
   (cd "$AGENT_T_ARTIFACTS" && shasum -a 256 -c SHA256SUMS >/dev/null) \
     || error "Agent-T SHA256SUMS 불일치: $AGENT_T_ARTIFACTS"

@@ -170,7 +170,7 @@ run-api: _check-env
 	@echo "→ admin-api 시작 (http://localhost:8080)"
 	@echo "  Swagger UI: http://localhost:8080/docs"
 	cd $(ADMIN_API_DIR) && set -a && source $(ENV_FILE) && set +a && \
-		export AGENT_T_ARTIFACT_DIR=$(MAIN_SERVER)/artifacts/agent-t && \
+		export AGENT_T_ARTIFACT_DIR=$(ROOT_DIR)/agent-t/dist && \
 		$(UVICORN) main:app --host 0.0.0.0 --port 8080 --reload
 
 .PHONY: run-frontend

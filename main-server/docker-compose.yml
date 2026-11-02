@@ -163,7 +163,7 @@ services:
       - AGENT_BINARY_PATH=${AGENT_BINARY_PATH:-/app/bin/agent-v}
       - SYNAPSE_CLI_BINARY_PATH=${SYNAPSE_CLI_BINARY_PATH:-/app/bin/synapse}
       # Agent-T (ClickHouse 조회 + gateway 실시간 SSE)
-      - AGENT_T_ARTIFACT_DIR=/app/artifacts/agent-t
+      - AGENT_T_ARTIFACT_DIR=/app/bin/agent-t
       - CLICKHOUSE_URL=${CLICKHOUSE_URL:-http://clickhouse:8123}
       - CLICKHOUSE_DB=${CLICKHOUSE_DB:-agent_t}
       - CLICKHOUSE_USER=${CLICKHOUSE_USER:-agent_t}

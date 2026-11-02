@@ -77,9 +77,9 @@ print(max([x.get("last_seen",0) for x in i] or [0]))'
 # ───────────────────────── up / down ─────────────────────────
 cmd_up() {
   log "jar 준비"
-  [ -f "$REPO/agent-t/build/dist/agent-t.jar" ] || (cd "$REPO/agent-t" && ./build.sh fetch && ./build.sh jar)
-  cp "$REPO/agent-t/build/dist/agent-t-legacy.jar" "$REPO/agent-t/build/dist/agent-t-attacher.jar" "$WORK/agent7/"
-  cp "$REPO/agent-t/build/dist/agent-t.jar" "$REPO/agent-t/build/dist/agent-t-attacher.jar" "$WORK/agent9/"
+  [ -f "$REPO/agent-t/dist/agent-t.jar" ] || (cd "$REPO/agent-t" && ./build.sh fetch && ./build.sh jar)
+  cp "$REPO/agent-t/dist/agent-t-legacy.jar" "$REPO/agent-t/dist/agent-t-attacher.jar" "$WORK/agent7/"
+  cp "$REPO/agent-t/dist/agent-t.jar" "$REPO/agent-t/dist/agent-t-attacher.jar" "$WORK/agent9/"
   rm -f "$WORK/agent7/DISABLE" "$WORK/agent9/DISABLE"
   [ -x "$BIN/e2e-hey" ] || GOBIN="$BIN" go install github.com/rakyll/hey@latest
   (cd "$REPO/agent-t-gateway" && go build -o "$BIN/agentsim" ./cmd/agentsim)
