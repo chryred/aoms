@@ -1,9 +1,9 @@
 # Agent-T Docker E2E 결과 (Task H1)
 
-## 현재 상태 요약 (fix round 2 기준, 상세는 아래)
-- **S1~S6, S8 PASS** (fix round 2 회귀 포함: S3b 커넥션 추적 JDK7·JDK17 40/40, S6 킬 스위치 max 25.3s ≤ 35s).
-- **S7·S10 은 환경 제약으로 판정 보류**: 개발 VM 메모리 부족(swap 가득)에서 S10 기본 큐 256MB 는 실패 post 9, 큐 64MB 는 PASS. gateway 코드 결함은 없는 것으로 판단하며 **운영 사양 서버에서 재측정 필요**.
-- D-H1-1(커넥션 추적), D-H1-2(전체 시스템 검색 쿼리)는 수정 확인. D-H1-3(ClickHouse 정지 중 지연)은 환경 요인 유력.
+## 현재 상태 요약 (fix round 3 기준, 상세는 아래)
+- **S1~S6, S8, S10 PASS** (fix round 2 회귀 포함: S3b 커넥션 추적 JDK7·JDK17 40/40, S6 킬 스위치 max 25.3s ≤ 35s; S10 은 fix round 3 에서 Docker VM 가용 메모리 확보 후 3/3 + `fix3-s10` PASS).
+- **S7 만 판정 보류**: 개발 VM 사양(3.8GB) 한계로 5,000 TPS·10분을 조용한 환경에서 다시 측정하지 못함 — **운영 사양 서버에서 재측정 필요**.
+- D-H1-1(커넥션 추적), D-H1-2(전체 시스템 검색 쿼리)는 수정 확인. **D-H1-3(ClickHouse 정지 중 지연)은 환경 요인으로 종결** — 원인은 Docker VM 가용 RAM 부족(free 62~70MB)이 유력(가용 RAM 확보 후 같은 시나리오 4회 연속 PASS, 메모리 부족 상태에서 병합본 FAIL 재현은 하지 않음). swap 은 PASS 실행에서도 거의 가득(1010/1024MB)이었으므로 원인이 아니다.
 - **최종 리뷰 반영(final fix wave)**: gateway 큐 기본값을 256MB → **128MB** + `GOMEMLIMIT=400MiB` 로 낮췄다(아래 256MB 수치는 당시 측정값). 파이프라인은 **at-least-once** 로 문서화(`contracts/agent-t/protocol.md` §5)했고, `run.sh` S4 에 `count() - uniqExact(span_id) = 0` 검사를 추가했다(S4 는 >0 이면 FAIL, S7·S10 은 `dup_span_rows` 기록). 이 변경은 아직 Docker E2E 로 재실행되지 않았다.
 
 실행 일시: 2026-10-30 (개발 Mac, Apple Silicon, Docker Desktop 3.8GB/10CPU). 하니스: `run.sh up|test|down`.
@@ -79,7 +79,7 @@
 - 원인 가설: `main-server/services/admin-api/routes/apm.py` `search_transactions` 마지막 쿼리(`ORDER BY start_ts DESC LIMIT … OFFSET …`, 약 L200-210)가 다수 system_id 에 대해 테이블 정렬키 `(system_id, start_ts)` 의 read-in-order 최적화를 못 쓰고 범위 내 전 행(27개 컬럼, 문자열 포함)을 읽고 정렬한다. 1시간×5,000TPS ≈ 18M 행. ClickHouse 가 1.5코어/1.6GiB 한도에 닿아 같은 서버의 적재 INSERT 도 지연된다(S7 재실행에서 송신량 50% 미만, 적재 지연 기록값 99999999=정지).
 - 제안 수정: (1) 1단계로 `trace_id, span_id, start_ts` 만 `ORDER BY start_ts DESC LIMIT n` 으로 뽑고 2단계에서 해당 키로 전체 컬럼 조회, (2) 시스템별로 `LIMIT n` 쿼리 후 Python 에서 병합, (3) 기본 조회 구간을 15분 이하로 제한하고 `max_execution_time`/`max_memory_usage` 쿼리 설정 부여, (4) 쿼리 사용자 `agent_t_profile` 에 읽기·쓰기 프로필 분리(적재용 사용자와 조회용 사용자).
 
-### D-H1-3 ClickHouse 정지/포화 시 gateway 인입 지연·타임아웃 (의심 결함, 미해결)
+### D-H1-3 ClickHouse 정지/포화 시 gateway 인입 지연·타임아웃 (fix round 3 에서 환경 요인으로 종결 — 아래는 당시 분석 기록)
 - 결정적 재현(S10): 2,000 TPS agentsim 중 ClickHouse `docker pause` 45초 → agentsim 실패 post 49 / 97 / 56 건(3회 모두, 429 아님), 프로브 최대 지연 18.4 / 13.2 / 10.4s. 타임라인(`fix1-s10c/s10-timeline.txt`): 정지 12초 후부터 지연 증가(0.5→4.5s), 이후 한 요청이 22.8s 걸리고 정지 해제 직전 회복. 모든 JVM 이 동시에 영향(실패 수가 JVM 수 49 의 배수 근처). 적재 행은 결국 전량 도착(rows ≥ sent, dropped 0).
 - 배제한 원인: 호스트→컨테이너 포트포워딩 문제 아님(agentsim 을 dev-net 내부 컨테이너에서 실행해도 실패 56, `fix1-s10-indocker`). 대조군: 같은 방식으로 **tomcat7 을 pause 하면 PASS**(실패 0, p99 806ms, `fix1-s10-control-pause-tomcat7`) → ClickHouse 정지와 인과가 있음.
 - goroutine dump(정지+25초, `fix1-s10-dump/s10-dump-last.txt`): 인입 핸들러 goroutine 이 1개(`protocol.Decode` gunzip 중)뿐이고 `Writer.mu`/`flushMu` 등 뮤텍스 대기 goroutine 없음 → "핸들러가 락에서 막힘" 가설은 반증, 클라이언트 요청이 핸들러에 도달하기 전(accept/read 단계)에 지연되는 것으로 보임. 정확한 병목은 미확정.
@@ -107,12 +107,12 @@
 ### 결함 상태
 - **D-H1-1 수정 확인**: pgjdbc `BaseDataSource` 경로에서 conn_open/close 가 JDK7·JDK17 모두 40/40 집계(S3b PASS).
 - **D-H1-2 수정 확인(부분적 환경 제약)**: 두 단계 쿼리 후 전체 시스템 검색이 S7 부하 중 대부분 0.1~2.4s 에 200. VM 포화 극단 구간에서 1회 502(16.5s)는 남음 — 정상 환경에서 재확인 필요.
-- **D-H1-3 환경 요인 유력(gateway 코드 결함 없음)**: 소유자 회귀 테스트가 인입 경로가 ClickHouse 를 기다리지 않음을 보였고, 같은 시나리오가 큐 64MB 에서는 통과, 256MB 에서는 실패 9건으로 감소(이전 49~97). VM swap 가득·free<100MB 조건과 일치. 운영 사양 서버(dev 서버)에서 S10 을 재측정해 종결할 것.
+- **D-H1-3 환경 요인 유력(gateway 코드 결함 없음)**: 소유자 회귀 테스트가 인입 경로가 ClickHouse 를 기다리지 않음을 보였고, 같은 시나리오가 큐 64MB 에서는 통과, 256MB 에서는 실패 9건으로 감소(이전 49~97). VM free<100MB 조건과 일치. (이후 fix round 3 에서 가용 RAM 확보 후 재측정해 종결.)
 - 운영 메모: 개발 VM 처럼 메모리가 빠듯하면 `GATEWAY_CH_QUEUE_MAX_BYTES` 를 줄이면(64MB) 정지 중 429 로 명시적 backoff 가 동작해 에이전트 타임아웃이 없어진다 — 운영 기본값은 이후 128MB(+`GOMEMLIMIT=400MiB`)로 낮췄다 — 서버 메모리 기준으로 재검토.
 
 ## Fix round 3 (하니스 집계 경계 보정, S10 재실행)
 - **집계 경계 버그(하니스)**: agentsim 의 `StartTs = now - elapsed - rand(0..900ms)` 때문에 첫 1초 송신분은 `start_ts < t0` 이라 `start_ts >= t0` 집계에서 빠져 S10/S7 적재 행이 과소 집계(예: 239,788 < sent 241,080 → 오판 FAIL; 같은 계열을 넓은 구간으로 세면 241,074 행, uniqExact(span_id)=241,074). 수정: sim 시스템 행수·중복 쿼리를 `start_ts >= t0 - 15s AND start_ts < t_end + 5s` 로 제한(S7·S10).
-- **D-H1-3 종결(환경 요인)**: B2 담당 실행 S10 3/3 PASS(VM free ≈1.3GB; 실패 post 0, 프로브 p99 4.9~18.8ms). Docker VM 메모리 부족(swap 가득)이 원인으로 확정.
+- **D-H1-3 종결(환경 요인)**: B2 담당 실행 S10 3/3 PASS(VM free ≈1.3GB; 실패 post 0, 프로브 p99 4.9~18.8ms). Docker VM 가용 RAM 부족(free 62~70MB)이 원인으로 유력(메모리 부족 상태에서 병합본 FAIL 재현은 하지 않음) — swap 은 PASS 한 S1~S6 실행에서도 1010/1024MB 로 거의 가득이었으므로 판별 요인이 아니며, PASS/FAIL 을 가른 것은 가용 RAM(1.3~1.46GB vs 70MB 미만)이다.
 - **중복 span 2,009건**: 해당 실행에서 e2e-clickhouse 가 최종 수정 이전 DDL 로 초기화되어(`non_replicated_deduplication_window` 없음) 발생. `migrations/20261031_dict_no_ttl.sql`(업그레이드 경로) 적용 후 dup_span=0.
 - **재실행 `fix3-s10`(VM available 1,464MB, synq 스택 내림)**: S10 **PASS** — 실패 post 0(429 0), 프로브 p99 2.6ms / max 7.7ms, rows 241,080 == sent 241,080, dup_span 0, dropped 0. 원본 `results-committed/fix3-s10/`.
 - 따라서 D-H1-1/2/3 모두 종결. S7 은 조용한 VM 에서의 최종 재측정만 남음(`E2E_PUBLISH=1 run.sh test 7`, 새 경계 적용).
