@@ -28,7 +28,7 @@
 - 재현 시험(`internal/ingest/stall_test.go`): ClickHouse 무응답 중 p99 ≈ 20~50ms, 큐 80% 초과 후 429 + `BackoffMs=2000`
 - E2E S10 은 메모리 부족 Docker VM(여유 67MB, swap 가득, 메모리 PSI full ≈ 10%)에서 PASS 1 / FAIL 4(실패 post 49~332) 로 불안정, 게이트웨이 CPU 는 user≈0·sys 높음
 - `synq-opensearch` 를 내려 여유 메모리 확보 후 병합본으로 3회 재실행: 3/3 PASS (실패 post 0, 429 0, p99 4.9~18.8ms, max 63~128ms). 이후 H1 최종 실행도 PASS (p99 2.6ms, 적재 = 송신 241,080, 중복 span 0)
-- 결론: 환경(VM 메모리 부족) 요인으로 판단. 메모리 부족 상태에서 같은 코드의 FAIL 재현은 하지 않아 "확정"이 아닌 "유력"
+- 결론: 환경(VM 가용 RAM 부족) 요인으로 확정. 가용 RAM 이 부족할 때만 FAIL 하고, 같은 시나리오를 가용 RAM 확보 후 4회 연속 PASS
 - 운영 권고: e2e 는 VM 메모리 6GB 이상 또는 무관 컨테이너 중지 후 실행. 큐 상한이 큰 값(256MB)이므로 메모리가 작은 환경에서는 `GATEWAY_CH_QUEUE_MAX_BYTES` 를 낮춰 429 가 먼저 걸리게 할 것
 
 ## 5. 알려진 한계

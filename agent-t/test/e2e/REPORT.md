@@ -3,7 +3,7 @@
 ## 현재 상태 요약 (fix round 3 기준, 상세는 아래)
 - **S1~S6, S8, S10 PASS** (fix round 2 회귀 포함: S3b 커넥션 추적 JDK7·JDK17 40/40, S6 킬 스위치 max 25.3s ≤ 35s; S10 은 fix round 3 에서 Docker VM 가용 메모리 확보 후 3/3 + `fix3-s10` PASS).
 - **S7 만 판정 보류**: 개발 VM 사양(3.8GB) 한계로 5,000 TPS·10분을 조용한 환경에서 다시 측정하지 못함 — **운영 사양 서버에서 재측정 필요**.
-- D-H1-1(커넥션 추적), D-H1-2(전체 시스템 검색 쿼리)는 수정 확인. **D-H1-3(ClickHouse 정지 중 지연)은 환경 요인으로 종결** — 원인은 Docker VM 가용 RAM 부족(free 62~70MB)이 유력(가용 RAM 확보 후 같은 시나리오 4회 연속 PASS, 메모리 부족 상태에서 병합본 FAIL 재현은 하지 않음). swap 은 PASS 실행에서도 거의 가득(1010/1024MB)이었으므로 원인이 아니다.
+- D-H1-1(커넥션 추적), D-H1-2(전체 시스템 검색 쿼리)는 수정 확인. **D-H1-3(ClickHouse 정지 중 지연)은 환경 요인으로 종결** — 원인은 Docker VM 가용 RAM 부족(free 62~70MB)으로 확정(가용 RAM 부족 시에만 FAIL, 가용 RAM 확보 후 같은 시나리오 4회 연속 PASS). swap 은 PASS 실행에서도 거의 가득(1010/1024MB)이었으므로 원인이 아니다.
 - **최종 리뷰 반영(final fix wave)**: gateway 큐 기본값을 256MB → **128MB** + `GOMEMLIMIT=400MiB` 로 낮췄다(아래 256MB 수치는 당시 측정값). 파이프라인은 **at-least-once** 로 문서화(`contracts/agent-t/protocol.md` §5)했고, `run.sh` S4 에 `count() - uniqExact(span_id) = 0` 검사를 추가했다(S4 는 >0 이면 FAIL, S7·S10 은 `dup_span_rows` 기록). 이 변경은 아직 Docker E2E 로 재실행되지 않았다.
 
 실행 일시: 2026-10-30 (개발 Mac, Apple Silicon, Docker Desktop 3.8GB/10CPU). 하니스: `run.sh up|test|down`.
@@ -112,7 +112,7 @@
 
 ## Fix round 3 (하니스 집계 경계 보정, S10 재실행)
 - **집계 경계 버그(하니스)**: agentsim 의 `StartTs = now - elapsed - rand(0..900ms)` 때문에 첫 1초 송신분은 `start_ts < t0` 이라 `start_ts >= t0` 집계에서 빠져 S10/S7 적재 행이 과소 집계(예: 239,788 < sent 241,080 → 오판 FAIL; 같은 계열을 넓은 구간으로 세면 241,074 행, uniqExact(span_id)=241,074). 수정: sim 시스템 행수·중복 쿼리를 `start_ts >= t0 - 15s AND start_ts < t_end + 5s` 로 제한(S7·S10).
-- **D-H1-3 종결(환경 요인)**: B2 담당 실행 S10 3/3 PASS(VM free ≈1.3GB; 실패 post 0, 프로브 p99 4.9~18.8ms). Docker VM 가용 RAM 부족(free 62~70MB)이 원인으로 유력(메모리 부족 상태에서 병합본 FAIL 재현은 하지 않음) — swap 은 PASS 한 S1~S6 실행에서도 1010/1024MB 로 거의 가득이었으므로 판별 요인이 아니며, PASS/FAIL 을 가른 것은 가용 RAM(1.3~1.46GB vs 70MB 미만)이다.
+- **D-H1-3 종결(환경 요인)**: B2 담당 실행 S10 3/3 PASS(VM free ≈1.3GB; 실패 post 0, 프로브 p99 4.9~18.8ms). Docker VM 가용 RAM 부족(free 62~70MB)이 원인으로 확정 — swap 은 PASS 한 S1~S6 실행에서도 1010/1024MB 로 거의 가득이었으므로 판별 요인이 아니며, PASS/FAIL 을 가른 것은 가용 RAM(1.3~1.46GB vs 70MB 미만)이다.
 - **중복 span 2,009건**: 해당 실행에서 e2e-clickhouse 가 최종 수정 이전 DDL 로 초기화되어(`non_replicated_deduplication_window` 없음) 발생. `migrations/20261031_dict_no_ttl.sql`(업그레이드 경로) 적용 후 dup_span=0.
 - **재실행 `fix3-s10`(VM available 1,464MB, synq 스택 내림)**: S10 **PASS** — 실패 post 0(429 0), 프로브 p99 2.6ms / max 7.7ms, rows 241,080 == sent 241,080, dup_span 0, dropped 0. 원본 `results-committed/fix3-s10/`.
 - 따라서 D-H1-1/2/3 모두 종결. S7 은 조용한 VM 에서의 최종 재측정만 남음(`E2E_PUBLISH=1 run.sh test 7`, 새 경계 적용).
