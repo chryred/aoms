@@ -20,7 +20,7 @@ aoms/
 │   ├── .env.local.example             # 로컬 환경변수 템플릿
 │   ├── configs/dev/                   # 로컬 최소 설정 파일
 │   ├── configs/clickhouse/            # init/ (최초 DDL), users.d/, config.d/limits.xml (Agent-T)
-│   ├── artifacts/agent-t/             # 에이전트 jar + SHA256SUMS (repo 미포함, README 만)
+│   ├── artifacts/agent-t/             # 에이전트 jar + SHA256SUMS — admin-api 이미지 빌드 입력 (repo 미포함, README 만)
 │   └── services/
 │       ├── admin-api/
 │       │   ├── CLAUDE.md              # admin-api 상세 가이드

@@ -57,7 +57,7 @@ docker compose -f docker-compose.dev.yml up -d alertmanager
 - **데이터 디렉터리**: 운영 `./services/clickhouse/data` 는 호스트에서 **uid 101(clickhouse)** 소유여야 한다 (`chown -R 101:101`, SELinux 라벨은 compose 의 `:z`). 소유자가 다르면 기동 직후 종료된다. 개발은 named volume `clickhouse_dev_data`.
 - **비밀번호**: `.env` 의 `CLICKHOUSE_PASSWORD` 하나로 admin-api·gateway 에 주입, ClickHouse 컨테이너에는 `AGENT_T_CH_PASSWORD` 로 매핑. 운영은 필수값(기본값 없음), 개발 기본값만 존재.
 - **Prometheus remote write**: gateway 가 5초 집계를 `agent_t_*` 시계열로 Prometheus remote write 로 푼다 → Prometheus 기동 옵션 `--web.enable-remote-write-receiver` 필요. 대상은 `PROMETHEUS_REMOTE_WRITE_URL`(예: `http://prometheus:9090/api/v1/write`).
-- **에이전트 jar**: `main-server/artifacts/agent-t/` (repo 미포함, `agent-t/build.sh install-artifacts` 로 생성). 절차는 해당 디렉터리 README.
+- **에이전트 jar**: agent-v 와 같이 **admin-api 이미지에 포함**(Dockerfile COPY → `/app/artifacts/agent-t/`, 마운트 없음). 빌드 입력은 `main-server/artifacts/agent-t/`(repo 미포함, `agent-t/build.sh jar` → `agent-t/build.sh install-artifacts` 로 생성) — `build-images.sh` 가 4개 파일·SHA256SUMS 를 먼저 확인한다. jar 교체 = admin-api 이미지 재빌드·반입. 절차는 해당 디렉터리 README.
 
 ---
 

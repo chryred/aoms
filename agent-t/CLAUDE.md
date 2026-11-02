@@ -10,7 +10,7 @@
 | `test-modern` | `eclipse-temurin:21-jdk`, `--release 8`, ASM 9.7 |
 | `jar` | `build/dist/{agent-t-legacy.jar, agent-t.jar, agent-t-attacher.jar, SHA256SUMS}` (attacher 는 legacy javac `-target 1.6` 로 한 번 빌드, JDK 6~21 공용) |
 | `it-attach` | `jar` 선행. Docker 통합 테스트: zulu 7(legacy jar)·temurin 17(modern jar) attach + `--check` 옵션 판정, `eclipse-temurin:8-jre` → `PRECHECK:no_tools_jar` |
-| `install-artifacts` | `build/dist` → `main-server/artifacts/agent-t/` |
+| `install-artifacts` | `build/dist` → `main-server/artifacts/agent-t/` (admin-api 이미지 빌드 입력, Dockerfile 이 COPY) |
 
 ## 모듈 (`build.sh` 가 전부 한 번에 컴파일, 테스트는 각 `*/src/test/java`)
 | 모듈 | 내용 |

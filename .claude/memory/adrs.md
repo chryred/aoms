@@ -791,7 +791,7 @@ Synapse는 이미 자체 username/password DB(`users` 테이블)를 보유하고
 - JDK 구분 없이 동일한 화면·데이터 모양의 트랜잭션 분석·실시간 모니터링 제공. 신규 서비스는 gateway 1개.
 - WAS 서버 → Server A `:8330` 직접 통신 경로(방화벽 개방) 필요. ClickHouse 데이터 디렉터리(uid 101)·비밀번호(`AGENT_T_CH_PASSWORD` 매핑) 운영 절차 추가.
 - `alert_history.related_trace_ids`/`log_analysis_history.referenced_trace_ids` 는 컬럼명 유지, 내용이 Agent-T trace id 로 바뀜. LLM 프롬프트 trace 컨텍스트는 ClickHouse 조회로 교체.
-- 에이전트 jar 는 repo 에 포함하지 않고 `main-server/artifacts/agent-t/`(SHA256SUMS 검증)로 배포 — 폐쇄망 반입 절차 필요.
+- 에이전트 jar 는 repo 에 포함하지 않고 `main-server/artifacts/agent-t/`(SHA256SUMS 검증)에서 빌드해 agent-v 와 같이 **admin-api 이미지에 COPY** 로 포함 — 별도 jar 반입 없이 이미지 하나로 배포(2026-11-02 마운트 방식에서 변경).
 - 클린룸: 상용 APM 의 코드·클래스명·프로토콜은 차용하지 않았다.
 
 **기각한 대안** (spec §5.3 "합치지 않은 것"):

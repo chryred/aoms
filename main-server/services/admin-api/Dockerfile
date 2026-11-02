@@ -20,6 +20,12 @@ COPY main-server/services/admin-api/ .
 # agent-v: agent/build.sh로 사전 빌드된 musl static 바이너리
 COPY agent/dist/agent-v          /app/bin/agent-v
 COPY --from=cli-builder /build/synapse /app/bin/synapse
+# Agent-T: agent-t/build.sh jar → install-artifacts 로 사전 빌드된 jar + SHA256SUMS (설치 Job 이 SFTP 로 WAS 에 업로드)
+COPY main-server/artifacts/agent-t/agent-t.jar \
+     main-server/artifacts/agent-t/agent-t-legacy.jar \
+     main-server/artifacts/agent-t/agent-t-attacher.jar \
+     main-server/artifacts/agent-t/SHA256SUMS \
+     /app/artifacts/agent-t/
 
 EXPOSE 8080
 
