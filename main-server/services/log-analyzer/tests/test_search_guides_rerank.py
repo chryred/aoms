@@ -172,12 +172,10 @@ async def test_search_guides_rerank_calls_reranker():
         patch.object(guides_vector_client, "get_embedding", new_callable=AsyncMock, return_value=[0.1] * 1024),
         patch.object(guides_vector_client, "get_sparse_vector", new_callable=AsyncMock, return_value={"indices": [], "values": []}),
         patch.object(guides_vector_client, "_qdrant_http") as mock_http,
-        patch("guides_vector_client.rerank_fn", side_effect=_mock_rerank) as mock_rerank_call,
     ):
         mock_http.post = AsyncMock(return_value=_make_qdrant_response(points))
 
-        # reranker 모듈을 동적 import 경로로 patch
-        import importlib
+        # search_guides 가 함수 안에서 지연 import 하므로 reranker 모듈 속성을 patch
         import reranker as reranker_mod
         with patch.object(reranker_mod, "rerank", side_effect=_mock_rerank) as mock_fn:
             results = await guides_vector_client.search_guides(

@@ -227,9 +227,13 @@ class TestFederatedSearch:
     @pytest.mark.asyncio
     async def test_federated_search_embedding_failure_returns_empty(self):
         """임베딩 실패 시 빈 결과 반환 (예외 비전파)."""
-        with patch(
-            "knowledge_vector_client.get_embedding",
-            new=AsyncMock(side_effect=RuntimeError("임베딩 모델 없음")),
+        # get_sparse_vector 도 막아야 실제 모델 로딩 스레드가 남아 다음 테스트의 numpy import 와 충돌하지 않는다
+        with (
+            patch(
+                "knowledge_vector_client.get_embedding",
+                new=AsyncMock(side_effect=RuntimeError("임베딩 모델 없음")),
+            ),
+            patch("knowledge_vector_client.get_sparse_vector", new=AsyncMock(return_value={"indices": [], "values": []})),
         ):
             result = await kvc.federated_search("쿼리")
 

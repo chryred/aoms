@@ -289,6 +289,9 @@ async def test_range_execute_returns_series_by_instance():
     fake_client.__aenter__ = AsyncMock(return_value=fake_client)
     fake_client.__aexit__ = AsyncMock(return_value=None)
 
+    # 보관 기간(PROMETHEUS_RETENTION_DAYS) 검증을 통과하도록 현재 기준 최근 1일 구간 사용
+    end = datetime.now(_KST).replace(second=0, microsecond=0)
+    start = end - timedelta(days=1)
     with patch.object(p.httpx, "AsyncClient", return_value=fake_client):
         out = await p.execute(
             MagicMock(),
@@ -296,8 +299,8 @@ async def test_range_execute_returns_series_by_instance():
             {
                 "system_name": "cxm",
                 "metric_group": "cpu",
-                "start_time": "2026-05-09 00:00",
-                "end_time": "2026-05-10 00:00",
+                "start_time": start.strftime("%Y-%m-%d %H:%M"),
+                "end_time": end.strftime("%Y-%m-%d %H:%M"),
                 "step": "5m",
             },
         )

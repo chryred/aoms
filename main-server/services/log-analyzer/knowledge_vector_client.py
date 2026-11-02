@@ -1065,6 +1065,10 @@ def _cross_collection_rrf(
                     "score":      rrf,
                     "payload":    hit["payload"],
                 }
+                # with_scores=True 시 _hybrid_search 가 붙인 dense/sparse 개별 점수 전달 (Track C)
+                for key in ("dense_score", "dense_rank", "sparse_score", "sparse_rank"):
+                    if key in hit:
+                        merged[pid][key] = hit[key]
             else:
                 merged[pid]["score"] += rrf
 
