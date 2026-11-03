@@ -2,14 +2,14 @@
 # ============================================================
 # Synapse Docker 이미지 빌드 스크립트
 # 사용법:
-#   ./build-images.sh           # 빌드 (태그 자동 증가: IMAGE_VERSION 2.0 → 3.0)
+#   ./build-images.sh           # 빌드 (태그 자동 증가: IMAGE_VERSION 2.0 → 2.1)
 #   ./build-images.sh clean     # 현재 IMAGE_VERSION 태그 이미지·tar.gz 삭제
 #   ./build-images.sh rebuild   # 현재 버전 삭제 후 다음 버전으로 재빌드
 #   TAG=2.5 ./build-images.sh   # 태그 직접 지정 (형식: 숫자.숫자, 그대로 사용)
 #
 # 버전 관리:
 #   - IMAGE_VERSION (리포 루트, git 추적) = 현재 배포된 버전
-#   - build 는 major+1 (x.0) 을 다음 태그로 사용
+#   - build 는 minor+1 (2.1 → 2.2) 을 다음 태그로 사용
 #   - 빌드·저장이 모두 성공한 뒤에만 IMAGE_VERSION 과 main-server/docker-compose.yml
 #     의 image 태그를 갱신한다 (실패 시 버전 유지)
 #   - 빌드 후 IMAGE_VERSION 과 main-server/docker-compose.yml 을 함께 커밋할 것
@@ -64,14 +64,14 @@ read_current_version() {
     || error "IMAGE_VERSION 형식 오류: '$CURRENT_VERSION' (예: 2.0)"
 }
 
-# 다음 태그 결정: 환경변수 TAG 가 있으면 그대로, 없으면 major+1 (x.0)
+# 다음 태그 결정: 환경변수 TAG 가 있으면 그대로, 없으면 minor+1 (2.1 → 2.2)
 resolve_next_version() {
   if [ -n "${TAG:-}" ]; then
     [[ "$TAG" =~ $VERSION_RE ]] || error "TAG 형식 오류: '$TAG' (예: 3.0)"
     NEXT_VERSION="$TAG"
     info "TAG 환경변수 지정 사용: $NEXT_VERSION"
   else
-    NEXT_VERSION="$(( ${CURRENT_VERSION%%.*} + 1 )).0"
+    NEXT_VERSION="${CURRENT_VERSION%%.*}.$(( 10#${CURRENT_VERSION#*.} + 1 ))"
   fi
 }
 

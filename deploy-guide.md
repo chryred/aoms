@@ -150,7 +150,7 @@ admin-api Dockerfile은 **멀티스테이지 빌드**입니다.
 cd /path/to/aoms
 
 # 전체 빌드 (admin-api, log-analyzer, frontend, agent-t-gateway + ClickHouse 이미지 pull/save)
-# 실행할 때마다 이미지 태그 자동 증가 (IMAGE_VERSION 2.0 → 3.0 → 4.0 ...)
+# 실행할 때마다 이미지 태그 자동 증가 (IMAGE_VERSION 2.0 → 2.1 → 2.2 ...)
 ./build-images.sh
 
 # 결과물 확인 (아래 <버전> 은 빌드 후 갱신된 IMAGE_VERSION 값, 예: 3.0)
@@ -162,7 +162,7 @@ ls -lh main-server/*.tar.gz
 # main-server/clickhouse-server-24.8.tar.gz        (clickhouse/clickhouse-server:24.8 — 폐쇄망 반입 필수)
 ```
 
-> **이미지 버전 관리**: 리포 루트 `IMAGE_VERSION`(git 추적)이 현재 배포된 버전이며, `build`/`rebuild` 는 major+1(`x.0`)을 새 태그로 사용합니다.
+> **이미지 버전 관리**: 리포 루트 `IMAGE_VERSION`(git 추적)이 현재 배포된 버전이며, `build`/`rebuild` 는 minor+1(`2.1` → `2.2`)을 새 태그로 사용합니다.
 > 빌드·저장이 모두 성공한 뒤에만 `IMAGE_VERSION` 과 `main-server/docker-compose.yml` 의 synapse 이미지 4종 `image:` 태그가 새 버전으로 갱신됩니다(실패 시 유지).
 > - 빌드 후 **`IMAGE_VERSION` 과 `main-server/docker-compose.yml` 을 함께 커밋**하세요.
 > - **서버의 `docker-compose.yml` image 태그도 새 버전과 일치**해야 합니다(불일치 시 `docker compose up` 이 이전 이미지를 사용하거나 이미지 없음 오류).
