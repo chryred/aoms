@@ -3,7 +3,7 @@
 Agent-T(Java 에이전트) 배치 수신 게이트웨이 (Go, 포트 8330). 계약: `contracts/agent-t/protocol.md`.
 
 - `internal/protocol`: 배치/응답 구조체 + `Decode` (본문 32MB 상한)
-- `internal/registry`: PG(`agent_instances`+`systems`) 30초 캐시, 토큰 sha256 → Instance. `Store` 인터페이스 뒤에 PG 구현(`pgstore.go`)
+- `internal/registry`: PG(`agent_instances`+`systems`) 30초 캐시(미등록 토큰은 `Lookup` 이 즉시 재로드 후 재확인 — 전역 2초당 1회, 동시 호출은 한 번의 재로드 공유, 실패도 간격에 포함), 토큰 sha256 → Instance. `Store` 인터페이스 뒤에 PG 구현(`pgstore.go`)
 - `internal/ingest`: `POST /t/v1/batch` 핸들러, 시계 보정(`skew.go`, |차이|>2s 일 때 EWMA)
 - `internal/store`: `Writer`(Sink+Backpressure; 테이블별 버퍼 → ClickHouse HTTP `JSONEachRow` gzip, 상한(기본 128MB) 초과 시 상세→SQL→요약 순 폐기, 80% 이상 `BackoffMs=2000`. 청크마다 고정 `insert_deduplication_token`, 실패 청크는 통째·같은 토큰으로 재큐(재청킹 금지), 재시도 대기 청크는 폐기 시 청크 단위. 폐기·영구 거부된 dict 행은 `OnDictLost` 로 캐시에서 제거해 `need_dict` 로 재요청), `Dict`(LRU 200k, 미적재 시작 → `need_dict`; `dict_sql`/`dict_uri` 적재, 두 테이블은 TTL 없음), `Commands`(PG `agent_commands` 2초 폴링, 전달 시 `sent`, 덤프 적재 후 `done`+`result_ref=cmd_id`; 120초 넘은 `pending` 은 전달하지 않음(admin-api 가 `failed` 처리); PG 는 `CommandStore` 인터페이스 뒤)
 - `internal/live`: `State`(Sink; 인스턴스별 메모리 상태, 5초 집계 → 10분 링 `RingSize=120`, `OnAgg` 훅), `Hub`(SSE 팬아웃), `API`(`GET /t/v1/stream` SSE, `GET /t/v1/snapshot`; admin-api 사용자 JWT HS256 검증). `system_ids` 파싱 불가 값은 400(전체로 해석하지 않음). SSE 쓰기당 데드라인 10초
