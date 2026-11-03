@@ -1,6 +1,8 @@
 SHELL := /bin/bash
 
 ROOT_DIR      := $(shell pwd)
+# 로컬 빌드 태그 — build-images.sh 가 관리하는 현재 배포 버전 (IMAGE_VERSION)
+IMAGE_TAG := $(shell cat $(ROOT_DIR)/IMAGE_VERSION)
 MAIN_SERVER   := $(ROOT_DIR)/main-server
 ADMIN_API_DIR := $(MAIN_SERVER)/services/admin-api
 ANALYZER_DIR  := $(MAIN_SERVER)/services/log-analyzer
@@ -216,9 +218,9 @@ build-api: build-agents
 	@echo "→ admin-api Docker 빌드 (agent-v + agent-t + synapse CLI 포함)..."
 	docker build \
 		-f $(ADMIN_API_DIR)/Dockerfile \
-		-t synapse-admin-api:1.0 \
+		-t synapse-admin-api:$(IMAGE_TAG) \
 		$(ROOT_DIR)
-	@echo "✓ synapse-admin-api:1.0 빌드 완료 (agent-v + agent-t + synapse CLI 번들)"
+	@echo "✓ synapse-admin-api:$(IMAGE_TAG) 빌드 완료 (agent-v + agent-t + synapse CLI 번들)"
 
 # agent-v / agent-t 빌드 — 빌드 후 dist/SOURCE_STAMP(소스·산출물 해시) 기록.
 # build-images.sh 는 스탬프가 현재 소스와 맞지 않으면 이미지 빌드를 중단한다.
@@ -269,8 +271,8 @@ extract-binaries: build-agent-v
 .PHONY: build-analyzer
 build-analyzer:
 	@echo "→ log-analyzer 이미지 빌드..."
-	docker build -t synapse-log-analyzer:1.0 $(ANALYZER_DIR)
-	@echo "✓ synapse-log-analyzer:1.0 빌드 완료"
+	docker build -t synapse-log-analyzer:$(IMAGE_TAG) $(ANALYZER_DIR)
+	@echo "✓ synapse-log-analyzer:$(IMAGE_TAG) 빌드 완료"
 
 # ── 편의 도구 ────────────────────────────────────────────────────────────────
 .PHONY: db-shell

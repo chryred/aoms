@@ -2,27 +2,30 @@
 # ============================================================
 # Synapse Docker 이미지 빌드 스크립트
 # 사용법:
-#   ./build-images.sh           # 빌드
-#   ./build-images.sh clean     # 이미지 삭제
-#   ./build-images.sh rebuild   # 삭제 후 재빌드
+#   ./build-images.sh           # 빌드 (태그 자동 증가: IMAGE_VERSION 2.0 → 3.0)
+#   ./build-images.sh clean     # 현재 IMAGE_VERSION 태그 이미지·tar.gz 삭제
+#   ./build-images.sh rebuild   # 현재 버전 삭제 후 다음 버전으로 재빌드
+#   TAG=2.5 ./build-images.sh   # 태그 직접 지정 (형식: 숫자.숫자, 그대로 사용)
+#
+# 버전 관리:
+#   - IMAGE_VERSION (리포 루트, git 추적) = 현재 배포된 버전
+#   - build 는 major+1 (x.0) 을 다음 태그로 사용
+#   - 빌드·저장이 모두 성공한 뒤에만 IMAGE_VERSION 과 main-server/docker-compose.yml
+#     의 image 태그를 갱신한다 (실패 시 버전 유지)
+#   - 빌드 후 IMAGE_VERSION 과 main-server/docker-compose.yml 을 함께 커밋할 것
 # ============================================================
 
 set -eo pipefail
 
 PLATFORM="linux/amd64"
-TAG="1.0"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+VERSION_FILE="$SCRIPT_DIR/IMAGE_VERSION"
+COMPOSE_FILE="$SCRIPT_DIR/main-server/docker-compose.yml"
 SERVICES_DIR="$SCRIPT_DIR/main-server/services"
 OUTPUT_DIR="$SCRIPT_DIR/main-server"
 
 # admin-api는 멀티스테이지 빌드 — 컨텍스트가 프로젝트 루트
 ADMIN_API_DOCKERFILE="$SERVICES_DIR/admin-api/Dockerfile"
-
-IMAGES_STANDARD=(
-  "synapse-log-analyzer:$TAG:$SERVICES_DIR/log-analyzer"
-  "synapse-frontend:$TAG:$SERVICES_DIR/frontend"
-  "synapse-agent-t-gateway:$TAG:$SCRIPT_DIR/agent-t-gateway"
-)
 
 # 외부 이미지 — 빌드 없이 pull 후 save (폐쇄망 반입용). docker-compose.yml 의 image 와 동일 태그.
 CLICKHOUSE_IMAGE="clickhouse/clickhouse-server:24.8"
@@ -40,9 +43,62 @@ success() { echo -e "${GREEN}[OK]${NC}   $1"; }
 warn()    { echo -e "${YELLOW}[WARN]${NC} $1"; }
 error()   { echo -e "${RED}[ERR]${NC}  $1"; exit 1; }
 
+# ── 버전 관리 ────────────────────────────────────────────────
+VERSION_RE='^[0-9]+\.[0-9]+$'
+
+# 태그 기준으로 빌드 대상 목록 구성 (name:tag:context)
+set_images() {
+  TAG="$1"
+  IMAGES_STANDARD=(
+    "synapse-log-analyzer:$TAG:$SERVICES_DIR/log-analyzer"
+    "synapse-frontend:$TAG:$SERVICES_DIR/frontend"
+    "synapse-agent-t-gateway:$TAG:$SCRIPT_DIR/agent-t-gateway"
+  )
+}
+
+# IMAGE_VERSION (현재 배포 버전) 읽기
+read_current_version() {
+  [ -f "$VERSION_FILE" ] || error "버전 파일 없음: $VERSION_FILE"
+  CURRENT_VERSION="$(tr -d '[:space:]' < "$VERSION_FILE")"
+  [[ "$CURRENT_VERSION" =~ $VERSION_RE ]] \
+    || error "IMAGE_VERSION 형식 오류: '$CURRENT_VERSION' (예: 2.0)"
+}
+
+# 다음 태그 결정: 환경변수 TAG 가 있으면 그대로, 없으면 major+1 (x.0)
+resolve_next_version() {
+  if [ -n "${TAG:-}" ]; then
+    [[ "$TAG" =~ $VERSION_RE ]] || error "TAG 형식 오류: '$TAG' (예: 3.0)"
+    NEXT_VERSION="$TAG"
+    info "TAG 환경변수 지정 사용: $NEXT_VERSION"
+  else
+    NEXT_VERSION="$(( ${CURRENT_VERSION%%.*} + 1 )).0"
+  fi
+}
+
+# 빌드·저장 성공 후 IMAGE_VERSION 및 docker-compose.yml 이미지 태그 갱신
+# (sed -i 는 BSD/GNU 옵션이 달라 임시 파일 경유 — macOS/Linux 공통 동작)
+commit_version() {
+  local new="$1" tmp img
+  echo "$new" > "$VERSION_FILE"
+  success "IMAGE_VERSION 갱신: $new"
+
+  [ -f "$COMPOSE_FILE" ] || { warn "compose 파일 없음 (태그 갱신 스킵): $COMPOSE_FILE"; return 0; }
+  tmp="$(mktemp)"
+  cp "$COMPOSE_FILE" "$tmp"
+  for img in synapse-admin-api synapse-log-analyzer synapse-frontend synapse-agent-t-gateway; do
+    sed -E "s|(image:[[:space:]]*${img}:)[0-9]+\.[0-9]+|\1${new}|" "$tmp" > "$tmp.new" && mv "$tmp.new" "$tmp"
+    grep -qE "image:[[:space:]]*${img}:${new//./\.}([[:space:]]|$)" "$tmp" \
+      || { rm -f "$tmp"; warn "compose 에서 ${img} image 태그 갱신 실패 — 수동 확인 필요: $COMPOSE_FILE"; return 0; }
+  done
+  cat "$tmp" > "$COMPOSE_FILE"   # 권한·inode 유지
+  rm -f "$tmp"
+  success "docker-compose.yml 이미지 태그 갱신: $new"
+}
+
 # ── 빌드 ────────────────────────────────────────────────────
 do_build() {
-  info "플랫폼: $PLATFORM / 태그: $TAG"
+  info "플랫폼: $PLATFORM"
+  info "태그: $CURRENT_VERSION → $TAG"
   echo ""
 
   # ── 빌드 (순차) ─────────────────────────────────────────────
@@ -98,28 +154,40 @@ do_build() {
 
   # ── 저장 (병렬) ─────────────────────────────────────────────
   info "모든 이미지 병렬 저장 시작..."
+  SAVE_PIDS=()
 
   (
-    docker save "$CLICKHOUSE_IMAGE" | pigz -p 2 > "$CLICKHOUSE_TARFILE"
+    # 멀티아키 이미지는 --platform 없이 save 하면 빌드 머신(Mac arm64) 아키텍처가 저장된다
+    docker save --platform "$PLATFORM" "$CLICKHOUSE_IMAGE" | pigz -p 2 > "$CLICKHOUSE_TARFILE"
     success "저장 완료: $CLICKHOUSE_IMAGE  ($(du -sh "$CLICKHOUSE_TARFILE" | cut -f1))"
   ) &
+  SAVE_PIDS+=($!)
 
   (
     tarfile="$OUTPUT_DIR/synapse-admin-api-${TAG}.tar.gz"
-    docker save "synapse-admin-api:$TAG" | pigz -p 2 > "$tarfile"
+    docker save --platform "$PLATFORM" "synapse-admin-api:$TAG" | pigz -p 2 > "$tarfile"
     success "저장 완료: synapse-admin-api:$TAG  ($(du -sh "$tarfile" | cut -f1))"
   ) &
+  SAVE_PIDS+=($!)
 
   for entry in "${IMAGES_STANDARD[@]}"; do
     IFS=':' read -r name tag context <<< "$entry"
     (
       tarfile="$OUTPUT_DIR/${name}-${tag}.tar.gz"
-      docker save "$name:$tag" | pigz -p 4 > "$tarfile"
+      docker save --platform "$PLATFORM" "$name:$tag" | pigz -p 4 > "$tarfile"
       success "저장 완료: $name:$tag  ($(du -sh "$tarfile" | cut -f1))"
     ) &
+    SAVE_PIDS+=($!)
   done
 
-  wait
+  # 개별 저장 실패 감지 (인자 없는 wait 는 항상 0 을 반환하므로 PID 별로 확인)
+  SAVE_FAILED=0
+  for pid in "${SAVE_PIDS[@]}"; do
+    wait "$pid" || SAVE_FAILED=1
+  done
+  [ "$SAVE_FAILED" -eq 0 ] || error "이미지 저장 실패 — IMAGE_VERSION 은 갱신하지 않습니다 ($CURRENT_VERSION 유지)"
+
+  commit_version "$TAG"
   echo ""
   echo -e "${GREEN}============================================${NC}"
   echo -e "${GREEN}  빌드 완료${NC}"
@@ -133,6 +201,9 @@ do_build() {
   done
   echo ""
   echo "  - $CLICKHOUSE_TARFILE"
+  echo ""
+  echo "다음 단계: IMAGE_VERSION 과 main-server/docker-compose.yml 을 함께 커밋"
+  echo "  (서버의 docker-compose.yml image 태그도 $TAG 로 맞춰야 함)"
   echo ""
   echo "Linux 서버 배포 명령어:"
   echo "  docker load < synapse-admin-api-${TAG}.tar.gz"
@@ -180,7 +251,8 @@ do_export_models() {
 
 # ── 삭제 ────────────────────────────────────────────────────
 do_clean() {
-  warn "이미지 삭제를 시작합니다."
+  set_images "$1"
+  warn "이미지 삭제를 시작합니다. (태그: $TAG)"
   echo ""
 
   # admin-api 정리
@@ -240,28 +312,35 @@ do_clean() {
 }
 
 # ── 메인 ────────────────────────────────────────────────────
+read_current_version
+
 case "${1:-build}" in
   build)
+    resolve_next_version
+    set_images "$NEXT_VERSION"
     do_build
     ;;
   export-models)
     do_export_models
     ;;
   clean)
-    do_clean
+    do_clean "$CURRENT_VERSION"
     ;;
   rebuild)
-    do_clean
+    resolve_next_version
+    do_clean "$CURRENT_VERSION"
+    set_images "$NEXT_VERSION"
     echo ""
     do_build
     ;;
   *)
     echo "사용법: $0 [build|export-models|clean|rebuild]"
     echo ""
-    echo "  build          이미지 빌드 및 tar.gz 저장 (기본값)"
+    echo "  build          이미지 빌드 및 tar.gz 저장, 태그 자동 증가 (기본값)"
     echo "  export-models  모델만 별도 tar.gz 추출 (서버 최초 1회 배포용)"
-    echo "  clean          이미지 및 tar.gz 파일 삭제"
-    echo "  rebuild        삭제 후 재빌드"
+    echo "  clean          현재 IMAGE_VERSION 태그의 이미지 및 tar.gz 파일 삭제"
+    echo "  rebuild        현재 버전 삭제 후 다음 버전으로 재빌드"
+    echo "  (TAG=x.y 환경변수로 태그 직접 지정)"
     exit 1
     ;;
 esac

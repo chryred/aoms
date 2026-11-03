@@ -533,7 +533,7 @@ ssh-keygen -t rsa -b 4096 -N "" -C "synapse-ssl-deploy" \
 
 ```bash
 ./build-images.sh
-# → main-server/synapse-admin-api-1.0.tar.gz 생성
+# → main-server/synapse-admin-api-<버전>.tar.gz 생성 (<버전> = 루트 IMAGE_VERSION, 빌드마다 자동 증가)
 ```
 
 ---
@@ -559,7 +559,7 @@ ssh user@server-a "chmod 600 /opt/synapse/secrets/ssl/*_key /opt/synapse/secrets
 **2-2. Docker 이미지 전송**
 
 ```bash
-scp main-server/synapse-admin-api-1.0.tar.gz user@server-a:/tmp/
+scp main-server/synapse-admin-api-<버전>.tar.gz user@server-a:/tmp/
 ```
 
 ---
@@ -569,7 +569,7 @@ scp main-server/synapse-admin-api-1.0.tar.gz user@server-a:/tmp/
 **3-1. 이미지 로드**
 
 ```bash
-ssh user@server-a "pigz -d -c /tmp/synapse-admin-api-1.0.tar.gz | docker load"
+ssh user@server-a "pigz -d -c /tmp/synapse-admin-api-<버전>.tar.gz | docker load"
 ```
 
 **3-2. docker-compose.yml에 SSL 설정 추가**

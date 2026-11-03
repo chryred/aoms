@@ -150,16 +150,23 @@ admin-api Dockerfile은 **멀티스테이지 빌드**입니다.
 cd /path/to/aoms
 
 # 전체 빌드 (admin-api, log-analyzer, frontend, agent-t-gateway + ClickHouse 이미지 pull/save)
+# 실행할 때마다 이미지 태그 자동 증가 (IMAGE_VERSION 2.0 → 3.0 → 4.0 ...)
 ./build-images.sh
 
-# 결과물 확인
+# 결과물 확인 (아래 <버전> 은 빌드 후 갱신된 IMAGE_VERSION 값, 예: 3.0)
 ls -lh main-server/*.tar.gz
-# main-server/synapse-admin-api-1.0.tar.gz   (agent-v + synapse CLI + OIDC 키 포함)
-# main-server/synapse-log-analyzer-1.0.tar.gz  (~500MB — 모델 미포함)
-# main-server/synapse-frontend-1.0.tar.gz
-# main-server/synapse-agent-t-gateway-1.0.tar.gz   (Agent-T 수신 게이트웨이)
+# main-server/synapse-admin-api-<버전>.tar.gz   (agent-v + synapse CLI + OIDC 키 포함)
+# main-server/synapse-log-analyzer-<버전>.tar.gz  (~500MB — 모델 미포함)
+# main-server/synapse-frontend-<버전>.tar.gz
+# main-server/synapse-agent-t-gateway-<버전>.tar.gz   (Agent-T 수신 게이트웨이)
 # main-server/clickhouse-server-24.8.tar.gz        (clickhouse/clickhouse-server:24.8 — 폐쇄망 반입 필수)
 ```
+
+> **이미지 버전 관리**: 리포 루트 `IMAGE_VERSION`(git 추적)이 현재 배포된 버전이며, `build`/`rebuild` 는 major+1(`x.0`)을 새 태그로 사용합니다.
+> 빌드·저장이 모두 성공한 뒤에만 `IMAGE_VERSION` 과 `main-server/docker-compose.yml` 의 synapse 이미지 4종 `image:` 태그가 새 버전으로 갱신됩니다(실패 시 유지).
+> - 빌드 후 **`IMAGE_VERSION` 과 `main-server/docker-compose.yml` 을 함께 커밋**하세요.
+> - **서버의 `docker-compose.yml` image 태그도 새 버전과 일치**해야 합니다(불일치 시 `docker compose up` 이 이전 이미지를 사용하거나 이미지 없음 오류).
+> - 태그 직접 지정: `TAG=2.5 ./build-images.sh` (형식 `숫자.숫자`, 그대로 사용). `clean` 은 현재 `IMAGE_VERSION` 태그 기준으로 삭제합니다.
 
 > **모델 분리 배포 구조**: log-analyzer 이미지는 더 이상 ONNX 모델을 번들하지 않습니다 (~500MB).  
 > 모델은 서버 볼륨(`/app/synapse/models/`)에 별도 배포합니다. **최초 배포 시 1-5절의 모델 추출을 반드시 실행하세요.**
@@ -188,12 +195,13 @@ cd /path/to/aoms
 SERVER_A="user@192.168.10.5"
 SERVER_B="user@192.168.10.6"
 REMOTE_DIR="/app/synapse"
+VER=$(cat IMAGE_VERSION)   # 빌드로 갱신된 이미지 버전 (예: 3.0)
 
 # ── Server A — 애플리케이션 이미지 ──────────────────────────
-scp main-server/synapse-admin-api-1.0.tar.gz     $SERVER_A:$REMOTE_DIR/images/
-scp main-server/synapse-log-analyzer-1.0.tar.gz  $SERVER_A:$REMOTE_DIR/images/
-scp main-server/synapse-frontend-1.0.tar.gz      $SERVER_A:$REMOTE_DIR/images/
-scp main-server/synapse-agent-t-gateway-1.0.tar.gz $SERVER_A:$REMOTE_DIR/images/
+scp main-server/synapse-admin-api-${VER}.tar.gz     $SERVER_A:$REMOTE_DIR/images/
+scp main-server/synapse-log-analyzer-${VER}.tar.gz  $SERVER_A:$REMOTE_DIR/images/
+scp main-server/synapse-frontend-${VER}.tar.gz      $SERVER_A:$REMOTE_DIR/images/
+scp main-server/synapse-agent-t-gateway-${VER}.tar.gz $SERVER_A:$REMOTE_DIR/images/
 scp main-server/clickhouse-server-24.8.tar.gz     $SERVER_A:$REMOTE_DIR/images/
 
 # ── Server A — 인프라 이미지 (offline 패키지) ───────────────
@@ -224,7 +232,7 @@ scp aoms-offline/docker-images/qdrant-v1.17.0.tar.gz   $SERVER_B:$REMOTE_DIR/ima
 scp sub-server/docker-compose.yml   $SERVER_B:$REMOTE_DIR/
 ```
 
-> **synapse_agent 및 synapse CLI 별도 전송 불필요**: 두 바이너리 모두 `synapse-admin-api:1.0` 이미지에 번들되어 있습니다.  
+> **synapse_agent 및 synapse CLI 별도 전송 불필요**: 두 바이너리 모두 `synapse-admin-api:<버전>` 이미지에 번들되어 있습니다.  
 > - `synapse_agent` 배포: admin-api의 `/api/v1/agents/install` API로 자동화
 > - `synapse CLI` 배포: 프론트엔드 `/admin/synapse-cli` UI로 자동화 (섹션 7 참조)
 
@@ -468,18 +476,19 @@ sudo chown -R 1036:510 services/attaches/
 
 ```bash
 cd /app/synapse/images
+VER=3.0   # 빌드된 IMAGE_VERSION 값 (서버 docker-compose.yml image 태그와 동일해야 함)
 
-docker load < synapse-admin-api-1.0.tar.gz
-docker load < synapse-log-analyzer-1.0.tar.gz
-docker load < synapse-frontend-1.0.tar.gz
-docker load < synapse-agent-t-gateway-1.0.tar.gz
+docker load < synapse-admin-api-${VER}.tar.gz
+docker load < synapse-log-analyzer-${VER}.tar.gz
+docker load < synapse-frontend-${VER}.tar.gz
+docker load < synapse-agent-t-gateway-${VER}.tar.gz
 docker load < clickhouse-server-24.8.tar.gz     # clickhouse/clickhouse-server:24.8
 
 # 로드 확인
 docker images | grep -E "synapse|clickhouse"
 ```
 
-> `synapse-admin-api:1.0`에는 세 바이너리가 번들됩니다:
+> `synapse-admin-api:<버전>`에는 세 바이너리가 번들됩니다:
 > - `/app/bin/agent-v` — synapse_agent (Rust musl 정적 바이너리)
 > - `/app/bin/synapse` — synapse CLI (Go 정적 바이너리, 멀티스테이지 빌드)
 > - `/app/secrets/oauth_private.pem`, `/app/secrets/oauth_public.pem` — OIDC RSA 키
@@ -881,7 +890,7 @@ curl -su "${PROM_USER}:${PROM_PASS}" \
 ## 7. Synapse CLI 배포 (운영 담당자 서버)
 
 synapse CLI는 운영 서버 담당자가 **터미널에서 직접 LLM에 질의**하는 Go CLI 도구입니다.  
-`synapse-admin-api:1.0` 이미지 내 `/app/bin/synapse`에 번들되어 있으며,  
+`synapse-admin-api:<버전>` 이미지 내 `/app/bin/synapse`에 번들되어 있으며,  
 프론트엔드 UI를 통해 SSH/SCP로 대상 서버에 배포됩니다.
 
 ### 7-1. CLI 배포 방식 개요
@@ -1050,7 +1059,7 @@ docker compose stop admin-api
 docker compose up -d admin-api
 
 # 또는 이미지 태그 변경 후 재시작
-docker tag synapse-admin-api:prev synapse-admin-api:1.0
+docker tag synapse-admin-api:prev synapse-admin-api:<버전>
 docker compose up -d admin-api
 ```
 

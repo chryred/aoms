@@ -37,7 +37,7 @@ main-server/
 > **n8n 컨테이너는 제거되었다** (운영·dev compose 모두). `n8n-workflows/` 의 WF4(일일 리포트)/WF5(에스컬레이션)
 > JSON 은 향후 log-analyzer 이관 시 참조용으로만 보존한다.
 >
-> **Agent-T**: `clickhouse`(`clickhouse/clickhouse-server:24.8`)와 `agent-t-gateway`(`synapse-agent-t-gateway:1.0`,
+> **Agent-T**: `clickhouse`(`clickhouse/clickhouse-server:24.8`)와 `agent-t-gateway`(`synapse-agent-t-gateway:<IMAGE_VERSION>`,
 > 소스 `../agent-t-gateway`)가 compose 에 포함된다. 두 이미지는 `build-images.sh` 가 빌드·pull 후 tar.gz 로 저장한다(폐쇄망 반입 대상).
 
 ---
@@ -159,9 +159,10 @@ cd services/admin-api
 # 프로젝트 루트에서
 ./build-images.sh
 
-# 결과물 (linux/amd64 플랫폼)
-# main-server/aoms-admin-api-1.0.tar.gz
-# main-server/aoms-log-analyzer-1.0.tar.gz
+# 결과물 (linux/amd64 플랫폼) — 태그는 실행마다 자동 증가 (루트 IMAGE_VERSION 참조)
+# main-server/synapse-admin-api-<버전>.tar.gz
+# main-server/synapse-log-analyzer-<버전>.tar.gz
+# ※ 빌드 후 IMAGE_VERSION 과 main-server/docker-compose.yml 을 함께 커밋
 ```
 
 > 또는 Makefile 사용:

@@ -55,6 +55,7 @@ Phase 6에서 도입된 **synapse_agent 단일 바이너리** 수집기.
 
 ## 폐쇄망 배포
 - Docker 이미지: Mac에서 `build-images.sh`로 `linux/amd64` 빌드 → `.tar.gz` 저장 → scp 전송 → `docker load`
+  - **이미지 버전 자동 증가**: 리포 루트 `IMAGE_VERSION`(git 추적) = 현재 배포 버전. `build`/`rebuild` 는 major+1(2.0→3.0)을 새 태그로 쓰고, 빌드·저장 성공 후에만 `IMAGE_VERSION` + `main-server/docker-compose.yml`(synapse 이미지 4종) 태그를 갱신한다. `TAG=x.y ./build-images.sh` 로 직접 지정 가능, `clean` 은 현재 `IMAGE_VERSION` 기준. 빌드 후 두 파일을 함께 커밋하고 서버 compose 의 image 태그도 일치시킬 것.
 - synapse_agent 바이너리: `cargo build --release --target x86_64-unknown-linux-musl` → scp 전송
 - Python 패키지: `requirements/` 디렉토리에 버전 고정. 운영 Dockerfile은 `prod.txt`만 설치.
 - **Ollama 모델**: `scripts/export-ollama-model.sh` + `scripts/import-ollama-model.sh` (ADR-003). sha256 기반 blob 복원으로 기존 모델과 공존, 덮어쓰기 없음.
