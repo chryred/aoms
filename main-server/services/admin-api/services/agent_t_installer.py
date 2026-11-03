@@ -41,7 +41,7 @@ from services.ssh_session import (
 logger = logging.getLogger(__name__)
 
 _KST = timezone(timedelta(hours=9))
-_CONFIRM_TIMEOUT_S = 30
+_CONFIRM_TIMEOUT_S = 90
 _CONFIRM_INTERVAL_S = 3
 _ENV_FILE = "agent-t-env.sh"
 _ATTACHER_JAR = "agent-t-attacher.jar"
@@ -223,9 +223,73 @@ def validate_gateway_url(url: str) -> str:
     return url
 
 
+# ── JVM 후보 판별 ────────────────────────────────────────────────────────────
+
+_WORD_CHARS = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_")
+_HELPER_EXES = frozenset({"ps", "grep", "egrep", "fgrep", "ssh", "sshd", "sh", "bash", "zsh", "dash", "sudo", "su"})
+_SERVER_NAME_RE = re.compile(r"-D(?:jeus\.server\.name|weblogic\.Name|server\.name)=(\S+)")
+_CANDIDATE_CMD_MAX = 500
+_CANDIDATES_MARKER = "[JVM_CANDIDATES] "
+JOB_STATUS_NEEDS_TARGET = "needs_target"
+
+
+def _has_boundary_match(args: str, jvm_match: str) -> bool:
+    """jvm_match 가 args 안에 경계를 지켜 등장하는지 판정한다.
+
+    오른쪽: 다음 문자가 [A-Za-z0-9_] 가 아니거나 끝 (sic_server1 이 sic_server10 에 걸리지 않게).
+    왼쪽: 이전 문자가 [A-Za-z0-9_] 가 아니거나 시작, 또는 바로 앞이 `-D`
+    (sic_server1 이 -Dsic_server1 에 걸리게). jvm_match 의 해당 쪽 끝 문자가 단어 문자가 아니면
+    (예: `-Dfoo=`, `/opt/x/`) 그 쪽 경계는 이미 만족한 것으로 본다.
+    """
+    n = len(jvm_match)
+    check_left = jvm_match[0] in _WORD_CHARS
+    check_right = jvm_match[-1] in _WORD_CHARS
+    start = args.find(jvm_match)
+    while start != -1:
+        end = start + n
+        right_ok = (not check_right) or end >= len(args) or args[end] not in _WORD_CHARS
+        left_ok = (
+            (not check_left) or start == 0 or args[start - 1] not in _WORD_CHARS
+            or args[max(0, start - 2):start] == "-D"
+        )
+        if left_ok and right_ok:
+            return True
+        start = args.find(jvm_match, start + 1)
+    return False
+
+
+def filter_jvm_candidates(ps_out: str, jvm_match: str) -> list[dict]:
+    """`ps -eo pid,user,args` 출력에서 jvm_match 에 경계 일치하는 java 프로세스만 후보로 추린다.
+
+    ps/grep/ssh/sh 등 탐색 명령 자신과 java 가 아닌 프로세스는 제외한다.
+    반환: [{"pid": int, "user": str, "command": str(전체 명령행), "server_name": str|None}]
+    """
+    result: list[dict] = []
+    if not jvm_match:
+        return result
+    for ln in ps_out.splitlines():
+        parts = ln.split(None, 2)
+        if len(parts) < 3 or not parts[0].isdigit():
+            continue
+        pid, user, args = int(parts[0]), parts[1], parts[2].strip()
+        exe = args.split(None, 1)[0].rsplit("/", 1)[-1]
+        if exe in _HELPER_EXES or "java" not in args.lower():
+            continue
+        if not _has_boundary_match(args, jvm_match):
+            continue
+        m = _SERVER_NAME_RE.search(args)
+        result.append({
+            "pid": pid, "user": user,
+            "command": args,
+            "server_name": m.group(1) if m else None,
+        })
+    return result
+
+
 # ── 설치 Job ─────────────────────────────────────────────────────────────────
 
-async def run_install(job_id: str, agent: AgentInstance, session: dict) -> None:
+async def run_install(job_id: str, agent: AgentInstance, session: dict, target_pid: int | None = None) -> None:
+    """target_pid: 1회성 대상 PID (후보가 2개 이상일 때 사용자가 선택). label_info 에 저장하지 않는다."""
     from database import AsyncSessionLocal
 
     def _log(msg: str) -> None:
@@ -260,6 +324,7 @@ async def run_install(job_id: str, agent: AgentInstance, session: dict) -> None:
         instance_role = info.get("instance_role") or default_instance_role(info, agent.host)
         immediate = info.get("immediate", True) is not False
         permanent = info.get("permanent", True) is not False
+        kill_switch_on = info.get("enabled", True) is False  # 킬 스위치: 에이전트는 떠 있어도 수집하지 않는다
 
         if service_type == "systemd" and permanent and session["username"] != "root":
             raise PermissionError(
@@ -303,17 +368,29 @@ async def run_install(job_id: str, agent: AgentInstance, session: dict) -> None:
         code, out, err = await _exec(
             session, f"ps -eo pid,user,args | grep -F -- {shlex.quote(jvm_match)} | grep -v grep"
         )
-        lines = [ln for ln in out.splitlines() if ln.strip()]
-        if not lines:
+        candidates = filter_jvm_candidates(out, jvm_match)
+        if target_pid is not None:
+            chosen = next((c for c in candidates if c["pid"] == target_pid), None)
+            if chosen is None:
+                raise RuntimeError(
+                    f"선택한 PID {target_pid} 는 더 이상 jvm_match({jvm_match})와 일치하는 JVM 이 아닙니다 "
+                    "(재기동되었을 수 있습니다). 설치를 다시 실행해 대상을 선택하세요."
+                )
+        elif not candidates:
             raise RuntimeError(f"jvm_match 와 일치하는 JVM 프로세스가 0개입니다: {jvm_match}")
-        if len(lines) > 1:
-            raise RuntimeError(
-                f"jvm_match 와 일치하는 JVM 프로세스가 {len(lines)}개입니다. 하나만 일치하도록 좁혀 주세요: {jvm_match}"
-            )
-        parts = lines[0].split(None, 2)
-        pid, proc_user, proc_args = parts[0], parts[1], (parts[2] if len(parts) > 2 else "")
-        if not pid.isdigit():
-            raise RuntimeError(f"ps 출력을 해석할 수 없습니다: {lines[0][:120]}")
+        elif len(candidates) > 1:
+            _log(f"    jvm_match 와 일치하는 JVM 이 {len(candidates)}개입니다. 설치할 JVM 을 선택하세요.")
+            for c in candidates:
+                _log(f"      PID={c['pid']} 계정={c['user']} {c['server_name'] or ''}".rstrip())
+            # 로그(화면 표시)에는 명령행을 잘라서 남긴다 — 판별(-javaagent 탐지 등)은 전체 명령행으로 한다
+            shown = [{**c, "command": c["command"][:_CANDIDATE_CMD_MAX]} for c in candidates]
+            _log(_CANDIDATES_MARKER + json.dumps(shown, ensure_ascii=False))
+            await _finish(JOB_STATUS_NEEDS_TARGET)  # 에이전트 상태는 바꾸지 않는다 (설치 시도 전)
+            _live_jobs[job_id]["status"] = JOB_STATUS_NEEDS_TARGET  # DB 커밋 후 노출 (UI 가 즉시 refetch 하므로)
+            return
+        else:
+            chosen = candidates[0]
+        pid, proc_user, proc_args = str(chosen["pid"]), chosen["user"], chosen["command"]
         _log(f"    PID={pid} 계정={proc_user}")
         existing_agents = re.findall(r"-javaagent:\S+", proc_args)
         if existing_agents:
@@ -384,8 +461,14 @@ async def run_install(job_id: str, agent: AgentInstance, session: dict) -> None:
         code, _, err = await _exec(session, f"umask 077; : > {q_tmp_props}; chmod 600 {q_tmp_props}")
         if code != 0:
             raise RuntimeError(f"agent-t.properties 임시 파일 생성 실패: {err.strip()}")
-        await asyncio.to_thread(ssh_put_binary, *conn, f"{install_dir}/{jar_name}", jar_bytes)
-        await asyncio.to_thread(ssh_put_binary, *conn, f"{install_dir}/{_ATTACHER_JAR}", attacher_bytes)
+        # jar 는 실행 중인 JVM 이 열어 둔 파일일 수 있어 덮어쓰지 않는다: .tmp 업로드 후 mv -f (원자적 rename,
+        # 실행 중 JVM 은 이전 inode 를 계속 사용). 업로드 직후 mv 하고, sha256 검증은 최종 파일에 대해 수행한다.
+        for name, data in ((jar_name, jar_bytes), (_ATTACHER_JAR, attacher_bytes)):
+            final_path = f"{install_dir}/{name}"
+            await asyncio.to_thread(ssh_put_binary, *conn, f"{final_path}.tmp", data)
+            code, _, err = await _exec(session, f"mv -f {shlex.quote(final_path + '.tmp')} {shlex.quote(final_path)}")
+            if code != 0:
+                raise RuntimeError(f"{name} 교체 실패: {err.strip()}")
         await asyncio.to_thread(ssh_put_file, *conn, f"{install_dir}/SHA256SUMS", sums)
         await asyncio.to_thread(ssh_put_file, *conn, tmp_props_path, properties)
         code, mode_out, err = await _exec(session, f"stat -c %a {q_tmp_props}")
@@ -418,21 +501,36 @@ async def run_install(job_id: str, agent: AgentInstance, session: dict) -> None:
         javaagent = f"-javaagent:{install_dir}/{jar_name}"
         attached = False
         already_live = False
-        if immediate and is_fresh(find_instance(
-            await fetch_snapshot(agent.system_id, _service_principal()), agent.system_id, instance_role, agent.host
-        )):
-            already_live = True
-            _log("[4/7] 이미 적용됨 — gateway 에서 인스턴스가 확인되어 attach 를 건너뜁니다.")
-        elif immediate:
+        foreign_loaded = False
+        if immediate:
             _log("[4/7] 즉시 적용(attach) 사전 점검")
             _, chk_out, chk_err = await _exec(
                 session, f"{shlex.quote(java_bin)} -jar {q_dir}/{_ATTACHER_JAR} --check {pid} 2>&1"
             )
-            combined = f"{chk_out}\n{chk_err}"
-            precheck = next((ln.strip() for ln in combined.splitlines() if ln.strip().startswith("PRECHECK:")), None)
-            if precheck:
+            check_lines = [ln.strip() for ln in f"{chk_out}\n{chk_err}".splitlines() if ln.strip()]
+            precheck = next((ln for ln in check_lines if ln.startswith("PRECHECK:")), None)
+            loaded = next((ln[len("LOADED:"):] for ln in check_lines if ln.startswith("LOADED:")), None)
+            fresh = is_fresh(find_instance(
+                await fetch_snapshot(agent.system_id, _service_principal()), agent.system_id, instance_role, agent.host
+            ))
+            if loaded is not None:
+                # 대상 JVM 에 Agent-T 가 이미 로드됨 — AgentMain 은 중복 로드를 조용히 무시하므로 attach 하지 않는다.
+                # 마커 값이 install_dir 의 jar 경로면 같은 설치, 그 외(다른 디렉터리·구버전 "true")는 재기동 필요.
+                if os.path.dirname(os.path.normpath(loaded)) == os.path.normpath(install_dir):
+                    _log(f"    이미 로드됨 — 대상 JVM 에 {loaded} 가 로드되어 있어 attach 를 건너뜁니다.")
+                    already_live = fresh
+                else:
+                    foreign_loaded = True
+                    _log(
+                        f"    다른 경로의 Agent-T 가 이미 로드되어 있습니다 ({loaded}) — attach 하지 않습니다. "
+                        f"{install_dir} 의 에이전트는 WAS 재기동 후 적용됩니다 (영구 적용만 진행)."
+                    )
+            elif fresh:
+                already_live = True
+                _log("    이미 적용됨 — gateway 에서 인스턴스가 확인되어 attach 를 건너뜁니다.")
+            elif precheck:
                 _log(f"    사전 점검 불충족 ({precheck}) — attach 를 건너뜁니다. 재기동 후 적용됩니다 (영구 적용만 진행).")
-            elif any(ln.strip() == "OK" for ln in combined.splitlines()):
+            elif "OK" in check_lines:
                 code, att_out, att_err = await _exec(
                     session,
                     f"{shlex.quote(java_bin)} -jar {q_dir}/{_ATTACHER_JAR} {pid} {q_dir}/{jar_name} 2>&1",
@@ -443,7 +541,7 @@ async def run_install(job_id: str, agent: AgentInstance, session: dict) -> None:
                 else:
                     _log(f"    attach 실패(exit={code}): {(att_out + att_err).strip()[:300]} — 재기동 후 적용됩니다.")
             else:
-                _log(f"    사전 점검 결과를 해석하지 못했습니다: {combined.strip()[:200]} — 재기동 후 적용됩니다.")
+                _log(f"    사전 점검 결과를 해석하지 못했습니다: {' '.join(check_lines)[:200]} — 재기동 후 적용됩니다.")
         else:
             _log("[4/7] 즉시 적용 생략 (immediate=false)")
 
@@ -462,10 +560,15 @@ async def run_install(job_id: str, agent: AgentInstance, session: dict) -> None:
 
         # [7] 확인
         agent_status = "installed"
-        if already_live:
+        if kill_switch_on:
+            agent_status = "stopped"
+            _log("[6/7] 킬 스위치(enabled=false) 상태 — 수집 비활성. gateway 수신 확인을 생략하고 stopped 로 표시합니다.")
+        elif foreign_loaded:
+            _log("[6/7] 다른 경로의 에이전트가 로드되어 있어 이 설치본은 수신 확인 생략 (WAS 재기동 후 적용)")
+        elif already_live:
             agent_status = "running"
         elif attached:
-            _log("[6/7] gateway 수신 확인 대기 (최대 30초)")
+            _log(f"[6/7] gateway 수신 확인 대기 (최대 {_CONFIRM_TIMEOUT_S}초)")
             deadline = time.monotonic() + _CONFIRM_TIMEOUT_S
             while True:
                 inst = find_instance(
@@ -476,7 +579,7 @@ async def run_install(job_id: str, agent: AgentInstance, session: dict) -> None:
                     _log("    gateway 에서 인스턴스 수신 확인 → running")
                     break
                 if time.monotonic() >= deadline:
-                    _log("    30초 내 수신 확인 실패 — installed 상태로 유지합니다.")
+                    _log(f"    {_CONFIRM_TIMEOUT_S}초 내 수신 확인 실패 — installed 상태로 유지합니다.")
                     break
                 await asyncio.sleep(_CONFIRM_INTERVAL_S)
         else:
@@ -485,13 +588,12 @@ async def run_install(job_id: str, agent: AgentInstance, session: dict) -> None:
         if needs_confirm:
             _log("[확인 필요] domain.xml 변경 diff 를 검토한 뒤 jeus_confirm=true 로 다시 설치하세요.")
         _log("[완료] Agent-T 설치 완료.")
-        _live_jobs[job_id]["status"] = "done"
         await _finish("done", agent_status=agent_status)
+        _live_jobs[job_id]["status"] = "done"  # DB 커밋 후 노출 (UI 가 즉시 refetch 하므로)
 
     except Exception as exc:
         err_msg = str(exc)
         _log(f"[오류] {err_msg}")
-        _live_jobs[job_id]["status"] = "failed"
         _live_jobs[job_id]["error"] = err_msg
         async with AsyncSessionLocal() as db2:
             await db2.execute(
@@ -508,6 +610,7 @@ async def run_install(job_id: str, agent: AgentInstance, session: dict) -> None:
                 )
             )
             await db2.commit()
+        _live_jobs[job_id]["status"] = "failed"  # DB 커밋 후 노출 (UI 가 즉시 refetch 하므로)
 
 
 async def _apply_inject(session, conn, service_type, service_path, install_dir, sys_name, _log) -> None:

@@ -29,6 +29,7 @@ class Remote:
         self.check = "OK"
         self.attach_code = 0
         self.exec_calls: list[str] = []
+        self.mv_calls: list[str] = []
         self.shell_calls: list[str] = []
         self.binaries: dict[str, bytes] = {}
         self.files: dict[str, str] = {}
@@ -45,6 +46,9 @@ class Remote:
             return 0, "/usr/local/jdk1.7.0_79/bin/java\n", ""
         if "-version" in cmd:
             return 0, self.version, ""
+        if cmd.startswith("mv -f"):
+            self.mv_calls.append(cmd)
+            return 0, "", ""
         if "--check" in cmd:
             return 0, self.check, ""
         if cmd.startswith("stat -c %a"):
@@ -144,8 +148,8 @@ async def _agent(env, agent):
 async def test_selects_legacy_for_jdk7(env):
     agent = await env.make({"jvm_match": "-Dsic_server1", "service_type": "tomcat", "service_path": "/opt/tomcat"})
     await inst.run_install("job1", agent, SESSION)
-    assert "/home/jeussic/agent-t/agent-t-legacy.jar" in env.remote.binaries
-    assert "/home/jeussic/agent-t/agent-t.jar" not in env.remote.binaries
+    assert "/home/jeussic/agent-t/agent-t-legacy.jar.tmp" in env.remote.binaries
+    assert "/home/jeussic/agent-t/agent-t.jar.tmp" not in env.remote.binaries
     job = await _job(env)
     assert job.status == "done", job.error
     assert (await _agent(env, agent)).status == "running"
@@ -158,7 +162,7 @@ async def test_selects_modern_for_jdk11(env):
     env.remote.version = 'openjdk version "11.0.2" 2019-01-15'
     agent = await env.make({"jvm_match": "-Dsic_server1", "permanent": False})
     await inst.run_install("job1", agent, SESSION)
-    assert "/home/jeussic/agent-t/agent-t.jar" in env.remote.binaries
+    assert "/home/jeussic/agent-t/agent-t.jar.tmp" in env.remote.binaries
     assert (await _job(env)).status == "done"
 
 
@@ -170,13 +174,88 @@ async def test_jdk5_fails(env):
     assert env.remote.binaries == {}
 
 
-async def test_multiple_pids_fails(env):
-    env.remote.ps = "1 u java -Dsic\n2 u java -Dsic"
+async def test_multiple_pids_ends_needs_target_with_candidates(env):
+    env.remote.ps = (
+        "1 u /jdk/bin/java -Dsic -Djeus.server.name=sic_a weblogic.Server\n"
+        "2 u /jdk/bin/java -Dsic -Djeus.server.name=sic_b weblogic.Server"
+    )
     agent = await env.make({"jvm_match": "-Dsic"})
     await inst.run_install("job1", agent, SESSION)
     job = await _job(env)
-    assert job.status == "failed" and "2개" in job.error
-    assert (await _agent(env, agent)).status == "failed"
+    assert job.status == "needs_target" and job.error is None
+    assert env.remote.binaries == {} and env.remote.mv_calls == []
+    assert (await _agent(env, agent)).status == "pending"
+    from routes.agents_control import _split_candidates
+    logs, cands = _split_candidates(job.logs)
+    assert [c["pid"] for c in cands] == [1, 2]
+    assert cands[0]["user"] == "u" and cands[0]["server_name"] == "sic_a"
+    assert "JVM_CANDIDATES" not in logs and "2개" in logs
+
+
+async def test_target_pid_valid_proceeds_with_that_pid(env):
+    env.remote.ps = "1 u /jdk/bin/java -Dsic a\n2 u /jdk/bin/java -Dsic b"
+    agent = await env.make({"jvm_match": "-Dsic", "permanent": False})
+    await inst.run_install("job1", agent, SESSION, target_pid=2)
+    job = await _job(env)
+    assert job.status == "done"
+    assert any("readlink /proc/2/exe" in c for c in env.remote.exec_calls)
+    assert "target_pid" not in (await _agent(env, agent)).label_info
+
+
+async def test_target_pid_not_in_candidates_fails(env):
+    env.remote.ps = "1 u /jdk/bin/java -Dsic a\n2 u /jdk/bin/java -Dsic b"
+    agent = await env.make({"jvm_match": "-Dsic", "permanent": False})
+    await inst.run_install("job1", agent, SESSION, target_pid=999)
+    job = await _job(env)
+    assert job.status == "failed" and "999" in job.error and "재기동" in job.error
+    assert env.remote.binaries == {}
+
+
+async def test_target_pid_stale_after_process_gone_fails(env):
+    env.remote.ps = "1 u /jdk/bin/java -Dsic a"
+    agent = await env.make({"jvm_match": "-Dsic", "permanent": False})
+    await inst.run_install("job1", agent, SESSION, target_pid=2)
+    assert (await _job(env)).status == "failed"
+
+
+async def test_boundary_excludes_prefix_neighbours_so_single_install(env):
+    env.remote.ps = (
+        "10 u /jdk/bin/java -Dsic_server10 x\n"
+        "11 u /jdk/bin/java -Dsic_server1_bak x\n"
+        "4242 u /jdk/bin/java -Dsic_server1 x"
+    )
+    agent = await env.make({"jvm_match": "sic_server1", "permanent": False})
+    await inst.run_install("job1", agent, SESSION)
+    assert (await _job(env)).status == "done"
+    assert any("readlink /proc/4242/exe" in c for c in env.remote.exec_calls)
+
+
+def test_filter_boundary_rules():
+    f = lambda out, m: [c["pid"] for c in inst.filter_jvm_candidates(out, m)]  # noqa: E731
+    ps = (
+        "1 u java -Dsic_server1 a\n"
+        "2 u java -Djeus.server.name=sic_server1 a\n"
+        "3 u java -cp /servers/sic_server1/lib a\n"
+        "4 u java -Dsic_server10 a\n"
+        "5 u java -Dsic_server1_bak a\n"
+        "6 u java -Dxsic_server1 a\n"
+        "7 u java -Dsic_server1"
+    )
+    assert f(ps, "sic_server1") == [1, 2, 3, 7]
+    assert f(ps, "-Dsic_server1") == [1, 7]
+
+
+def test_filter_excludes_helpers_and_non_java():
+    ps = (
+        "1 u bash -c ps -eo pid,user,args | grep -F -- java -Dsic\n"
+        "2 u grep -F -- -Dsic\n"
+        "3 u /usr/sbin/sshd -Dsic\n"
+        "4 u python3 app.py -Dsic\n"
+        "5 u /jdk/bin/java -Dsic ok\n"
+        "bad line"
+    )
+    assert [c["pid"] for c in inst.filter_jvm_candidates(ps, "-Dsic")] == [5]
+    assert inst.filter_jvm_candidates(ps, "") == []
 
 
 async def test_zero_pids_fails(env):
@@ -194,7 +273,7 @@ async def test_precheck_failure_skips_attach(env):
     job = await _job(env)
     assert job.status == "done"
     assert "재기동 후 적용" in job.logs and "no_tools_jar" in job.logs
-    assert not any("--check" not in c and "agent-t-attacher.jar" in c for c in env.remote.exec_calls)
+    assert not any("--check" not in c and "-jar" in c for c in env.remote.exec_calls)
     assert (await _agent(env, agent)).status == "installed"
     assert "/opt/tomcat/bin/setenv.sh" in env.remote.files  # 영구 적용은 진행
 
@@ -363,7 +442,7 @@ async def test_rerun_keeps_token_and_skips_attach_when_live(env):
     job = await _job(env)
     assert job.status == "done", job.error
     assert "이미 적용됨" in job.logs
-    assert not any("agent-t-attacher.jar" in c for c in env.remote.exec_calls)
+    assert not any("-jar" in c and "--check" not in c for c in env.remote.exec_calls)
     second = json.loads((await _agent(env, agent)).label_info)
     assert second["agent_token_sha256"] == first["agent_token_sha256"]
     assert env.remote.files[props_path + ".tmp"] == first_props
@@ -433,3 +512,144 @@ async def test_failed_properties_check_keeps_existing_file(env):
     await inst.run_install("job1", agent, SESSION)
     assert ("put", "/home/jeussic/agent-t/agent-t.properties") not in env.remote.events
     assert any(c.startswith("rm -f ") and c.endswith("agent-t.properties.tmp") for c in env.remote.exec_calls)
+
+
+async def test_jars_uploaded_as_tmp_then_atomic_mv(env):
+    agent = await env.make({"jvm_match": "-Dsic_server1", "permanent": False})
+    await inst.run_install("job1", agent, SESSION)
+    assert (await _job(env)).status == "done"
+    d = "/home/jeussic/agent-t"
+    assert f"{d}/agent-t-legacy.jar.tmp" in env.remote.binaries
+    assert f"{d}/agent-t-legacy.jar" not in env.remote.binaries  # 최종 경로에 직접 쓰지 않는다
+    assert f"{d}/agent-t-attacher.jar.tmp" in env.remote.binaries
+    assert f"mv -f {d}/agent-t-legacy.jar.tmp {d}/agent-t-legacy.jar" in env.remote.mv_calls
+    assert f"mv -f {d}/agent-t-attacher.jar.tmp {d}/agent-t-attacher.jar" in env.remote.mv_calls
+    # sha256 검증은 mv 이후(최종 파일)에 수행
+    cmds = env.remote.exec_calls
+    assert max(i for i, c in enumerate(cmds) if c.startswith("mv -f") and ".jar.tmp" in c) < next(
+        i for i, c in enumerate(cmds) if "sha256sum -c" in c)
+
+
+async def test_jar_mv_works_via_shell_fallback(env):
+    env.remote.exec_error = SSHError("exec 채널 거부")
+    agent = await env.make({"jvm_match": "-Dsic_server1", "permanent": False})
+    await inst.run_install("job1", agent, SESSION)
+    assert (await _job(env)).status == "done"
+    assert any(c.startswith("mv -f") and ".jar.tmp" in c for c in env.remote.shell_calls)
+
+
+async def test_kill_switch_off_does_not_report_running(env):
+    env.snapshots[0] = [_inst_at()]  # 에이전트는 heartbeat 중
+    agent = await env.make({"jvm_match": "-Dsic_server1", "permanent": False, "enabled": False})
+    await inst.run_install("job1", agent, SESSION)
+    job = await _job(env)
+    assert job.status == "done", job.error
+    assert "킬 스위치(enabled=false) 상태 — 수집 비활성" in job.logs
+    assert (await _agent(env, agent)).status == "stopped"
+
+
+async def test_loaded_same_dir_skips_attach(env):
+    env.remote.check = "OK\nLOADED:/home/jeussic/agent-t/agent-t-legacy.jar"
+    env.snapshots[0] = [_inst_at()]
+    agent = await env.make({"jvm_match": "-Dsic_server1", "permanent": False})
+    await inst.run_install("job1", agent, SESSION)
+    job = await _job(env)
+    assert job.status == "done", job.error
+    assert "이미 로드됨" in job.logs and not env.remote.attached
+    assert (await _agent(env, agent)).status == "running"
+
+
+async def test_loaded_other_dir_requires_restart_and_not_running(env):
+    env.remote.check = "OK\nLOADED:/home/jeussic/agent-t-poc/agent-t.jar"
+    env.snapshots[0] = [_inst_at()]  # PoC 에이전트가 같은 role 로 heartbeat 중이어도
+    agent = await env.make({"jvm_match": "-Dsic_server1", "service_type": "tomcat", "service_path": "/opt/tomcat"})
+    await inst.run_install("job1", agent, SESSION)
+    job = await _job(env)
+    assert job.status == "done", job.error
+    assert "WAS 재기동" in job.logs and "agent-t-poc" in job.logs
+    assert "attach 완료" not in job.logs and not env.remote.attached
+    assert (await _agent(env, agent)).status == "installed"
+    assert "/opt/tomcat/bin/setenv.sh" in env.remote.files  # 영구 적용은 진행
+
+
+async def test_legacy_loaded_marker_true_treated_as_other(env):
+    env.remote.check = "OK\nLOADED:true"
+    agent = await env.make({"jvm_match": "-Dsic_server1", "permanent": False})
+    await inst.run_install("job1", agent, SESSION)
+    assert not env.remote.attached
+    assert (await _agent(env, agent)).status == "installed"
+
+
+async def test_job_api_exposes_candidates_and_hides_marker(env, authed_client):
+    env.remote.ps = "1 u /jdk/bin/java -Dsic a\n2 u /jdk/bin/java -Dsic b"
+    agent = await env.make({"jvm_match": "-Dsic"})
+    await inst.run_install("job1", agent, SESSION)
+    body = (await authed_client.get("/api/v1/agents/jobs/job1")).json()
+    assert body["status"] == "needs_target"
+    assert [c["pid"] for c in body["candidates"]] == [1, 2]
+    assert "JVM_CANDIDATES" not in body["logs"]
+
+
+async def test_install_request_rejects_invalid_target_pid(authed_client):
+    resp = await authed_client.post("/api/v1/agents/install", json={"agent_id": 1, "target_pid": 0})
+    assert resp.status_code == 422
+
+
+class _OrderedLive(dict):
+    """status 가 종료 값으로 바뀌는 시점을 DB commit 과 같은 타임라인에 기록한다."""
+
+    def __init__(self, events, *a, **kw):
+        super().__init__(*a, **kw)
+        self._events = events
+
+    def __setitem__(self, key, value):
+        if key == "status" and value in ("done", "failed", "needs_target"):
+            self._events.append(f"live:{value}")
+        super().__setitem__(key, value)
+
+
+def _track_commits(env, monkeypatch):
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    events: list[str] = []
+
+    class TrackedSession(AsyncSession):
+        async def commit(self):
+            await super().commit()
+            events.append("commit")
+
+    monkeypatch.setattr(
+        database, "AsyncSessionLocal",
+        async_sessionmaker(env.db.bind, class_=TrackedSession, expire_on_commit=False),
+    )
+    agents_control._live_jobs["job1"] = _OrderedLive(events, {"status": "running", "logs": "", "error": None})
+    return events
+
+
+async def test_live_done_exposed_only_after_db_commit(env, monkeypatch):
+    env.snapshots[0] = []
+    agent = await env.make({"jvm_match": "-Dsic_server1", "permanent": False})
+    events = _track_commits(env, monkeypatch)
+    await inst.run_install("job1", agent, SESSION)
+    assert events[-2:] == ["commit", "live:done"]
+    assert (await _agent(env, agent)).status == "installed"
+
+
+async def test_live_failed_exposed_only_after_db_commit(env, monkeypatch):
+    agent = await env.make({"jvm_match": "-Dsic_server1", "permanent": False})
+    env.remote.ps = ""
+    events = _track_commits(env, monkeypatch)
+    await inst.run_install("job1", agent, SESSION)
+    assert events[-2:] == ["commit", "live:failed"]
+    assert (await _agent(env, agent)).status == "failed"
+
+
+async def test_live_needs_target_exposed_only_after_db_commit(env, monkeypatch):
+    agent = await env.make({"jvm_match": "-Dsic_server1", "permanent": False})
+    env.remote.ps = (
+        "4242 jeussic /usr/local/jdk1.7.0_79/bin/java -Dsic_server1 weblogic.Server\n"
+        "4343 jeussic /usr/local/jdk1.7.0_79/bin/java -Dsic_server1 weblogic.Server"
+    )
+    events = _track_commits(env, monkeypatch)
+    await inst.run_install("job1", agent, SESSION)
+    assert events[-2:] == ["commit", "live:needs_target"]

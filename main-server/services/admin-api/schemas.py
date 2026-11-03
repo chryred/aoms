@@ -865,6 +865,14 @@ class AgentInstanceOut(BaseModel):
 
 class AgentInstallRequest(BaseModel):
     agent_id: int
+    target_pid: Optional[int] = Field(default=None, ge=1)  # agent_t 1회성 대상 PID (label_info 에 저장하지 않음)
+
+
+class JvmCandidate(BaseModel):
+    pid: int
+    user: str
+    command: str
+    server_name: Optional[str] = None
 
 
 class AgentInstallJobOut(BaseModel):
@@ -873,6 +881,7 @@ class AgentInstallJobOut(BaseModel):
     status: str
     logs: Optional[str]
     error: Optional[str]
+    candidates: Optional[List[JvmCandidate]] = None  # status=needs_target 일 때만 (agent_t JVM 후보)
     created_at: UtcDatetime
     updated_at: UtcDatetime
 

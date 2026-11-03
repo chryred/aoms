@@ -516,7 +516,7 @@ class AgentInstallJob(Base):
     id           = Column(Integer, primary_key=True)
     job_id       = Column(String(36), unique=True, nullable=False)   # UUID
     agent_id     = Column(Integer, ForeignKey("agent_instances.id", ondelete="SET NULL"), nullable=True)
-    status       = Column(String(20), default="pending")             # pending | running | done | failed
+    status       = Column(String(20), default="pending")             # pending | running | done | failed | needs_target (agent_t: JVM 후보 2개 이상, 선택 대기)
     logs         = Column(Text)                                      # 진행 로그 (누적 텍스트)
     error        = Column(Text)
     created_at   = Column(DateTime, default=func.now())

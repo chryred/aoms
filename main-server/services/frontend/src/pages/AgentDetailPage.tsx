@@ -432,13 +432,16 @@ export function AgentDetailPage() {
     }
   }
 
-  async function handleInstall() {
+  async function handleInstall(targetPid?: number) {
     if (!token) {
       setShowSSHModal(true)
       return
     }
     try {
-      const job = await agentsApi.installAgent({ agent_id: agentId }, token)
+      const job = await agentsApi.installAgent(
+        targetPid ? { agent_id: agentId, target_pid: targetPid } : { agent_id: agentId },
+        token,
+      )
       refreshExpiry()
       setInstallJobId(job.job_id)
     } catch (err) {
@@ -587,7 +590,12 @@ export function AgentDetailPage() {
         {installJobId && (
           <div className="border-border mt-4 border-t pt-4">
             <p className="text-text-primary mb-2 text-xs font-medium">설치 진행 상황</p>
-            <InstallJobMonitor jobId={installJobId} onDone={handleInstallDone} />
+            <InstallJobMonitor
+              key={installJobId}
+              jobId={installJobId}
+              onDone={handleInstallDone}
+              onSelectTarget={isAgentT ? (pid) => handleInstall(pid) : undefined}
+            />
           </div>
         )}
       </NeuCard>

@@ -29,7 +29,11 @@ vi.mock('@/hooks/queries/useSystems', () => ({
   useSystems: () => ({ data: [{ id: 1, environment: 'prod' }] }),
 }))
 vi.mock('@/components/agent/InstallJobMonitor', () => ({
-  InstallJobMonitor: () => <div data-testid="install-monitor" />,
+  InstallJobMonitor: ({ onSelectTarget }: { onSelectTarget?: (pid: number) => void }) => (
+    <button data-testid="install-monitor" onClick={() => onSelectTarget?.(4242)}>
+      pick
+    </button>
+  ),
 }))
 
 import { agentsApi } from '@/api/agents'
@@ -87,5 +91,16 @@ describe('AgentDetailPage — agent_t', () => {
       service_type: 'jeus',
       enabled: false,
     })
+  })
+
+  it('JVM 선택 시 target_pid 를 담아 설치를 다시 요청한다 (label_info 는 변경하지 않음)', async () => {
+    const user = userEvent.setup()
+    vi.mocked(agentsApi.installAgent).mockResolvedValue({ job_id: 'j1' } as never)
+    renderPage()
+    await user.click(await screen.findByRole('button', { name: /설치 실행/ }))
+    await user.click(await screen.findByRole('button', { name: '적용' }))
+    await user.click(await screen.findByTestId('install-monitor'))
+    expect(agentsApi.installAgent).toHaveBeenLastCalledWith({ agent_id: 1, target_pid: 4242 }, 'tok')
+    expect(agentsApi.updateAgent).not.toHaveBeenCalled()
   })
 })

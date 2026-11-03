@@ -359,6 +359,22 @@ async def get_agent(
     return agent
 
 
+# 설치 Job 이 label_info 에 기록하는 키 — 사용자 PATCH 로 지워지면 재설치 시 토큰이 재발급되어 가동 중 에이전트가 401 이 된다
+_AGENT_T_INSTALLER_KEYS = ("agent_token_sha256", "jdk_major", "jar")
+
+
+def _carry_installer_keys(stored: Optional[str], new: str) -> str:
+    try:
+        old_info = json.loads(stored or "{}")
+        new_info = json.loads(new)
+    except ValueError:
+        return new
+    if not isinstance(old_info, dict) or not isinstance(new_info, dict):
+        return new
+    carried = {k: old_info[k] for k in _AGENT_T_INSTALLER_KEYS if k in old_info and k not in new_info}
+    return json.dumps({**new_info, **carried}) if carried else new
+
+
 @router.patch("/agents/{agent_id}", response_model=AgentInstanceOut)
 async def update_agent(
     agent_id: int,
@@ -372,6 +388,7 @@ async def update_agent(
     changes = body.model_dump(exclude_unset=True)
     if agent.agent_type == "agent_t" and changes.get("label_info") is not None:
         await _check_agent_t_label(db, agent.system_id, changes["label_info"], exclude_id=agent.id)
+        changes["label_info"] = _carry_installer_keys(agent.label_info, changes["label_info"])
     for field, value in changes.items():
         setattr(agent, field, value)
     await db.commit()

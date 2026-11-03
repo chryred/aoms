@@ -46,6 +46,7 @@ src/
 │   ├── trends/        # CriticalTrendBanner, TrendAlertCard
 │   ├── system/        # SystemFormDrawer
 │   ├── agent/         # SSHSessionModal, AgentCard, AgentStatusBadge, AgentFormModal, InstallJobMonitor (Phase 6)
+│   │                  #   InstallJobMonitor: Agent-T 설치 Job 이 `needs_target`(JVM 후보 2개 이상)이면 후보 라디오 목록 + "선택한 JVM 으로 설치" → `onSelectTarget(pid)` → `installAgent({agent_id, target_pid})` 재요청
 │   ├── chat/          # ChatHeader, ChatPanel, SystemMultiSelect, ChatSessionSearchInput, SessionItemMenu, SessionRenameModal, SessionDeleteConfirmModal
 │   ├── help/          # GuestSystemGrid (다중 선택), HelpVisitorForm
 │   ├── mascot/        # Synap (마스코트 캐릭터)

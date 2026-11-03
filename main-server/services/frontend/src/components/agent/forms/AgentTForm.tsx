@@ -85,7 +85,7 @@ export function AgentTForm({ form }: AgentTFormProps) {
           required
         />
         <p className="text-text-disabled mt-1 text-[11px]">
-          프로세스 명령행에 포함된 문자열(서버명 등). 같은 호스트의 여러 WAS 중 대상을 구분합니다.
+          프로세스 명령행에 포함된 문자열(서버명 등). 같은 호스트의 여러 WAS 중 대상을 구분합니다. 일치하는 JVM 이 2개 이상이면 설치 시 대상을 선택할 수 있습니다.
         </p>
       </div>
       <div className="flex gap-3">

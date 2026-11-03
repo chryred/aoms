@@ -18,6 +18,9 @@ import java.net.URLClassLoader;
  *
  * <p>Exit codes: 0 success, 2 precondition failure (one line {@code PRECHECK:<reason>}), 1 other failure.
  * {@code --check <pid>} only evaluates the preconditions and prints {@code OK} or {@code PRECHECK:<reason>}.
+ * When it prints {@code OK} and the target JVM already runs an Agent-T (system property {@code agent_t.loaded}),
+ * a second line {@code LOADED:<value>} follows (value = jar path of the loaded agent; older agents store
+ * {@code true}). Reading the property is best effort: failures only omit the line.
  */
 public final class Attacher {
     static final String NO_TOOLS_JAR = "no_tools_jar";
@@ -47,6 +50,12 @@ public final class Attacher {
         if (args.length >= 2 && "--check".equals(args[0])) {
             String reason = precheck(args[1]);
             System.out.println(reason == null ? "OK" : "PRECHECK:" + reason);
+            if (reason == null) {
+                String loaded = loadedMarker(args[1]);
+                if (loaded != null) {
+                    System.out.println("LOADED:" + loaded);
+                }
+            }
             return reason == null ? 0 : 2;
         }
         if (args.length < 2) {
@@ -212,7 +221,27 @@ public final class Attacher {
         }
     }
 
-    private static void attach(String pid, String agentJar, String agentArgs) throws Exception {
+    /** Value of the target's {@code agent_t.loaded} system property, or null when unset or unreadable. */
+    static String loadedMarker(String pid) {
+        try {
+            Class<?> vmClass = vmClass();
+            Object vm = invoke(vmClass.getMethod("attach", String.class), null, pid);
+            try {
+                java.util.Properties props = (java.util.Properties) invoke(vmClass.getMethod("getSystemProperties"), vm);
+                return props.getProperty("agent_t.loaded");
+            } finally {
+                try {
+                    invoke(vmClass.getMethod("detach"), vm);
+                } catch (Exception ignore) {
+                    // ignore
+                }
+            }
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    private static Class<?> vmClass() throws Exception {
         Class<?> vmClass;
         int major = javaMajor(System.getProperty("java.specification.version", ""));
         if (major <= 8) {
@@ -222,6 +251,11 @@ public final class Attacher {
         } else {
             vmClass = Class.forName(VM_CLASS);
         }
+        return vmClass;
+    }
+
+    private static void attach(String pid, String agentJar, String agentArgs) throws Exception {
+        Class<?> vmClass = vmClass();
         Object vm = invoke(vmClass.getMethod("attach", String.class), null, pid);
         try {
             invoke(vmClass.getMethod("loadAgent", String.class, String.class), vm, agentJar, agentArgs);

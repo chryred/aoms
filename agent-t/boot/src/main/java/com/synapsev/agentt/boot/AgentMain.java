@@ -31,7 +31,8 @@ public final class AgentMain {
             if (System.getProperty(LOADED_MARKER) != null) {
                 return;
             }
-            File agentDir = agentDir();
+            File agentJar = agentJar();
+            File agentDir = agentJar.getParentFile() == null ? new File(".") : agentJar.getParentFile();
             if (new File(agentDir, "DISABLE").exists()) {
                 return;
             }
@@ -43,16 +44,15 @@ public final class AgentMain {
             AgentProperties props = AgentProperties.load(propsFile);
             appendBridge(inst);
             AgentRuntime.start(inst, props, attached);
-            System.setProperty(LOADED_MARKER, "true");
+            // value = absolute path of the loaded agent jar, so the attacher (--check) can tell which install is live
+            System.setProperty(LOADED_MARKER, agentJar.getAbsolutePath());
         } catch (Throwable t) {
             System.err.println("[agent-t] not started: " + t);
         }
     }
 
-    private static File agentDir() throws Exception {
-        File jar = new File(AgentMain.class.getProtectionDomain().getCodeSource().getLocation().toURI());
-        File dir = jar.getParentFile();
-        return dir == null ? new File(".") : dir;
+    private static File agentJar() throws Exception {
+        return new File(AgentMain.class.getProtectionDomain().getCodeSource().getLocation().toURI());
     }
 
     /** "k=v,k2=v2" agent argument lookup. */

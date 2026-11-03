@@ -539,6 +539,7 @@ async def install_agent(
             job_id=job_id,
             agent=agent,
             session=session,
+            target_pid=body.target_pid if agent.agent_type == "agent_t" else None,
         )
     )
 
@@ -551,6 +552,21 @@ async def install_agent(
         created_at=now,
         updated_at=now,
     )
+
+
+def _split_candidates(logs: Optional[str]) -> tuple[Optional[str], list[dict]]:
+    """Job 로그에서 JVM 후보 마커 줄을 분리한다 (agent_t_installer 가 needs_target 종료 시 기록)."""
+    marker = "[JVM_CANDIDATES] "
+    kept, candidates = [], []
+    for line in (logs or "").splitlines():
+        if line.startswith(marker):
+            try:
+                candidates = json.loads(line[len(marker):])
+            except ValueError:
+                pass
+        else:
+            kept.append(line)
+    return "\n".join(kept) + ("\n" if kept else ""), candidates
 
 
 @router.get("/agents/jobs/{job_id}", response_model=AgentInstallJobOut)
@@ -570,7 +586,10 @@ async def get_install_job(
         job.logs = live["logs"]
         job.status = live["status"]
 
-    return job
+    out = AgentInstallJobOut.model_validate(job)
+    if job.status == "needs_target":
+        out.logs, out.candidates = _split_candidates(job.logs)
+    return out
 
 
 async def _run_cli_install(job_id: str, agent: AgentInstance, session: dict) -> None:
@@ -645,7 +664,6 @@ async def _run_cli_install(job_id: str, agent: AgentInstance, session: dict) -> 
             else:
                 _log(f"  → 완료. 대상 서버에서 'synapse --help'로 확인하세요.")
 
-            _live_jobs[job_id]["status"] = "done"
             job = await db.get(AgentInstallJob, None)
             jobs = await db.execute(
                 select(AgentInstallJob).where(AgentInstallJob.job_id == job_id)
@@ -658,10 +676,10 @@ async def _run_cli_install(job_id: str, agent: AgentInstance, session: dict) -> 
             if agent_row:
                 agent_row.status = "installed"
             await db.commit()
+            _live_jobs[job_id]["status"] = "done"  # DB 커밋 후 노출
 
         except Exception as exc:
             _log(f"\n[오류] {exc}")
-            _live_jobs[job_id]["status"] = "failed"
             jobs = await db.execute(
                 select(AgentInstallJob).where(AgentInstallJob.job_id == job_id)
             )
@@ -671,6 +689,7 @@ async def _run_cli_install(job_id: str, agent: AgentInstance, session: dict) -> 
                 job.logs = _live_jobs[job_id]["logs"]
                 job.error = str(exc)
             await db.commit()
+            _live_jobs[job_id]["status"] = "failed"  # DB 커밋 후 노출
 
 
 def _build_config_toml(label_info: dict, agent_host: str, config_path: str) -> str:
@@ -836,7 +855,6 @@ async def _run_db_connect(job_id: str, agent: AgentInstance) -> None:
         except Exception as exc:
             err_msg = str(exc)
             _log(f"[오류] {err_msg}")
-            _live_jobs[job_id]["status"] = "failed"
             _live_jobs[job_id]["error"] = err_msg
             await db.execute(
                 update(AgentInstance).where(AgentInstance.id == agent.id).values(status="failed")
@@ -852,12 +870,14 @@ async def _run_db_connect(job_id: str, agent: AgentInstance) -> None:
                 )
             )
             await db.commit()
+            _live_jobs[job_id]["status"] = "failed"  # DB 커밋 후 노출
 
 
 async def _run_install(
     job_id: str,
     agent: AgentInstance,
     session: dict,
+    target_pid: Optional[int] = None,
 ):
     """백그라운드 설치 태스크. DB Job 상태를 단계별로 갱신한다."""
     from database import AsyncSessionLocal
@@ -875,7 +895,7 @@ async def _run_install(
     # Agent-T (Java APM 에이전트) 설치
     if agent.agent_type == "agent_t":
         from services import agent_t_installer  # 순환 import 방지: 호출 시점에 로드
-        await agent_t_installer.run_install(job_id, agent, session)
+        await agent_t_installer.run_install(job_id, agent, session, target_pid)
         return
 
     # Synapse CLI 배포 (단순 scp + chmod, 데몬 없음)
@@ -1031,7 +1051,6 @@ async def _run_install(
         except Exception as exc:
             err_msg = str(exc)
             _log(f"[오류] {err_msg}")
-            _live_jobs[job_id]["status"] = "failed"
             _live_jobs[job_id]["error"] = err_msg
             await db.execute(
                 update(AgentInstallJob)
@@ -1044,6 +1063,7 @@ async def _run_install(
                 )
             )
             await db.commit()
+            _live_jobs[job_id]["status"] = "failed"  # DB 커밋 후 노출
 
 
 # ── Live Status (Prometheus heartbeat 기반) ───────────────────────────────────

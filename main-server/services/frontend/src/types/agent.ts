@@ -42,7 +42,7 @@ export interface SynapseAgentLabelInfo {
   web_servers?: WebServerEntry[]
 }
 export type AgentStatus = 'installed' | 'running' | 'stopped' | 'unknown'
-export type InstallJobStatus = 'pending' | 'running' | 'done' | 'failed'
+export type InstallJobStatus = 'pending' | 'running' | 'done' | 'failed' | 'needs_target'
 
 export type OsType = 'linux' | 'windows'
 export type ServerType = 'web' | 'was' | 'db' | 'middleware' | 'other'
@@ -108,6 +108,15 @@ export interface SSHSessionOut {
 
 export interface AgentInstallRequest {
   agent_id: number
+  /** agent_t 1회성 대상 JVM PID (label_info 에 저장되지 않음) */
+  target_pid?: number
+}
+
+export interface JvmCandidate {
+  pid: number
+  user: string
+  command: string
+  server_name: string | null
 }
 
 export interface AgentInstallJob {
@@ -116,6 +125,8 @@ export interface AgentInstallJob {
   status: InstallJobStatus
   logs: string | null
   error: string | null
+  /** status=needs_target 일 때만: jvm_match 에 일치한 JVM 후보 */
+  candidates?: JvmCandidate[] | null
   created_at: string
   updated_at: string
 }

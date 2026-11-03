@@ -40,7 +40,9 @@ public final class AttacherIT {
     private static void testAttach(String attacher, String agentJar) throws Exception {
         Target t = Target.start();
         try {
-            expect("check", run(attacher, "--check", t.pid), 0, "OK");
+            String[] before = run(attacher, "--check", t.pid);
+            expect("check", before, 0, "OK");
+            ok("check before attach has no LOADED line", before[2].isEmpty());
             expect("no_such_pid", run(attacher, "--check", "999999"), 2, "PRECHECK:no_such_pid");
             // unreachable gateway: the agent must still load and the target must keep running
             File props = File.createTempFile("agent-t-it", ".properties");
@@ -49,8 +51,12 @@ public final class AttacherIT {
             w.write("gateway.url=http://127.0.0.1:1\nagent.token=it-token\ninstance.role=it\nsystem.name=it\nlog.dir=/tmp\n");
             w.close();
             expect("attach", run(attacher, t.pid, agentJar, "props=" + props.getPath()), 0, "OK");
-            boolean loaded = t.waitForLine("agent_t.loaded=true", 20000);
-            ok("target reports agent_t.loaded=true", loaded);
+            String expectedMarker = new File(agentJar).getAbsolutePath();
+            boolean loaded = t.waitForLine("agent_t.loaded=" + expectedMarker, 20000);
+            ok("target reports agent_t.loaded=<agent jar path>", loaded);
+            String[] after = run(attacher, "--check", t.pid);
+            expect("check after attach", after, 0, "OK");
+            ok("check after attach prints LOADED:" + expectedMarker, after[2].equals("LOADED:" + expectedMarker));
             Thread.sleep(4500);
             ok("target still running after attach", t.alive());
         } finally {
@@ -94,7 +100,7 @@ public final class AttacherIT {
         ok(what + " -> exit " + result[0] + " '" + result[1] + "'" + (good ? "" : " (expected " + code + " '" + stdout + "')"), good);
     }
 
-    /** @return {exitCode, firstStdoutLine} */
+    /** @return {exitCode, firstOutputLine, remaining output lines joined by newline} */
     private static String[] run(String attacher, String... args) throws Exception {
         List<String> cmd = new ArrayList<String>();
         cmd.add(javaBin());
@@ -106,11 +112,13 @@ public final class AttacherIT {
         Process p = new ProcessBuilder(cmd).redirectErrorStream(true).start();
         BufferedReader r = new BufferedReader(new InputStreamReader(p.getInputStream(), "UTF-8"));
         String first = r.readLine();
+        StringBuilder rest = new StringBuilder();
         String line;
         while ((line = r.readLine()) != null) {
             System.out.println("  attacher: " + line);
+            rest.append(rest.length() == 0 ? "" : "\n").append(line);
         }
-        return new String[] { String.valueOf(p.waitFor()), first == null ? "" : first };
+        return new String[] { String.valueOf(p.waitFor()), first == null ? "" : first, rest.toString() };
     }
 
     private static String javaBin() {

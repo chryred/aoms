@@ -1,3 +1,5 @@
+import json
+
 from httpx import AsyncClient
 
 
@@ -78,3 +80,27 @@ async def test_start_stop_restart_rejected_for_agent_t(authed_client: AsyncClien
     for action in ("start", "stop", "restart"):
         resp = await authed_client.post(f"/api/v1/agents/{agent['id']}/{action}")
         assert resp.status_code == 400, action
+
+
+async def test_patch_agent_t_label_keeps_installer_keys(authed_client: AsyncClient):
+    sid = await _system_id(authed_client)
+    created = await _make_agent_t(
+        authed_client, sid,
+        '{"instance_role": "a", "agent_token_sha256": "abc", "jdk_major": 11, "jar": "agent-t.jar"}',
+    )
+    aid = created.json()["id"]
+
+    resp = await authed_client.patch(
+        f"/api/v1/agents/{aid}", json={"label_info": '{"instance_role": "b", "jvm_match": "-Dx"}'}
+    )
+    assert resp.status_code == 200
+    info = json.loads(resp.json()["label_info"])
+    assert info["agent_token_sha256"] == "abc"
+    assert info["jdk_major"] == 11 and info["jar"] == "agent-t.jar"
+    assert info["instance_role"] == "b" and info["jvm_match"] == "-Dx"
+
+    # 요청이 명시한 값은 그대로 따른다
+    resp = await authed_client.patch(
+        f"/api/v1/agents/{aid}", json={"label_info": '{"instance_role": "b", "agent_token_sha256": "new"}'}
+    )
+    assert json.loads(resp.json()["label_info"])["agent_token_sha256"] == "new"
