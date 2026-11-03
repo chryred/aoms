@@ -204,6 +204,12 @@ make test-api        # 단위 테스트 (SQLite in-memory)
 프론트엔드 컴포넌트·페이지를 수정한 뒤, 구현한 Claude 자신이 직접 검증하지 않는다.
 반드시 **`Agent` 툴로 별도 subagent를 순차 실행하여** QA를 위임한다 (병렬 금지 — 컨텍스트 복사 비용 2배).
 
+**브라우저 테스트 도구 우선순위 (모든 브라우저 기반 테스트·검증 공통)**:
+1. **`ego-browser` 스킬** — 항상 1순위. subagent 프롬프트에도 "ego-browser 스킬로 진행"을 명시한다
+2. ego-browser 를 쓸 수 없을 때만 **Chrome DevTools MCP** (`mcp__plugin_chrome-devtools-mcp_*`)
+3. 둘 다 불가할 때 **Playwright MCP** (`mcp__plugin_playwright_*`)
+- 대체 도구로 내려간 경우 그 사유(ego-browser 미설치·연결 실패 등)를 결과 보고에 적는다
+
 **트리거 조건** (아래 중 하나라도 해당하면 실행):
 - 새 컴포넌트·페이지 추가
 - 기존 UI 레이아웃·스타일 변경
@@ -225,6 +231,7 @@ Agent(
     3. Dark / Light 모드 전환 시 색상 깨짐
     4. 뉴모피즘 shadow 토큰(neu-flat / neu-inset / neu-pressed) 일관성
     5. accent 색상 남용 (핵심 인터랙션 외 사용 금지)
+    브라우저는 ego-browser 스킬 우선 → 불가 시 Chrome DevTools MCP → Playwright MCP 순으로 사용한다.
     구현자의 설명을 믿지 말고 직접 눈으로 확인한 결과만 보고하라.
   """
 )
@@ -247,6 +254,7 @@ Agent(
     2. Dark / Light 모드 토글
     3. Sidebar 축소/확장 레이아웃
     4. 콘솔 에러 없음
+    브라우저는 ego-browser 스킬 우선 → 불가 시 Chrome DevTools MCP → Playwright MCP 순으로 사용한다.
     구현자의 설명을 믿지 말고 직접 눈으로 확인한 결과와 수정 내역을 보고하라.
   """
 )
