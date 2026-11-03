@@ -118,21 +118,23 @@ ls -lh *.pem
 
 ### 1-3. synapse_agent 바이너리 빌드
 
-`build-images.sh`가 admin-api 이미지 빌드 시 `agent/dist/agent-v` 바이너리를 번들링합니다.  
-빌드 전 에이전트 바이너리를 먼저 컴파일해야 합니다.
+`build-images.sh`는 admin-api 이미지에 `agent/dist/agent-v` 바이너리와 `agent-t/dist/` jar를 **복사만** 합니다(자동 빌드 안 함).
+에이전트 소스를 변경했다면 먼저 빌드해야 합니다.
 
 ```bash
-cd /path/to/aoms/agent
+cd /path/to/aoms
 
-# musl 정적 바이너리 빌드 (RedHat 8.9 대상)
-# Rust 툴체인 및 musl 타겟 설치 필요:
-#   rustup target add x86_64-unknown-linux-musl
-./build.sh
+# agent-v(Rust musl static) + agent-t(Java jar) 빌드 — Docker 안에서 컴파일
+make build-agents        # 개별: make build-agent-v / make build-agent-t
 
 # 빌드 결과 확인
-ls -lh dist/agent-v
-file dist/agent-v   # "statically linked" 여야 함
+ls -lh agent/dist/agent-v agent-t/dist/
+file agent/dist/agent-v   # "statically linked" 여야 함
 ```
+
+빌드 시 `dist/SOURCE_STAMP`(빌드 입력 소스 해시 + 산출물 해시)가 기록됩니다.
+`build-images.sh`는 스탬프가 현재 소스·산출물과 다르면 필요한 `make build-agent-*` 명령을 안내하고 **이미지 빌드를 중단**합니다.
+재빌드한 `dist/`(SOURCE_STAMP 포함)는 커밋합니다.
 
 ---
 
@@ -140,7 +142,7 @@ file dist/agent-v   # "statically linked" 여야 함
 
 admin-api Dockerfile은 **멀티스테이지 빌드**입니다.
 - Stage 1: Go로 synapse CLI 바이너리를 빌드 (`synapse-cli/` 디렉터리)
-- Stage 2: Python admin-api 이미지에 agent-v + synapse CLI + OIDC RSA 키 번들
+- Stage 2: Python admin-api 이미지에 agent-v + agent-t jar + synapse CLI + OIDC RSA 키 번들
 
 **별도 CLI 빌드 없이** `build-images.sh` 한 번으로 모두 처리됩니다.
 

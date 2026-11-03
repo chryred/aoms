@@ -66,6 +66,9 @@ help:
 	@echo "    make install-analyzer log-analyzer 의존성만 설치"
 	@echo ""
 	@echo "  빌드 (운영 배포용)"
+	@echo "    make build-agents   agent-v + agent-t 빌드 (build-images.sh 전에 실행)"
+	@echo "    make build-agent-v  agent-v(Rust) 바이너리 빌드 → agent/dist/"
+	@echo "    make build-agent-t  agent-t(Java) jar 빌드 → agent-t/dist/"
 	@echo "    make build          Docker 이미지 빌드 (admin-api, log-analyzer)"
 	@echo "    make build-api      admin-api 이미지만 빌드"
 	@echo "    make build-analyzer log-analyzer 이미지만 빌드"
@@ -209,26 +212,43 @@ test-all: test-api test-analyzer test-gateway
 build: build-api build-analyzer
 
 .PHONY: build-api
-build-api:
-	@echo "→ [1/2] agent-v 빌드 (agent/build.sh — rust:1.88 musl static)..."
-	cd $(ROOT_DIR)/agent && ./build.sh
-	@echo "→ [2/2] admin-api Docker 빌드 (synapse CLI 포함)..."
+build-api: build-agents
+	@echo "→ admin-api Docker 빌드 (agent-v + agent-t + synapse CLI 포함)..."
 	docker build \
 		-f $(ADMIN_API_DIR)/Dockerfile \
 		-t synapse-admin-api:1.0 \
 		$(ROOT_DIR)
-	@echo "✓ synapse-admin-api:1.0 빌드 완료 (agent-v + synapse CLI 번들)"
+	@echo "✓ synapse-admin-api:1.0 빌드 완료 (agent-v + agent-t + synapse CLI 번들)"
+
+# agent-v / agent-t 빌드 — 빌드 후 dist/SOURCE_STAMP(소스·산출물 해시) 기록.
+# build-images.sh 는 스탬프가 현재 소스와 맞지 않으면 이미지 빌드를 중단한다.
+.PHONY: build-agents
+build-agents: build-agent-v build-agent-t
+
+.PHONY: build-agent-v
+build-agent-v:
+	@echo "→ agent-v 빌드 (agent/build.sh — rust:1.88 musl static)..."
+	cd $(ROOT_DIR)/agent && ./build.sh
+	$(ROOT_DIR)/scripts/agent-build-stamp.sh write agent-v
+
+.PHONY: build-agent-t
+build-agent-t:
+	@echo "→ agent-t jar 빌드 (agent-t/build.sh — JDK 7 legacy + JDK 21 modern)..."
+	@if [ ! -d $(ROOT_DIR)/agent-t/third_party/src/asm52 ] || [ ! -d $(ROOT_DIR)/agent-t/third_party/src/asm97 ] \
+	    || [ ! -f $(ROOT_DIR)/agent-t/third_party/lib/junit.jar ]; then \
+		$(ROOT_DIR)/agent-t/build.sh fetch; \
+	fi
+	$(ROOT_DIR)/agent-t/build.sh jar
+	$(ROOT_DIR)/scripts/agent-build-stamp.sh write agent-t
 
 # 로컬 개발용 바이너리 추출 (agent-v + synapse CLI)
-# agent-v: agent/build.sh 활용 / synapse CLI: cli-builder 스테이지만 빌드
+# agent-v: make build-agent-v 활용 / synapse CLI: cli-builder 스테이지만 빌드
 # .env.local: SYNAPSE_CLI_BINARY_PATH, SYNAPSE_AGENT_BINARY_PATH 참조
 .PHONY: extract-binaries
-extract-binaries:
-	@echo "→ [1/2] agent-v 빌드 (agent/build.sh — rust:1.88 musl static)..."
-	cd $(ROOT_DIR)/agent && ./build.sh
+extract-binaries: build-agent-v
 	@mkdir -p $(ROOT_DIR)/local-bin
 	cp $(ROOT_DIR)/agent/dist/agent-v $(ROOT_DIR)/local-bin/agent-v
-	@echo "→ [2/2] synapse CLI 바이너리 추출 (Docker cli-builder)..."
+	@echo "→ synapse CLI 바이너리 추출 (Docker cli-builder)..."
 	docker build \
 		--target cli-builder \
 		-f $(ADMIN_API_DIR)/Dockerfile \

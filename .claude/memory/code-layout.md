@@ -7,7 +7,7 @@ aoms/
 ├── CLAUDE.md                          # 루트 컨텍스트 가이드 (축약본 + memory 참조)
 ├── README.md                          # 프로젝트 전체 구현 워크플로우
 ├── Makefile                           # 로컬 개발 단축 명령어
-├── build-images.sh                    # 운영 Docker 이미지 빌드 스크립트
+├── build-images.sh                    # 운영 Docker 이미지 빌드 스크립트 (agent-v/agent-t dist/SOURCE_STAMP 불일치 시 중단 → make build-agents)
 ├── .claude/memory/                    # 상세 컨텍스트 분리 보관
 ├── scripts/
 │   ├── export-ollama-model.sh         # 폐쇄망 배포: Ollama 모델 tar 추출 (ADR-003)

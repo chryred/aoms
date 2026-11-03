@@ -46,7 +46,24 @@ do_build() {
   echo ""
 
   # ── 빌드 (순차) ─────────────────────────────────────────────
-  # Agent-T jar 는 이미지에 포함된다 — 사전 빌드 산출물 확인
+  # agent-v 바이너리 / Agent-T jar 는 이미지에 COPY 만 된다 — 현재 소스로 빌드된 산출물인지 확인
+  # (스탬프는 make build-agent-v / build-agent-t 가 기록. scripts/agent-build-stamp.sh 참조)
+  STALE=()
+  for comp in agent-v agent-t; do
+    if ! reason=$("$SCRIPT_DIR/scripts/agent-build-stamp.sh" check "$comp"); then
+      warn "$reason"
+      STALE+=("$comp")
+    fi
+  done
+  if [ ${#STALE[@]} -gt 0 ]; then
+    echo ""
+    warn "소스와 빌드 산출물이 일치하지 않아 이미지 빌드를 중단합니다. 먼저 아래를 실행하세요:"
+    for comp in "${STALE[@]}"; do echo "    make build-$comp"; done
+    echo "  (둘 다 필요하면: make build-agents) — 재빌드한 dist/ 는 함께 커밋"
+    exit 1
+  fi
+  success "agent-v / agent-t 산출물이 현재 소스와 일치"
+
   AGENT_T_ARTIFACTS="$SCRIPT_DIR/agent-t/dist"
   for f in agent-t.jar agent-t-legacy.jar agent-t-attacher.jar SHA256SUMS; do
     [ -f "$AGENT_T_ARTIFACTS/$f" ] || error "Agent-T 아티팩트 없음: $AGENT_T_ARTIFACTS/$f — 먼저 'agent-t/build.sh jar' 실행"

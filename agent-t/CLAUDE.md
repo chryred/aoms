@@ -12,9 +12,9 @@
 | `it-attach` | `jar` 선행. Docker 통합 테스트: zulu 7(legacy jar)·temurin 17(modern jar) attach + `--check` 옵션 판정, `eclipse-temurin:8-jre` → `PRECHECK:no_tools_jar` |
 
 ## 배포 (agent-v 와 동일 구조)
-- `dist/` 는 **git 추적**(agent-v 의 `agent/dist/agent-v` 와 같음). admin-api Dockerfile 이 `agent-t/dist/` 를 `/app/bin/agent-t/` 로 COPY → 폐쇄망 반입은 admin-api 이미지 tar 하나(jar 별도 반입 없음). `build-images.sh` 가 빌드 전 4개 파일·SHA256SUMS 일치를 확인한다.
+- `dist/` 는 **git 추적**(agent-v 의 `agent/dist/agent-v` 와 같음). admin-api Dockerfile 이 `agent-t/dist/` 를 `/app/bin/agent-t/` 로 COPY → 폐쇄망 반입은 admin-api 이미지 tar 하나(jar 별도 반입 없음). `build-images.sh` 가 빌드 전 4개 파일·SHA256SUMS 일치와 `dist/SOURCE_STAMP`(소스·산출물 해시, `scripts/agent-build-stamp.sh`) 일치를 확인하고, 소스가 바뀌었는데 재빌드하지 않았으면 `make build-agent-t` 안내 후 중단한다.
 - 설치 Job(`admin-api/services/agent_t_installer.py`)은 `AGENT_T_ARTIFACT_DIR`(기본 `/app/bin/agent-t`, 로컬 `make run-api` 는 `agent-t/dist`)에서 jar 를 읽어 SHA256SUMS 대조 후 SFTP 로 WAS 에 올린다. 대상 JDK 로 `agent-t.jar`(8~21)/`agent-t-legacy.jar`(1.6~1.7) 자동 선택. 불일치 시 설치 실패.
-- jar 교체: `./build.sh jar` → `dist/` 커밋 → `build-images.sh` → admin-api 이미지 반입·재기동. 이미 설치된 서버는 재설치 시 갱신. `fetch` 는 인터넷 필요(폐쇄망 안에서는 빌드하지 않음).
+- jar 교체: `make build-agent-t`(fetch 필요 시 자동 → `build.sh jar` → 스탬프 기록) → `dist/`(SOURCE_STAMP 포함) 커밋 → `build-images.sh` → admin-api 이미지 반입·재기동. 이미 설치된 서버는 재설치 시 갱신. `fetch` 는 인터넷 필요(폐쇄망 안에서는 빌드하지 않음).
 - tools.jar 없는 JRE·`-XX:+DisableAttachMechanism` 서버는 즉시 적용 불가 → 설치 Job 이 `PRECHECK:*` 를 남기고 영구 적용(기동 옵션 주입)만 해 다음 재기동부터 적용.
 
 ## 모듈 (`build.sh` 가 전부 한 번에 컴파일, 테스트는 각 `*/src/test/java`)

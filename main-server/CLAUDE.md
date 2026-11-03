@@ -57,7 +57,7 @@ docker compose -f docker-compose.dev.yml up -d alertmanager
 - **데이터 디렉터리**: 운영 `./services/clickhouse/data` 는 호스트에서 **uid 101(clickhouse)** 소유여야 한다 (`chown -R 101:101`, SELinux 라벨은 compose 의 `:z`). 소유자가 다르면 기동 직후 종료된다. 개발은 named volume `clickhouse_dev_data`.
 - **비밀번호**: `.env` 의 `CLICKHOUSE_PASSWORD` 하나로 admin-api·gateway 에 주입, ClickHouse 컨테이너에는 `AGENT_T_CH_PASSWORD` 로 매핑. 운영은 필수값(기본값 없음), 개발 기본값만 존재.
 - **Prometheus remote write**: gateway 가 5초 집계를 `agent_t_*` 시계열로 Prometheus remote write 로 푼다 → Prometheus 기동 옵션 `--web.enable-remote-write-receiver` 필요. 대상은 `PROMETHEUS_REMOTE_WRITE_URL`(예: `http://prometheus:9090/api/v1/write`).
-- **에이전트 jar**: agent-v(`agent/dist/agent-v` → `/app/bin/agent-v`)와 같은 구조 — `agent-t/build.sh jar` 가 만든 `agent-t/dist/`(git 추적)를 admin-api Dockerfile 이 `/app/bin/agent-t/` 로 COPY(마운트 없음). `build-images.sh` 가 4개 파일·SHA256SUMS 를 먼저 확인한다. jar 교체 = admin-api 이미지 재빌드·반입. 절차는 `agent-t/CLAUDE.md` "배포".
+- **에이전트 jar**: agent-v(`agent/dist/agent-v` → `/app/bin/agent-v`)와 같은 구조 — `agent-t/build.sh jar` 가 만든 `agent-t/dist/`(git 추적)를 admin-api Dockerfile 이 `/app/bin/agent-t/` 로 COPY(마운트 없음). `build-images.sh` 가 4개 파일·SHA256SUMS 와 agent-v/agent-t 의 `dist/SOURCE_STAMP`(현재 소스·산출물 해시 일치)를 먼저 확인하고, 불일치 시 `make build-agent-v` / `make build-agent-t` 안내 후 중단한다(산출물은 COPY 만 되고 자동 빌드되지 않음). jar 교체 = admin-api 이미지 재빌드·반입. 절차는 `agent-t/CLAUDE.md` "배포".
 
 ---
 

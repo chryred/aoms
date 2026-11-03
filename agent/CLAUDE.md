@@ -360,3 +360,11 @@ storage:
 - **설정 변경 적용 범위**: `collectors.*` 토글은 메인 루프에서 처리. 타일러 추가/제거는 `reconcile_*_tailers()` 함수에서.
 - **메트릭명 prefix**: `aoms_` prefix 없음. `cpu_usage_percent`, `log_error_total` 등 직관적 이름 그대로.
 - **labels 공통 구조**: 항상 `system_name`, `display_name`, `instance_role`, `host` 포함. `base_labels()` 헬퍼 사용.
+
+---
+
+## 빌드 · 이미지 반영
+
+- `make build-agent-v` → `agent/build.sh`(rust:1.88 musl, Docker) + `agent/dist/SOURCE_STAMP` 기록(빌드 입력 `Cargo.toml`/`Cargo.lock`/`build.rs`/`proto`/`src` 해시 + 바이너리 해시, `scripts/agent-build-stamp.sh`).
+- `build-images.sh` 는 `agent/dist/agent-v` 를 COPY 만 한다. 스탬프가 현재 소스·바이너리와 다르면 `make build-agent-v` 안내 후 중단 → `agent/build.sh` 를 직접 돌린 경우에도 스탬프가 없어 중단되므로 make 경유.
+- 재빌드한 `dist/`(SOURCE_STAMP 포함)는 커밋.
