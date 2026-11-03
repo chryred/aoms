@@ -429,7 +429,7 @@ CREATE TABLE IF NOT EXISTS agent_install_jobs (
     id         SERIAL PRIMARY KEY,
     job_id     VARCHAR(36) UNIQUE NOT NULL,
     agent_id   INTEGER REFERENCES agent_instances(id) ON DELETE SET NULL,
-    status     VARCHAR(20) DEFAULT 'pending',  -- pending | running | done | failed
+    status     VARCHAR(20) DEFAULT 'pending',  -- pending | running | done | failed | needs_target
     logs       TEXT,
     error      TEXT,
     created_at TIMESTAMP DEFAULT NOW(),
