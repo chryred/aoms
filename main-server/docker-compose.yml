@@ -124,7 +124,7 @@ services:
       - synapse-net
 
   admin-api:
-    image: synapse-admin-api:2.1       # 사전 빌드 후 load된 이미지
+    image: synapse-admin-api:2.2       # 사전 빌드 후 load된 이미지
     container_name: synapse-admin-api
     user: "1036:510"
     ports:
@@ -191,7 +191,7 @@ services:
       - synapse-net
 
   log-analyzer:
-    image: synapse-log-analyzer:2.1    # 사전 빌드 후 load된 이미지
+    image: synapse-log-analyzer:2.2    # 사전 빌드 후 load된 이미지
     container_name: synapse-log-analyzer
     user: "1036:510"
     ports:
@@ -268,7 +268,7 @@ services:
     networks:
       - synapse-net
   frontend:
-    image: synapse-frontend:2.1           # 사전 빌드 후 load된 이미지
+    image: synapse-frontend:2.2           # 사전 빌드 후 load된 이미지
     container_name: synapse-frontend
     ports:
       - "3001:80"
@@ -310,7 +310,7 @@ services:
       - synapse-net
 
   agent-t-gateway:
-    image: synapse-agent-t-gateway:2.1    # build-images.sh 로 빌드·save → 폐쇄망에서 load
+    image: synapse-agent-t-gateway:2.2    # build-images.sh 로 빌드·save → 폐쇄망에서 load
     container_name: synapse-agent-t-gateway
     ports:
       - "8330:8330"
