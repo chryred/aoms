@@ -141,6 +141,7 @@ type JVM struct {
 	ConnIdle   *int64     `json:"conn_idle,omitempty"`
 	ConnMax    *int64     `json:"conn_max,omitempty"`
 	ConnWait   *int64     `json:"conn_wait,omitempty"`
+	ConnPeak   *int64     `json:"conn_peak,omitempty"` // sum of per-pool peaks: max active within the agent's last 5s window
 	Pools      []PoolStat `json:"pools,omitempty"`
 }
 
@@ -152,6 +153,7 @@ type PoolStat struct {
 	Idle   int64  `json:"idle"`
 	Max    int64  `json:"max"`
 	Wait   int64  `json:"wait"`
+	Peak   *int64 `json:"peak,omitempty"` // max active within the last 5s window (nil = old agent)
 }
 
 type Dump struct {

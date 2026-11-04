@@ -39,7 +39,7 @@
 - 본문(body)은 수집하지 않는다. 사전 동의된 URI 에만 켜는 것을 권장.
 
 ## DB 커넥션 풀 지표 (JMX, `jvm/pool/PoolCollector`, ADR-023)
-- 전용 데몬 스레드 `agent-t-pool` 이 수집하고, `agent-t-jvm` 루프는 마지막 스냅샷만 `fill()` 로 읽는다(JMX 호출로 JVM 샘플이 지연되지 않음). 첫 탐색은 시작 30초 후, 이후 60초마다 재탐색(풀이 안 나오면 3회 뒤 5분 주기, `queryNames` 100ms 초과 2회여도 5분), 수집 주기 5초.
+- 전용 데몬 스레드 `agent-t-pool` 이 수집하고, `agent-t-jvm` 루프는 마지막 스냅샷만 `fill()` 로 읽는다(JMX 호출로 JVM 샘플이 지연되지 않음). 첫 탐색은 시작 30초 후, 이후 60초마다 재탐색(풀이 안 나오면 3회 뒤 5분 주기, `queryNames` 100ms 초과 2회여도 5분), 폴링 주기 1초(`collectPeriodMs`, 같은 `agent-t-pool` 스레드·같은 200ms 예산 — 쿼리가 커넥션을 수 ms 만 잡아 5초 시점 값은 거의 0 이므로 5초 창 최대값(peak)을 함께 보고; 예산 초과 3회 연속이면 30초 주기로 후퇴).
 - **MBeanServer 는 `MBeanServerFactory.findMBeanServer(null)` 로만 찾는다.** JEUS 는 `jeus.jmx.usePlatformMBeanServer` 가 없으면 플랫폼이 아닌 자체 MBeanServer 를 만든다. 플랫폼 MBeanServer 를 생성시키는 API(`ManagementFactory.getPlatformMBeanServer`)는 **절대 호출 금지**(JBoss 등에서 기동 장애 선례, 이미 만들어진 서버만 대상). `PoolCollectorTest.sourceNeverUsesForbiddenCalls` 가 소스 문자열로 강제한다.
 - **MBean 에는 `getAttribute` 만**(+탐색용 `queryNames`/`getMBeanInfo`). `invoke`/`setAttribute`/`getAttributes`(일괄) 금지 — JEUS 풀 MBean 에는 `shrink`·`disableCP` 같은 상태 변경 오퍼레이션과 무거운 `PooledConnectionInfo` 가 있어, JEUS(`JEUS:j2eeType=JDBCDataSource,*`)는 **`stats` 속성 하나만** 읽는다(테스트가 호출 목록 == `[getAttribute:stats]` 를 검증).
 - JEUS `stats` 값 객체(JSR-77 `JDBCConnectionPoolStats`)는 JEUS 클래스 의존 없이 **리플렉션**으로만 읽는다: `getPoolSize`/`getFreePoolSize`/`getMaxPoolSize`/`getWaitingThreadCount` 의 `getCurrent()`. active = PoolSize − FreePoolSize(0 미만이면 0), max ≤ 0 이면 `PoolSize.getUpperBound()`. 메서드 캐시는 `WeakHashMap<Class, Map<이름, WeakReference<Method>>>` — 값이 클래스를 강하게 잡지 않아 webapp 언로드가 막히지 않는다(`methodCacheDoesNotPinClassLoader`).
@@ -47,7 +47,8 @@
 - 안전장치: 한 사이클 예산 200ms(`nanoTime`, 초과 시 남은 풀은 라운드로빈 커서로 다음 사이클, 못 읽은 풀은 직전 값 유지), 1초 넘는 단일 호출은 해당 풀 6사이클 건너뜀, 예산 초과 3회 연속이면 주기 30초, 5분 이어지면 수집 자체를 끄고(WARN 1회) 에이전트 나머지는 영향 없음. 풀 5회 연속 실패 시 대상 제거(다음 재탐색에서 재등록). `SecurityException`·`LinkageError` 등 모든 `Throwable` 은 삼키고 스냅샷이 30초 넘게 갱신되지 않으면 `conn_*`/`pools` 를 생략한다.
 - 첫 수집 성공 시 INFO 1줄(`pool metrics: mbeanServers=N pools=M [name(kind,max=..), ...] sum ... e.g. <ObjectName>`) — dev_cxm 에서 JEUS ObjectName 형식·max 값 확인용.
 - 킬 스위치: `agent-t.properties` `pool.metrics=false`(기본 true, gateway 가 못 바꿈). 설치 Job 은 `label_info.pool_metrics=false` 일 때만 이 줄을 쓴다(프론트 설치 폼에는 노출하지 않음 — properties/label_info 전용).
-- 프로토콜: `jvm.conn_active/idle/max/wait`(합계) + `jvm.pools[{name,kind,active,idle,max,wait}]`(사용률 내림차순 최대 64개), 풀이 없으면 키 생략.
+- **peak**: 풀마다 최근 폴링 (시각, active) 8칸 링을 두고 `PEAK_WINDOW_MS`=5초 안 최대 → `PoolSample.peak`(≥active), 합계 `JvmSample.connPeak`(풀별 peak 의 합). 요청 스레드 계측(JDBC borrow 카운트)은 추가하지 않았다 — `conn_open/close` 훅은 물리 커넥션이 아니라 `getConnection()` 호출을 세고 풀 프록시/커넥션 반환 경로는 풀 구현마다 달라 단순·안전하게 일반화할 수 없다(ADR-024).
+- 프로토콜: `jvm.conn_active/idle/max/wait`(합계) + `jvm.conn_peak`(선택) + `jvm.pools[{name,kind,active,idle,max,wait,peak}]`(사용률 내림차순 최대 64개), 풀이 없으면 키 생략.
 
 ## 규칙
 - 코어는 Java 6 API 만 사용: 람다·diamond·try-with-resources·`java.util.Objects`·`Long.toUnsignedString` 금지.

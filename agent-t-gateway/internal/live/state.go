@@ -76,6 +76,10 @@ type aggPayload struct {
 	SqlTop       []sqlItem        `json:"sql_top"`
 	Jvm          *protocol.JVM    `json:"jvm"`
 	Dropped      protocol.Dropped `json:"dropped"`
+	// Users5m = distinct users (user_id, else user_ip) seen in the last 5 minutes on this
+	// instance. UsersCapped = the per-instance key cap (UsersMaxKeys) was hit, so it is a lower bound.
+	Users5m     int  `json:"users_5m"`
+	UsersCapped bool `json:"users_capped,omitempty"`
 }
 
 type instState struct {
@@ -84,6 +88,7 @@ type instState struct {
 	active   []byte // latest active payload JSON
 	ring     []aggPayload
 	win      *window
+	users    *userSet
 	cum      Counters
 	buckets  [3]int64
 	sampSec  int64
@@ -143,7 +148,7 @@ func (s *State) name(kind, id string) string {
 func (s *State) get(inst registry.Instance) *instState {
 	is := s.insts[inst.AgentID]
 	if is == nil {
-		is = &instState{win: newWindow(), cum: Counters{UriTotals: map[string]UriCounter{}}}
+		is = &instState{win: newWindow(), users: newUserSet(), cum: Counters{UriTotals: map[string]UriCounter{}}}
 		s.insts[inst.AgentID] = is
 	}
 	is.inst = inst
@@ -205,6 +210,7 @@ func (s *State) Accept(inst registry.Instance, b *protocol.Batch, offsetMs int64
 			w.slow++
 			is.cum.SlowTotal++
 		}
+		is.users.add(userKey(t.UserID, t.UserIP), now)
 		bump(w.uri, uris[i], 1, ms)
 		is.cum.addURI(uris[i], ms, t.Error)
 		for j, q := range t.SQL {
@@ -272,11 +278,13 @@ func (s *State) Aggregate() []AggEvent {
 	var out []AggEvent
 	for _, is := range s.insts {
 		w := is.win
+		users, capped := is.users.count(now) // also frees expired keys of idle instances
 		if w.tx == 0 && w.jvm == nil && now-is.lastSeen > 60000 {
 			continue
 		}
 		ev := AggEvent{Inst: is.inst, Ts: now, Tps: float64(w.tx) / AggWindowSec, SlowCnt: w.slow,
-			UriTop: topOf(w.uri), SqlTop: topOf(w.sql), Jvm: w.jvm, Dropped: w.dropped, Active: is.buckets, Counters: is.cum.clone()}
+			UriTop: topOf(w.uri), SqlTop: topOf(w.sql), Jvm: w.jvm, Dropped: w.dropped, Active: is.buckets, Counters: is.cum.clone(),
+			Users5m: users, UsersCapped: capped}
 		if w.tx > 0 {
 			ev.AvgMs = w.sumMs / float64(w.tx)
 			ev.ErrRate = float64(w.errs) / float64(w.tx)
@@ -284,7 +292,7 @@ func (s *State) Aggregate() []AggEvent {
 		ap := aggPayload{SystemID: is.inst.SystemID, InstanceRole: is.inst.InstanceRole, Ts: now,
 			Tps: ev.Tps, AvgMs: ev.AvgMs, ErrRate: ev.ErrRate, SlowCnt: ev.SlowCnt,
 			UriTop: make([]uriItem, 0, len(ev.UriTop)), SqlTop: make([]sqlItem, 0, len(ev.SqlTop)),
-			Jvm: ev.Jvm, Dropped: ev.Dropped}
+			Jvm: ev.Jvm, Dropped: ev.Dropped, Users5m: users, UsersCapped: capped}
 		for _, t := range ev.UriTop {
 			ap.UriTop = append(ap.UriTop, uriItem{URI: t.Name, Cnt: t.Cnt, Ms: t.Ms})
 		}

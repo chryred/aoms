@@ -40,11 +40,13 @@ JVM 당 약 1초마다 1회 전송. 본문 최상위 필드:
 | 필드 | 설명 |
 |---|---|
 | `conn_active` / `conn_idle` / `conn_max` / `conn_wait` | 수집된 모든 풀의 합계(개수). `conn_wait` = 커넥션을 기다리는 스레드 수. `max` 가 무제한/미상인 풀은 `conn_max` 합계에서 0 으로 계산 |
-| `pools[]` | 풀별 `{name, kind, active, idle, max, wait}`. `kind` = `jeus` \| `hikari` \| `tomcat` \| `dbcp2`. `name` = 풀 이름(JEUS 데이터소스 id 등, 자격증명·URL 미포함). 사용률(active/max) 내림차순, 최대 64개 |
+| `conn_peak` | (선택) 풀별 `peak` 의 합 — 최근 5초 창 안 사용 중 커넥션 최대치 |
+| `pools[]` | 풀별 `{name, kind, active, idle, max, wait, peak}`. `peak`(선택) = 최근 5초 창 안 active 최대값(항상 ≥ active). 에이전트가 풀을 1초 간격으로 폴링해 창 최대를 구한다 — 쿼리가 커넥션을 수 ms 만 잡으므로 5초 시점 값(`active`)은 거의 0 이다. `kind` = `jeus` \| `hikari` \| `tomcat` \| `dbcp2`. `name` = 풀 이름(JEUS 데이터소스 id 등, 자격증명·URL 미포함). 사용률(active/max) 내림차순, 최대 64개 |
 
+- `conn_peak`/`peak` 가 없으면(구 에이전트) 소비자는 `conn_active`/`active` 로 대체한다("미수집", 0 아님).
 - 풀을 하나도 못 찾았거나 스냅샷이 30초 넘게 갱신되지 않으면 `conn_*` 와 `pools` 키 **자체를 생략**한다(0 과 구분). 필드가 없으면 "풀 미수집"(구 에이전트·`pool.metrics=false`)으로 취급.
 - 수집 방식: 에이전트 전용 스레드가 `MBeanServerFactory.findMBeanServer(null)` 로 찾은 MBeanServer 에서 JMX `getAttribute` 만 읽는다(JEUS `JEUS:j2eeType=JDBCDataSource,*` 의 `stats`, HikariCP, Tomcat JDBC/DataSource, DBCP2). active = 사용 중, idle = 유휴, JEUS active = PoolSize - FreePoolSize.
-- gateway: live SSE `jvm` 객체에 그대로 전달, Prometheus 는 `agent_t_jvm_conn_{active,idle,max,wait}`(합계) 와 `agent_t_db_pool_{active,idle,max,wait}{pool,kind}`(풀별, 인스턴스당 64개 상한).
+- gateway: live SSE `jvm` 객체에 그대로 전달, Prometheus 는 `agent_t_jvm_conn_{active,idle,max,wait,peak}`(합계) 와 `agent_t_db_pool_{active,idle,max,wait,peak}{pool,kind}`(풀별, 인스턴스당 64개 상한).
 
 ### tx[]
 `trace_id, span_id, parent_span(없으면 ""), start_ts, elapsed_ms, method, uri_id, status, error, exc, cpu_ms, sql_ms, sql_cnt, fetch_cnt, fetch_ms, ext_ms, ext_cnt, conn_open, conn_close, conn_leak, conn_uncommit, user_ip, user_id, biz_key, sql[], detail`
@@ -90,3 +92,8 @@ JVM 당 약 1초마다 1회 전송. 본문 최상위 필드:
 - **gateway → ClickHouse**: 청크마다 고정된 `insert_deduplication_token` 을 보내고 실패한 청크는 같은 토큰·같은 본문으로 통째 재시도한다. 커밋 후 타임아웃이 나도 ClickHouse 가 중복을 제거한다 (`non_replicated_deduplication_window = 1000`, 최근 1000 블록 한정).
 - **에이전트 → gateway**: 에이전트가 읽기 타임아웃 후 같은 배치를 재전송하면 gateway 는 이를 구별하지 못한다 (배치 단위 멱등 키 없음). 이미 수신·적재된 배치가 한 번 더 들어오면 `tx_summary`/`tx_sql` 등에 **중복 행**이 생길 수 있다. 의도된 한계이며 코드로 막지 않는다.
 - 소비자(조회·집계)는 `span_id` 중복 가능성을 알고 있어야 한다. E2E 는 `count() - uniqExact(span_id)` 로 중복 비율을 기록한다.
+
+## 6. gateway 파생 지표 — 동시 사용자 (프로토콜 변경 없음)
+- 배치 `tx[].user_id`/`user_ip` 만으로 gateway 가 인스턴스별 **최근 5분 고유 사용자 수**를 센다(키 = `user_id`, 비어 있으면 `user_ip`, 둘 다 비면 제외). 원문은 저장하지 않고 프로세스 솔트가 붙은 64bit 해시만 메모리에 둔다(영속화·ClickHouse 저장 없음).
+- 메모리 상한: 인스턴스당 고유 키 5만 개(`live.UsersMaxKeys`, 최대 약 2MB). 상한 도달 시 새 사용자는 만료 전까지 세지 않고 SSE `users_capped=true`(하한값 표시).
+- live SSE `agg` 이벤트 `users_5m`(정수)·`users_capped`(true 일 때만), Prometheus `agent_t_users_5m`.

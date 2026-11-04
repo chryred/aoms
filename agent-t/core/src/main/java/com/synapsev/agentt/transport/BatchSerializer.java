@@ -233,6 +233,9 @@ public final class BatchSerializer {
             w.key("conn_idle").value(j.connIdle);
             w.key("conn_max").value(j.connMax);
             w.key("conn_wait").value(j.connWait);
+            if (j.connPeak >= 0) {
+                w.key("conn_peak").value(j.connPeak);
+            }
         }
         if (j.pools != null && j.pools.length > 0) {
             w.key("pools").beginArray();
@@ -245,6 +248,9 @@ public final class BatchSerializer {
                 w.key("idle").value(p.idle);
                 w.key("max").value(p.max);
                 w.key("wait").value(p.wait);
+                if (p.peak >= 0) {
+                    w.key("peak").value(p.peak);
+                }
                 w.endObject();
             }
             w.endArray();

@@ -68,6 +68,7 @@ func (b *Builder) Build(ev live.AggEvent) []TimeSeries {
 		f("agent_t_dropped_total", float64(d[0]), Label{"kind", "detail"}),
 		f("agent_t_dropped_total", float64(d[1]), Label{"kind", "sql"}),
 		f("agent_t_dropped_total", float64(d[2]), Label{"kind", "tx"}),
+		f("agent_t_users_5m", float64(ev.Users5m)),
 	}
 	if j := ev.Jvm; j != nil {
 		out = append(out,
@@ -86,6 +87,9 @@ func (b *Builder) Build(ev live.AggEvent) []TimeSeries {
 			if c.v != nil {
 				out = append(out, f(c.name, float64(*c.v)))
 			}
+		}
+		if j.ConnPeak != nil {
+			out = append(out, f("agent_t_jvm_conn_peak", float64(*j.ConnPeak)))
 		}
 		out = appendPoolSeries(out, j.Pools, f)
 	}
@@ -131,6 +135,9 @@ func appendPoolSeries(out []TimeSeries, pools []protocol.PoolStat, f func(string
 			f("agent_t_db_pool_idle", float64(p.Idle), ls...),
 			f("agent_t_db_pool_max", float64(p.Max), ls...),
 			f("agent_t_db_pool_wait", float64(p.Wait), ls...))
+		if p.Peak != nil {
+			out = append(out, f("agent_t_db_pool_peak", float64(*p.Peak), ls...))
+		}
 	}
 	return out
 }

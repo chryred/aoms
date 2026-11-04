@@ -110,6 +110,39 @@ public class PoolCollectorTest {
     }
 
     @Test
+    public void peakKeepsShortLivedActiveWithinFiveSecondWindow() throws Exception {
+        ClassLoader cl = isolatedLoader();
+        FakePoolMBean m = jeus("p", jeusStats(cl, 5, 5, 30, 0));
+        PoolCollector pc = collector();
+        pc.tick(1000); // active 0
+        m.put("stats", jeusStats(cl, 5, 1, 30, 0));
+        pc.collect(2000); // active 4 (잠깐)
+        m.put("stats", jeusStats(cl, 5, 5, 30, 0));
+        pc.collect(3000); // active 0
+        JvmSample s = new JvmSample();
+        pc.fill(s, 3100);
+        assertEquals(0, s.pools[0].active);
+        assertEquals(4, s.pools[0].peak);
+        assertEquals(4, s.connPeak);
+        pc.collect(7500); // 2000ms 시점이 5초 창 밖
+        s = new JvmSample();
+        pc.fill(s, 7600);
+        assertEquals(0, s.pools[0].peak);
+        assertEquals(0, s.connPeak);
+    }
+
+    @Test
+    public void peakNeverBelowCurrentActive() throws Exception {
+        jeus("p", jeusStats(isolatedLoader(), 5, 2, 30, 0));
+        PoolCollector pc = collector();
+        pc.tick(1000);
+        JvmSample s = new JvmSample();
+        pc.fill(s, 1100);
+        assertEquals(3, s.pools[0].active);
+        assertEquals(3, s.pools[0].peak);
+    }
+
+    @Test
     public void noPoolsOmitsFields() {
         PoolCollector pc = collector();
         pc.tick(1000);

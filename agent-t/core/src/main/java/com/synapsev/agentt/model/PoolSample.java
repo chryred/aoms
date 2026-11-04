@@ -10,4 +10,6 @@ public final class PoolSample {
     public int max;
     /** 커넥션을 기다리는 스레드 수. */
     public int wait;
+    /** 최근 5초 창(1초 폴링) 안 active 최대값. 항상 active 이상. */
+    public int peak = -1;
 }

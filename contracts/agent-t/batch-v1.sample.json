@@ -72,7 +72,7 @@
       "0a1b2c3d4e5f6071": "/member/{n}"
     }
   },
-  "jvm": {"ts": 1761800000000, "heap_used": 734003200, "heap_max": 2147483648, "nonheap_used": 156000000, "gc_count": 412, "gc_ms": 9850, "threads": 187, "cpu_ratio": 0.37, "classes": 21345, "conn_active": 12, "conn_idle": 18, "conn_max": 659, "conn_wait": 1, "pools": [{"name": "sic_DS", "kind": "jeus", "active": 7, "idle": 3, "max": 30, "wait": 0}, {"name": "sic_sso_DS", "kind": "jeus", "active": 5, "idle": 0, "max": 5, "wait": 1}]},
+  "jvm": {"ts": 1761800000000, "heap_used": 734003200, "heap_max": 2147483648, "nonheap_used": 156000000, "gc_count": 412, "gc_ms": 9850, "threads": 187, "cpu_ratio": 0.37, "classes": 21345, "conn_active": 12, "conn_idle": 18, "conn_max": 659, "conn_wait": 1, "conn_peak": 15, "pools": [{"name": "sic_DS", "kind": "jeus", "active": 7, "idle": 3, "max": 30, "wait": 0, "peak": 9}, {"name": "sic_sso_DS", "kind": "jeus", "active": 5, "idle": 0, "max": 5, "wait": 1, "peak": 6}]},
   "dumps": [{"cmd_id": 7, "ts": 1761799999500, "text": "\"http-8080-exec-1\" #31 prio=5 tid=0x00007f nid=0x1a2b runnable\n   java.lang.Thread.State: RUNNABLE\n\tat oracle.jdbc.driver.T4CPreparedStatement.executeForRows(T4CPreparedStatement.java:1203)\n", "truncated": false}],
   "dropped": {"detail": 0, "sql": 0, "tx": 0}
 }

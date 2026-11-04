@@ -59,6 +59,10 @@ public final class PoolCollector {
     /** 스냅샷이 이 시간(ms) 넘게 갱신되지 않으면 값을 보내지 않는다. */
     static final long STALE_MS = 30000;
 
+    /** peak 창(ms)과 폴링 이력 링 크기(1초 폴링이면 5~6개면 충분). */
+    static final long PEAK_WINDOW_MS = 5000;
+    private static final int PEAK_RING = 8;
+
     private static final long REDISCOVER_MS = 60000;
     private static final long REDISCOVER_IDLE_MS = 300000;
     private static final long SLOW_PERIOD_MS = 30000;
@@ -128,6 +132,31 @@ public final class PoolCollector {
         int skip;
         PoolSample last;
         long lastAt;
+        /** 최근 폴링의 (시각, active) 링 — 5초 창 최대값(peak) 계산용. */
+        final long[] histAt = new long[PEAK_RING];
+        final int[] histVal = new int[PEAK_RING];
+        int histN;
+        int histPos;
+
+        void record(long nowMs, int active) {
+            histAt[histPos] = nowMs;
+            histVal[histPos] = active;
+            histPos = (histPos + 1) % PEAK_RING;
+            if (histN < PEAK_RING) {
+                histN++;
+            }
+        }
+
+        /** nowMs 기준 PEAK_WINDOW_MS 안의 active 최대값. */
+        int peak(long nowMs, int current) {
+            int p = current;
+            for (int i = 0; i < histN; i++) {
+                if (nowMs - histAt[i] <= PEAK_WINDOW_MS && histVal[i] > p) {
+                    p = histVal[i];
+                }
+            }
+            return p;
+        }
 
         Target(MBeanServer server, ObjectName on, Provider provider, String key, String name) {
             this.server = new WeakReference<MBeanServer>(server);
@@ -145,6 +174,7 @@ public final class PoolCollector {
         final int idle;
         final int max;
         final int wait;
+        final int peak;
 
         Snapshot(long atMs, PoolSample[] pools) {
             this.atMs = atMs;
@@ -153,16 +183,19 @@ public final class PoolCollector {
             long i = 0;
             long m = 0;
             long w = 0;
+            long pk = 0;
             for (int k = 0; k < pools.length; k++) {
                 a += pools[k].active;
                 i += pools[k].idle;
                 m += Math.max(0, pools[k].max);
                 w += pools[k].wait;
+                pk += pools[k].peak;
             }
             active = clamp(a);
             idle = clamp(i);
             max = clamp(m);
             wait = clamp(w);
+            peak = clamp(pk);
         }
     }
 
@@ -177,9 +210,12 @@ public final class PoolCollector {
     private final Map<Class<?>, Map<String, WeakReference<Method>>> methods =
             new WeakHashMap<Class<?>, Map<String, WeakReference<Method>>>();
 
-    /** 첫 탐색 전 대기(ms)와 정상 수집 주기(ms). 테스트에서만 바꾼다. */
+    /**
+     * 첫 탐색 전 대기(ms)와 정상 폴링 주기(ms). 테스트에서만 바꾼다. 1초 폴링: 쿼리가 커넥션을 수 ms 만 잡아
+     * 5초 단일 시점 샘플은 거의 항상 0 이므로, 창 안 최대값(peak)을 함께 보고하기 위함이다(같은 200ms 예산 안).
+     */
     long initialDelayMs = 30000;
-    long collectPeriodMs = 5000;
+    long collectPeriodMs = 1000;
 
     private volatile Snapshot snapshot;
     private volatile boolean disabled;
@@ -258,6 +294,7 @@ public final class PoolCollector {
         s.connIdle = sn.idle;
         s.connMax = sn.max;
         s.connWait = sn.wait;
+        s.connPeak = sn.peak;
         s.pools = sn.pools;
     }
 
@@ -497,6 +534,7 @@ public final class PoolCollector {
             }
             t.last = ps;
             t.lastAt = nowMs;
+            t.record(nowMs, ps.active);
             t.fails = 0;
         } catch (InstanceNotFoundException e) {
             return false;
@@ -524,6 +562,7 @@ public final class PoolCollector {
         p.idle = clamp(Math.max(0, idle));
         p.max = clamp(Math.max(0, max));
         p.wait = clamp(Math.max(0, wait));
+        p.peak = p.active;
         return p;
     }
 
@@ -665,7 +704,16 @@ public final class PoolCollector {
         for (int i = 0; i < targets.size(); i++) {
             Target t = targets.get(i);
             if (t.last != null && nowMs - t.lastAt <= staleMs) {
-                list.add(t.last);
+                PoolSample c = new PoolSample();
+                PoolSample l = t.last;
+                c.name = l.name;
+                c.kind = l.kind;
+                c.active = l.active;
+                c.idle = l.idle;
+                c.max = l.max;
+                c.wait = l.wait;
+                c.peak = t.peak(nowMs, l.active);
+                list.add(c);
             }
         }
         Collections.sort(list, new Comparator<PoolSample>() {
@@ -715,7 +763,7 @@ public final class PoolCollector {
             sb.append(", +").append(byName.length - LOG_POOLS).append(" more");
         }
         sb.append("] sum active=").append(sn.active).append(" idle=").append(sn.idle).append(" max=").append(sn.max)
-                .append(" wait=").append(sn.wait);
+                .append(" wait=").append(sn.wait).append(" peak=").append(sn.peak);
         if (!targets.isEmpty()) {
             sb.append(" e.g. ").append(targets.get(0).on.getCanonicalName());
         }

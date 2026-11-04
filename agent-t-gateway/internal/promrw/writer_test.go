@@ -77,9 +77,9 @@ func TestWriterPostsSnappy(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		// 4 counters + 3 active + 3 dropped + 7 jvm + 2 uris*3
-		if n := countSeries(t, raw); n != 23 {
-			t.Fatalf("series = %d, want 23", n)
+		// 4 counters + 3 active + 3 dropped + users_5m + 7 jvm + 2 uris*3
+		if n := countSeries(t, raw); n != 24 {
+			t.Fatalf("series = %d, want 24", n)
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("no request")

@@ -44,6 +44,8 @@ type AggEvent struct {
 	Active         [3]int64 // latest active-transaction buckets (normal/warning/critical)
 	Dropped        protocol.Dropped
 	Counters       Counters
+	Users5m        int  // distinct users in the last 5 min (see users.go)
+	UsersCapped    bool // per-instance key cap hit: Users5m is a lower bound
 }
 
 type counter struct {

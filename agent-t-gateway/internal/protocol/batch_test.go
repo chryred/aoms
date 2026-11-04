@@ -59,7 +59,11 @@ func TestDecodePoolFieldsAndOldAgentCompat(t *testing.T) {
 	if j.ConnActive == nil || *j.ConnActive != 12 || *j.ConnIdle != 18 || *j.ConnMax != 659 || *j.ConnWait != 1 {
 		t.Fatalf("conn sums: %+v", j)
 	}
-	if len(j.Pools) != 2 || j.Pools[1] != (PoolStat{Name: "sic_sso_DS", Kind: "jeus", Active: 5, Idle: 0, Max: 5, Wait: 1}) {
+	if j.ConnPeak == nil || *j.ConnPeak != 15 {
+		t.Fatalf("conn_peak: %+v", j.ConnPeak)
+	}
+	p1 := j.Pools[1]
+	if len(j.Pools) != 2 || p1.Name != "sic_sso_DS" || p1.Active != 5 || p1.Max != 5 || p1.Wait != 1 || p1.Peak == nil || *p1.Peak != 6 {
 		t.Fatalf("pools: %+v", j.Pools)
 	}
 	// 구 에이전트: conn_*/pools 없음 -> nil 이고 JSON 으로 다시 내보내도 키가 없다(0 과 구분).
@@ -68,7 +72,7 @@ func TestDecodePoolFieldsAndOldAgentCompat(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ob.JVM.ConnActive != nil || ob.JVM.Pools != nil {
+	if ob.JVM.ConnActive != nil || ob.JVM.ConnPeak != nil || ob.JVM.Pools != nil {
 		t.Fatalf("old agent should have no pool fields: %+v", ob.JVM)
 	}
 	out, _ := json.Marshal(ob.JVM)

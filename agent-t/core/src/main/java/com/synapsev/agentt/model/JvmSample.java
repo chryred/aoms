@@ -16,6 +16,8 @@ public final class JvmSample {
     public int connIdle = -1;
     public int connMax = -1;
     public int connWait = -1;
+    /** 풀별 5초 창 peak 의 합(-1 = 미수집). */
+    public int connPeak = -1;
     /** 풀별 값(null = 미수집). */
     public PoolSample[] pools;
 }

@@ -137,6 +137,11 @@ func TestPoolSeries(t *testing.T) {
 
 func TestPoolSeriesAbsentAndCapped(t *testing.T) {
 	ss := NewBuilder().Build(testEvent(0))
+	for _, n := range []string{"agent_t_jvm_conn_peak", "agent_t_db_pool_peak"} {
+		if len(seriesByName(ss, n)) != 0 {
+			t.Fatalf("%s emitted for old agent", n)
+		}
+	}
 	for _, n := range []string{"agent_t_jvm_conn_active", "agent_t_jvm_conn_max", "agent_t_db_pool_active"} {
 		if len(seriesByName(ss, n)) != 0 {
 			t.Fatalf("%s should not exist without pool data", n)
@@ -148,5 +153,23 @@ func TestPoolSeriesAbsentAndCapped(t *testing.T) {
 	}
 	if got := len(seriesByName(NewBuilder().Build(ev), "agent_t_db_pool_max")); got != MaxPoolSeries {
 		t.Fatalf("cap: %d", got)
+	}
+}
+
+func TestPeakAndUsersSeries(t *testing.T) {
+	ev := testEvent(0)
+	ev.Users5m = 42
+	ev.Jvm.ConnPeak = i64(9)
+	ev.Jvm.Pools = []protocol.PoolStat{{Name: "sic_DS", Kind: "jeus", Active: 1, Max: 30, Peak: i64(6)}, {Name: "old", Kind: "jeus"}}
+	ss := NewBuilder().Build(ev)
+	if g := seriesByName(ss, "agent_t_users_5m"); len(g) != 1 || g[0].Value != 42 {
+		t.Fatalf("users %+v", g)
+	}
+	if g := seriesByName(ss, "agent_t_jvm_conn_peak"); len(g) != 1 || g[0].Value != 9 {
+		t.Fatalf("conn_peak %+v", g)
+	}
+	pk := seriesByName(ss, "agent_t_db_pool_peak")
+	if len(pk) != 1 || pk[0].Value != 6 || labelOf(pk[0], "pool") != "sic_DS" || labelOf(pk[0], "kind") != "jeus" {
+		t.Fatalf("pool peak %+v", pk)
 	}
 }

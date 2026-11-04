@@ -822,3 +822,17 @@ Synapse는 이미 자체 username/password DB(`users` 테이블)를 보유하고
 6. 합계 `conn_max` 는 풀 수가 많으면(29풀 659) 의미가 약하므로 프론트는 풀별 사용률 목록(사용률 내림차순, 팔레트 B 상태 토큰)을 함께 보여준다.
 
 **검증 상태**: JEUS ObjectName 전체 문자열·`MaxPoolSize.current` 의미·풀 lazy 생성 시점은 바이트코드 기반 추론이며 dev_cxm 의 첫 수집 INFO 로그로 확정한다.
+
+## ADR-024: 실시간 모니터링 — 동시 사용자 = 5분 고유 사용자(gateway 계산), DB 풀 사용 중 = 5초 창 최대(peak) (2026-11-05)
+
+**Status**: Accepted
+
+**맥락**: (A) "동시 사용자·스레드" 위젯의 사용자 수는 진행 중 트랜잭션 수라 요청이 ms 에 끝나면 항상 0 이었고, "스레드" 는 `ThreadMXBean.getThreadCount()`(JVM 전체 스레드, WAS 워커 아님)라 의미가 불명확했다. (B) DB 풀 "사용 중"은 5초 JVM 샘플 시점의 `active` 한 점이라 쿼리가 커넥션을 수 ms 만 잡는 환경에서는 거의 항상 0 이었다.
+
+**결정**:
+1. **동시 사용자**는 gateway 가 계산: 인스턴스별 최근 5분 고유 사용자(키 = `user_id`, 없으면 `user_ip`; 이미 모든 tx 에 있어 에이전트·프로토콜 변경 없음). 원문 IP/ID 는 저장하지 않고 프로세스 솔트 FNV-64 해시만 메모리에 두며 영속화하지 않는다. 메모리 상한 인스턴스당 5만 키(≈2MB), 초과 시 신규 미집계(`users_capped`, 하한값). SSE `agg.users_5m`, Prometheus `agent_t_users_5m`. 다중 인스턴스 합계는 단순 합(한 사용자가 두 WAS 에 닿으면 각각 센다).
+2. 프론트는 "동시 사용자 (5분 고유)" 와 "JVM 스레드" 를 한 차트의 두 선으로 보이고 ⓘ 힌트로 정의를 설명. 위젯 id `jvm_users_threads` 는 유지(저장 레이아웃 호환), 제목만 "동시 사용자·JVM 스레드".
+3. **DB 풀 peak**: `PoolCollector` 폴링을 5초 → 1초(같은 데몬 스레드·200ms 예산, 초과 시 기존 라운드로빈/30초 후퇴/5분 비활성 안전장치 그대로)로 올리고 최근 5초 창의 `active` 최대를 `pools[].peak`/`jvm.conn_peak`(합) 로 보고. 현재값 `active` 도 유지. 구 에이전트는 필드 없음 → 프론트·Prometheus 는 `active` 로 대체/생략.
+4. JDBC 계측으로 "진행 중 tx 가 빌린 커넥션 수"를 더하는 안은 채택하지 않음: 계측 훅은 `getConnection()`(풀 프록시 포함) 호출/close 를 세므로 풀 구현마다 borrow·return 경로가 달라 정확히 일반화하기 어렵고 오차가 크다. JMX 폴링 peak 가 단순·안전하다.
+
+**배포**: gateway 이미지(users_5m·peak 전달/Prometheus) + 에이전트 jar(peak 수집, WAS 재시작 필요) + 프론트. 구 에이전트와 신 gateway, 신 에이전트와 구 gateway 조합 모두 호환(미수집 취급).

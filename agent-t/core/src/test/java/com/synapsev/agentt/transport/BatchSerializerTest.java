@@ -82,6 +82,7 @@ public class BatchSerializerTest {
         j.connIdle = 18;
         j.connMax = 659;
         j.connWait = 1;
+        j.connPeak = 15;
         com.synapsev.agentt.model.PoolSample p1 = new com.synapsev.agentt.model.PoolSample();
         p1.name = "sic_DS";
         p1.kind = "jeus";
@@ -89,6 +90,7 @@ public class BatchSerializerTest {
         p1.idle = 3;
         p1.max = 30;
         p1.wait = 0;
+        p1.peak = 9;
         com.synapsev.agentt.model.PoolSample p2 = new com.synapsev.agentt.model.PoolSample();
         p2.name = "sic_sso_DS";
         p2.kind = "jeus";
@@ -96,6 +98,7 @@ public class BatchSerializerTest {
         p2.idle = 0;
         p2.max = 5;
         p2.wait = 1;
+        p2.peak = 6;
         j.pools = new com.synapsev.agentt.model.PoolSample[] {p1, p2};
         b.jvm = j;
         Batch.Dump d = new Batch.Dump();
@@ -168,19 +171,22 @@ public class BatchSerializerTest {
         assertEquals(Long.valueOf(18), jvm.get("conn_idle"));
         assertEquals(Long.valueOf(659), jvm.get("conn_max"));
         assertEquals(Long.valueOf(1), jvm.get("conn_wait"));
+        assertEquals(Long.valueOf(15), jvm.get("conn_peak"));
         List<Object> pools = TestData.list(jvm.get("pools"));
         assertEquals(2, pools.size());
         assertEquals("we\"ird\\name", map(pools.get(0)).get("name"));
         assertEquals("jeus", map(pools.get(0)).get("kind"));
         assertEquals(Long.valueOf(30), map(pools.get(0)).get("max"));
+        assertEquals(Long.valueOf(9), map(pools.get(0)).get("peak"));
         assertEquals(Long.valueOf(1), map(pools.get(1)).get("wait"));
         b.jvm.connActive = -1;
         b.jvm.connIdle = -1;
         b.jvm.connMax = -1;
         b.jvm.connWait = -1;
+        b.jvm.connPeak = -1;
         b.jvm.pools = null;
         jvm = map(map(JsonReader.parse(TestData.gunzip(BatchSerializer.serialize(b)))).get("jvm"));
-        for (String k : new String[] {"conn_active", "conn_idle", "conn_max", "conn_wait", "pools"}) {
+        for (String k : new String[] {"conn_active", "conn_idle", "conn_max", "conn_wait", "conn_peak", "pools"}) {
             assertFalse(k, jvm.containsKey(k));
         }
         assertEquals(Long.valueOf(187), jvm.get("threads"));
