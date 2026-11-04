@@ -29,7 +29,25 @@
 - ASM API 레벨은 빌드가 생성하는 `AsmApi.LEVEL`(legacy `ASM5`, modern `ASM9`) — instrument 소스는 ASM 5.2 에 있는 API 만 쓴다.
 - `getConnection()`/`getConnection(String,String)`(반환 타입이 `java.sql.Connection` 또는 하위 타입, static·bridge 제외)은 조상에 `javax.sql.CommonDataSource` 또는 `javax.sql.PooledConnection` 이 있는 클래스에서만 "커넥션 open" 으로 계측한다(pgjdbc `BaseDataSource` 는 `DataSource` 가 아니라 `CommonDataSource` 만 구현). `Statement`/`ResultSet`/`DatabaseMetaData` 계열과, 풀이 물리 커넥션을 돌려주는 접근자(Tomcat-JDBC `PooledConnection` 등 JDBC 상위 타입이 없는 클래스)는 open 이 아니다. 바깥쪽 호출만 집계(깊이 가드).
 - `TxTracker` 의 요청/응답 클래스 → 접근자 캐시는 `WeakHashMap<Class,Access>` + `Method` `WeakReference`(값이 키 클래스를 강하게 잡지 않음; 비면 재탐색). webapp 언로드 후 클래스로더가 고정되지 않아야 한다(`TxTrackerAccessLeakTest`).
+- **DB 접속명(`sql[].db`)**: `TxTracker.sqlEnter` 가 `Statement.getConnection()` → `getMetaData().getURL()` 을 **Connection 객체(identity, `WeakIdentityMap`)당 1회**만 읽어 `norm/JdbcUrlNormalizer` 로 `host:port/db` 로 정규화(자격증명·파라미터 제거, 128자 상한, 포트 생략 시 벤더 기본 포트, 해석 불가 시 벤더명). 실패는 `""` 로 음성 캐시(재시도 없음), 50ms 넘는 조회가 3회 누적되면 조회 자체를 끈다(`""`). `sqlDepth++` 이후에 조회해 드라이버 내부 SQL 의 재진입을 막는다. SQL 집계 키는 `(sql_id, db)`. 풀이 borrow 마다 새 프록시를 주면 프록시당 1회 조회된다.
 - 계측은 메서드 본문만 변경(필드·메서드 추가 금지). `jakarta.servlet` 은 별도 빌드 없이 같은 코드에서 함께 매칭.
+
+## 요청 파라미터 수집 (opt-in, `capture.params`)
+- `agent-t.properties`(정적, gateway 가 바꾸지 못함): `capture.params=true`(기본 false), 선택 `capture.params.uri.include` / `.exclude`(쉼표 구분 glob `*` `?`, 요청 URI 대상, 빈 include = 전체, exclude 우선). 설치 Job 이 `label_info.capture_params`·`capture_params_include`·`capture_params_exclude` 로 기록한다.
+- **서블릿 exit 에서만** `getQueryString()`/`getParameterMap()` 을 리플렉션 호출(javax·jakarta 공통, 진입 시점에 읽지 않아 앱이 본문을 먼저 소비). 진입 시에는 URI 허용 여부만 판단해 요청 객체 참조를 `TxContext.captureReq` 에 잡았다가 exit 에서 해제. 모든 예외 무시.
+- **상세 보존(`DetailDecider.keep`) 된 건에만** `detail.params` 로 첨부(느림·에러·누수·샘플링 — 물량 제한). 마스킹·한도는 `tx/ParamCapture`(이름 부분일치 마스킹, 주민번호/카드/이메일 값 패턴, 값 256자·최대 50개·query 1024자·전체 4KB, 초과 시 `t=true`). 이름 부분일치라 `author`·`hotel` 같은 이름도 마스킹(보수적).
+- 본문(body)은 수집하지 않는다. 사전 동의된 URI 에만 켜는 것을 권장.
+
+## DB 커넥션 풀 지표 (JMX, `jvm/pool/PoolCollector`, ADR-023)
+- 전용 데몬 스레드 `agent-t-pool` 이 수집하고, `agent-t-jvm` 루프는 마지막 스냅샷만 `fill()` 로 읽는다(JMX 호출로 JVM 샘플이 지연되지 않음). 첫 탐색은 시작 30초 후, 이후 60초마다 재탐색(풀이 안 나오면 3회 뒤 5분 주기, `queryNames` 100ms 초과 2회여도 5분), 수집 주기 5초.
+- **MBeanServer 는 `MBeanServerFactory.findMBeanServer(null)` 로만 찾는다.** JEUS 는 `jeus.jmx.usePlatformMBeanServer` 가 없으면 플랫폼이 아닌 자체 MBeanServer 를 만든다. 플랫폼 MBeanServer 를 생성시키는 API(`ManagementFactory.getPlatformMBeanServer`)는 **절대 호출 금지**(JBoss 등에서 기동 장애 선례, 이미 만들어진 서버만 대상). `PoolCollectorTest.sourceNeverUsesForbiddenCalls` 가 소스 문자열로 강제한다.
+- **MBean 에는 `getAttribute` 만**(+탐색용 `queryNames`/`getMBeanInfo`). `invoke`/`setAttribute`/`getAttributes`(일괄) 금지 — JEUS 풀 MBean 에는 `shrink`·`disableCP` 같은 상태 변경 오퍼레이션과 무거운 `PooledConnectionInfo` 가 있어, JEUS(`JEUS:j2eeType=JDBCDataSource,*`)는 **`stats` 속성 하나만** 읽는다(테스트가 호출 목록 == `[getAttribute:stats]` 를 검증).
+- JEUS `stats` 값 객체(JSR-77 `JDBCConnectionPoolStats`)는 JEUS 클래스 의존 없이 **리플렉션**으로만 읽는다: `getPoolSize`/`getFreePoolSize`/`getMaxPoolSize`/`getWaitingThreadCount` 의 `getCurrent()`. active = PoolSize − FreePoolSize(0 미만이면 0), max ≤ 0 이면 `PoolSize.getUpperBound()`. 메서드 캐시는 `WeakHashMap<Class, Map<이름, WeakReference<Method>>>` — 값이 클래스를 강하게 잡지 않아 webapp 언로드가 막히지 않는다(`methodCacheDoesNotPinClassLoader`).
+- HikariCP(`com.zaxxer.hikari:type=Pool (name)`, max 는 `PoolConfig (name)` 의 `MaximumPoolSize`, `registerMbeans=true` 일 때만), Tomcat JDBC(`tomcat.jdbc:type=ConnectionPool,*`)/`*:type=DataSource,*`, DBCP2(`org.apache.commons.dbcp2:*`)는 최초 1회 `getMBeanInfo` 로 속성 동의어(대소문자 무시: `ActiveConnections|NumActive|Active`, `IdleConnections|NumIdle|Idle`, `MaxTotal|MaxActive|MaximumPoolSize`, `ThreadsAwaitingConnection|WaitCount`)를 매핑하고 속성마다 `getAttribute`. active 속성이 없는 MBean 은 풀이 아니라 버린다. 같은 풀이 두 서버/패턴에 있어도 `kind|ObjectName` 키로 한 번만 센다.
+- 안전장치: 한 사이클 예산 200ms(`nanoTime`, 초과 시 남은 풀은 라운드로빈 커서로 다음 사이클, 못 읽은 풀은 직전 값 유지), 1초 넘는 단일 호출은 해당 풀 6사이클 건너뜀, 예산 초과 3회 연속이면 주기 30초, 5분 이어지면 수집 자체를 끄고(WARN 1회) 에이전트 나머지는 영향 없음. 풀 5회 연속 실패 시 대상 제거(다음 재탐색에서 재등록). `SecurityException`·`LinkageError` 등 모든 `Throwable` 은 삼키고 스냅샷이 30초 넘게 갱신되지 않으면 `conn_*`/`pools` 를 생략한다.
+- 첫 수집 성공 시 INFO 1줄(`pool metrics: mbeanServers=N pools=M [name(kind,max=..), ...] sum ... e.g. <ObjectName>`) — dev_cxm 에서 JEUS ObjectName 형식·max 값 확인용.
+- 킬 스위치: `agent-t.properties` `pool.metrics=false`(기본 true, gateway 가 못 바꿈). 설치 Job 은 `label_info.pool_metrics=false` 일 때만 이 줄을 쓴다(프론트 설치 폼에는 노출하지 않음 — properties/label_info 전용).
+- 프로토콜: `jvm.conn_active/idle/max/wait`(합계) + `jvm.pools[{name,kind,active,idle,max,wait}]`(사용률 내림차순 최대 64개), 풀이 없으면 키 생략.
 
 ## 규칙
 - 코어는 Java 6 API 만 사용: 람다·diamond·try-with-resources·`java.util.Objects`·`Long.toUnsignedString` 금지.

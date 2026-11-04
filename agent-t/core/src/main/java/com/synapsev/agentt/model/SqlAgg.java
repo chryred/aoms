@@ -9,4 +9,6 @@ public final class SqlAgg {
     public long fetchCnt;
     public long fetchMs;
     public int err;
+    /** Short DB connection name (host:port/db), "" when unknown. */
+    public String db = "";
 }

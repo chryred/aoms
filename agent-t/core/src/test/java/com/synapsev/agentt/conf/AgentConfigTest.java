@@ -58,5 +58,34 @@ public class AgentConfigTest {
         assertEquals("sic_server1", p.instanceRole);
         assertEquals("신세계", p.systemName);
         assertEquals("/tmp/x", p.logDir);
+        assertEquals(false, p.captureParams);
+        assertEquals(true, p.poolMetrics);
+        assertEquals(0, p.captureUriInclude.size());
+    }
+
+    @Test
+    public void poolMetricsKillSwitch() throws IOException {
+        File f = File.createTempFile("agent-t", ".properties");
+        f.deleteOnExit();
+        FileOutputStream out = new FileOutputStream(f);
+        out.write("pool.metrics=false\n".getBytes("UTF-8"));
+        out.close();
+        assertEquals(false, AgentProperties.load(f).poolMetrics);
+        assertEquals(true, new AgentConfig().poolMetrics);
+    }
+
+    @Test
+    public void capturePropertiesLoad() throws IOException {
+        File f = File.createTempFile("agent-t", ".properties");
+        f.deleteOnExit();
+        FileOutputStream out = new FileOutputStream(f);
+        out.write(("capture.params=true\ncapture.params.uri.include=/api/*, /m/*\ncapture.params.uri.exclude=/api/login\n")
+                .getBytes("UTF-8"));
+        out.close();
+        AgentProperties p = AgentProperties.load(f);
+        assertEquals(true, p.captureParams);
+        assertEquals(2, p.captureUriInclude.size());
+        assertEquals("/m/*", p.captureUriInclude.get(1));
+        assertEquals("/api/login", p.captureUriExclude.get(0));
     }
 }

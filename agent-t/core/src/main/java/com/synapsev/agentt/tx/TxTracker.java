@@ -8,7 +8,9 @@ import com.synapsev.agentt.id.Fnv64;
 import com.synapsev.agentt.log.AgentLog;
 import com.synapsev.agentt.model.DetailNode;
 import com.synapsev.agentt.model.SqlAgg;
+import com.synapsev.agentt.model.TxParams;
 import com.synapsev.agentt.model.TxRecord;
+import com.synapsev.agentt.norm.JdbcUrlNormalizer;
 import com.synapsev.agentt.norm.SqlNormalizer;
 import com.synapsev.agentt.norm.UriNormalizer;
 import com.synapsev.agentt.transport.Sender;
@@ -68,12 +70,14 @@ public final class TxTracker implements HookSink {
     private static final class SqlToken {
         final TxContext ctx;
         final String sqlId;
+        final String db;
         final long startNano;
         final DetailNode node;
 
-        SqlToken(TxContext ctx, String sqlId, long startNano, DetailNode node) {
+        SqlToken(TxContext ctx, String sqlId, String db, long startNano, DetailNode node) {
             this.ctx = ctx;
             this.sqlId = sqlId;
+            this.db = db;
             this.startNano = startNano;
             this.node = node;
         }
@@ -137,6 +141,8 @@ public final class TxTracker implements HookSink {
         final Slot remoteAddr = new Slot("getRemoteAddr", NO_ARGS);
         final Slot header = new Slot("getHeader", STRING_ARG);
         final Slot status = new Slot("getStatus", NO_ARGS);
+        final Slot queryString = new Slot("getQueryString", NO_ARGS);
+        final Slot paramMap = new Slot("getParameterMap", NO_ARGS);
     }
 
     private final Out out;
@@ -144,6 +150,11 @@ public final class TxTracker implements HookSink {
     private final ThreadLocal<TxContext> current = new ThreadLocal<TxContext>();
     private volatile int generation;
     private final WeakIdentityMap stmtSql = new WeakIdentityMap();
+    // Connection (identity) -> normalized DB name; "" = resolved but unknown (negative cache, never retried)
+    private final WeakIdentityMap connDb = new WeakIdentityMap();
+    private static final long DB_SLOW_NANOS = 50000000L; // 50 ms
+    private static final int DB_SLOW_LIMIT = 3;
+    private volatile int dbSlowCount;
     private final Map<String, String[]> sqlCache = new ConcurrentHashMap<String, String[]>();
     private final Map<String, String[]> uriCache = new ConcurrentHashMap<String, String[]>();
     private volatile int uriCacheVersion = Integer.MIN_VALUE;
@@ -214,6 +225,9 @@ public final class TxTracker implements HookSink {
         String[] u = normalizedUri(uri);
         c.uriId = u[1];
         c.addNode("http", c.method + " " + u[0], null, nano, -1);
+        if (config.captureParams && ParamCapture.allowed(config, uri)) {
+            c.captureReq = req; // parameters are read at exit only
+        }
         current.set(c);
         ActiveRegistry reg = registry;
         if (reg != null) {
@@ -238,6 +252,7 @@ public final class TxTracker implements HookSink {
         } catch (Throwable e) {
             AgentLog.debug("tx finish failed: " + e);
         } finally {
+            c.captureReq = null;
             // after finish(): the stack sampler's purge must not drop the frequency table before it is taken
             ActiveRegistry reg = registry;
             if (reg != null) {
@@ -297,11 +312,33 @@ public final class TxTracker implements HookSink {
             }
             r.nodes = c.nodes;
             r.stacks = stacks;
+            r.params = captureParams(c);
             if (c.droppedNodes > 0) {
                 AgentLog.debug("node cap reached, dropped " + c.droppedNodes);
             }
         }
         out.offerTx(r);
+    }
+
+    /** Reads the masked parameters at servlet exit; never throws. */
+    private TxParams captureParams(TxContext c) {
+        Object req = c.captureReq;
+        c.captureReq = null;
+        if (req == null) {
+            return null;
+        }
+        try {
+            Access a = accessFor(req);
+            if (a == null) {
+                return null;
+            }
+            String q = str(call(a.queryString.get(req), req, null));
+            Object map = call(a.paramMap.get(req), req, null);
+            return ParamCapture.build(q, map);
+        } catch (Throwable e) {
+            AgentLog.debug("param capture failed: " + e);
+            return null;
+        }
     }
 
     // ---- JDBC ----
@@ -319,12 +356,13 @@ public final class TxTracker implements HookSink {
         }
         String raw = sql != null ? sql : (stmt == null ? null : stmtSql.get(stmt));
         String[] n = normalizedSql(raw);
+        c.sqlDepth++; // before the DB lookup: statements the driver runs for metadata must not re-enter
+        String db = dbName(stmt);
         long now = System.nanoTime();
-        c.sqlDepth++;
         c.phase = "sql";
         c.curSqlId = n[1];
         String name = n[0].length() > NAME_MAX ? n[0].substring(0, NAME_MAX) : n[0];
-        return new SqlToken(c, n[1], now, c.addNode("sql", name, n[1], now, 0));
+        return new SqlToken(c, n[1], db, now, c.addNode("sql", name, n[1], now, 0));
     }
 
     public void sqlExit(Object token, Throwable t) {
@@ -334,11 +372,14 @@ public final class TxTracker implements HookSink {
         SqlToken k = (SqlToken) token;
         TxContext c = k.ctx;
         long dur = System.nanoTime() - k.startNano;
-        TxContext.AggState s = c.aggs.get(k.sqlId);
+        // keyed by (sql_id, db): the same SQL against two databases is two aggregates
+        String key = k.db.length() == 0 ? k.sqlId : k.sqlId + '|' + k.db;
+        TxContext.AggState s = c.aggs.get(key);
         if (s == null) {
             s = new TxContext.AggState();
             s.agg.sqlId = k.sqlId;
-            c.aggs.put(k.sqlId, s);
+            s.agg.db = k.db;
+            c.aggs.put(key, s);
         }
         s.agg.cnt++;
         s.nanos += dur;
@@ -357,6 +398,42 @@ public final class TxTracker implements HookSink {
         c.sqlDepth = 0;
         c.phase = "run";
         c.curSqlId = null;
+    }
+
+    /**
+     * DB display name of the connection a statement runs on. The connection's metadata URL is read once per
+     * Connection object (identity cache; failures cached as ""), never on every statement. Never throws. If the
+     * driver is slow to answer repeatedly the lookup is switched off for good (names become "").
+     */
+    private String dbName(Object stmt) {
+        try {
+            if (!(stmt instanceof java.sql.Statement) || dbSlowCount >= DB_SLOW_LIMIT) {
+                return "";
+            }
+            java.sql.Connection conn = ((java.sql.Statement) stmt).getConnection();
+            if (conn == null) {
+                return "";
+            }
+            String cached = connDb.get(conn);
+            if (cached != null) {
+                return cached;
+            }
+            long t0 = System.nanoTime();
+            String name = "";
+            try {
+                java.sql.DatabaseMetaData md = conn.getMetaData();
+                name = md == null ? "" : JdbcUrlNormalizer.normalize(md.getURL());
+            } catch (Throwable ignore) {
+                // unreadable: remember as unknown
+            }
+            if (System.nanoTime() - t0 > DB_SLOW_NANOS) {
+                dbSlowCount++;
+            }
+            connDb.put(conn, name);
+            return name;
+        } catch (Throwable t) {
+            return "";
+        }
     }
 
     public void fetchEnter(Object rs) {

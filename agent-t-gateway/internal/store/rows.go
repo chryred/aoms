@@ -90,7 +90,7 @@ func SqlRows(inst registry.Instance, t protocol.Tx, offsetMs int64) []map[string
 			"sql_id": hexID(s.SQLID), "cnt": clamp(s.Cnt, max32), "ms": clamp(s.Ms, max32),
 			"max_ms": clamp(s.MaxMs, max32), "fetch_cnt": clamp(s.FetchCnt, max32),
 			"fetch_ms": clamp(s.FetchMs, max32), "err": clamp(s.Err, max16),
-			"expire_at": expireAt(inst, start),
+			"db": truncRunes(s.DB, maxDBLen), "expire_at": expireAt(inst, start),
 		})
 	}
 	return out
@@ -110,8 +110,37 @@ func DetailRow(inst registry.Instance, t protocol.Tx, offsetMs int64) map[string
 	sb, _ := json.Marshal(stacks)
 	return map[string]any{
 		"system_id": inst.SystemID, "start_ts": fmtTs(start), "trace_id": t.TraceID, "span_id": t.SpanID,
-		"nodes": string(nb), "stacks": string(sb), "expire_at": expireAt(inst, start),
+		"nodes": string(nb), "stacks": string(sb), "params": paramsJSON(t.Detail.Params),
+		"expire_at": expireAt(inst, start),
 	}
+}
+
+const (
+	maxParamPairs = 50
+	maxParamName  = 64
+	maxParamValue = 256
+	maxParamQuery = 1024
+)
+
+// paramsJSON re-bounds the agent's masked params (the agent already caps; this guards the column against a
+// misbehaving sender) and stores them as the {"q","p","t"} JSON text. "" = none.
+func paramsJSON(p *protocol.Params) string {
+	if p == nil || (p.Q == "" && len(p.P) == 0) {
+		return ""
+	}
+	out := protocol.Params{Q: truncRunes(p.Q, maxParamQuery), P: make([][]string, 0, len(p.P)), T: p.T}
+	for _, kv := range p.P {
+		if len(kv) != 2 {
+			continue
+		}
+		if len(out.P) >= maxParamPairs {
+			out.T = true
+			break
+		}
+		out.P = append(out.P, []string{truncRunes(kv[0], maxParamName), truncRunes(kv[1], maxParamValue)})
+	}
+	b, _ := json.Marshal(out)
+	return string(b)
 }
 
 func DumpRow(inst registry.Instance, d protocol.Dump, offsetMs int64) map[string]any {
@@ -121,4 +150,18 @@ func DumpRow(inst registry.Instance, d protocol.Dump, offsetMs int64) map[string
 		"cmd_id": clamp(d.CmdID, 1<<62), "text": d.Text, "truncated": b2i(d.Truncated),
 		"expire_at": expireAt(inst, ts),
 	}
+}
+
+const maxDBLen = 128
+
+// truncRunes caps s at n runes (the agent already caps; this guards the column against a misbehaving sender).
+func truncRunes(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n])
 }

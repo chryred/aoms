@@ -804,3 +804,21 @@ Synapse는 이미 자체 username/password DB(`users` 테이블)를 보유하고
 | 알림 WebSocket(`/ws/dashboard`)과 APM SSE 통합 | 송신 서비스가 다름 — 프론트 프록시 경로 접두어만 정리 |
 
 그 외 기각: OTel Java Agent 유지(JDK 7 불가, 사용 0대), JDK 8+ 만 OTel·미만만 Agent-T 이원화(화면·데이터 모양이 갈라짐).
+
+---
+
+## ADR-023: DB 커넥션 풀 지표 — JMX 읽기 전용 수집, JEUS 전용 MBeanServer 탐색, 플랫폼 MBeanServer 미사용 (2026-11-04)
+
+**Status**: Accepted
+
+**맥락**: 위젯 "DB 커넥션 풀"이 `jvm.conn_active/conn_max` 를 기다리고 있었으나 에이전트가 보내지 않았다. 대상(고객경험 dev_cxm)은 JEUS 7.0 fix5 + JDK 1.7.0_79 이고, 기존 `JvmCollector` 는 플랫폼 MXBean 만 읽는다. JEUS 는 `jeus.jmx.usePlatformMBeanServer` 가 없으면(기본) `MBeanServerFactory.createMBeanServer()` 로 **자체 MBeanServer** 를 만들어 풀 MBean(`JEUS:j2eeType=JDBCDataSource,*`)을 거기에 등록하므로 플랫폼 서버만 조회하면 풀이 하나도 안 보인다(`JMXManager.innerInit` 바이트코드로 확인).
+
+**결정**:
+1. 풀 수집은 별도 모듈 `jvm/pool/PoolCollector`, 전용 데몬 스레드 `agent-t-pool`. JVM 샘플러는 마지막 스냅샷만 읽는다.
+2. **MBeanServer 는 `MBeanServerFactory.findMBeanServer(null)` 로만 탐색**한다(이미 만들어진 서버만 반환, 생성 부작용 없음). 플랫폼 MBeanServer 를 생성시키는 `ManagementFactory.getPlatformMBeanServer()` 는 호출하지 않는다 — 처음 호출 시 플랫폼 서버를 만들고 MXBean 을 등록해, 로그 매니저·`javax.management.builder.initial` 을 앱이 나중에 지정하는 환경(JBoss/WildFly 선례)에서 premain 조기 호출이 기동 장애를 일으킨다. JEUS 가 플랫폼 서버를 쓰도록 설정된 경우도 같은 목록에 포함되므로 한 방식으로 커버된다. 단위 테스트가 소스 문자열로 금지 호출을 강제한다.
+3. **MBean 에는 `getAttribute` 만** 호출한다. JEUS 풀 MBean 은 `shrink`·`disableCP`·`updateCP` 등 상태 변경 오퍼레이션과 무거운 `PooledConnectionInfo` 를 가지므로 `stats` 속성 하나만 읽고, 값 객체(JSR-77 `JDBCConnectionPoolStats`)는 JEUS 클래스 의존 없이 리플렉션으로 읽는다(active = PoolSize − FreePoolSize). HikariCP/Tomcat JDBC·DataSource/DBCP2 는 속성 동의어 매핑 어댑터. WebLogic·WebSphere·JBoss 는 별도 MBeanServer/관리 모델이라 1차 범위 제외.
+4. 안전장치: 사이클 예산 200ms + 라운드로빈, 단일 호출 1초 초과 페널티, 예산 초과 지속 시 주기 확대 후 5분이면 자동 비활성, 30초 stale 이면 값 생략, 모든 `Throwable` 삼킴, 메서드 캐시는 약한 참조(클래스로더 고정 방지). 킬 스위치 `pool.metrics=false`(properties 전용, 설치 Job 은 `label_info.pool_metrics=false`).
+5. 프로토콜은 하위 호환 추가(`jvm.conn_*`, `jvm.pools[]`, 없으면 키 생략). gateway 는 live SSE 로 그대로 전달, Prometheus 에 `agent_t_jvm_conn_*` + `agent_t_db_pool_*{pool,kind}`(인스턴스당 64개 상한). ClickHouse 스키마 변경 없음(이력은 Prometheus).
+6. 합계 `conn_max` 는 풀 수가 많으면(29풀 659) 의미가 약하므로 프론트는 풀별 사용률 목록(사용률 내림차순, 팔레트 B 상태 토큰)을 함께 보여준다.
+
+**검증 상태**: JEUS ObjectName 전체 문자열·`MaxPoolSize.current` 의미·풀 lazy 생성 시점은 바이트코드 기반 추론이며 dev_cxm 의 첫 수집 INFO 로그로 확정한다.

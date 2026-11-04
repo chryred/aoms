@@ -4,6 +4,7 @@ import com.synapsev.agentt.json.JsonWriter;
 import com.synapsev.agentt.model.ActiveEntry;
 import com.synapsev.agentt.model.DetailNode;
 import com.synapsev.agentt.model.JvmSample;
+import com.synapsev.agentt.model.PoolSample;
 import com.synapsev.agentt.model.SqlAgg;
 import com.synapsev.agentt.model.TxRecord;
 import java.io.ByteArrayOutputStream;
@@ -155,6 +156,7 @@ public final class BatchSerializer {
                 w.key("fetch_cnt").value(a.fetchCnt);
                 w.key("fetch_ms").value(a.fetchMs);
                 w.key("err").value(a.err);
+                w.key("db").value(a.db == null ? "" : a.db);
                 w.endObject();
             }
         }
@@ -200,6 +202,18 @@ public final class BatchSerializer {
             }
         }
         w.endArray();
+        if (t.params != null) {
+            w.key("params").beginObject();
+            w.key("q").value(t.params.query);
+            w.key("p").beginArray();
+            for (int i = 0; i < t.params.params.size(); i++) {
+                String[] kv = t.params.params.get(i);
+                w.beginArray().value(kv[0]).value(kv[1]).endArray();
+            }
+            w.endArray();
+            w.key("t").value(t.params.truncated);
+            w.endObject();
+        }
         w.endObject();
     }
 
@@ -214,6 +228,27 @@ public final class BatchSerializer {
         w.key("threads").value(j.threads);
         w.key("cpu_ratio").value(j.cpuRatio);
         w.key("classes").value(j.classes);
+        if (j.connActive >= 0) {
+            w.key("conn_active").value(j.connActive);
+            w.key("conn_idle").value(j.connIdle);
+            w.key("conn_max").value(j.connMax);
+            w.key("conn_wait").value(j.connWait);
+        }
+        if (j.pools != null && j.pools.length > 0) {
+            w.key("pools").beginArray();
+            for (int i = 0; i < j.pools.length; i++) {
+                PoolSample p = j.pools[i];
+                w.beginObject();
+                w.key("name").value(p.name);
+                w.key("kind").value(p.kind);
+                w.key("active").value(p.active);
+                w.key("idle").value(p.idle);
+                w.key("max").value(p.max);
+                w.key("wait").value(p.wait);
+                w.endObject();
+            }
+            w.endArray();
+        }
         w.endObject();
     }
 }

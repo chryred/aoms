@@ -44,6 +44,9 @@ public final class TxContext {
     public volatile String phase = "run";
     public volatile String curSqlId;
 
+    /** Request kept only when parameter capture is allowed for this URI; read at exit, cleared afterwards. */
+    Object captureReq;
+
     int sqlCnt;
     long sqlNanos;
     long fetchCnt;

@@ -37,6 +37,8 @@ public final class TxRecord {
     public List<SqlAgg> sql = new ArrayList<SqlAgg>();
     public List<DetailNode> nodes;
     public List<StackSample> stacks;
+    /** Masked request parameters; only ever set together with {@code nodes} (detail). */
+    public TxParams params;
 
     public boolean hasDetail() {
         return nodes != null;
@@ -45,6 +47,7 @@ public final class TxRecord {
     public void stripDetail() {
         nodes = null;
         stacks = null;
+        params = null;
     }
 
     /** Rough serialized size; cheap enough for the WAS thread. */
@@ -61,7 +64,7 @@ public final class TxRecord {
         if (nodes == null) {
             return 0;
         }
-        long b = 40;
+        long b = 40 + (params == null ? 0 : params.estimateBytes());
         for (int i = 0; i < nodes.size(); i++) {
             b += 90 + len(nodes.get(i).name);
         }

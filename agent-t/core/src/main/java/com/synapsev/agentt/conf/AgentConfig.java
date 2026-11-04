@@ -20,6 +20,13 @@ public final class AgentConfig {
     /** Extra URI normalization rules: {regex, replacement}. */
     public volatile List<String[]> uriRules = Collections.emptyList();
     public volatile String logLevel = "info";
+    /** Opt-in request-parameter capture (agent-t.properties only, never pushed by the gateway). */
+    public volatile boolean captureParams = false;
+    /** DB 커넥션 풀 지표 수집(agent-t.properties 의 pool.metrics, 기본 true; 게이트웨이가 바꾸지 못함). */
+    public volatile boolean poolMetrics = true;
+    /** Glob lists ('*', '?') over the request URI; empty include = all URIs; exclude wins. */
+    public volatile List<String> captureUriInclude = Collections.emptyList();
+    public volatile List<String> captureUriExclude = Collections.emptyList();
 
     /**
      * Applies a gateway response body (with a "config" member) or a bare config object.

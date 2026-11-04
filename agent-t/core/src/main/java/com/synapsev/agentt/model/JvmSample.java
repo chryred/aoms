@@ -11,4 +11,11 @@ public final class JvmSample {
     public int threads;
     public double cpuRatio = -1;
     public int classes;
+    /** 커넥션 풀 합계(-1 = 미수집, 직렬화에서 키 생략). */
+    public int connActive = -1;
+    public int connIdle = -1;
+    public int connMax = -1;
+    public int connWait = -1;
+    /** 풀별 값(null = 미수집). */
+    public PoolSample[] pools;
 }

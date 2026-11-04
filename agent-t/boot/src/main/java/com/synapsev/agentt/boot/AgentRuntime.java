@@ -8,7 +8,9 @@ import com.synapsev.agentt.conf.AgentProperties;
 import com.synapsev.agentt.instrument.AgentTransformer;
 import com.synapsev.agentt.jvm.JvmCollector;
 import com.synapsev.agentt.jvm.ThreadDumper;
+import com.synapsev.agentt.jvm.pool.PoolCollector;
 import com.synapsev.agentt.log.AgentLog;
+import com.synapsev.agentt.model.JvmSample;
 import com.synapsev.agentt.transport.Batch;
 import com.synapsev.agentt.transport.HttpPoster;
 import com.synapsev.agentt.transport.Sender;
@@ -207,6 +209,10 @@ public final class AgentRuntime {
     static void start(Instrumentation inst, AgentProperties props, boolean attached) {
         final AgentConfig config = new AgentConfig();
         AgentLog.init(props.logDir);
+        config.captureParams = props.captureParams;
+        config.poolMetrics = props.poolMetrics;
+        config.captureUriInclude = props.captureUriInclude;
+        config.captureUriExclude = props.captureUriExclude;
         final Sender sender = new Sender(new HttpPoster(props.gatewayUrl, props.agentToken), config,
                 Batch.AgentInfo.detect("0.1.0"), 1000);
         TxTracker tracker = new TxTracker(TxTracker.forSender(sender), config);
@@ -214,6 +220,8 @@ public final class AgentRuntime {
         final StackSampler sampler = new StackSampler(registry, config);
         tracker.setActive(registry, sampler);
         final JvmCollector jvm = new JvmCollector();
+        // 풀 지표는 전용 스레드(agent-t-pool)가 수집하고 jvm 루프는 마지막 스냅샷만 읽는다. pool.metrics=false 면 생성하지 않음.
+        final PoolCollector pool = config.poolMetrics ? new PoolCollector() : null;
         final ThreadDumper dumper = new ThreadDumper();
         sender.setCommandListener(new Sender.CommandListener() {
             public void onCommand(long id, String type) {
@@ -232,7 +240,11 @@ public final class AgentRuntime {
         });
         final Thread jvmLoop = daemon("agent-t-jvm", 5000, new Runnable() {
             public void run() {
-                sender.offerJvm(jvm.sample());
+                JvmSample js = jvm.sample();
+                if (pool != null) {
+                    pool.fill(js);
+                }
+                sender.offerJvm(js);
             }
         });
         final AgentRuntime rt = new AgentRuntime(new InstControl(inst), new AgentTransformer(), tracker);
@@ -260,6 +272,9 @@ public final class AgentRuntime {
                 sampler.start();
                 activeLoop.start();
                 jvmLoop.start();
+                if (pool != null) {
+                    pool.start();
+                }
             }
         }, new Runnable() {
             public void run() {
@@ -271,6 +286,9 @@ public final class AgentRuntime {
                 sampler.stop();
                 activeLoop.interrupt();
                 jvmLoop.interrupt();
+                if (pool != null) {
+                    pool.stop();
+                }
             }
         });
         AgentLog.info("agent-t started (" + (attached ? "agentmain" : "premain") + ") system=" + props.systemName

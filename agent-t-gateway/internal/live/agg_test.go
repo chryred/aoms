@@ -1,7 +1,9 @@
 package live
 
 import (
+	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -93,6 +95,27 @@ func TestSamplerPrioritisesSlowAndError(t *testing.T) {
 	for len(sub.C) > 0 {
 		if (<-sub.C).Name == "points" {
 			t.Fatal("points emitted beyond per-second budget")
+		}
+	}
+}
+
+func TestJvmPoolFieldsReachAggEventAndSSEJSON(t *testing.T) {
+	s := NewState(nil)
+	a, i, m, w := int64(7), int64(3), int64(30), int64(0)
+	b := &protocol.Batch{V: 1, JVM: &protocol.JVM{Ts: 1, ConnActive: &a, ConnIdle: &i, ConnMax: &m, ConnWait: &w,
+		Pools: []protocol.PoolStat{{Name: "sic_DS", Kind: "jeus", Active: 7, Idle: 3, Max: 30}}}}
+	s.Accept(testInst, b, 0)
+	ev := s.Aggregate()[0]
+	if ev.Jvm == nil || ev.Jvm.ConnActive == nil || *ev.Jvm.ConnActive != 7 || len(ev.Jvm.Pools) != 1 {
+		t.Fatalf("jvm lost pool fields: %+v", ev.Jvm)
+	}
+	out, err := json.Marshal(aggPayload{Jvm: ev.Jvm})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"conn_active":7`, `"conn_wait":0`, `"pools":[{"name":"sic_DS","kind":"jeus","active":7,"idle":3,"max":30,"wait":0}]`} {
+		if !strings.Contains(string(out), want) {
+			t.Fatalf("missing %s in %s", want, out)
 		}
 	}
 }

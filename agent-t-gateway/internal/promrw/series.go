@@ -11,6 +11,7 @@ import (
 	"google.golang.org/protobuf/encoding/protowire"
 
 	"synapse/agent-t-gateway/internal/live"
+	"synapse/agent-t-gateway/internal/protocol"
 )
 
 type Label struct{ Name, Value string }
@@ -77,6 +78,16 @@ func (b *Builder) Build(ev live.AggEvent) []TimeSeries {
 			f("agent_t_jvm_gc_time_ms_total", float64(j.GCMs)),
 			f("agent_t_jvm_threads", float64(j.Threads)),
 			f("agent_t_jvm_cpu_ratio", j.CPURatio))
+		for _, c := range []struct {
+			name string
+			v    *int64
+		}{{"agent_t_jvm_conn_active", j.ConnActive}, {"agent_t_jvm_conn_idle", j.ConnIdle},
+			{"agent_t_jvm_conn_max", j.ConnMax}, {"agent_t_jvm_conn_wait", j.ConnWait}} {
+			if c.v != nil {
+				out = append(out, f(c.name, float64(*c.v)))
+			}
+		}
+		out = appendPoolSeries(out, j.Pools, f)
 	}
 	for uri, u := range c.UriTotals {
 		l := Label{"uri", uri}
@@ -84,6 +95,42 @@ func (b *Builder) Build(ev live.AggEvent) []TimeSeries {
 			f("agent_t_uri_tx_total", float64(u.Cnt), l),
 			f("agent_t_uri_error_total", float64(u.Err), l),
 			f("agent_t_uri_elapsed_ms_sum", u.Ms, l))
+	}
+	return out
+}
+
+// MaxPoolSeries caps per-pool series per instance (label cardinality guard); the agent already
+// sends at most 64 pools sorted by utilization, so the busiest pools win.
+const MaxPoolSeries = 64
+
+const maxPoolNameLen = 128
+
+// appendPoolSeries adds agent_t_db_pool_{active,idle,max,wait}{pool,kind}. Duplicate (pool, kind)
+// pairs are dropped: a remote write request must not carry the same label set twice.
+func appendPoolSeries(out []TimeSeries, pools []protocol.PoolStat, f func(string, float64, ...Label) TimeSeries) []TimeSeries {
+	seen := map[[2]string]bool{}
+	for _, p := range pools {
+		if len(seen) >= MaxPoolSeries {
+			break
+		}
+		name := p.Name
+		if name == "" {
+			continue
+		}
+		if len(name) > maxPoolNameLen {
+			name = name[:maxPoolNameLen]
+		}
+		k := [2]string{name, p.Kind}
+		if seen[k] {
+			continue
+		}
+		seen[k] = true
+		ls := []Label{{"pool", name}, {"kind", p.Kind}}
+		out = append(out,
+			f("agent_t_db_pool_active", float64(p.Active), ls...),
+			f("agent_t_db_pool_idle", float64(p.Idle), ls...),
+			f("agent_t_db_pool_max", float64(p.Max), ls...),
+			f("agent_t_db_pool_wait", float64(p.Wait), ls...))
 	}
 	return out
 }

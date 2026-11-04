@@ -87,11 +87,22 @@ type TxSQL struct {
 	FetchCnt int64  `json:"fetch_cnt"`
 	FetchMs  int64  `json:"fetch_ms"`
 	Err      int64  `json:"err"`
+	// DB is the optional short DB connection name (host:port/db); absent in older agents -> "".
+	DB string `json:"db"`
 }
 
 type Detail struct {
 	Nodes  []Node  `json:"nodes"`
 	Stacks []Stack `json:"stacks"`
+	// Params is the optional masked request-parameter capture (agent opt-in); absent in older agents.
+	Params *Params `json:"params,omitempty"`
+}
+
+// Params: q = masked query string, p = [name, value] pairs, t = agent truncated it.
+type Params struct {
+	Q string     `json:"q"`
+	P [][]string `json:"p"`
+	T bool       `json:"t"`
 }
 
 type Node struct {
@@ -124,6 +135,23 @@ type JVM struct {
 	Threads     int64   `json:"threads"`
 	CPURatio    float64 `json:"cpu_ratio"`
 	Classes     int64   `json:"classes"`
+	// Optional DB connection pool metrics (older agents / no pool found: absent -> nil).
+	// Sums over Pools; pointers keep "absent" distinct from a real 0.
+	ConnActive *int64     `json:"conn_active,omitempty"`
+	ConnIdle   *int64     `json:"conn_idle,omitempty"`
+	ConnMax    *int64     `json:"conn_max,omitempty"`
+	ConnWait   *int64     `json:"conn_wait,omitempty"`
+	Pools      []PoolStat `json:"pools,omitempty"`
+}
+
+// PoolStat is one DB connection pool. Kind: jeus | hikari | tomcat | dbcp2. Max <= 0 means unknown/unbounded.
+type PoolStat struct {
+	Name   string `json:"name"`
+	Kind   string `json:"kind"`
+	Active int64  `json:"active"`
+	Idle   int64  `json:"idle"`
+	Max    int64  `json:"max"`
+	Wait   int64  `json:"wait"`
 }
 
 type Dump struct {

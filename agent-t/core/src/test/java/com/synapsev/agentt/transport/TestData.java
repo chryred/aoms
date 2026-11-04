@@ -54,6 +54,10 @@ final class TestData {
                 "com.shinsegae.order.OrderDao.lines(OrderDao.java:120)"};
             s.count = 3;
             t.stacks.add(s);
+            t.params = new com.synapsev.agentt.model.TxParams();
+            t.params.query = "a=1&pw=****";
+            t.params.params.add(new String[] {"a", "1"});
+            t.params.params.add(new String[] {"pw", "****"});
         }
         return t;
     }
