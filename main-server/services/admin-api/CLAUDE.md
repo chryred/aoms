@@ -158,8 +158,11 @@ docker exec -it aoms-admin-api \
 - `DELETE /{id}` — 삭제 (admin 인증 필수)
 
 ### APM `/api/v1/apm` (Agent-T, ADR-022 — ClickHouse 조회, 실패 시 502)
-- `GET /transactions` — 트랜잭션 검색 (`system_ids` 필수, `instance_role`/`start`/`end`/`uri`/`user_ip` 등). 기본 범위 최근 1시간
-- `GET /transactions/{trace_id}/{span_id}` — 건별 상세(SQL·구간·커넥션 정보)
+- `GET /transactions` — 트랜잭션 검색 (`system_ids` 필수, `instance_role`/`start`/`end`/`uri`/`user_ip`/`user_id`/`trace_id`/`span_id`/`biz_key`(정확 또는 끝 `%` 접두), `min_elapsed_ms`/`max_elapsed_ms`/`min_sql_ms`/`min_fetch_cnt`/`min_sql_cnt`/`min_conn_open`(≥0)/`error_only`). 기본 범위 최근 1시간. 정렬 `order_by`(start_ts·elapsed_ms·sql_ms·cpu_ms·fetch_cnt·sql_cnt·ext_ms, 기본 start_ts)/`order`(asc|desc, 기본 desc), 잘못된 값 422. 응답 `{items, has_more, counts:{total,normal,error}}` — counts 는 페이지가 아닌 필터 전체 기준(`uniqExact(span_id)`), items 에 `host` 포함. 필터는 `TxFilters` 의존성 하나를 아래 두 엔드포인트와 공유
+- `GET /transactions/stats-by-uri` — 같은 필터 + `limit`(기본 200, 최대 1000). 응답 `{items:[{uri,count,error_count,ratio,elapsed_max,elapsed_avg,sql_max,sql_avg,ext_max,ext_avg,ap_avg}], total}`, count 내림차순. ratio=count/total*100(소수 1자리), ms 는 정수, ap=elapsed−sql−ext(0 하한)
+- `GET /transactions/hourly` — 같은 필터. 응답 `{items:[{hour:'00'..'23'(KST), count, elapsed_avg, sql_avg_per_exec}]}` 항상 24버킷(빈 시간 0), 여러 날 범위는 시각별 합산
+- `GET /transactions/{trace_id}/{span_id}` — 건별 상세(SQL·구간·커넥션 정보). `sql[*].db` = `agent_t.tx_sql.db`(없으면 `''`, ClickHouse 마이그레이션 `ADD COLUMN db` 선행 필요)
+- 건별 상세 응답에 `params: {q: string, p: [[name, value], ...], t: bool} | null` 추가(최상위, `summary`·`sql`·`detail`·`path` 와 같은 레벨). Agent-T 가 `capture.params` 로 수집한 **마스킹된** 요청 파라미터(본문 아님)이며 상세 보존 건에만 존재, 미수집·파싱 불가면 `null`. `tx_detail.params` 컬럼(`20261104_tx_detail_params.sql`) 선행 필요. 설치 Job `label_info`: `capture_params`(bool, 정확히 `true` 일 때만 켬, 기본 꺼짐) / `capture_params_include` / `pool_metrics`(bool, 정확히 `false` 일 때만 `pool.metrics=false` 기록 = DB 커넥션 풀 JMX 수집 킬 스위치, 기본 켬) / `capture_params_exclude`(문자열 목록 또는 쉼표 문자열, glob `*` `?`, 허용 문자 외·쉼표 포함 항목은 Job 실패) → `agent-t.properties` 의 `capture.params*`
 - `GET /scatter` — 산점도 포인트
 - `GET /systems/{system_id}/summary` — 시스템 상세 성능 분석 영역용 요약
 - `/api/v1/apm/dashboards` — `GET`(목록) / `POST` / `PUT /{id}` / `DELETE /{id}` / `POST /{id}/share-default` (PG `apm_dashboards`)

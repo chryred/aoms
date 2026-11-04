@@ -1307,6 +1307,7 @@ class TxSummaryOut(BaseModel):
     system_id: int
     system_name: Optional[str] = None
     instance_role: str
+    host: str = ""
     start_ts: UtcDatetime
     uri: str = ""
     method: str = ""
@@ -1334,6 +1335,7 @@ class TxSummaryOut(BaseModel):
 class TxSqlOut(BaseModel):
     sql_id: str            # uint64 → 16자 소문자 hex
     sql_text: str = ""
+    db: str = ""           # tx_sql.db (없으면 '')
     cnt: int = 0
     ms: int = 0
     max_ms: int = 0
@@ -1347,16 +1349,61 @@ class TxDetailBody(BaseModel):
     stacks: Any = None
 
 
+class TxParamsOut(BaseModel):
+    """에이전트 opt-in(capture.params) 으로 수집한 마스킹된 요청 파라미터. 본문(body)은 수집하지 않는다."""
+    q: str = ""                                   # 마스킹된 query string
+    p: List[List[str]] = []                       # [[name, value], ...]
+    t: bool = False                               # 에이전트가 건수/길이 한도로 잘랐는지
+
+
 class TxDetailOut(BaseModel):
     summary: TxSummaryOut
     sql: List[TxSqlOut]
     detail: Optional[TxDetailBody] = None
+    params: Optional[TxParamsOut] = None          # 수집 안 했거나 상세 없는 건은 null
     path: List[TxSummaryOut]
+
+
+class TxCounts(BaseModel):
+    total: int
+    normal: int
+    error: int
 
 
 class TxListOut(BaseModel):
     items: List[TxSummaryOut]
     has_more: bool
+    counts: TxCounts
+
+
+class TxUriStat(BaseModel):
+    uri: str
+    count: int
+    error_count: int
+    ratio: float
+    elapsed_max: int
+    elapsed_avg: int
+    sql_max: int
+    sql_avg: int
+    ext_max: int
+    ext_avg: int
+    ap_avg: int
+
+
+class TxUriStatsOut(BaseModel):
+    items: List[TxUriStat]
+    total: int
+
+
+class TxHourlyBucket(BaseModel):
+    hour: str              # '00'..'23' (KST)
+    count: int
+    elapsed_avg: int
+    sql_avg_per_exec: float
+
+
+class TxHourlyOut(BaseModel):
+    items: List[TxHourlyBucket]
 
 
 class ScatterPoint(BaseModel):

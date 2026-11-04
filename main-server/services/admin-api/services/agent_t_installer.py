@@ -84,6 +84,47 @@ def parse_java_major(version_output: str) -> int:
     return first
 
 
+_URI_GLOB_RE = re.compile(r"[A-Za-z0-9_./*?~%{}:;@=+-]{1,200}")  # fullmatch; 쉼표·공백·개행·'#'·'\\' 금지(properties 주입 방지)
+
+
+def _glob_list(value, field: str) -> list[str]:
+    if value is None or value == "":
+        return []
+    items = value.split(",") if isinstance(value, str) else value
+    if not isinstance(items, list):
+        raise ValueError(f"label_info.{field} 는 문자열 목록이어야 합니다.")
+    out = []
+    for it in items:
+        if not isinstance(it, str):
+            raise ValueError(f"label_info.{field} 는 문자열 목록이어야 합니다.")
+        it = it.strip()
+        if not it:
+            continue
+        if not _URI_GLOB_RE.fullmatch(it):
+            raise ValueError(f"label_info.{field} 항목이 올바르지 않습니다: {it!r}")
+        out.append(it)
+    return out
+
+
+def capture_properties(info: dict) -> str:
+    """label_info 의 capture_params(bool)/capture_params_include/_exclude, pool_metrics(false 만) → agent-t.properties 줄들.
+
+    파라미터 수집은 opt-in 이라 capture_params 가 정확히 True 일 때만 켠다(미지정·false → 명시적 false).
+    """
+    enabled = info.get("capture_params") is True
+    include = _glob_list(info.get("capture_params_include"), "capture_params_include")
+    exclude = _glob_list(info.get("capture_params_exclude"), "capture_params_exclude")
+    lines = f"capture.params={'true' if enabled else 'false'}\n"
+    if enabled and include:
+        lines += f"capture.params.uri.include={','.join(include)}\n"
+    if enabled and exclude:
+        lines += f"capture.params.uri.exclude={','.join(exclude)}\n"
+    # DB 커넥션 풀 지표(JMX)는 기본 켬. label_info.pool_metrics 가 정확히 False 일 때만 끈다(킬 스위치)
+    if info.get("pool_metrics") is False:
+        lines += "pool.metrics=false\n"
+    return lines
+
+
 def _artifact_dir() -> str:
     return os.getenv("AGENT_T_ARTIFACT_DIR", "/app/bin/agent-t")
 
@@ -325,6 +366,7 @@ async def run_install(job_id: str, agent: AgentInstance, session: dict, target_p
         immediate = info.get("immediate", True) is not False
         permanent = info.get("permanent", True) is not False
         kill_switch_on = info.get("enabled", True) is False  # 킬 스위치: 에이전트는 떠 있어도 수집하지 않는다
+        capture_properties(info)  # 잘못된 capture_params_* 는 접속·업로드 전에 실패시킨다
 
         if service_type == "systemd" and permanent and session["username"] != "root":
             raise PermissionError(
@@ -451,6 +493,7 @@ async def run_install(job_id: str, agent: AgentInstance, session: dict, target_p
             f"instance.role={instance_role}\n"
             f"system.name={sys_name}\n"
             f"log.dir={install_dir}/logs\n"
+            f"{capture_properties(info)}"
         )
         _log(f"[3/7] 설치 디렉터리 생성 및 업로드: {install_dir}")
         code, _, err = await _exec(session, f"mkdir -p {q_dir}/logs")

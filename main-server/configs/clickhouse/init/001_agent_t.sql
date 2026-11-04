@@ -56,6 +56,7 @@ CREATE TABLE IF NOT EXISTS agent_t.tx_sql
     fetch_cnt  UInt32,
     fetch_ms   UInt32,
     err        UInt16,
+    db         LowCardinality(String) DEFAULT '',
     expire_at  DateTime('UTC')
 )
 ENGINE = MergeTree
@@ -72,6 +73,7 @@ CREATE TABLE IF NOT EXISTS agent_t.tx_detail
     span_id    FixedString(16),
     nodes      String CODEC(ZSTD(3)),
     stacks     String CODEC(ZSTD(3)),
+    params     String DEFAULT '' CODEC(ZSTD(3)),
     expire_at  DateTime('UTC')
 )
 ENGINE = MergeTree

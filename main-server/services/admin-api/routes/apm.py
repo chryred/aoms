@@ -6,7 +6,7 @@
 import json
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from sqlalchemy import select
@@ -16,8 +16,8 @@ from auth import get_current_user
 from database import get_db
 from models import AgentInstance, System
 from schemas import (
-    ApmSystemSummaryOut, ScatterOut, ScatterPoint, TxDetailBody, TxDetailOut,
-    TxListOut, TxSqlOut, TxSummaryOut,
+    ApmSystemSummaryOut, ScatterOut, ScatterPoint, TxCounts, TxDetailBody, TxDetailOut, TxParamsOut,
+    TxHourlyBucket, TxHourlyOut, TxListOut, TxSqlOut, TxSummaryOut, TxUriStat, TxUriStatsOut,
 )
 from services import clickhouse_client
 from services.apm_masking import mask_ip, mask_user
@@ -38,12 +38,15 @@ router = APIRouter(prefix="/api/v1/apm", tags=["apm"], dependencies=[Depends(cli
 
 _DEFAULT_RANGE = timedelta(hours=1)
 _SUMMARY_COLUMNS = (
-    "trace_id, span_id, parent_span, system_id, instance_role, start_ts, uri_id, method, "
+    "trace_id, span_id, parent_span, system_id, instance_role, host, start_ts, uri_id, method, "
     "status, error, exc_class, elapsed_ms, cpu_ms, sql_ms, sql_cnt, fetch_cnt, fetch_ms, "
     "ext_ms, ext_cnt, conn_open, conn_close, conn_leak, conn_uncommit, user_ip, user_id, "
     "biz_key, has_detail"
 )
 _URI_MATCH_LIMIT = 1000
+_ORDER_COLUMNS = ("start_ts", "elapsed_ms", "sql_ms", "cpu_ms", "fetch_cnt", "sql_cnt", "ext_ms")
+OrderBy = Literal["start_ts", "elapsed_ms", "sql_ms", "cpu_ms", "fetch_cnt", "sql_cnt", "ext_ms"]
+_KST_TZ = "Asia/Seoul"
 
 
 def _now_utc() -> datetime:
@@ -101,6 +104,7 @@ def _summary_from_row(row: dict, uris: dict[int, str], names: dict[int, str]) ->
         system_id=row["system_id"],
         system_name=names.get(int(row["system_id"])),
         instance_role=row.get("instance_role") or "",
+        host=row.get("host") or "",
         start_ts=row["start_ts"],
         uri=uris.get(int(row.get("uri_id") or 0), ""),
         method=row.get("method") or "",
@@ -140,76 +144,158 @@ async def _build_summaries(db: AsyncSession, rows: list[dict]) -> list[TxSummary
     return [_summary_from_row(r, uris, names) for r in rows]
 
 
-@router.get("/transactions", response_model=TxListOut)
-async def search_transactions(
-    system_ids: list[int] = Query(..., min_length=1),
-    instance_role: Optional[str] = None,
-    start: Optional[datetime] = None,
-    end: Optional[datetime] = None,
-    uri: Optional[str] = None,
-    user_ip: Optional[str] = None,
-    user_id: Optional[str] = None,
-    min_elapsed_ms: Optional[int] = Query(None, ge=0),
-    min_sql_ms: Optional[int] = Query(None, ge=0),
-    error_only: bool = False,
-    trace_id: Optional[str] = None,
-    limit: int = Query(100, ge=1, le=500),
-    offset: int = Query(0, ge=0),
-    db: AsyncSession = Depends(get_db),
-    _user=Depends(get_current_user),
-):
-    systems = await _load_systems(db, system_ids)
-    start_utc, end_utc = _resolve_range(systems, start, end)
+class TxFilters:
+    """목록·URI 통계·시간대별 추이가 공유하는 검색 조건(FastAPI 의존성)."""
+
+    def __init__(
+        self,
+        system_ids: list[int] = Query(..., min_length=1),
+        instance_role: Optional[str] = None,
+        start: Optional[datetime] = None,
+        end: Optional[datetime] = None,
+        uri: Optional[str] = None,
+        user_ip: Optional[str] = None,
+        user_id: Optional[str] = None,
+        min_elapsed_ms: Optional[int] = Query(None, ge=0),
+        max_elapsed_ms: Optional[int] = Query(None, ge=0),
+        min_sql_ms: Optional[int] = Query(None, ge=0),
+        min_fetch_cnt: Optional[int] = Query(None, ge=0),
+        min_sql_cnt: Optional[int] = Query(None, ge=0),
+        min_conn_open: Optional[int] = Query(None, ge=0),
+        error_only: bool = False,
+        trace_id: Optional[str] = None,
+        span_id: Optional[str] = None,
+        biz_key: Optional[str] = None,
+    ):
+        self.system_ids = system_ids
+        self.instance_role = instance_role
+        self.start = start
+        self.end = end
+        self.uri = uri
+        self.user_ip = user_ip
+        self.user_id = user_id
+        self.min_elapsed_ms = min_elapsed_ms
+        self.max_elapsed_ms = max_elapsed_ms
+        self.min_sql_ms = min_sql_ms
+        self.min_fetch_cnt = min_fetch_cnt
+        self.min_sql_cnt = min_sql_cnt
+        self.min_conn_open = min_conn_open
+        self.error_only = error_only
+        self.trace_id = trace_id
+        self.span_id = span_id
+        self.biz_key = biz_key
+
+
+def _like_escape(text_value: str) -> str:
+    return text_value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+async def _build_where(
+    db: AsyncSession, f: TxFilters
+) -> tuple[Optional[str], dict]:
+    """공통 WHERE 와 바인딩 값. uri 가 어떤 사전 항목과도 맞지 않으면 where 는 None."""
+    systems = await _load_systems(db, f.system_ids)
+    start_utc, end_utc = _resolve_range(systems, f.start, f.end)
 
     where = [
         "system_id IN {system_ids:Array(UInt32)}",
         "start_ts >= {start:DateTime64(3, 'UTC')}",
         "start_ts < {end:DateTime64(3, 'UTC')}",
     ]
-    params: dict = {"system_ids": system_ids, "start": start_utc, "end": end_utc}
+    params: dict = {"system_ids": f.system_ids, "start": start_utc, "end": end_utc}
 
-    if uri:
+    if f.uri:
         matched = await clickhouse_client.query(
             "SELECT DISTINCT id FROM agent_t.dict_uri "
             "WHERE positionCaseInsensitive(text, {uri:String}) > 0 LIMIT {uri_limit:UInt32}",
-            {"uri": uri, "uri_limit": _URI_MATCH_LIMIT},
+            {"uri": f.uri, "uri_limit": _URI_MATCH_LIMIT},
         )
         if not matched:
-            return TxListOut(items=[], has_more=False)
+            return None, params
         where.append("uri_id IN {uri_ids:Array(UInt64)}")
         params["uri_ids"] = [int(r["id"]) for r in matched]
-    if instance_role:
+    if f.instance_role:
         where.append("instance_role = {instance_role:String}")
-        params["instance_role"] = instance_role
-    if user_ip:
+        params["instance_role"] = f.instance_role
+    if f.user_ip:
         where.append("user_ip = {user_ip:String}")
-        params["user_ip"] = user_ip
-    if user_id:
+        params["user_ip"] = f.user_ip
+    if f.user_id:
         where.append("user_id = {user_id:String}")
-        params["user_id"] = user_id
-    if min_elapsed_ms is not None:
+        params["user_id"] = f.user_id
+    if f.min_elapsed_ms is not None:
         where.append("elapsed_ms >= {min_elapsed_ms:UInt32}")
-        params["min_elapsed_ms"] = min_elapsed_ms
-    if min_sql_ms is not None:
+        params["min_elapsed_ms"] = f.min_elapsed_ms
+    if f.max_elapsed_ms is not None:
+        where.append("elapsed_ms < {max_elapsed_ms:UInt32}")
+        params["max_elapsed_ms"] = f.max_elapsed_ms
+    if f.min_sql_ms is not None:
         where.append("sql_ms >= {min_sql_ms:UInt32}")
-        params["min_sql_ms"] = min_sql_ms
-    if error_only:
+        params["min_sql_ms"] = f.min_sql_ms
+    if f.min_fetch_cnt is not None:
+        where.append("fetch_cnt >= {min_fetch_cnt:UInt32}")
+        params["min_fetch_cnt"] = f.min_fetch_cnt
+    if f.min_sql_cnt is not None:
+        where.append("sql_cnt >= {min_sql_cnt:UInt32}")
+        params["min_sql_cnt"] = f.min_sql_cnt
+    if f.min_conn_open is not None:
+        where.append("conn_open >= {min_conn_open:UInt32}")
+        params["min_conn_open"] = f.min_conn_open
+    if f.error_only:
         where.append("error = 1")
-    if trace_id:
+    if f.trace_id:
         where.append("trace_id = {trace_id:String}")
-        params["trace_id"] = trace_id
+        params["trace_id"] = f.trace_id
+    if f.span_id:
+        where.append("span_id = {span_id:String}")
+        params["span_id"] = f.span_id
+    if f.biz_key:
+        if f.biz_key.endswith("%"):
+            where.append("biz_key LIKE {biz_key:String}")
+            params["biz_key"] = _like_escape(f.biz_key[:-1]) + "%"
+        else:
+            where.append("biz_key = {biz_key:String}")
+            params["biz_key"] = f.biz_key
+    return " AND ".join(where), params
+
+
+@router.get("/transactions", response_model=TxListOut)
+async def search_transactions(
+    f: TxFilters = Depends(),
+    order_by: OrderBy = "start_ts",
+    order: Literal["asc", "desc"] = "desc",
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    db: AsyncSession = Depends(get_db),
+    _user=Depends(get_current_user),
+):
+    where_sql, params = await _build_where(db, f)
+    empty = TxListOut(items=[], has_more=False, counts=TxCounts(total=0, normal=0, error=0))
+    if where_sql is None:
+        return empty
+
+    # 필터 전체 기준 건수 (페이지 무관). at-least-once 중복 행은 span_id 로 제거
+    count_rows = await clickhouse_client.query(
+        "SELECT uniqExact(span_id) AS total, uniqExactIf(span_id, error = 1) AS err "
+        "FROM agent_t.tx_summary WHERE " + where_sql,
+        params,
+    )
+    total = int(count_rows[0].get("total") or 0) if count_rows else 0
+    err = int(count_rows[0].get("err") or 0) if count_rows else 0
+    counts = TxCounts(total=total, normal=max(total - err, 0), error=err)
 
     # 1단계: 좁은 컬럼(start_ts, span_id)만 정렬해 상위 N 키를 뽑는다 (넓은 행 정렬은 메모리 한도 초과)
-    where_sql = " AND ".join(where)
+    order_col = order_by if order_by in _ORDER_COLUMNS else "start_ts"
+    direction = "ASC" if order == "asc" else "DESC"
     keys = await clickhouse_client.query(
         "SELECT start_ts, span_id FROM agent_t.tx_summary WHERE " + where_sql +
-        " ORDER BY start_ts DESC LIMIT {top_n:UInt32} SETTINGS optimize_read_in_order = 1",
+        f" ORDER BY {order_col} {direction} LIMIT {{top_n:UInt32}} SETTINGS optimize_read_in_order = 1",
         {**params, "top_n": offset + limit + 1},
     )
     has_more = len(keys) > offset + limit
     page_keys = keys[offset:offset + limit]
     if not page_keys:
-        return TxListOut(items=[], has_more=False)
+        return TxListOut(items=[], has_more=False, counts=counts)
 
     # 2단계: 해당 키의 전체 컬럼만 조회 (시간 범위·system_id 로 파티션/정렬키 가지치기)
     ts_values = [k["start_ts"] for k in page_keys]
@@ -218,7 +304,7 @@ async def search_transactions(
         "system_id IN {system_ids:Array(UInt32)} AND span_id IN {span_ids:Array(String)} "
         "AND start_ts >= {min_ts:DateTime64(3, 'UTC')} AND start_ts <= {max_ts:DateTime64(3, 'UTC')}",
         {
-            "system_ids": system_ids,
+            "system_ids": f.system_ids,
             "span_ids": [k["span_id"] for k in page_keys],
             "min_ts": min(ts_values),
             "max_ts": max(ts_values),
@@ -226,7 +312,87 @@ async def search_transactions(
     )
     by_key = {(r["start_ts"], r["span_id"]): r for r in rows}
     ordered = [by_key[(k["start_ts"], k["span_id"])] for k in page_keys if (k["start_ts"], k["span_id"]) in by_key]
-    return TxListOut(items=await _build_summaries(db, ordered), has_more=has_more)
+    return TxListOut(items=await _build_summaries(db, ordered), has_more=has_more, counts=counts)
+
+
+@router.get("/transactions/stats-by-uri", response_model=TxUriStatsOut)
+async def stats_by_uri(
+    f: TxFilters = Depends(),
+    limit: int = Query(200, ge=1, le=1000),
+    db: AsyncSession = Depends(get_db),
+    _user=Depends(get_current_user),
+):
+    where_sql, params = await _build_where(db, f)
+    if where_sql is None:
+        return TxUriStatsOut(items=[], total=0)
+    total_rows = await clickhouse_client.query(
+        "SELECT uniqExact(span_id) AS total FROM agent_t.tx_summary WHERE " + where_sql, params
+    )
+    total = int(total_rows[0].get("total") or 0) if total_rows else 0
+    if total == 0:
+        return TxUriStatsOut(items=[], total=0)
+    rows = await clickhouse_client.query(
+        "SELECT uri_id, uniqExact(span_id) AS cnt, uniqExactIf(span_id, error = 1) AS err_cnt, "
+        "max(elapsed_ms) AS elapsed_max, avg(elapsed_ms) AS elapsed_avg, "
+        "max(sql_ms) AS sql_max, avg(sql_ms) AS sql_avg, "
+        "max(ext_ms) AS ext_max, avg(ext_ms) AS ext_avg, "
+        "avg(greatest(toInt64(elapsed_ms) - toInt64(sql_ms) - toInt64(ext_ms), 0)) AS ap_avg "
+        "FROM agent_t.tx_summary WHERE " + where_sql +
+        " GROUP BY uri_id ORDER BY cnt DESC, uri_id ASC LIMIT {stat_limit:UInt32}",
+        {**params, "stat_limit": limit},
+    )
+    uris = await _dict_texts("dict_uri", [int(r.get("uri_id") or 0) for r in rows])
+    items = []
+    for r in rows:
+        cnt = int(r.get("cnt") or 0)
+        items.append(TxUriStat(
+            uri=uris.get(int(r.get("uri_id") or 0), ""),
+            count=cnt,
+            error_count=int(r.get("err_cnt") or 0),
+            ratio=round(cnt / total * 100, 1),
+            elapsed_max=int(r.get("elapsed_max") or 0),
+            elapsed_avg=int(round(float(r.get("elapsed_avg") or 0))),
+            sql_max=int(r.get("sql_max") or 0),
+            sql_avg=int(round(float(r.get("sql_avg") or 0))),
+            ext_max=int(r.get("ext_max") or 0),
+            ext_avg=int(round(float(r.get("ext_avg") or 0))),
+            ap_avg=int(round(float(r.get("ap_avg") or 0))),
+        ))
+    return TxUriStatsOut(items=items, total=total)
+
+
+@router.get("/transactions/hourly", response_model=TxHourlyOut)
+async def hourly_trend(
+    f: TxFilters = Depends(),
+    db: AsyncSession = Depends(get_db),
+    _user=Depends(get_current_user),
+):
+    where_sql, params = await _build_where(db, f)
+    by_hour: dict[str, dict] = {}
+    if where_sql is not None:
+        rows = await clickhouse_client.query(
+            "SELECT formatDateTime(toStartOfHour(toTimeZone(start_ts, {tz:String})), '%H') AS hour, "
+            "uniqExact(span_id) AS cnt, avg(elapsed_ms) AS elapsed_avg, "
+            "sum(sql_ms) AS sql_sum, sum(sql_cnt) AS sql_cnt_sum "
+            "FROM agent_t.tx_summary WHERE " + where_sql + " GROUP BY hour ORDER BY hour ASC",
+            {**params, "tz": _KST_TZ},
+        )
+        by_hour = {str(r["hour"]).zfill(2): r for r in rows}
+    items = []
+    for h in range(24):
+        key = f"{h:02d}"
+        r = by_hour.get(key)
+        if r is None:
+            items.append(TxHourlyBucket(hour=key, count=0, elapsed_avg=0, sql_avg_per_exec=0.0))
+            continue
+        sql_cnt = float(r.get("sql_cnt_sum") or 0)
+        items.append(TxHourlyBucket(
+            hour=key,
+            count=int(r.get("cnt") or 0),
+            elapsed_avg=int(round(float(r.get("elapsed_avg") or 0))),
+            sql_avg_per_exec=round(float(r.get("sql_sum") or 0) / sql_cnt, 1) if sql_cnt > 0 else 0.0,
+        ))
+    return TxHourlyOut(items=items)
 
 
 def _parse_json(text_value):
@@ -236,6 +402,22 @@ def _parse_json(text_value):
         return json.loads(text_value)
     except (TypeError, ValueError):
         return text_value
+
+
+def _parse_params(text_value) -> Optional[TxParamsOut]:
+    """tx_detail.params(JSON {"q","p","t"}) → TxParamsOut. 빈 값·깨진 JSON·형식 불일치는 None."""
+    data = _parse_json(text_value)
+    if not isinstance(data, dict):
+        return None
+    pairs = [
+        [str(kv[0]), str(kv[1])]
+        for kv in (data.get("p") or [])
+        if isinstance(kv, (list, tuple)) and len(kv) == 2
+    ]
+    q = data.get("q") if isinstance(data.get("q"), str) else ""
+    if not q and not pairs:
+        return None
+    return TxParamsOut(q=q, p=pairs, t=bool(data.get("t")))
 
 
 @router.get("/transactions/{trace_id}/{span_id}", response_model=TxDetailOut)
@@ -258,7 +440,7 @@ async def get_transaction_detail(
     summary = next(p for p in path if p.span_id == span_id)
 
     sql_rows = await clickhouse_client.query(
-        "SELECT sql_id, cnt, ms, max_ms, fetch_cnt, fetch_ms, err FROM agent_t.tx_sql "
+        "SELECT sql_id, db, cnt, ms, max_ms, fetch_cnt, fetch_ms, err FROM agent_t.tx_sql "
         "WHERE system_id = {system_id:UInt32} AND start_ts = {start_ts:DateTime64(3, 'UTC')} "
         "AND trace_id = {trace_id:String} AND span_id = {span_id:String} ORDER BY ms DESC",
         {"system_id": own["system_id"], "start_ts": own["start_ts"], "trace_id": trace_id, "span_id": span_id},
@@ -268,6 +450,7 @@ async def get_transaction_detail(
         TxSqlOut(
             sql_id=_hex_id(r["sql_id"]),
             sql_text=texts.get(int(r["sql_id"]), ""),
+            db=r.get("db") or "",
             cnt=r.get("cnt") or 0, ms=r.get("ms") or 0, max_ms=r.get("max_ms") or 0,
             fetch_cnt=r.get("fetch_cnt") or 0, fetch_ms=r.get("fetch_ms") or 0,
             err=r.get("err") or 0,
@@ -276,9 +459,10 @@ async def get_transaction_detail(
     ]
 
     detail = None
+    params = None
     if summary.has_detail:
         detail_rows = await clickhouse_client.query(
-            "SELECT nodes, stacks FROM agent_t.tx_detail "
+            "SELECT nodes, stacks, params FROM agent_t.tx_detail "
             "WHERE system_id = {system_id:UInt32} AND start_ts = {start_ts:DateTime64(3, 'UTC')} "
             "AND trace_id = {trace_id:String} AND span_id = {span_id:String} LIMIT 1",
             {"system_id": own["system_id"], "start_ts": own["start_ts"], "trace_id": trace_id, "span_id": span_id},
@@ -288,7 +472,8 @@ async def get_transaction_detail(
                 nodes=_parse_json(detail_rows[0].get("nodes")),
                 stacks=_parse_json(detail_rows[0].get("stacks")),
             )
-    return TxDetailOut(summary=summary, sql=sql_items, detail=detail, path=path)
+            params = _parse_params(detail_rows[0].get("params"))
+    return TxDetailOut(summary=summary, sql=sql_items, detail=detail, params=params, path=path)
 
 
 @router.get("/scatter", response_model=ScatterOut)

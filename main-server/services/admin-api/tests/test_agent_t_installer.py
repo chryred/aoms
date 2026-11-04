@@ -653,3 +653,58 @@ async def test_live_needs_target_exposed_only_after_db_commit(env, monkeypatch):
     events = _track_commits(env, monkeypatch)
     await inst.run_install("job1", agent, SESSION)
     assert events[-2:] == ["commit", "live:needs_target"]
+
+
+def _written_props(env):
+    return env.remote.files["/home/jeussic/agent-t/agent-t.properties.tmp"]
+
+
+async def test_capture_params_default_off(env):
+    agent = await env.make({"jvm_match": "-Dsic_server1", "permanent": False})
+    await inst.run_install("job1", agent, SESSION)
+    props = _written_props(env)
+    assert "capture.params=false" in props.splitlines()
+    assert "capture.params.uri" not in props
+
+
+async def test_capture_params_written_with_globs(env):
+    agent = await env.make({
+        "jvm_match": "-Dsic_server1", "permanent": False, "capture_params": True,
+        "capture_params_include": ["/api/*", "/order/**"], "capture_params_exclude": "/api/login, /health",
+    })
+    await inst.run_install("job1", agent, SESSION)
+    lines = _written_props(env).splitlines()
+    assert "capture.params=true" in lines
+    assert "capture.params.uri.include=/api/*,/order/**" in lines
+    assert "capture.params.uri.exclude=/api/login,/health" in lines
+
+
+async def test_capture_params_truthy_string_stays_off_and_globs_ignored(env):
+    agent = await env.make({"jvm_match": "-Dsic_server1", "permanent": False, "capture_params": "true",
+                            "capture_params_include": ["/api/*"]})
+    await inst.run_install("job1", agent, SESSION)
+    props = _written_props(env)
+    assert "capture.params=false" in props.splitlines()
+    assert "uri.include" not in props
+
+
+async def test_capture_params_bad_glob_fails_job_before_upload(env):
+    agent = await env.make({"jvm_match": "-Dsic_server1", "permanent": False, "capture_params": True,
+                            "capture_params_include": ["/a\ngateway.url=http://evil"]})
+    await inst.run_install("job1", agent, SESSION)
+    assert (await _job(env)).status == "failed"
+    assert "agent-t.properties.tmp" not in " ".join(str(e) for e in env.remote.events)
+
+
+def test_capture_properties_pure():
+    assert inst.capture_properties({}) == "capture.params=false\n"
+    assert inst.capture_properties({"capture_params": True}) == "capture.params=true\n"
+    with pytest.raises(ValueError):
+        inst.capture_properties({"capture_params": True, "capture_params_exclude": [1]})
+
+
+def test_capture_properties_pool_metrics_kill_switch():
+    assert "pool.metrics" not in inst.capture_properties({})
+    assert "pool.metrics" not in inst.capture_properties({"pool_metrics": True})
+    assert "pool.metrics" not in inst.capture_properties({"pool_metrics": "false"})
+    assert inst.capture_properties({"pool_metrics": False}).endswith("pool.metrics=false\n")
