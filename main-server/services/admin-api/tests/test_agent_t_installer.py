@@ -708,3 +708,123 @@ def test_capture_properties_pool_metrics_kill_switch():
     assert "pool.metrics" not in inst.capture_properties({"pool_metrics": True})
     assert "pool.metrics" not in inst.capture_properties({"pool_metrics": "false"})
     assert inst.capture_properties({"pool_metrics": False}).endswith("pool.metrics=false\n")
+
+
+# ── 사전 점검 (dry-run) ──────────────────────────────────────────────────────
+
+_WRITE_MARKERS = ("mkdir", "mv ", "rm ", "chmod", "cp ", "tee", ": >", " > ", ">>", "sed -i", "--attach", "systemctl")
+
+
+def _assert_read_only(remote):
+    for cmd in remote.exec_calls + remote.shell_calls:
+        assert not any(m in cmd for m in _WRITE_MARKERS if m not in ("--attach",)), cmd
+        if "agent-t-attacher.jar" in cmd:
+            raise AssertionError(f"attacher 실행 금지: {cmd}")
+    assert remote.binaries == {} and remote.files == {} and remote.mv_calls == []
+    assert not [e for e in remote.events if e[0] == "put"]
+
+
+def _by_item(res):
+    return {c["item"]: c for c in res}
+
+
+async def test_precheck_all_ok_and_read_only(env):
+    env.remote.ps = "4242 jeussic /usr/local/jdk1.7.0_79/bin/java -Dsic_server1 weblogic.Server"
+    orig = env.remote._run
+
+    def run(cmd):
+        if cmd.startswith("d="):
+            return 0, "W /home/jeussic\n/dev/x 1000000 1 900000 1% /\n", ""
+        if "curl" in cmd:
+            return 0, "200", ""
+        return orig(cmd)
+
+    env.remote._run = run
+    agent = await env.make({"jvm_match": "sic_server1", "service_type": "standalone"})
+    res = await inst.precheck_install(agent, SESSION)
+    items = _by_item(res)
+    assert all(c["status"] == "ok" for c in res), res
+    assert {"설정값", "SSH 접속", "대상 JVM", "JDK", "설치 경로", "디스크 여유", "gateway 도달"} <= set(items)
+    assert any("/healthz" in c for c in env.remote.exec_calls)
+    _assert_read_only(env.remote)
+
+
+async def test_precheck_reports_failures_without_writing(env):
+    env.remote.ps = ""
+    env.remote.version = 'java version "1.5.0_22"'
+    orig = env.remote._run
+
+    def run(cmd):
+        if cmd.startswith("d="):
+            return 0, "N /opt\n/dev/x 100 1 1024 99% /opt\n", ""
+        if "curl" in cmd:
+            return 0, "000", ""
+        return orig(cmd)
+
+    env.remote._run = run
+    agent = await env.make({"jvm_match": "sic_server1", "service_type": "standalone", "install_dir": "/opt/agent-t"})
+    items = _by_item(await inst.precheck_install(agent, SESSION))
+    assert items["대상 JVM"]["status"] == "fail"
+    assert items["설치 경로"]["status"] == "fail"
+    assert items["디스크 여유"]["status"] == "fail"
+    assert items["gateway 도달"]["status"] == "fail"
+    _assert_read_only(env.remote)
+
+
+async def test_precheck_multiple_jvm_is_warn_and_old_jdk_fail(env):
+    env.remote.ps = (
+        "4242 jeussic /j/bin/java -Dsic_server1 a\n"
+        "4343 jeussic /j/bin/java -Dsic_server1 b"
+    )
+    env.remote.version = 'java version "1.5.0_22"'
+    agent = await env.make({"jvm_match": "sic_server1"})
+    items = _by_item(await inst.precheck_install(agent, SESSION))
+    assert items["대상 JVM"]["status"] == "warn"
+    assert items["JDK"]["status"] == "fail"
+    _assert_read_only(env.remote)
+
+
+async def test_precheck_jeus_reads_domain_xml_only(env):
+    env.remote.read_map["/home/jeussic/domain/config/domain.xml"] = FIXTURE.read_text()
+    orig = env.remote._run
+    env.remote._run = lambda cmd: (0, "W /home/jeussic\n/dev/x 1 1 900000 1% /\n", "") if cmd.startswith("d=") else orig(cmd)
+    agent = await env.make({
+        "jvm_match": "sic_server1", "service_type": "jeus", "service_path": "/home/jeussic/domain",
+        "server_name": "sic_server1",
+    })
+    items = _by_item(await inst.precheck_install(agent, SESSION))
+    assert items["영구 적용"]["status"] == "ok", items["영구 적용"]
+    _assert_read_only(env.remote)
+
+
+async def test_precheck_systemd_non_root_fails(env):
+    agent = await env.make({"jvm_match": "sic_server1", "service_type": "systemd"})
+    items = _by_item(await inst.precheck_install(agent, SESSION))
+    assert items["영구 적용"]["status"] == "fail"
+
+
+async def test_precheck_bad_config_stops_before_ssh(env):
+    agent = await env.make({"service_type": "standalone"})
+    res = await inst.precheck_install(agent, SESSION)
+    assert res == [{"item": "설정값", "status": "fail", "detail": "jvm_match 가 필요합니다 (예: -Dsic_server1)."}]
+    assert env.remote.exec_calls == []
+
+
+async def test_precheck_ssh_failure_reported(env):
+    env.remote.exec_error = SSHError("SSH 연결 실패: timeout")
+    agent = await env.make({"jvm_match": "sic_server1"})
+    items = _by_item(await inst.precheck_install(agent, SESSION))
+    assert items["SSH 접속"]["status"] == "fail"
+
+
+async def test_precheck_route_requires_session_and_returns_shape(env, authed_client, monkeypatch):
+    agent = await env.make({"jvm_match": "sic_server1", "service_type": "standalone"})
+    r = await authed_client.post(f"/api/v1/agents/{agent.id}/precheck")
+    assert r.status_code == 401
+    monkeypatch.setattr(agents_control, "get_session", lambda t: SESSION if t == "tok" else None)
+    r = await authed_client.post(f"/api/v1/agents/{agent.id}/precheck", headers={"X-SSH-Session": "tok"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert set(body) == {"ok", "overall", "checked_at", "checks"}
+    assert body["checks"] and set(body["checks"][0]) == {"item", "status", "detail"}
+    _assert_read_only(env.remote)

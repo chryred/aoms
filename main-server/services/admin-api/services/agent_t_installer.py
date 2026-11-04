@@ -716,3 +716,256 @@ async def _apply_jeus(session, conn, info, javaagent, ctx, _log) -> bool:
     await asyncio.to_thread(ssh_put_file, *conn, domain_xml, new_xml)
     _log("    domain.xml 반영 완료. 도메인 관리 서버(config.lck)가 다시 쓸 수 있으니 jeusadmin 으로 설정 동기화를 확인하세요.")
     return False
+
+
+# ── 사전 점검 (dry-run, 읽기 전용) ───────────────────────────────────────────
+
+_MIN_FREE_KB = 50 * 1024  # jar 2종 + 로그 여유
+
+
+def _chk(item: str, status: str, detail: str) -> dict:
+    return {"item": item, "status": status, "detail": detail}
+
+
+async def _writable_probe(session: dict, path: str) -> tuple[bool, str, int | None]:
+    """path 또는 존재하는 가장 가까운 상위 디렉터리의 쓰기 가능 여부와 여유 공간(KB). 읽기 전용 명령만 사용."""
+    q = shlex.quote(path)
+    cmd = (
+        f'd={q}; while [ ! -e "$d" ] && [ "$d" != "/" ]; do d=$(dirname "$d"); done; '
+        'if [ -w "$d" ] && [ -d "$d" ]; then w=W; else w=N; fi; '
+        'echo "$w $d"; df -Pk "$d" 2>/dev/null | tail -1'
+    )
+    _, out, _ = await _exec(session, cmd)
+    lines = [ln for ln in out.splitlines() if ln.strip()]
+    if not lines:
+        return False, path, None
+    head = lines[0].split(None, 1)
+    writable = head[0] == "W"
+    base = head[1].strip() if len(head) > 1 else path
+    free_kb = None
+    if len(lines) > 1:
+        cols = lines[1].split()
+        if len(cols) >= 4 and cols[3].isdigit():
+            free_kb = int(cols[3])
+    return writable, base, free_kb
+
+
+async def precheck_install(agent: AgentInstance, session: dict, target_pid: int | None = None) -> list[dict]:
+    """설치 가능 여부를 원격 서버를 변경하지 않고 점검한다 (파일 쓰기·업로드·mkdir·attach·domain.xml 수정 없음).
+
+    원격에는 ps/readlink/java -version/test/df/curl 등 조회 명령과 SFTP 읽기만 보낸다.
+    반환: [{"item", "status": ok|warn|fail, "detail"}]. 항목 하나가 실패해도 가능한 뒤 항목은 계속 점검한다.
+    """
+    results: list[dict] = []
+    add = lambda item, status, detail: results.append(_chk(item, status, detail))  # noqa: E731
+    conn = (session["host"], session["port"], session["username"], session["password"])
+
+    # 1. 설정값 (로컬 검증)
+    try:
+        info = json.loads(agent.label_info or "{}")
+        if not isinstance(info, dict):
+            raise ValueError("label_info 는 JSON 객체여야 합니다.")
+        jvm_match = (info.get("jvm_match") or "").strip()
+        if not jvm_match:
+            raise ValueError("jvm_match 가 필요합니다 (예: -Dsic_server1).")
+        service_type = info.get("service_type", "standalone")
+        service_path = _validate_path(info.get("service_path", ""), "service_path")
+        install_dir = _validate_path(info.get("install_dir") or "~/agent-t", "install_dir")
+        instance_role = info.get("instance_role") or default_instance_role(info, agent.host)
+        capture_properties(info)
+        if not _SAFE_VALUE_RE.fullmatch(str(instance_role)):
+            raise ValueError(f"instance_role 는 영문·숫자·_.- 1~100자여야 합니다 ({str(instance_role)[:40]!r})")
+    except (ValueError, TypeError) as exc:
+        add("설정값", "fail", str(exc))
+        return results
+    immediate = info.get("immediate", True) is not False
+    permanent = info.get("permanent", True) is not False
+    add("설정값", "ok", f"jvm_match={jvm_match}, service_type={service_type}, 역할={instance_role}")
+
+    # 2. 인스턴스 역할 중복
+    from database import AsyncSessionLocal
+
+    async with AsyncSessionLocal() as db:
+        sys_obj = (await db.execute(select(System).where(System.id == agent.system_id))).scalar_one_or_none()
+        others = (await db.execute(
+            select(AgentInstance).where(
+                AgentInstance.system_id == agent.system_id,
+                AgentInstance.agent_type == "agent_t",
+                AgentInstance.id != agent.id,
+            )
+        )).scalars().all()
+    sys_name = sys_obj.system_name if sys_obj else "unknown"
+    dup = None
+    for other in others:
+        try:
+            if (json.loads(other.label_info or "{}") or {}).get("instance_role") == instance_role:
+                dup = other.id
+        except (TypeError, ValueError, AttributeError):
+            continue
+    if dup is not None:
+        add("역할 중복", "fail", f"같은 시스템에 instance_role '{instance_role}' 가 이미 있습니다 (agent {dup}).")
+    else:
+        add("역할 중복", "ok", "같은 시스템에 중복된 instance_role 이 없습니다.")
+
+    # 3. 배포 아티팩트 (admin-api 컨테이너 로컬 파일)
+    artifacts_ok = True
+    try:
+        for name in ("agent-t.jar", "agent-t-legacy.jar", _ATTACHER_JAR):
+            _verify_against_sums(name, _read_artifact(name))
+        add("배포 파일", "ok", "agent-t.jar, agent-t-legacy.jar, attacher 와 SHA256 확인.")
+    except (FileNotFoundError, RuntimeError) as exc:
+        artifacts_ok = False
+        add("배포 파일", "fail", str(exc))
+
+    # 4. gateway 주소 형식
+    gateway_url = None
+    try:
+        gateway_url = validate_gateway_url(os.getenv("AGENT_T_GATEWAY_URL", ""))
+        add("gateway 주소", "ok", gateway_url)
+    except ValueError as exc:
+        add("gateway 주소", "fail", str(exc))
+
+    # 5. SSH 연결 + 홈 디렉터리
+    try:
+        code, home_out, _ = await _exec(session, "echo $HOME")
+    except Exception as exc:  # noqa: BLE001 — 연결 실패 사유를 그대로 보여준다
+        add("SSH 접속", "fail", str(exc)[:200])
+        return results
+    home = home_out.strip()
+    add("SSH 접속", "ok", f"{session['username']}@{session['host']}" + (f" (홈 {home})" if home else ""))
+    if install_dir.startswith("~") and home:
+        install_dir = home + install_dir[1:]
+    if service_path.startswith("~") and home:
+        service_path = home + service_path[1:]
+
+    # 6. 대상 JVM
+    _, ps_out, _ = await _exec(session, f"ps -eo pid,user,args | grep -F -- {shlex.quote(jvm_match)} | grep -v grep")
+    candidates = filter_jvm_candidates(ps_out, jvm_match)
+    chosen = None
+    if target_pid is not None:
+        chosen = next((c for c in candidates if c["pid"] == target_pid), None)
+        if chosen is None:
+            add("대상 JVM", "fail", f"PID {target_pid} 는 jvm_match 와 일치하는 JVM 이 아닙니다.")
+    elif not candidates:
+        add("대상 JVM", "fail", f"jvm_match({jvm_match})와 일치하는 JVM 프로세스가 없습니다.")
+    elif len(candidates) > 1:
+        pids = ", ".join(str(c["pid"]) for c in candidates)
+        add("대상 JVM", "warn", f"일치하는 JVM 이 {len(candidates)}개입니다 (PID {pids}). 설치 시 대상을 선택해야 합니다.")
+        chosen = candidates[0]
+    else:
+        chosen = candidates[0]
+    if chosen is not None and (target_pid is not None or len(candidates) == 1):
+        add("대상 JVM", "ok", f"PID {chosen['pid']}, 계정 {chosen['user']}")
+
+    major = None
+    if chosen is not None:
+        pid, proc_user, proc_args = str(chosen["pid"]), chosen["user"], chosen["command"]
+        # 7. JDK
+        code, exe_out, _ = await _exec(session, f"readlink /proc/{int(pid)}/exe")
+        java_bin = exe_out.strip()
+        if code != 0 or not java_bin:
+            add("JDK", "fail", f"java 실행 파일 경로를 확인하지 못했습니다 (/proc/{pid}/exe). 권한을 확인하세요.")
+        else:
+            _, ver_out, _ = await _exec(session, f"{shlex.quote(java_bin)} -version 2>&1")
+            try:
+                major = parse_java_major(ver_out)
+            except ValueError as exc:
+                add("JDK", "fail", str(exc))
+            else:
+                jar_name = "agent-t-legacy.jar" if major <= 7 else "agent-t.jar"
+                if major <= 5:
+                    add("JDK", "fail", f"지원하지 않는 JDK 입니다 (major={major}). JDK 6 이상이 필요합니다.")
+                else:
+                    add("JDK", "ok", f"JDK {major} ({java_bin}), {jar_name} 사용")
+
+        # 8. 기존 javaagent / attach 가능 여부
+        existing = re.findall(r"-javaagent:\S+", proc_args)
+        if any("opentelemetry" in a.lower() for a in existing):
+            add("기존 agent", "warn", "같은 JVM 에 OpenTelemetry agent 가 있습니다. 중복 계측을 피하려면 제거하세요.")
+        elif any("agent-t" in a.lower() for a in existing):
+            add("기존 agent", "warn", "이미 Agent-T 가 -javaagent 로 적용되어 있습니다 (재설치).")
+        else:
+            add("기존 agent", "ok", "충돌하는 -javaagent 가 없습니다.")
+        if immediate:
+            if "DisableAttachMechanism" in proc_args:
+                add("즉시 적용", "warn", "JVM 이 -XX:+DisableAttachMechanism 입니다. attach 를 건너뛰고 재기동 후 적용됩니다.")
+            elif proc_user != session["username"] and session["username"] != "root":
+                add("즉시 적용", "warn", f"JVM 계정({proc_user})과 SSH 계정({session['username']})이 다릅니다. attach 가 실패할 수 있습니다.")
+            else:
+                add("즉시 적용", "ok", "attach 조건(계정 일치)을 만족합니다.")
+
+    # 9. 설치 디렉터리 쓰기 권한·디스크
+    writable, base, free_kb = await _writable_probe(session, install_dir)
+    where = install_dir if base == install_dir else f"{install_dir} (상위 {base} 기준)"
+    if not writable:
+        add("설치 경로", "fail", f"{where} 에 쓰기 권한이 없습니다.")
+    else:
+        add("설치 경로", "ok", f"{where} 쓰기 가능")
+    if free_kb is None:
+        add("디스크 여유", "warn", "여유 공간을 확인하지 못했습니다.")
+    elif free_kb < _MIN_FREE_KB:
+        add("디스크 여유", "fail", f"여유 공간 {free_kb // 1024}MB 로 부족합니다 (최소 {_MIN_FREE_KB // 1024}MB).")
+    else:
+        add("디스크 여유", "ok", f"{free_kb // 1024}MB")
+
+    # 10. 영구 적용 대상
+    if permanent:
+        if service_type == "systemd":
+            if session["username"] != "root":
+                add("영구 적용", "fail", "systemd 시스템 유닛은 root SSH 계정이 필요합니다.")
+            else:
+                add("영구 적용", "ok", "systemd drop-in 작성 가능 (root).")
+        elif service_type == "jeus":
+            try:
+                if not service_path:
+                    raise ValueError("JEUS 영구 적용에는 service_path(도메인 디렉터리)가 필요합니다.")
+                server_name = _jeus_server_name(info, jvm_match)
+                if not server_name or not _SAFE_VALUE_RE.fullmatch(server_name):
+                    raise ValueError(f"jvm_match 에서 JEUS 서버명을 알 수 없습니다. label_info.server_name 을 지정하세요 ({jvm_match!r}).")
+                domain_xml = f"{service_path}/config/domain.xml"
+                xml_text = await asyncio.to_thread(ssh_read_file, *conn, domain_xml)
+                if xml_text is None:
+                    raise FileNotFoundError(f"domain.xml 을 찾을 수 없습니다: {domain_xml}")
+                jeus_domain.add_javaagent(xml_text, server_name, f"-javaagent:{install_dir}/agent-t.jar")
+                dw, _, _ = await _writable_probe(session, domain_xml)
+                if dw:
+                    add("영구 적용", "ok", f"domain.xml 에서 서버 {server_name} 확인 (미리보기 가능).")
+                else:
+                    add("영구 적용", "warn", f"domain.xml 은 읽을 수 있으나 쓰기 권한이 없습니다 ({domain_xml}).")
+            except (ValueError, FileNotFoundError, SSHError, OSError) as exc:
+                add("영구 적용", "fail", str(exc)[:200])
+        else:
+            inject_path = _get_inject_path(service_type, service_path, install_dir, sys_name)
+            if not inject_path:
+                add("영구 적용", "warn", "기동 설정 파일 경로를 결정할 수 없어 영구 적용을 건너뜁니다.")
+            else:
+                parent = inject_path.rpartition("/")[0] or "/"
+                pw, pbase, _ = await _writable_probe(session, parent)
+                if pw:
+                    add("영구 적용", "ok", f"{inject_path} 작성 가능")
+                else:
+                    add("영구 적용", "fail", f"{pbase} 에 쓰기 권한이 없습니다 ({inject_path}).")
+    else:
+        add("영구 적용", "ok", "영구 적용을 사용하지 않습니다 (permanent=false).")
+
+    # 11. WAS 에서 gateway 도달 (읽기 전용 HTTP GET /healthz)
+    if gateway_url:
+        from urllib.parse import urlparse
+
+        u = urlparse(gateway_url)
+        health = f"{gateway_url.rstrip('/')}/healthz"
+        port = u.port or (443 if u.scheme == "https" else 80)
+        qh = shlex.quote(health)
+        cmd = (
+            f"if command -v curl >/dev/null 2>&1; then curl -s -m 5 -o /dev/null -w '%{{http_code}}' {qh}; "
+            f"else timeout 5 bash -c 'exec 3<>/dev/tcp/{u.hostname}/{port}' >/dev/null 2>&1 && echo TCP_OK || echo TCP_FAIL; fi"
+        )
+        _, g_out, _ = await _exec(session, cmd)
+        res = g_out.strip().splitlines()[-1].strip() if g_out.strip() else ""
+        if res == "200" or res == "TCP_OK":
+            add("gateway 도달", "ok", f"WAS 에서 {health} 응답 확인" if res == "200" else f"WAS 에서 {u.hostname}:{port} TCP 연결 확인")
+        elif res.isdigit() and res != "000":
+            add("gateway 도달", "warn", f"{health} 가 HTTP {res} 를 반환했습니다.")
+        else:
+            add("gateway 도달", "fail", f"WAS 에서 {u.hostname}:{port} 에 접속할 수 없습니다. 방화벽을 확인하세요.")
+    return results

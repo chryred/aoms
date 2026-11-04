@@ -868,6 +868,23 @@ class AgentInstallRequest(BaseModel):
     target_pid: Optional[int] = Field(default=None, ge=1)  # agent_t 1회성 대상 PID (label_info 에 저장하지 않음)
 
 
+class AgentPrecheckRequest(BaseModel):
+    target_pid: Optional[int] = Field(default=None, ge=1)
+
+
+class AgentPrecheckItem(BaseModel):
+    item: str
+    status: Literal["ok", "warn", "fail"]
+    detail: str
+
+
+class AgentPrecheckOut(BaseModel):
+    ok: bool  # fail 항목이 없으면 True (warn 은 설치 가능)
+    overall: Literal["ok", "warn", "fail"]
+    checked_at: UtcDatetime
+    checks: List[AgentPrecheckItem]
+
+
 class JvmCandidate(BaseModel):
     pid: int
     user: str

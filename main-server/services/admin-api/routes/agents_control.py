@@ -11,6 +11,7 @@
 설치 Job (비동기):
   - POST /api/v1/agents/install
   - GET  /api/v1/agents/jobs/{job_id}
+  - POST /api/v1/agents/{id}/precheck   (Agent-T 설치 사전 점검, 읽기 전용 dry-run)
 
 에이전트 라이브 상태:
   - GET  /api/v1/agents/{id}/live-status
@@ -40,6 +41,8 @@ from schemas import (
     AgentConfigUpload,
     AgentInstallJobOut,
     AgentInstallRequest,
+    AgentPrecheckOut,
+    AgentPrecheckRequest,
     AgentStatusOut,
 )
 from services.ssh_session import (
@@ -551,6 +554,33 @@ async def install_agent(
         error=None,
         created_at=now,
         updated_at=now,
+    )
+
+
+@router.post("/agents/{agent_id}/precheck", response_model=AgentPrecheckOut)
+async def precheck_agent(
+    agent_id: int,
+    body: Optional[AgentPrecheckRequest] = None,
+    db: AsyncSession = Depends(get_db),
+    session: dict = Depends(_require_session),
+    current_user=Depends(get_current_user),
+):
+    """Agent-T 설치 사전 점검. 대상 서버를 변경하지 않는 조회 명령만 실행한다 (파일 쓰기·업로드·attach 없음)."""
+    agent = await _get_agent_or_404(agent_id, db)
+    if agent.agent_type != "agent_t":
+        raise HTTPException(400, "사전 점검은 Agent-T 에이전트만 지원합니다.")
+    _check_host_match(agent, session)
+    _assert_session_account(agent, session)
+    from services import agent_t_installer  # 순환 import 방지: 호출 시점에 로드
+
+    checks = await agent_t_installer.precheck_install(agent, session, body.target_pid if body else None)
+    statuses = {c["status"] for c in checks}
+    overall = "fail" if "fail" in statuses else "warn" if "warn" in statuses else "ok"
+    return AgentPrecheckOut(
+        ok=overall != "fail",
+        overall=overall,
+        checked_at=datetime.now(timezone.utc).replace(tzinfo=None),
+        checks=checks,
     )
 
 
