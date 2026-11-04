@@ -187,32 +187,49 @@ describe('위젯 상호작용', () => {
     expect(screen.queryByText('수신 대기')).not.toBeInTheDocument()
   })
 
-  it('동시 사용자·스레드: 스레드 라벨을 명시한다 (인스턴스가 여럿이면 이름 · 스레드)', async () => {
-    const mk = (role: string, threads: number) => [
-      { ...aggOf(3, role, 1, 5000), jvm: { threads } },
-      { ...aggOf(3, role, 1, 10000), jvm: { threads } },
+  it('동시 사용자·JVM 스레드: 두 값을 선과 라벨로 보이고 설명 힌트를 둔다', async () => {
+    const mk = (role: string, threads: number, users: number) => [
+      { ...aggOf(3, role, 1, 5000), jvm: { threads }, users_5m: users },
+      { ...aggOf(3, role, 1, 10000), jvm: { threads }, users_5m: users },
     ]
     vi.mocked(apmApi.listDashboards).mockResolvedValue([
       dashboard([widget('u', 'jvm_users_threads')]),
     ])
-    useApmLiveStream.mockReturnValue(emptyLive({ agg: new Map([['3:was1', mk('was1', 208)]]) }))
+    useApmLiveStream.mockReturnValue(emptyLive({ agg: new Map([['3:was1', mk('was1', 208, 35)]]) }))
     const { unmount } = renderPage('/apm/live?system=3')
-    expect(await screen.findByText('스레드')).toBeInTheDocument()
-    expect(screen.queryByText(/was1 · /)).not.toBeInTheDocument()
-    expect(screen.getByText('스레드').parentElement).toHaveTextContent('스레드 208')
+    const legend = await screen.findByTestId('chart-legend')
+    expect(legend).toHaveTextContent('동시 사용자 (5분 고유) 35')
+    expect(legend).toHaveTextContent('JVM 스레드 208')
+    expect(screen.getByTestId('users-threads-hint')).toHaveAccessibleName(/JVM 전체/)
     unmount()
 
     useApmLiveStream.mockReturnValue(
       emptyLive({
         agg: new Map([
-          ['3:was1', mk('was1', 208)],
-          ['3:was2', mk('was2', 50)],
+          ['3:was1', mk('was1', 208, 35)],
+          ['3:was2', mk('was2', 50, 5)],
         ]),
       }),
     )
     renderPage('/apm/live?system=3')
-    expect(await screen.findByText(/was1 · 스레드/)).toBeInTheDocument()
-    expect(screen.getByText(/was2 · 스레드/)).toBeInTheDocument()
+    const legend2 = await screen.findByTestId('chart-legend')
+    expect(legend2).toHaveTextContent('동시 사용자 (5분 고유) 합계 40')
+    expect(legend2).toHaveTextContent('JVM 스레드 합계 258')
+  })
+
+  it('동시 사용자: 구 gateway(users_5m 없음)면 스레드 선만 보인다', async () => {
+    vi.mocked(apmApi.listDashboards).mockResolvedValue([
+      dashboard([widget('u', 'jvm_users_threads')]),
+    ])
+    useApmLiveStream.mockReturnValue(
+      emptyLive({
+        agg: new Map([['3:was1', [{ ...aggOf(3, 'was1', 1, 5000), jvm: { threads: 9 } }]]]),
+      }),
+    )
+    renderPage('/apm/live?system=3')
+    const legend = await screen.findByTestId('chart-legend')
+    expect(legend).toHaveTextContent('JVM 스레드 9')
+    expect(legend).not.toHaveTextContent('동시 사용자')
   })
 
   it('미니 차트: 최대값 축 라벨과 KST 시작/끝 시각을 보인다', async () => {

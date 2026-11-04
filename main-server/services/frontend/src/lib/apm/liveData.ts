@@ -63,6 +63,24 @@ export function jvmNum(e: LiveAggEvent, key: string): number | null {
   return typeof v === 'number' && Number.isFinite(v) ? v : null
 }
 
+/** 최근 5분 고유 사용자 수(gateway 계산). 구 gateway 는 필드가 없어 null. */
+export function usersNum(e: LiveAggEvent): number | null {
+  return typeof e.users_5m === 'number' && Number.isFinite(e.users_5m) ? e.users_5m : null
+}
+
+/**
+ * DB 커넥션 "사용 중" 값. 쿼리가 커넥션을 수 ms 만 잡아 5초 시점 값(conn_active)은 거의 0 이므로
+ * 에이전트가 보내는 5초 창 최대값(conn_peak)을 우선하고, 구 에이전트면 conn_active 로 되돌아간다.
+ */
+export function connUsedNum(e: LiveAggEvent): number | null {
+  return jvmNum(e, 'conn_peak') ?? jvmNum(e, 'conn_active')
+}
+
+/** 대상 중 conn_peak 를 보내는 에이전트가 하나라도 있으면 true. */
+export function hasConnPeak(lists: LiveAggEvent[][]): boolean {
+  return lists.some((l) => l.some((e) => jvmNum(e, 'conn_peak') != null))
+}
+
 /** jvm.pools 를 안전하게 읽는다(구 에이전트·잘못된 항목은 건너뜀). */
 export function jvmPools(e: LiveAggEvent): LivePoolStat[] {
   const raw = e.jvm?.pools
@@ -71,7 +89,9 @@ export function jvmPools(e: LiveAggEvent): LivePoolStat[] {
   const out: LivePoolStat[] = []
   for (const p of raw as Record<string, unknown>[]) {
     if (!p || typeof p.name !== 'string' || p.name === '') continue
+    const peak = typeof p.peak === 'number' && Number.isFinite(p.peak) ? p.peak : undefined
     out.push({
+      ...(peak !== undefined ? { peak } : {}),
       name: p.name,
       kind: typeof p.kind === 'string' ? p.kind : '',
       active: num(p.active),
@@ -86,15 +106,25 @@ export function jvmPools(e: LiveAggEvent): LivePoolStat[] {
 export interface PoolRow extends LivePoolStat {
   /** 소속 인스턴스 키(`systemId:role`) */
   instance: string
-  /** active/max (max 미상이면 0) */
+  /** 사용률 = max(active, peak)/max (max 미상이면 0). 막대·정렬·상태색이 이 값을 따른다 */
   util: number
 }
 
 export type PoolLevel = 'normal' | 'warning' | 'critical'
 
-/** 사용률 100% 이상 또는 대기 스레드가 있으면 critical, 80% 이상 warning. */
-export function poolLevel(p: { active: number; max: number; wait: number }): PoolLevel {
-  const util = p.max > 0 ? p.active / p.max : 0
+/** 사용 중으로 볼 값: 5초 창 최대(peak)가 있으면 max(active, peak). */
+export function poolUsed(p: { active: number; peak?: number }): number {
+  return Math.max(p.active, p.peak ?? 0)
+}
+
+/** 사용률 100% 이상 또는 대기 스레드가 있으면 critical, 80% 이상 warning. peak 가 있으면 peak 기준. */
+export function poolLevel(p: {
+  active: number
+  peak?: number
+  max: number
+  wait: number
+}): PoolLevel {
+  const util = p.max > 0 ? poolUsed(p) / p.max : 0
   if (p.wait > 0 || util >= 1) return 'critical'
   if (util >= 0.8) return 'warning'
   return 'normal'
@@ -112,7 +142,7 @@ export function latestPoolRows(lists: LiveAggEvent[][]): PoolRow[] {
       if (pools.length === 0) continue
       const instance = instanceKey(list[i])
       for (const p of pools) {
-        rows.push({ ...p, instance, util: p.max > 0 ? p.active / p.max : 0 })
+        rows.push({ ...p, instance, util: p.max > 0 ? poolUsed(p) / p.max : 0 })
       }
       break
     }

@@ -71,7 +71,7 @@ export const widgetRegistry: Record<WidgetType, WidgetDef> = {
     minSize: { w: 3, h: 3 },
     component: SqlTopWidget,
   },
-  jvm_users_threads: chart('동시 사용자·스레드', JvmUsersThreadsWidget),
+  jvm_users_threads: chart('동시 사용자·JVM 스레드', JvmUsersThreadsWidget),
   jvm_cpu: chart('JVM CPU', JvmCpuWidget),
   jvm_heap_gc: chart('힙·GC', JvmHeapGcWidget),
   jvm_conn_pool: chart('DB 커넥션 풀', JvmConnPoolWidget),

@@ -294,6 +294,8 @@ export interface LivePoolStat {
   max: number
   /** 커넥션을 기다리는 스레드 수 */
   wait: number
+  /** 최근 5초 창 안 active 최대값 (구 에이전트는 없음) */
+  peak?: number
 }
 
 export interface LiveAggEvent {
@@ -308,6 +310,10 @@ export interface LiveAggEvent {
   sql_top: { sql: string; cnt: number; ms: number }[]
   jvm: Record<string, unknown> | null
   dropped: { detail: number; sql: number; tx: number }
+  /** 최근 5분 고유 사용자 수(user_id, 없으면 user_ip) — gateway 계산, 구 gateway 는 없음 */
+  users_5m?: number
+  /** 인스턴스당 키 상한(5만)에 닿아 users_5m 이 하한값이면 true */
+  users_capped?: boolean
 }
 
 export interface LiveSnapshotInstance {

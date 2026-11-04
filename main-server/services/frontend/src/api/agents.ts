@@ -5,6 +5,7 @@ import type {
   AgentInstanceUpdate,
   AgentInstallJob,
   AgentInstallRequest,
+  AgentPrecheckResult,
   AgentStatusOut,
   AgentConfigResponse,
   AgentHealthSummary,
@@ -89,6 +90,11 @@ export const agentsApi = {
     adminApi
       .post('api/v1/agents/install', { json: body, ...withSession(token) })
       .json<AgentInstallJob>(),
+
+  precheckAgent: (id: number, token: string) =>
+    adminApi
+      .post(`api/v1/agents/${id}/precheck`, withSession(token))
+      .json<AgentPrecheckResult>(),
 
   getInstallJob: (jobId: string) =>
     adminApi.get(`api/v1/agents/jobs/${jobId}`).json<AgentInstallJob>(),

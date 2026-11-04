@@ -16,6 +16,10 @@ import {
   Activity,
   Pause,
   FileText,
+  ClipboardCheck,
+  Check,
+  AlertTriangle,
+  X,
 } from 'lucide-react'
 import { PageHeader } from '@/components/common/PageHeader'
 import { LoadingSkeleton } from '@/components/common/LoadingSkeleton'
@@ -30,7 +34,7 @@ import { HTTPError } from 'ky'
 import { agentsApi } from '@/api/agents'
 import { apmApi } from '@/api/apm'
 import { useSystems } from '@/hooks/queries/useSystems'
-import type { AgentLiveStatus, AgentStatus } from '@/types/agent'
+import type { AgentLiveStatus, AgentPrecheckResult, AgentStatus, PrecheckStatus } from '@/types/agent'
 import { useSSHSessionStore } from '@/store/sshSessionStore'
 import { qk } from '@/constants/queryKeys'
 import { ROUTES } from '@/constants/routes'
@@ -195,6 +199,42 @@ const COLLECTOR_LABELS: Record<string, string> = {
   heartbeat: 'Heartbeat',
 }
 
+const PRECHECK_STYLE: Record<PrecheckStatus, { color: string; Icon: typeof Check; label: string }> = {
+  ok: { color: 'text-normal', Icon: Check, label: '통과' },
+  warn: { color: 'text-warning', Icon: AlertTriangle, label: '주의' },
+  fail: { color: 'text-critical', Icon: X, label: '실패' },
+}
+
+function PrecheckChecklist({ result }: { result: AgentPrecheckResult }) {
+  const o = PRECHECK_STYLE[result.overall]
+  const summary =
+    result.overall === 'fail'
+      ? '설치가 실패할 수 있습니다'
+      : result.overall === 'warn'
+        ? '설치 가능, 확인 필요 항목이 있습니다'
+        : '설치 가능'
+  return (
+    <div className="border-border mt-4 border-t pt-4" data-testid="precheck-result">
+      <p className={cn('mb-2 text-xs font-medium', o.color)}>
+        사전 점검: {summary}
+        <span className="text-text-secondary ml-2 font-normal">{formatKST(result.checked_at)} KST</span>
+      </p>
+      <ul className="space-y-1">
+        {result.checks.map((c, i) => {
+          const s = PRECHECK_STYLE[c.status]
+          return (
+            <li key={`${c.item}-${i}`} className="flex items-start gap-2 text-xs">
+              <s.Icon className={cn('mt-0.5 h-3.5 w-3.5 shrink-0', s.color)} aria-label={s.label} />
+              <span className="text-text-primary w-24 shrink-0 font-medium">{c.item}</span>
+              <span className={c.status === 'ok' ? 'text-text-secondary' : s.color}>{c.detail}</span>
+            </li>
+          )
+        })}
+      </ul>
+    </div>
+  )
+}
+
 export function AgentDetailPage() {
   const { id } = useParams<{ id: string }>()
   const agentId = Number(id)
@@ -261,6 +301,9 @@ export function AgentDetailPage() {
 
   const isDbAgent = agent?.agent_type === 'db'
   const isAgentT = agent?.agent_type === 'agent_t'
+  const [precheck, setPrecheck] = useState<AgentPrecheckResult | null>(null)
+  const [precheckLoading, setPrecheckLoading] = useState(false)
+  const [precheckError, setPrecheckError] = useState<string | null>(null)
 
   // synapse_agent 수집항목 (label_info.collectors 파싱)
   const labelInfo = useMemo(() => {
@@ -435,6 +478,28 @@ export function AgentDetailPage() {
     }
   }
 
+  async function handlePrecheck() {
+    if (!token) {
+      setShowSSHModal(true)
+      return
+    }
+    setPrecheckLoading(true)
+    setPrecheckError(null)
+    try {
+      const res = await agentsApi.precheckAgent(agentId, token)
+      refreshExpiry()
+      setPrecheck(res)
+    } catch (err) {
+      if (err instanceof HTTPError && err.response.status === 401) {
+        handleSSHExpired()
+      } else {
+        setPrecheckError('사전 점검을 실행하지 못했습니다.')
+      }
+    } finally {
+      setPrecheckLoading(false)
+    }
+  }
+
   async function handleInstall(targetPid?: number) {
     if (!token) {
       setShowSSHModal(true)
@@ -590,6 +655,26 @@ export function AgentDetailPage() {
           <Download className="h-3.5 w-3.5" />
           설치 실행
         </NeuButton>
+        {isAgentT && (
+          <>
+            <NeuButton
+              size="sm"
+              variant="glass"
+              className="ml-2"
+              onClick={handlePrecheck}
+              disabled={!sessionActive || hostMismatch || !!installPathConflict || precheckLoading}
+              title={!sessionActive ? 'SSH 세션 등록 후 사용 가능' : '서버를 변경하지 않고 설치 가능 여부만 점검'}
+            >
+              <ClipboardCheck className="h-3.5 w-3.5" />
+              {precheckLoading ? '점검 중...' : '사전 점검'}
+            </NeuButton>
+            {!sessionActive && (
+              <span className="text-text-secondary ml-2 text-xs">SSH 세션 등록 후 사용 가능</span>
+            )}
+            {precheckError && <p className="text-critical mt-3 text-xs">{precheckError}</p>}
+            {precheck && <PrecheckChecklist result={precheck} />}
+          </>
+        )}
         {installJobId && (
           <div className="border-border mt-4 border-t pt-4">
             <p className="text-text-primary mb-2 text-xs font-medium">설치 진행 상황</p>

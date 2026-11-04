@@ -1,6 +1,10 @@
 import { describe, it, expect } from 'vitest'
 import {
   applyLayout,
+  connUsedNum,
+  hasConnPeak,
+  poolUsed,
+  usersNum,
   droppedKeys,
   findAgentId,
   jvmNum,
@@ -178,5 +182,33 @@ describe('커넥션 풀 헬퍼', () => {
       }),
     ]
     expect(latestPoolRows([list]).map((r) => r.name)).toEqual(['d', 'c', 'a', 'b'])
+  })
+  it('usersNum: users_5m 숫자만 읽고 없으면 null', () => {
+    expect(usersNum(agg(1, 'a', 1))).toBeNull()
+    expect(usersNum(agg(1, 'a', 1, { users_5m: 12 }))).toBe(12)
+    expect(usersNum(agg(1, 'a', 1, { users_5m: 0 }))).toBe(0)
+  })
+  it('connUsedNum/hasConnPeak: conn_peak 우선, 없으면 conn_active', () => {
+    const old = agg(1, 'a', 1, { jvm: { conn_active: 0 } })
+    const neu = agg(1, 'b', 1, { jvm: { conn_active: 0, conn_peak: 4 } })
+    expect(connUsedNum(old)).toBe(0)
+    expect(connUsedNum(neu)).toBe(4)
+    expect(connUsedNum(agg(1, 'c', 1, { jvm: { threads: 3 } }))).toBeNull()
+    expect(hasConnPeak([[old]])).toBe(false)
+    expect(hasConnPeak([[old], [neu]])).toBe(true)
+  })
+  it('풀 peak: jvmPools 가 읽고 poolUsed/poolLevel/latestPoolRows 가 peak 기준', () => {
+    const e = agg(1, 'a', 1, {
+      jvm: {
+        pools: [{ ...p('x', 0, 10), peak: 9 }, { ...p('y', 3, 10), peak: 'bad' }, p('z', 2, 10)],
+      },
+    })
+    const ps = jvmPools(e)
+    expect(ps.map((q) => q.peak)).toEqual([9, undefined, undefined])
+    expect(poolUsed({ active: 0, peak: 9 })).toBe(9)
+    expect(poolUsed({ active: 5, peak: 2 })).toBe(5)
+    expect(poolUsed({ active: 5 })).toBe(5)
+    expect(poolLevel({ active: 0, peak: 9, max: 10, wait: 0 })).toBe('warning')
+    expect(latestPoolRows([[e]]).map((r) => r.name)).toEqual(['x', 'y', 'z'])
   })
 })

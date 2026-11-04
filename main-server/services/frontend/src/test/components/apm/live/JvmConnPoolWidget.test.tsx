@@ -181,4 +181,23 @@ describe('JvmConnPoolWidget', () => {
     renderW(live([['1:was1', [agg('was1', 1000, null)]]]))
     expect(screen.queryByText('풀별 정보 없음')).toBeNull()
   })
+
+  it('conn_peak 가 있으면 "사용 중 (5초 최대)" 로 peak 를 그리고, 풀 행에 현재/최대와 peak 를 보인다', () => {
+    const pools = [{ ...pool('sic_DS', 0, 30), peak: 6 }]
+    const e = agg('was1', 1000, pools)
+    e.jvm = { ...e.jvm, conn_active: 0, conn_peak: 6 }
+    renderW(live([['1:was1', [e]]]))
+    expect(screen.getByTestId('chart-legend')).toHaveTextContent('사용 중 (5초 최대) 6')
+    expect(screen.getByText('0/30')).toBeInTheDocument()
+    expect(screen.getByTestId('pool-peak')).toHaveTextContent('최대 6')
+    expect(screen.getByTestId('pool-bar').style.width).toBe('20%')
+  })
+
+  it('구 에이전트(peak 없음)는 기존처럼 "사용 중" 과 active 를 쓴다', () => {
+    renderW(live([['1:was1', [agg('was1', 1000, [pool('sic_DS', 7, 30)])]]]))
+    const legend = screen.getByTestId('chart-legend')
+    expect(legend).toHaveTextContent('사용 중 7')
+    expect(legend).not.toHaveTextContent('5초 최대')
+    expect(screen.queryByTestId('pool-peak')).toBeNull()
+  })
 })

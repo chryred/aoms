@@ -1,5 +1,14 @@
 import { useContext, useEffect, useRef, useState, type RefObject } from 'react'
-import { jvmNum, latestPoolRows, mergeSeries, pickAgg, poolLevel } from '@/lib/apm/liveData'
+import {
+  connUsedNum,
+  hasConnPeak,
+  jvmNum,
+  latestPoolRows,
+  mergeSeries,
+  pickAgg,
+  poolLevel,
+  poolUsed,
+} from '@/lib/apm/liveData'
 import type { PoolRow } from '@/lib/apm/liveData'
 import type { WidgetProps } from '@/components/apm/live/widgetRegistry'
 import { LiveContext } from '@/components/apm/live/LiveContext'
@@ -83,7 +92,8 @@ function PoolList({
       {shown.map((r) => {
         const level = poolLevel(r)
         const inst = multi ? ctx.labelOf(r.instance) : ''
-        const pct = r.max > 0 ? Math.min(100, (r.active / r.max) * 100) : 0
+        const used = poolUsed(r)
+        const pct = r.max > 0 ? Math.min(100, (used / r.max) * 100) : 0
         return (
           <li
             key={`${r.instance}|${r.kind}|${r.name}`}
@@ -112,6 +122,15 @@ function PoolList({
               </span>
               <span className="text-text-secondary shrink-0 tabular-nums">
                 {r.active}/{r.max > 0 ? r.max : '-'}
+                {r.peak !== undefined && r.peak > r.active && (
+                  <span
+                    data-testid="pool-peak"
+                    title="최근 5초 동안 사용 중이던 커넥션 최대치"
+                    className="text-text-tertiary ml-1.5"
+                  >
+                    최대 {r.peak}
+                  </span>
+                )}
                 {r.wait > 0 && (
                   <span
                     data-testid="pool-wait"
@@ -157,7 +176,9 @@ export function JvmConnPoolWidget({ events, target }: WidgetProps) {
   const rootRef = useRef<HTMLDivElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const lists = pickAgg(events.agg, target)
-  const active = mergeSeries(lists, (e) => jvmNum(e, 'conn_active'), 'sum')
+  // 5초 창 최대(conn_peak)를 우선, 구 에이전트는 시점 값(conn_active)
+  const peakMode = hasConnPeak(lists)
+  const active = mergeSeries(lists, connUsedNum, 'sum')
   const max = mergeSeries(lists, (e) => jvmNum(e, 'conn_max'), 'sum')
   const rows = latestPoolRows(lists)
   // 풀 목록이 생겨 래퍼가 마운트되는 시점부터 잰다
@@ -169,7 +190,11 @@ export function JvmConnPoolWidget({ events, target }: WidgetProps) {
     <MiniChart
       lines={[
         // 합계 선은 중립 토큰: accent 는 인터랙션 전용, 정상 파랑과도 섞이지 않게 한다
-        { label: '사용 중', colorVar: '--color-text-secondary', points: active },
+        {
+          label: peakMode ? '사용 중 (5초 최대)' : '사용 중',
+          colorVar: '--color-text-secondary',
+          points: active,
+        },
         { label: '최대', colorVar: '--color-border-alt', points: max, dashed: true },
       ]}
       format={(v) => String(Math.round(v))}

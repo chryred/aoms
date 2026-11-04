@@ -14,7 +14,7 @@ import {
   type Rect,
 } from '@/lib/apm/canvas'
 import { matchesTarget } from '@/lib/apm/liveData'
-import { queueColor } from '@/lib/apm/queueBuckets'
+import { formatSec, SCATTER_ORDER, scatterLevel, type ScatterLevel } from '@/lib/apm/queueBuckets'
 import { ROUTES } from '@/constants/routes'
 import { formatKST } from '@/lib/utils'
 import { WidgetRuntimeContext, useWidgetState } from '@/components/apm/live/widgetState'
@@ -128,7 +128,7 @@ export function ScatterWidget({ events, target, slowMs }: WidgetProps) {
       text: cssVar('--color-text-secondary'),
       border: cssVar('--color-border'),
       accent: cssVar('--color-accent'),
-      critical: cssVar('--color-critical'),
+      critical: cssVar(LEVEL_VAR.critical),
       normal: cssVar(LEVEL_VAR.normal),
       warning: cssVar(LEVEL_VAR.warning),
     }
@@ -153,14 +153,31 @@ export function ScatterWidget({ events, target, slowMs }: WidgetProps) {
         height - 4,
       )
     }
-    // 에러(적색)를 마지막에 그려 정상 점 위에 보이게 한다
+    // 그리기 순서: 정상 < 경고 < 심각 < 에러 (뒤에 그릴수록 위). 에러는 × 로 느림(원)과 구분한다.
     const r = height >= LARGE_H ? DOT_R_LARGE : DOT_R
-    const ordered = [...points.filter((p) => !p.error), ...points.filter((p) => p.error)]
+    const rank = (p: Pt) => SCATTER_ORDER.indexOf(scatterLevel(p.elapsed_ms, p.error, slowMs))
+    const ordered = [...points].sort((a, b) => rank(a) - rank(b))
     ctx.lineWidth = 0.75
     for (const p of ordered) {
-      const c = p.error ? colors.critical : colors[queueColor(p.elapsed_ms, slowMs)]
+      const lv = scatterLevel(p.elapsed_ms, p.error, slowMs)
+      const px = scale.x(p.ts)
+      const py = scale.y(p.elapsed_ms)
+      if (lv === 'error') {
+        const k = r + 1.25
+        ctx.strokeStyle = colors.critical
+        ctx.lineWidth = 1.5
+        ctx.beginPath()
+        ctx.moveTo(px - k, py - k)
+        ctx.lineTo(px + k, py + k)
+        ctx.moveTo(px + k, py - k)
+        ctx.lineTo(px - k, py + k)
+        ctx.stroke()
+        ctx.lineWidth = 0.75
+        continue
+      }
+      const c = colors[lv]
       ctx.beginPath()
-      ctx.arc(scale.x(p.ts), scale.y(p.elapsed_ms), r, 0, Math.PI * 2)
+      ctx.arc(px, py, r, 0, Math.PI * 2)
       ctx.globalAlpha = 0.7
       ctx.fillStyle = c
       ctx.fill()
@@ -218,7 +235,10 @@ export function ScatterWidget({ events, target, slowMs }: WidgetProps) {
 
   return (
     <div className="flex h-full flex-col gap-1">
-      <div className="flex items-center gap-2" style={{ fontSize: fonts.legend }}>
+      <div
+        className="flex flex-wrap items-center gap-x-2 gap-y-0.5"
+        style={{ fontSize: fonts.legend }}
+      >
         <select
           aria-label="산점도 시간 범위"
           value={offsetMin}
@@ -235,6 +255,7 @@ export function ScatterWidget({ events, target, slowMs }: WidgetProps) {
         {!live && role && (
           <span className="text-text-tertiary">과거 구간은 WAS 구분 없이 표시</span>
         )}
+        <ScatterLegend slowMs={slowMs} size={fonts.legend} />
         {past.data?.truncated && <span className="text-warning-text">일부만 표시</span>}
       </div>
       <div ref={wrapRef} className="min-h-0 flex-1">
@@ -251,5 +272,74 @@ export function ScatterWidget({ events, target, slowMs }: WidgetProps) {
         />
       </div>
     </div>
+  )
+}
+
+const LEGEND_DOT = {
+  normal: 'text-apm-normal',
+  warning: 'text-apm-warning',
+  critical: 'text-apm-critical',
+} as const
+
+/** 산점도 범례: 실제 임계값(slowMs, 3×slowMs)을 표기하고 에러는 × 로 구분. */
+export function ScatterLegend({ slowMs, size }: { slowMs: number; size?: number }) {
+  const items: { level: ScatterLevel; label: string; title: string }[] = [
+    { level: 'normal', label: '정상', title: `응답 ${formatSec(slowMs)} 미만` },
+    { level: 'warning', label: `경고 ≥${formatSec(slowMs)}`, title: '느림 (경고): 느린 기준 이상' },
+    {
+      level: 'critical',
+      label: `심각 ≥${formatSec(slowMs * 3)}`,
+      title: '느림 (심각): 느린 기준의 3배 이상',
+    },
+    { level: 'error', label: '에러', title: '에러: 예외·오류 응답 (응답 시간과 무관)' },
+  ]
+  return (
+    <ul
+      aria-label="산점도 범례"
+      className="text-text-secondary ml-auto flex items-center gap-2"
+      style={size ? { fontSize: size } : undefined}
+    >
+      {items.map((it) => (
+        <li
+          key={it.level}
+          title={it.title}
+          data-level={it.level}
+          className="flex items-center gap-1"
+        >
+          {it.level === 'error' ? (
+            <svg
+              aria-hidden
+              width="9"
+              height="9"
+              viewBox="0 0 9 9"
+              data-shape="error"
+              className="text-apm-critical"
+            >
+              <path d="M1 1L8 8M8 1L1 8" stroke="currentColor" strokeWidth="1.6" fill="none" />
+            </svg>
+          ) : (
+            <svg
+              aria-hidden
+              width="9"
+              height="9"
+              viewBox="0 0 9 9"
+              data-shape="dot"
+              className={LEGEND_DOT[it.level]}
+            >
+              <circle
+                cx="4.5"
+                cy="4.5"
+                r="3.6"
+                fill="currentColor"
+                fillOpacity="0.7"
+                stroke="currentColor"
+                strokeWidth="0.75"
+              />
+            </svg>
+          )}
+          {it.label}
+        </li>
+      ))}
+    </ul>
   )
 }

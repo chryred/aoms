@@ -56,3 +56,30 @@ describe('ScatterWidget 영역 선택', () => {
     expect(screen.queryByLabelText('선택 영역 트랜잭션')).not.toBeInTheDocument()
   })
 })
+
+describe('ScatterWidget 범례', () => {
+  it('실제 임계값(느린 기준·3배)과 에러 표기를 보여준다', () => {
+    renderWidget()
+    const legend = screen.getByRole('list', { name: '산점도 범례' })
+    expect(legend).toHaveTextContent('정상')
+    expect(legend).toHaveTextContent('경고 ≥1s')
+    expect(legend).toHaveTextContent('심각 ≥3s')
+    expect(legend).toHaveTextContent('에러')
+  })
+
+  it('에러는 × 모양, 나머지는 원 견본이다', () => {
+    renderWidget()
+    const items = screen.getAllByRole('listitem')
+    expect(items.map((li) => li.getAttribute('data-level'))).toEqual([
+      'normal',
+      'warning',
+      'critical',
+      'error',
+    ])
+    expect(items[3].querySelector('[data-shape="error"]')).not.toBeNull()
+    for (const li of items.slice(0, 3))
+      expect(li.querySelector('[data-shape="dot"]')).not.toBeNull()
+    expect(items[3]).toHaveAttribute('title', expect.stringContaining('에러'))
+    expect(items[2]).toHaveAttribute('title', expect.stringContaining('느림 (심각)'))
+  })
+})

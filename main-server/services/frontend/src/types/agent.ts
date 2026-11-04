@@ -122,6 +122,22 @@ export interface JvmCandidate {
   server_name: string | null
 }
 
+export type PrecheckStatus = 'ok' | 'warn' | 'fail'
+
+export interface AgentPrecheckItem {
+  item: string
+  status: PrecheckStatus
+  detail: string
+}
+
+/** POST /agents/{id}/precheck — Agent-T 설치 사전 점검(읽기 전용) 결과 */
+export interface AgentPrecheckResult {
+  ok: boolean
+  overall: PrecheckStatus
+  checked_at: string
+  checks: AgentPrecheckItem[]
+}
+
 export interface AgentInstallJob {
   job_id: string
   agent_id: number | null

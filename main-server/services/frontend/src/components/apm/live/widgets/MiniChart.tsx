@@ -20,6 +20,8 @@ interface MiniChartProps {
   emptyText?: string
   /** 범례 행 오른쪽에 붙는 보조 값 (예: 동시 사용자). 별도 행을 만들지 않아 카드끼리 차트 영역이 어긋나지 않는다 */
   extra?: ReactNode
+  /** 범례 바로 뒤에 붙는 도움말 아이콘 (오른쪽 끝 extra 와 달리 제목·범례 옆에 머문다) */
+  hint?: ReactNode
   /** 글자 배율. 생략하면 확대 오버레이가 내려주는 값(기본 1)을 따른다 */
   scale?: number
 }
@@ -36,10 +38,12 @@ const MIN_LABEL_GAP = 12
 function LegendRow({
   children,
   extra,
+  hint,
   fontSize,
 }: {
   children?: ReactNode
   extra?: ReactNode
+  hint?: ReactNode
   fontSize: number
 }) {
   return (
@@ -49,6 +53,7 @@ function LegendRow({
       className="mb-1 flex min-h-5 flex-wrap items-center gap-x-3 leading-5"
     >
       {children}
+      {hint}
       {extra != null && <span className="text-text-secondary ml-auto">{extra}</span>}
     </div>
   )
@@ -60,6 +65,7 @@ export function MiniChart({
   format = (v) => v.toFixed(1),
   emptyText = '수신 대기',
   extra,
+  hint,
   scale: scaleProp,
 }: MiniChartProps) {
   const ctxScale = useContext(ChartScaleContext)
@@ -83,7 +89,7 @@ export function MiniChart({
   if (empty) {
     return (
       <div className="flex h-full flex-col">
-        <LegendRow extra={extra} fontSize={fonts.legend} />
+        <LegendRow extra={extra} hint={hint} fontSize={fonts.legend} />
         <div className="text-text-tertiary flex min-h-0 flex-1 items-center justify-center text-xs">
           {emptyText}
         </div>
@@ -104,7 +110,7 @@ export function MiniChart({
   const shown = visibleYLabels(axisH, H, PAD_Y, Math.max(MIN_LABEL_GAP, fonts.axis + 2))
   return (
     <div className="flex h-full flex-col">
-      <LegendRow extra={extra} fontSize={fonts.legend}>
+      <LegendRow extra={extra} hint={hint} fontSize={fonts.legend}>
         {lines.map((l) => {
           const last = l.points[l.points.length - 1]
           return (
