@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query'
+import { useQueries, useQuery } from '@tanstack/react-query'
 import { aggregationsApi, type HourlyParams } from '@/api/aggregations'
 import { adminApi } from '@/lib/ky-client'
 import { qk } from '@/constants/queryKeys'
@@ -112,4 +112,28 @@ export function useProcessSummary(systemId: number | null) {
     refetchInterval: 60_000,
     staleTime: 30_000,
   })
+}
+
+export const HOST_MEM_REFRESH_MS = 30_000
+
+/**
+ * 시스템별 호스트 메모리 사용률(%) — synapse_agent live-summary 의 memory 값(시스템 내 최악 호스트, 5분 max).
+ * 호스트 IP 단위 조회 API 는 없어서 시스템 단위로만 가져온다. 값이 없으면 null.
+ */
+export function useSystemsHostMemory(systemIds: number[]): Map<number, number | null> {
+  const results = useQueries({
+    queries: systemIds.map((id) => ({
+      queryKey: ['metrics-live-summary', id, 'synapse_agent'],
+      queryFn: () => aggregationsApi.getMetricsLiveSummary(id, 'synapse_agent'),
+      refetchInterval: HOST_MEM_REFRESH_MS,
+      staleTime: HOST_MEM_REFRESH_MS / 2,
+      retry: false,
+    })),
+  })
+  return new Map(
+    systemIds.map((id, i) => {
+      const v = results[i]?.data?.memory
+      return [id, typeof v === 'number' && Number.isFinite(v) ? v : null]
+    }),
+  )
 }

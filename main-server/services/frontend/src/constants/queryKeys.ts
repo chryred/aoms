@@ -4,7 +4,7 @@ import type { PeriodType } from '@/types/aggregation'
 import type { ReportType } from '@/types/report'
 import type { OperatorNoteListParams, FeedbackListParams } from '@/api/knowledge'
 import type { GuideListParams } from '@/types/guide'
-import type { ScatterParams, TxListParams } from '@/types/apm'
+import type { ScatterParams, TxFilterParams, TxListParams } from '@/types/apm'
 
 export const qk = {
   systems: () => ['systems'] as const,
@@ -82,6 +82,8 @@ export const qk = {
   },
   apm: {
     transactions: (params: TxListParams) => ['apm', 'transactions', params] as const,
+    txStats: (params: TxFilterParams & { limit?: number }) => ['apm', 'tx-stats', params] as const,
+    txHourly: (params: TxFilterParams) => ['apm', 'tx-hourly', params] as const,
     transaction: (traceId: string, spanId: string) =>
       ['apm', 'transaction', traceId, spanId] as const,
     scatter: (params: ScatterParams) => ['apm', 'scatter', params] as const,

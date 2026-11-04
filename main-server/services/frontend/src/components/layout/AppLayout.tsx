@@ -1,7 +1,8 @@
-import { Outlet, useLocation } from 'react-router-dom'
-import { useEffect } from 'react'
+import { useLocation, type Location } from 'react-router-dom'
+import { useEffect, type ReactNode } from 'react'
 import { Sidebar } from './Sidebar'
 import { TopBar } from './TopBar'
+import { TabWorkspace } from './tabs/TabWorkspace'
 import { CriticalBanner } from '@/components/common/CriticalBanner'
 import { ChatLauncher } from '@/components/chat/ChatLauncher'
 import { ChatPanel } from '@/components/chat/ChatPanel'
@@ -10,7 +11,7 @@ import { useAlertsCount } from '@/hooks/queries/useAlertsCount'
 import { ROUTES } from '@/constants/routes'
 import { cn } from '@/lib/utils'
 
-export function AppLayout() {
+export function AppLayout({ renderRoutes }: { renderRoutes: (location: Location) => ReactNode }) {
   const location = useLocation()
   const isChatPage = location.pathname === ROUTES.CHAT
   const setCriticalCount = useUiStore((s) => s.setCriticalCount)
@@ -60,9 +61,7 @@ export function AppLayout() {
         {/* Main wrapper */}
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
           <TopBar />
-          <main className="flex-1 overflow-y-auto overscroll-y-contain scroll-smooth p-4 md:p-6">
-            <Outlet />
-          </main>
+          <TabWorkspace renderRoutes={renderRoutes} />
         </div>
 
         {/* Chat panel — push layout sibling on desktop, overlay on mobile.

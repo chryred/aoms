@@ -10,7 +10,10 @@ import type {
   ThreadDumpRequestResult,
   TxDetail,
   TxListParams,
+  TxFilterParams,
+  TxHourlyResult,
   TxListResult,
+  TxUriStatsResult,
 } from '@/types/apm'
 
 /** `system_ids` 는 반복 파라미터(`system_ids=1&system_ids=2`)로 직렬화한다. */
@@ -27,6 +30,16 @@ export const apmApi = {
     adminApi
       .get('api/v1/apm/transactions', { searchParams: toSearchParams(params) })
       .json<TxListResult>(),
+
+  getTxStatsByUri: (params: TxFilterParams & { limit?: number }) =>
+    adminApi
+      .get('api/v1/apm/transactions/stats-by-uri', { searchParams: toSearchParams(params) })
+      .json<TxUriStatsResult>(),
+
+  getTxHourly: (params: TxFilterParams) =>
+    adminApi
+      .get('api/v1/apm/transactions/hourly', { searchParams: toSearchParams(params) })
+      .json<TxHourlyResult>(),
 
   getTransaction: (traceId: string, spanId: string) =>
     adminApi.get(`api/v1/apm/transactions/${traceId}/${spanId}`).json<TxDetail>(),

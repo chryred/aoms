@@ -21,6 +21,27 @@ export const AGENT_TYPES: { value: AgentType; label: string }[] = [
   { value: 'agent_t', label: 'Agent-T (트랜잭션)' },
 ]
 
+const GLOB_RE = /^[A-Za-z0-9/_\-.*?]+$/
+
+const URI_ERROR = '포함/제외 URI 는 영문·숫자와 / _ - . * ? 만 사용할 수 있습니다 (쉼표로 구분).'
+
+/** 쉼표 구분 glob 목록 정규화 (공백·빈 항목 제거) */
+export function normalizeGlobs(v: string): string {
+  return v
+    .split(',')
+    .map((x) => x.trim())
+    .filter(Boolean)
+    .join(',')
+}
+
+/** 각 항목이 허용 문자 [A-Za-z0-9/_\-.*?] 만 포함하는지 (빈 값 허용) */
+export function validGlobs(v: string): boolean {
+  return normalizeGlobs(v)
+    .split(',')
+    .filter(Boolean)
+    .every((x) => GLOB_RE.test(x))
+}
+
 export const AGENT_T_SERVICE_TYPES: { value: AgentTServiceType; label: string }[] = [
   { value: 'tomcat', label: 'Tomcat (setenv.sh)' },
   { value: 'jboss', label: 'JBoss / WildFly (standalone.conf.d)' },
@@ -195,6 +216,12 @@ export interface AgentFormState {
   setPermanent: (v: boolean) => void
   jeusConfirm: boolean
   setJeusConfirm: (v: boolean) => void
+  captureParams: boolean
+  setCaptureParams: (v: boolean) => void
+  captureParamsInclude: string
+  setCaptureParamsInclude: (v: string) => void
+  captureParamsExclude: string
+  setCaptureParamsExclude: (v: string) => void
   // Submit
   error: string | null
   loading: boolean
@@ -248,8 +275,25 @@ export function useAgentFormLogic(
   const [immediate, setImmediate] = useState(true)
   const [permanent, setPermanent] = useState(true)
   const [jeusConfirm, setJeusConfirm] = useState(false)
+  const [captureParams, setCaptureParams] = useState(false)
+  const [captureParamsInclude, setCaptureParamsIncludeRaw] = useState('')
+  const [captureParamsExclude, setCaptureParamsExcludeRaw] = useState('')
 
   const [error, setError] = useState<string | null>(null)
+  // URI 입력을 고치면 그 자리에서 다시 검증해, 값이 유효해지면 URI 오류를 바로 지운다
+  const clearUriErrorIfValid = (include: string, exclude: string) => {
+    if (validGlobs(include) && validGlobs(exclude)) {
+      setError((e) => (e === URI_ERROR ? null : e))
+    }
+  }
+  const setCaptureParamsInclude = (v: string) => {
+    setCaptureParamsIncludeRaw(v)
+    clearUriErrorIfValid(v, captureParamsExclude)
+  }
+  const setCaptureParamsExclude = (v: string) => {
+    setCaptureParamsExcludeRaw(v)
+    clearUriErrorIfValid(captureParamsInclude, v)
+  }
   const [loading, setLoading] = useState(false)
 
   const currentDbTypeOption = DB_TYPE_OPTIONS.find((o) => o.value === dbType) ?? DB_TYPE_OPTIONS[0]
@@ -348,6 +392,13 @@ export function useAgentFormLogic(
         immediate,
         permanent,
         ...(agentTServiceType === 'jeus' ? { jeus_confirm: jeusConfirm } : {}),
+        capture_params: captureParams,
+        ...(captureParams && captureParamsInclude.trim()
+          ? { capture_params_include: normalizeGlobs(captureParamsInclude) }
+          : {}),
+        ...(captureParams && captureParamsExclude.trim()
+          ? { capture_params_exclude: normalizeGlobs(captureParamsExclude) }
+          : {}),
       })
     }
     const system = systems.find((s) => s.id === selectedSystemId)
@@ -399,6 +450,13 @@ export function useAgentFormLogic(
     if (isAgentTSubmit && !jvmMatch.trim()) {
       setError('대상 JVM 식별 문자열(jvm_match)을 입력하세요.')
       return
+    }
+    if (isAgentTSubmit && captureParams) {
+      const bad = [captureParamsInclude, captureParamsExclude].some((v) => !validGlobs(v))
+      if (bad) {
+        setError(URI_ERROR)
+        return
+      }
     }
     setLoading(true)
     if (!isDb && !sshUsername.trim()) {
@@ -502,6 +560,12 @@ export function useAgentFormLogic(
     setPermanent,
     jeusConfirm,
     setJeusConfirm,
+    captureParams,
+    setCaptureParams,
+    captureParamsInclude,
+    setCaptureParamsInclude,
+    captureParamsExclude,
+    setCaptureParamsExclude,
     error,
     loading,
     handleTypeChange,

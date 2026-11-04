@@ -108,9 +108,18 @@
   /* 시맨틱: 경고 */
   --t-warning: #f59e0b;
   --t-warning-text: #fcd34d;
+  --t-warning-strong: #fcd34d; /* 큰 숫자용: 다크는 warning-text 와 동일 */
   --t-warning-bg: rgba(245, 158, 11, 0.2);
   --t-warning-border: rgba(245, 158, 11, 0.25);
   --t-warning-card-bg: rgba(245, 158, 11, 0.04);
+  /* APM 실시간 상태 3색(팔레트 B): 요약 띠 공·숫자, 액티브 큐, 트랜잭션 모니터링 산점도가 공유한다.
+     채움(-normal/-warning/-critical)과 텍스트·윤곽(-*-text). 다크는 둘이 같다 */
+  --t-apm-normal: #9cc3f5;
+  --t-apm-warning: #f5dd8a;
+  --t-apm-critical: #f2a0a0;
+  --t-apm-normal-text: #9cc3f5;
+  --t-apm-warning-text: #f5dd8a;
+  --t-apm-critical-text: #f2a0a0;
 
   /* 시맨틱: 정상 */
   --t-normal: #22c55e;
@@ -146,6 +155,8 @@
   /* 뉴모피즘 그림자 */
   --t-shadow-neu-flat: 3px 3px 7px #111317, -3px -3px 7px #2b2f37;
   --t-shadow-neu-flat-hover: 4px 4px 10px #111317, -4px -4px 10px #2b2f37;
+  /* 더 가벼운 flat: 모니터링 카드·칩처럼 촘촘히 놓이는 요소용 (오프셋·블러 작게) */
+  --t-shadow-neu-soft: 2px 2px 5px #111317, -2px -2px 5px #2b2f37;
   --t-shadow-neu-inset: inset 2px 2px 5px #111317, inset -2px -2px 5px #2b2f37;
   --t-shadow-neu-pressed: inset 1px 1px 3px #111317, inset -1px -1px 3px #2b2f37;
 
@@ -164,12 +175,35 @@
   --t-shadow-glow-agent-collect:
     3px 3px 7px #111317, -3px -3px 7px #2b2f37, 0 0 12px rgba(125, 211, 252, 0.15);
 
+  /* APM 실시간 모니터링: 인스턴스 시리즈 범주형 팔레트 (dark) */
+  --t-series-1: #79a76e;
+  --t-series-2: #aa88c4;
+  --t-series-3: #b45193;
+  --t-series-4: #46a7bd;
+  --t-series-5: #cc8463;
+  --t-series-6: #62c5b9;
+  --t-series-7: #a79486;
+  --t-series-8: #8ead9e;
+  --t-series-9: #91c086;
+  --t-series-10: #9189c6;
+  --t-series-11: #4fab95;
+  --t-series-12: #b48aa1;
+
   /* 기타 */
   --t-color-scheme: dark;
   --t-overlay: rgba(0, 0, 0, 0.5);
   --t-overlay-heavy: rgba(0, 0, 0, 0.6);
   --t-btn-arc-border: rgba(30, 33, 39, 0.35);
   --t-btn-arc-top: #1e2127;
+
+  /* SQL 뷰어 구문 강조 (기존 시맨틱 토큰 재사용) */
+  --t-sql-bg: var(--t-bg-deep);
+  --t-sql-keyword: var(--t-metric-alert-text);
+  --t-sql-function: var(--t-proactive-text);
+  --t-sql-string: var(--t-normal-text);
+  --t-sql-bind: var(--t-warning-text);
+  --t-sql-comment: var(--t-text-secondary);
+  --t-sql-lineno: #7d889c; /* bg-deep 위 5.1:1 */
 }
 
 :root.light {
@@ -214,9 +248,17 @@
   /* 시맨틱: 경고 */
   --t-warning: #d97706;
   --t-warning-text: #92400e;
+  --t-warning-strong: #b45309; /* 큰 숫자용 amber-700: bg-base 위 4.4:1, warning-text(갈색)보다 호박색 유지 */
   --t-warning-bg: rgba(245, 158, 11, 0.2);
   --t-warning-border: rgba(245, 158, 11, 0.28);
   --t-warning-card-bg: rgba(245, 158, 11, 0.05);
+  /* 라이트: 채움은 파스텔(정상은 --t-series-1 과 겹치지 않게 밝게), 텍스트·윤곽(-text)은 bg-base 위 3:1 이상 */
+  --t-apm-normal: #8fb3e0;
+  --t-apm-warning: #e6c766;
+  --t-apm-critical: #e39090;
+  --t-apm-normal-text: #4f86c9;
+  --t-apm-warning-text: #a47a05;
+  --t-apm-critical-text: #d16565;
 
   /* 시맨틱: 정상 */
   --t-normal: #10b981;
@@ -251,6 +293,8 @@
 
   /* 뉴모피즘 그림자 (라이트 — 더 강한 대비) */
   --t-shadow-neu-flat: 3px 3px 8px rgba(0, 0, 0, 0.12), -3px -3px 8px rgba(255, 255, 255, 0.9);
+  /* 더 가벼운 flat (라이트) */
+  --t-shadow-neu-soft: 2px 2px 5px rgba(0, 0, 0, 0.12), -2px -2px 5px rgba(255, 255, 255, 0.9);
   --t-shadow-neu-flat-hover:
     4px 4px 12px rgba(0, 0, 0, 0.15), -4px -4px 12px rgba(255, 255, 255, 1);
   --t-shadow-neu-inset:
@@ -278,12 +322,36 @@
     3px 3px 8px rgba(0, 0, 0, 0.12), -3px -3px 8px rgba(255, 255, 255, 0.9),
     0 0 12px rgba(2, 132, 199, 0.12);
 
+  /* APM 실시간 모니터링: 인스턴스 시리즈 범주형 팔레트 (light) */
+  --t-series-1: #0f745b;
+  --t-series-2: #874c74;
+  --t-series-3: #748e7c;
+  --t-series-4: #9c74ae;
+  --t-series-5: #885538;
+  --t-series-6: #53548c;
+  --t-series-7: #916d89;
+  --t-series-8: #158b8c;
+  --t-series-9: #77619e;
+  --t-series-10: #617561;
+  --t-series-11: #558956;
+  --t-series-12: #007181;
+
   /* 기타 */
   --t-color-scheme: light;
   --t-overlay: rgba(0, 0, 0, 0.3);
   --t-overlay-heavy: rgba(0, 0, 0, 0.4);
   --t-btn-arc-border: rgba(200, 200, 200, 0.5);
   --t-btn-arc-top: #f3f1ec;
+
+  /* SQL 뷰어 구문 강조 (기존 시맨틱 토큰 재사용) */
+  --t-sql-bg: var(--t-bg-deep);
+  /* 라이트: bg-deep(#e8e4db) 위 WCAG AA (코드 4.5:1 이상, 줄 번호 3:1 이상) */
+  --t-sql-keyword: var(--t-metric-alert-text); /* 5.3:1 */
+  --t-sql-function: #0c635c; /* 5.6:1 */
+  --t-sql-string: #166534; /* 5.6:1 */
+  --t-sql-bind: var(--t-warning-text); /* 5.6:1 */
+  --t-sql-comment: #566070; /* 5.0:1 */
+  --t-sql-lineno: #5f6673; /* 4.6:1 */
 }
 
 /* ══════════════════════════════════════════════════════════
@@ -293,10 +361,14 @@
 @theme inline {
   --font-sans: 'Pretendard', system-ui, sans-serif;
   --font-mono: 'Pretendard', ui-monospace, 'Cascadia Code', monospace;
+  /* 수치 전용(밴드 숫자·범례 값·축 라벨): 웹폰트 없이 시스템 고정폭 폴백만 쓴다(폐쇄망) */
+  /* 숫자: 폐쇄망·Windows(Consolas)에서도 동일하게 보이도록 번들 Pretendard + 고정폭 숫자(tnum). 사선 0 없음 */
+  --font-num: 'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   --font-lora: 'Lora', serif;
 
   /* 뉴모피즘 그림자 토큰 */
   --shadow-neu-flat: var(--t-shadow-neu-flat);
+  --shadow-neu-soft: var(--t-shadow-neu-soft);
   --shadow-neu-flat-hover: var(--t-shadow-neu-flat-hover);
   --shadow-neu-inset: var(--t-shadow-neu-inset);
   --shadow-neu-pressed: var(--t-shadow-neu-pressed);
@@ -338,15 +410,29 @@
   --color-critical-card-bg: var(--t-critical-card-bg);
   --color-warning: var(--t-warning);
   --color-warning-text: var(--t-warning-text);
+  --color-warning-strong: var(--t-warning-strong);
   --color-warning-bg: var(--t-warning-bg);
   --color-warning-border: var(--t-warning-border);
   --color-warning-card-bg: var(--t-warning-card-bg);
+  --color-apm-normal: var(--t-apm-normal);
+  --color-apm-warning: var(--t-apm-warning);
+  --color-apm-critical: var(--t-apm-critical);
+  --color-apm-normal-text: var(--t-apm-normal-text);
+  --color-apm-warning-text: var(--t-apm-warning-text);
+  --color-apm-critical-text: var(--t-apm-critical-text);
   --color-normal: var(--t-normal);
   --color-normal-text: var(--t-normal-text);
   --color-normal-bg: var(--t-normal-bg);
   --color-normal-border: var(--t-normal-border);
   --color-muted-bg: var(--t-muted-bg);
   --color-muted-border: var(--t-muted-border);
+  --color-sql-bg: var(--t-sql-bg);
+  --color-sql-keyword: var(--t-sql-keyword);
+  --color-sql-function: var(--t-sql-function);
+  --color-sql-string: var(--t-sql-string);
+  --color-sql-bind: var(--t-sql-bind);
+  --color-sql-comment: var(--t-sql-comment);
+  --color-sql-lineno: var(--t-sql-lineno);
 
   /* 기능 분류 색상 (severity 아님) */
   --color-metric-alert: var(--t-metric-alert);
@@ -825,4 +911,21 @@ pre {
   font-feature-settings: 'tnum';
   font-size: 0.8125rem; /* 13px */
   line-height: 1.5;
+}
+
+/* 수치 폰트: Pretendard 고정폭 숫자 (사선 0 없음, OS 무관 동일) */
+.font-num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+  letter-spacing: -0.01em;
+}
+
+/* APM Remote(외부 호출) 구간 — 상태·강조색 없이 사선 무늬로 AP(단색 회색)와 구분 */
+.apm-seg-remote {
+  background-color: color-mix(in srgb, var(--t-text-secondary) 28%, transparent);
+  background-image: repeating-linear-gradient(
+    135deg,
+    var(--t-text-secondary) 0 2px,
+    transparent 2px 5px
+  );
 }

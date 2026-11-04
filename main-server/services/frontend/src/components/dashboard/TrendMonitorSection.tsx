@@ -533,7 +533,7 @@ export function TrendMonitorSection({ systems }: TrendMonitorSectionProps) {
       }
 
       // content 영역(main)의 bounds를 target으로 사용
-      const mainEl = document.querySelector('main')
+      const mainEl = document.querySelector('main:not([hidden])')
       if (mainEl) {
         setExpandRects({
           from: cardEl.getBoundingClientRect(),
@@ -558,9 +558,7 @@ export function TrendMonitorSection({ systems }: TrendMonitorSectionProps) {
   const targetSystemNames = useMemo(() => {
     if (isAllSelected) return new Set(systems.map((s) => s.system_name))
     const idSet = new Set(selectedSystems.map(String))
-    return new Set(
-      systems.filter((s) => idSet.has(String(s.system_id))).map((s) => s.system_name),
-    )
+    return new Set(systems.filter((s) => idSet.has(String(s.system_id))).map((s) => s.system_name))
   }, [isAllSelected, selectedSystems, systems])
 
   // displayName → status 매핑 (상태 기반 opacity 계산에 사용)

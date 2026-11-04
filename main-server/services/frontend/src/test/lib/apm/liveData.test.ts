@@ -4,6 +4,9 @@ import {
   droppedKeys,
   findAgentId,
   jvmNum,
+  jvmPools,
+  latestPoolRows,
+  poolLevel,
   matchesTarget,
   mergeSeries,
   mergeTop,
@@ -139,5 +142,41 @@ describe('canvas 순수 헬퍼', () => {
     ]
     const hit = pointsInRect(pts, s, { x0: 120, y0: 0, x1: 100, y1: 30 })
     expect(hit).toEqual([pts[1]])
+  })
+})
+
+describe('커넥션 풀 헬퍼', () => {
+  const p = (name: string, active: number, max: number, wait = 0) => ({
+    name,
+    kind: 'jeus',
+    active,
+    idle: 0,
+    max,
+    wait,
+  })
+  it('jvmPools: 없거나 잘못된 항목은 건너뛴다', () => {
+    expect(jvmPools(agg(1, 'a', 1))).toEqual([])
+    const e = agg(1, 'a', 1, {
+      jvm: { pools: [p('ok', 1, 2), { name: '' }, null, { name: 'x', active: 'q' }] },
+    })
+    expect(jvmPools(e).map((x) => [x.name, x.active, x.max])).toEqual([
+      ['ok', 1, 2],
+      ['x', 0, 0],
+    ])
+  })
+  it('poolLevel: 대기>0 또는 100% 이상 critical, 80% 이상 warning', () => {
+    expect(poolLevel({ active: 1, max: 10, wait: 0 })).toBe('normal')
+    expect(poolLevel({ active: 8, max: 10, wait: 0 })).toBe('warning')
+    expect(poolLevel({ active: 10, max: 10, wait: 0 })).toBe('critical')
+    expect(poolLevel({ active: 1, max: 10, wait: 1 })).toBe('critical')
+    expect(poolLevel({ active: 9, max: 0, wait: 0 })).toBe('normal')
+  })
+  it('latestPoolRows: 사용률 내림차순, 동률은 대기·이름순', () => {
+    const list = [
+      agg(1, 'a', 1, {
+        jvm: { pools: [p('b', 5, 10), p('a', 5, 10), p('c', 5, 10, 3), p('d', 9, 10)] },
+      }),
+    ]
+    expect(latestPoolRows([list]).map((r) => r.name)).toEqual(['d', 'c', 'a', 'b'])
   })
 })

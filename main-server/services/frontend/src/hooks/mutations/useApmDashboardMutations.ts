@@ -4,7 +4,8 @@ import { apmApi } from '@/api/apm'
 import { qk } from '@/constants/queryKeys'
 import type { ApmDashboardBody } from '@/types/apm'
 
-export function useApmDashboardMutations() {
+/** silent: 자동 저장처럼 성공 토스트를 띄우지 않는다 (실패 토스트는 유지). */
+export function useApmDashboardMutations({ silent = false }: { silent?: boolean } = {}) {
   const qc = useQueryClient()
   const invalidate = () => qc.invalidateQueries({ queryKey: qk.apm.dashboards() })
 
@@ -12,7 +13,7 @@ export function useApmDashboardMutations() {
     mutationFn: (body: ApmDashboardBody) => apmApi.createDashboard(body),
     onSuccess: () => {
       invalidate()
-      toast.success('화면이 저장되었습니다')
+      if (!silent) toast.success('화면이 저장되었습니다')
     },
     onError: () => toast.error('화면 저장 중 오류가 발생했습니다'),
   })
@@ -22,7 +23,7 @@ export function useApmDashboardMutations() {
       apmApi.updateDashboard(id, body),
     onSuccess: () => {
       invalidate()
-      toast.success('화면이 저장되었습니다')
+      if (!silent) toast.success('화면이 저장되었습니다')
     },
     onError: () => toast.error('화면 저장 중 오류가 발생했습니다'),
   })

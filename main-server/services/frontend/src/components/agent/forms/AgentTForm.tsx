@@ -25,6 +25,12 @@ interface AgentTFormProps {
     | 'setPermanent'
     | 'jeusConfirm'
     | 'setJeusConfirm'
+    | 'captureParams'
+    | 'setCaptureParams'
+    | 'captureParamsInclude'
+    | 'setCaptureParamsInclude'
+    | 'captureParamsExclude'
+    | 'setCaptureParamsExclude'
   >
 }
 
@@ -50,6 +56,12 @@ export function AgentTForm({ form }: AgentTFormProps) {
     setPermanent,
     jeusConfirm,
     setJeusConfirm,
+    captureParams,
+    setCaptureParams,
+    captureParamsInclude,
+    setCaptureParamsInclude,
+    captureParamsExclude,
+    setCaptureParamsExclude,
   } = form
 
   return (
@@ -85,7 +97,8 @@ export function AgentTForm({ form }: AgentTFormProps) {
           required
         />
         <p className="text-text-disabled mt-1 text-[11px]">
-          프로세스 명령행에 포함된 문자열(서버명 등). 같은 호스트의 여러 WAS 중 대상을 구분합니다. 일치하는 JVM 이 2개 이상이면 설치 시 대상을 선택할 수 있습니다.
+          프로세스 명령행에 포함된 문자열(서버명 등). 같은 호스트의 여러 WAS 중 대상을 구분합니다.
+          일치하는 JVM 이 2개 이상이면 설치 시 대상을 선택할 수 있습니다.
         </p>
       </div>
       <div className="flex gap-3">
@@ -161,6 +174,53 @@ export function AgentTForm({ form }: AgentTFormProps) {
           />
           영구 적용 (기동 설정 등록)
         </label>
+      </div>
+      <div className="space-y-2">
+        <label className="text-text-primary flex items-center gap-2 text-xs">
+          <input
+            type="checkbox"
+            checked={captureParams}
+            onChange={(e) => setCaptureParams(e.target.checked)}
+            className="accent-[var(--color-accent)]"
+          />
+          요청 파라미터 수집 (사용자 전문)
+        </label>
+        <p className="text-text-disabled text-[11px] leading-relaxed">
+          느린·에러 트랜잭션의 쿼리 스트링과 폼 파라미터만 기록합니다(본문 미수집).
+          비밀번호·토큰·카드·주민번호 등은 마스킹됩니다. 적용하려면 재설치가 필요합니다.
+        </p>
+        {captureParams && (
+          <div className="flex gap-3">
+            <div className="flex-1">
+              <label
+                htmlFor="agent-t-capture-include"
+                className="text-text-secondary mb-1 block text-xs"
+              >
+                포함 URI <span className="text-text-secondary/60">(선택)</span>
+              </label>
+              <NeuInput
+                id="agent-t-capture-include"
+                value={captureParamsInclude}
+                onChange={(e) => setCaptureParamsInclude(e.target.value)}
+                placeholder="예: /crm/*, /order/*"
+              />
+            </div>
+            <div className="flex-1">
+              <label
+                htmlFor="agent-t-capture-exclude"
+                className="text-text-secondary mb-1 block text-xs"
+              >
+                제외 URI <span className="text-text-secondary/60">(선택)</span>
+              </label>
+              <NeuInput
+                id="agent-t-capture-exclude"
+                value={captureParamsExclude}
+                onChange={(e) => setCaptureParamsExclude(e.target.value)}
+                placeholder="예: /health/*"
+              />
+            </div>
+          </div>
+        )}
       </div>
       {agentTServiceType === 'jeus' && (
         <div className="border-warning/40 bg-warning/10 rounded-sm border p-2">

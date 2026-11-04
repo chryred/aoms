@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { hitBar, queueBars, queueColor, queueGeometry } from '@/lib/apm/queueBuckets'
+import { hitBar, queueBars, queueColor, queueGeometry, withZeroBars } from '@/lib/apm/queueBuckets'
 import type { LiveActiveEvent } from '@/types/apm'
 
 const evt = (system_id: number, role: string, buckets: number[]): LiveActiveEvent => ({
@@ -51,5 +51,27 @@ describe('queueBars / queueGeometry / hitBar', () => {
     expect(hitBar(bars, 200, 200)).toBe('2:was2')
     expect(hitBar(bars, 200, -1)).toBeNull()
     expect(hitBar([], 200, 10)).toBeNull()
+  })
+})
+
+describe('withZeroBars', () => {
+  const bars = queueBars([evt(1, 'was1', [2, 0, 0])])
+
+  it('이벤트가 없는 인스턴스를 0건 막대로 채우고 정렬한다', () => {
+    const out = withZeroBars(bars, ['1:was1', '1:was0', '2:api'])
+    expect(out.map((b) => b.key)).toEqual(['1:was0', '1:was1', '2:api'])
+    expect(out[0]).toMatchObject({ system_id: 1, instance_role: 'was0', total: 0 })
+    expect(out[1].total).toBe(2)
+  })
+
+  it('키가 없으면 그대로 두고, 잘못된 키는 건너뛴다', () => {
+    expect(withZeroBars(bars, undefined)).toBe(bars)
+    expect(withZeroBars([], ['bad']).length).toBe(0)
+  })
+
+  it('0건 막대는 구간 없이 기하만 만든다', () => {
+    const rects = queueGeometry(withZeroBars([], ['1:a', '1:b']), 200, 100, 18)
+    expect(rects).toHaveLength(2)
+    expect(rects.every((r) => r.segs.length === 0 && r.w > 0)).toBe(true)
   })
 })

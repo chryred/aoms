@@ -34,6 +34,34 @@ export function queueBars(events: LiveActiveEvent[]): QueueBar[] {
     .sort((a, b) => a.system_id - b.system_id || a.instance_role.localeCompare(b.instance_role))
 }
 
+/**
+ * 범위 안(keys = `systemId:role`)인데 아직 active 이벤트가 없는 인스턴스에 0건 막대를 채운다.
+ * 수신 전 인스턴스도 막대와 라벨이 보여 "비어 보이는" 위젯이 되지 않는다.
+ */
+export function withZeroBars(bars: QueueBar[], keys: string[] | undefined): QueueBar[] {
+  if (!keys || keys.length === 0) return bars
+  const have = new Set(bars.map((b) => b.key))
+  const zeros: QueueBar[] = keys
+    .filter((k) => !have.has(k))
+    .flatMap((key) => {
+      const cut = key.indexOf(':')
+      const system_id = Number(key.slice(0, cut))
+      if (cut < 0 || !Number.isFinite(system_id)) return []
+      return [
+        {
+          key,
+          system_id,
+          instance_role: key.slice(cut + 1),
+          buckets: [0, 0, 0] as [number, number, number],
+          total: 0,
+        },
+      ]
+    })
+  return [...bars, ...zeros].sort(
+    (a, b) => a.system_id - b.system_id || a.instance_role.localeCompare(b.instance_role),
+  )
+}
+
 export interface QueueSeg {
   level: QueueLevel
   y: number

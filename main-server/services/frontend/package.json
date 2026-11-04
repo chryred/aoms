@@ -31,6 +31,7 @@
     "react-router-dom": "7.13.2",
     "recharts": "2.15.3",
     "remark-gfm": "^4.0.1",
+    "sql-formatter": "^15.9.0",
     "tailwind-merge": "2.6.0",
     "zod": "3.24.4",
     "zustand": "5.0.3"

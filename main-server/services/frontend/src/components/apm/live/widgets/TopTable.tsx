@@ -8,7 +8,7 @@ export function TopTable({ head, rows }: TopTableProps) {
   if (rows.length === 0) {
     return (
       <div className="text-text-tertiary flex h-full items-center justify-center text-xs">
-        데이터 수집 중
+        수신 대기
       </div>
     )
   }

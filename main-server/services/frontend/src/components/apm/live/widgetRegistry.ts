@@ -24,35 +24,57 @@ export interface WidgetProps {
 export interface WidgetDef {
   title: string
   defaultSize: { w: number; h: number }
+  /** 리사이즈 하한(그리드 칸). 이보다 작아지면 내용이 깨진다 */
+  minSize: { w: number; h: number }
   component: FC<WidgetProps>
 }
 
-/** 12열 그리드 기준 기본 크기. */
+const chart = (title: string, component: FC<WidgetProps>): WidgetDef => ({
+  title,
+  defaultSize: { w: 6, h: 4 },
+  minSize: { w: 3, h: 3 },
+  component,
+})
+
+/** 12열 그리드 기준 기본 크기. 차트는 한 행에 2개(w=6, h=4 약 190px)가 들어가도록 컴팩트하게. */
 export const widgetRegistry: Record<WidgetType, WidgetDef> = {
-  queue: { title: '액티브 큐', defaultSize: { w: 6, h: 6 }, component: QueueWidget },
-  scatter: { title: '응답시간 산점도', defaultSize: { w: 6, h: 8 }, component: ScatterWidget },
+  queue: {
+    title: '액티브 큐',
+    defaultSize: { w: 7, h: 6 },
+    minSize: { w: 4, h: 4 },
+    component: QueueWidget,
+  },
+  scatter: {
+    title: '트랜잭션 모니터링',
+    defaultSize: { w: 5, h: 6 },
+    minSize: { w: 4, h: 4 },
+    component: ScatterWidget,
+  },
   active_list: {
     title: '진행 중 트랜잭션',
-    defaultSize: { w: 12, h: 8 },
+    defaultSize: { w: 6, h: 4 },
+    minSize: { w: 3, h: 3 },
     component: ActiveListWidget,
   },
-  tps: { title: 'TPS', defaultSize: { w: 4, h: 5 }, component: TpsWidget },
-  avg_ms: { title: '평균 응답시간', defaultSize: { w: 4, h: 5 }, component: AvgMsWidget },
-  err_rate: { title: '에러율', defaultSize: { w: 4, h: 5 }, component: ErrRateWidget },
-  uri_top: { title: 'URL 상위', defaultSize: { w: 6, h: 6 }, component: UriTopWidget },
-  sql_top: { title: 'SQL 상위', defaultSize: { w: 6, h: 6 }, component: SqlTopWidget },
-  jvm_users_threads: {
-    title: '동시 사용자·스레드',
-    defaultSize: { w: 3, h: 5 },
-    component: JvmUsersThreadsWidget,
+  tps: chart('TPS', TpsWidget),
+  avg_ms: chart('평균 응답시간', AvgMsWidget),
+  err_rate: chart('에러율', ErrRateWidget),
+  uri_top: {
+    title: 'URL 상위',
+    defaultSize: { w: 6, h: 5 },
+    minSize: { w: 3, h: 3 },
+    component: UriTopWidget,
   },
-  jvm_cpu: { title: 'JVM CPU', defaultSize: { w: 3, h: 5 }, component: JvmCpuWidget },
-  jvm_heap_gc: { title: '힙·GC', defaultSize: { w: 3, h: 5 }, component: JvmHeapGcWidget },
-  jvm_conn_pool: {
-    title: 'DB 커넥션 풀',
-    defaultSize: { w: 3, h: 5 },
-    component: JvmConnPoolWidget,
+  sql_top: {
+    title: 'SQL 상위',
+    defaultSize: { w: 6, h: 5 },
+    minSize: { w: 3, h: 3 },
+    component: SqlTopWidget,
   },
+  jvm_users_threads: chart('동시 사용자·스레드', JvmUsersThreadsWidget),
+  jvm_cpu: chart('JVM CPU', JvmCpuWidget),
+  jvm_heap_gc: chart('힙·GC', JvmHeapGcWidget),
+  jvm_conn_pool: chart('DB 커넥션 풀', JvmConnPoolWidget),
 }
 
 export const WIDGET_TYPES = Object.keys(widgetRegistry) as WidgetType[]

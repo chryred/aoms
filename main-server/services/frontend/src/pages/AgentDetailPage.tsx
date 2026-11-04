@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
+import { useTabTitle } from '@/components/layout/tabs/TabContext'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
@@ -226,6 +227,8 @@ export function AgentDetailPage() {
     queryFn: () => agentsApi.getAgent(agentId),
     staleTime: 30_000,
   })
+
+  useTabTitle(agent?.host ? `에이전트 ${agent.host}` : null)
 
   const supportsLive = agent?.agent_type === 'synapse_agent' || agent?.agent_type === 'db'
 
@@ -629,6 +632,22 @@ export function AgentDetailPage() {
                   {info.instance_role && (
                     <InfoRow label="instance_role" value={info.instance_role} />
                   )}
+                  {agent.agent_type === 'agent_t' && (
+                    <InfoRow
+                      label="요청 파라미터 수집"
+                      value={info.capture_params ? '사용' : '사용 안 함'}
+                    />
+                  )}
+                  {agent.agent_type === 'agent_t' &&
+                    info.capture_params &&
+                    info.capture_params_include && (
+                      <InfoRow label="포함 URI" value={info.capture_params_include} />
+                    )}
+                  {agent.agent_type === 'agent_t' &&
+                    info.capture_params &&
+                    info.capture_params_exclude && (
+                      <InfoRow label="제외 URI" value={info.capture_params_exclude} />
+                    )}
                 </>
               )
             })()}

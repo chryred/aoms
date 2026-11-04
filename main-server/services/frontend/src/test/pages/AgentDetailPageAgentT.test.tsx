@@ -100,7 +100,26 @@ describe('AgentDetailPage — agent_t', () => {
     await user.click(await screen.findByRole('button', { name: /설치 실행/ }))
     await user.click(await screen.findByRole('button', { name: '적용' }))
     await user.click(await screen.findByTestId('install-monitor'))
-    expect(agentsApi.installAgent).toHaveBeenLastCalledWith({ agent_id: 1, target_pid: 4242 }, 'tok')
+    expect(agentsApi.installAgent).toHaveBeenLastCalledWith(
+      { agent_id: 1, target_pid: 4242 },
+      'tok',
+    )
     expect(agentsApi.updateAgent).not.toHaveBeenCalled()
+  })
+
+  it('요청 파라미터 수집 설정을 상세에 표시한다', async () => {
+    vi.mocked(agentsApi.getAgent).mockResolvedValue({
+      ...agent,
+      label_info: JSON.stringify({
+        jvm_match: 'x',
+        capture_params: true,
+        capture_params_include: '/crm/*',
+        capture_params_exclude: '/health/*',
+      }),
+    } as never)
+    renderPage()
+    expect(await screen.findByText('요청 파라미터 수집')).toBeInTheDocument()
+    expect(screen.getByText('/crm/*')).toBeInTheDocument()
+    expect(screen.getByText('/health/*')).toBeInTheDocument()
   })
 })

@@ -1,4 +1,5 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useTabActive } from '@/components/layout/tabs/TabContext'
 import { adminApi } from '@/lib/ky-client'
 
 export interface InstanceHealth {
@@ -38,10 +39,11 @@ export interface DashboardHealthResponse {
 }
 
 export function useDashboardHealth() {
+  const active = useTabActive()
   return useQuery<DashboardHealthResponse>({
     queryKey: ['dashboardHealth'],
     queryFn: () => adminApi.get('api/v1/dashboard/system-health').json<DashboardHealthResponse>(),
-    refetchInterval: 60000, // 60초마다 자동 새로고침
+    refetchInterval: active ? 60000 : false, // 60초마다 자동 새로고침
     staleTime: 30000, // 30초 동안 fresh 유지
   })
 }
@@ -107,12 +109,13 @@ export interface SystemDetailResponse {
 }
 
 export function useSystemDetailHealth(systemId: string | undefined) {
+  const active = useTabActive()
   return useQuery<SystemDetailResponse>({
     queryKey: ['systemDetailHealth', systemId],
     queryFn: () =>
       adminApi.get(`api/v1/dashboard/systems/${systemId}/detailed`).json<SystemDetailResponse>(),
     enabled: !!systemId,
-    refetchInterval: 30000, // 30초마다 새로고침
+    refetchInterval: active ? 30000 : false, // 30초마다 새로고침
     staleTime: 15000,
   })
 }

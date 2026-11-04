@@ -11,6 +11,11 @@ export function canvasFont(px: number): string {
   return `${px}px ${cssVar('--font-sans') || 'sans-serif'}`
 }
 
+/** Canvas 수치·축 라벨용 고정폭 폰트(--font-num). */
+export function canvasNumFont(px: number): string {
+  return `${px}px ${cssVar('--font-num') || 'monospace'}`
+}
+
 /** 해상도(DPR) 보정 후 2D 컨텍스트 반환. jsdom 등 canvas 미지원이면 null. */
 export function prepareCanvas(
   canvas: HTMLCanvasElement | null,

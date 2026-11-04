@@ -29,6 +29,8 @@ export interface TxSummary {
   user_id: string
   biz_key: string
   has_detail: number
+  /** 에이전트가 설치된 호스트명 (없으면 빈 문자열/undefined) */
+  host?: string
 }
 
 export interface TxSql {
@@ -40,6 +42,8 @@ export interface TxSql {
   fetch_cnt: number
   fetch_ms: number
   err: number
+  /** 접속 DB 명 (미수집이면 빈 문자열/undefined) */
+  db?: string
 }
 
 export interface TxNode {
@@ -57,17 +61,45 @@ export interface StackSample {
   c: number
 }
 
+export interface TxParams {
+  /** 쿼리 스트링 */
+  q: string
+  /** [이름, 값] — 마스킹된 값은 "****" */
+  p: [string, string][]
+  /** 일부 생략됨 (truncated) */
+  t: boolean
+}
+
 export interface TxDetail {
   summary: TxSummary
   sql: TxSql[]
   detail: { nodes: TxNode[]; stacks: StackSample[] } | null
   path: TxSummary[]
+  /** 사용자 전문(요청 파라미터) — 수집 안 됐으면 null */
+  params?: TxParams | null
+}
+
+export interface TxCounts {
+  total: number
+  normal: number
+  error: number
 }
 
 export interface TxListResult {
   items: TxSummary[]
   has_more: boolean
+  /** 조회 조건 전체 건수 (limit/offset 무관). 구버전 응답에는 없을 수 있다 */
+  counts?: TxCounts
 }
+
+export type TxOrderBy =
+  | 'start_ts'
+  | 'elapsed_ms'
+  | 'sql_ms'
+  | 'cpu_ms'
+  | 'fetch_cnt'
+  | 'sql_cnt'
+  | 'ext_ms'
 
 export interface TxListParams {
   system_ids: number[]
@@ -78,11 +110,54 @@ export interface TxListParams {
   user_ip?: string
   user_id?: string
   min_elapsed_ms?: number
+  max_elapsed_ms?: number
   min_sql_ms?: number
   error_only?: boolean
   trace_id?: string
+  span_id?: string
+  biz_key?: string
+  min_fetch_cnt?: number
+  min_sql_cnt?: number
+  min_conn_open?: number
+  order_by?: TxOrderBy
+  order?: 'asc' | 'desc'
   limit?: number
   offset?: number
+}
+
+/** 목록 필터 — 정렬·페이징을 제외한 조건 (통계·시간대 집계에도 동일하게 적용) */
+export type TxFilterParams = Omit<TxListParams, 'limit' | 'offset' | 'order_by' | 'order'>
+
+export interface TxUriStat {
+  uri: string
+  count: number
+  error_count: number
+  /** 전체 대비 비율 — 백분율 0~100 (소수 1자리, 서버가 count/total*100 으로 계산) */
+  ratio: number
+  elapsed_max: number
+  elapsed_avg: number
+  sql_max: number
+  sql_avg: number
+  ext_max: number
+  ext_avg: number
+  ap_avg: number
+}
+
+export interface TxUriStatsResult {
+  items: TxUriStat[]
+  total: number
+}
+
+export interface TxHourlyBucket {
+  /** KST 시각 '00'..'23' */
+  hour: string
+  count: number
+  elapsed_avg: number
+  sql_avg_per_exec: number
+}
+
+export interface TxHourlyResult {
+  items: TxHourlyBucket[]
 }
 
 export interface ScatterPoint {
@@ -207,6 +282,18 @@ export interface LivePointsEvent {
   system_id: number
   instance_role: string
   points: LivePoint[]
+}
+
+/** Agent-T jvm.pools[] — DB 커넥션 풀 1개 (max <= 0 이면 상한 미상) */
+export interface LivePoolStat {
+  name: string
+  /** jeus | hikari | tomcat | dbcp2 */
+  kind: string
+  active: number
+  idle: number
+  max: number
+  /** 커넥션을 기다리는 스레드 수 */
+  wait: number
 }
 
 export interface LiveAggEvent {

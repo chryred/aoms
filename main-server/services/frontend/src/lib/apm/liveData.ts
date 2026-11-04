@@ -1,10 +1,12 @@
 import type { AgentInstance } from '@/types/agent'
-import type { DashboardWidget, LiveActiveEvent, LiveAggEvent } from '@/types/apm'
+import type { DashboardWidget, LiveActiveEvent, LiveAggEvent, LivePoolStat } from '@/types/apm'
 
 /** 위젯이 바라보는 대상. systemIds 가 비어 있으면 모든 시스템. */
 export interface WidgetTarget {
   systemIds: number[]
   instanceRole?: string
+  /** 지정되면 이 인스턴스 키(`systemId:role`)만 대상 (칩 바 토글 결과) */
+  instanceKeys?: string[]
 }
 
 export const instanceKey = (e: { system_id: number; instance_role: string }) =>
@@ -12,6 +14,7 @@ export const instanceKey = (e: { system_id: number; instance_role: string }) =>
 
 export function matchesTarget(e: { system_id: number; instance_role: string }, t: WidgetTarget) {
   if (t.systemIds.length > 0 && !t.systemIds.includes(e.system_id)) return false
+  if (t.instanceKeys && !t.instanceKeys.includes(instanceKey(e))) return false
   return !t.instanceRole || e.instance_role === t.instanceRole
 }
 
@@ -58,6 +61,63 @@ export function mergeSeries(
 export function jvmNum(e: LiveAggEvent, key: string): number | null {
   const v = e.jvm?.[key]
   return typeof v === 'number' && Number.isFinite(v) ? v : null
+}
+
+/** jvm.pools 를 안전하게 읽는다(구 에이전트·잘못된 항목은 건너뜀). */
+export function jvmPools(e: LiveAggEvent): LivePoolStat[] {
+  const raw = e.jvm?.pools
+  if (!Array.isArray(raw)) return []
+  const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : 0)
+  const out: LivePoolStat[] = []
+  for (const p of raw as Record<string, unknown>[]) {
+    if (!p || typeof p.name !== 'string' || p.name === '') continue
+    out.push({
+      name: p.name,
+      kind: typeof p.kind === 'string' ? p.kind : '',
+      active: num(p.active),
+      idle: num(p.idle),
+      max: num(p.max),
+      wait: num(p.wait),
+    })
+  }
+  return out
+}
+
+export interface PoolRow extends LivePoolStat {
+  /** 소속 인스턴스 키(`systemId:role`) */
+  instance: string
+  /** active/max (max 미상이면 0) */
+  util: number
+}
+
+export type PoolLevel = 'normal' | 'warning' | 'critical'
+
+/** 사용률 100% 이상 또는 대기 스레드가 있으면 critical, 80% 이상 warning. */
+export function poolLevel(p: { active: number; max: number; wait: number }): PoolLevel {
+  const util = p.max > 0 ? p.active / p.max : 0
+  if (p.wait > 0 || util >= 1) return 'critical'
+  if (util >= 0.8) return 'warning'
+  return 'normal'
+}
+
+/** 풀 값이 없는 5초 창(jvm 이 5초마다만 오므로)을 건너뛰기 위해 되짚는 최대 이벤트 수 */
+const POOL_LOOKBACK = 3
+
+/** 인스턴스별 가장 최근 풀 목록을 사용률 내림차순(동률은 대기 많은 순, 이름순)으로. */
+export function latestPoolRows(lists: LiveAggEvent[][]): PoolRow[] {
+  const rows: PoolRow[] = []
+  for (const list of lists) {
+    for (let i = list.length - 1; i >= Math.max(0, list.length - POOL_LOOKBACK); i--) {
+      const pools = jvmPools(list[i])
+      if (pools.length === 0) continue
+      const instance = instanceKey(list[i])
+      for (const p of pools) {
+        rows.push({ ...p, instance, util: p.max > 0 ? p.active / p.max : 0 })
+      }
+      break
+    }
+  }
+  return rows.sort((a, b) => b.util - a.util || b.wait - a.wait || a.name.localeCompare(b.name))
 }
 
 /** 최근 agg 의 dropped 합이 0 보다 큰 인스턴스 키. */

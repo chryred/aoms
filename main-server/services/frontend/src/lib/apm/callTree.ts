@@ -9,6 +9,8 @@ export interface CallTreeRow {
   durMs: number
   /** 전체 응답시간 대비 비율 (0~1) */
   ratio: number
+  /** SQL 노드의 SQL 식별자 (그 외·미계측은 빈 문자열) */
+  sqlId: string
 }
 
 export const GAP_NAME = '미계측 구간'
@@ -44,6 +46,7 @@ export function buildCallTree(nodes: TxNode[], totalMs: number): CallTreeRow[] {
       startMs: node.s,
       durMs: node.d,
       ratio: ratio(node.d),
+      sqlId: node.k === 'sql' ? node.sql_id : '',
     })
     const kids = (children.get(node.i) ?? []).sort(byStart)
     if (kids.length === 0) return
@@ -57,6 +60,7 @@ export function buildCallTree(nodes: TxNode[], totalMs: number): CallTreeRow[] {
         startMs: from,
         durMs: to - from,
         ratio: ratio(to - from),
+        sqlId: '',
       })
     }
     let cursor = node.s

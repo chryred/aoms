@@ -20,7 +20,7 @@ export function TopBar() {
   }
 
   return (
-    <header className="border-border-brand bg-surface flex shrink-0 items-center justify-between border-b px-4 py-3 md:px-6">
+    <header className="border-border-brand bg-surface flex h-14 shrink-0 items-center justify-between border-b px-4 md:px-6">
       <div className="flex min-w-0 items-center gap-3">
         {/* Hamburger — mobile only */}
         <button

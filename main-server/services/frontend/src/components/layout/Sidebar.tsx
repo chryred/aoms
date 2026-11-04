@@ -132,7 +132,8 @@ export function Sidebar() {
       )}
     >
       {/* 로고 */}
-      <div className="border-border-brand flex items-center justify-between border-b px-4 py-3">
+      {/* 높이는 TopBar(h-14)와 같아야 두 하단 테두리가 한 줄로 이어진다 */}
+      <div className="border-border-brand flex h-14 shrink-0 items-center justify-between border-b px-4">
         {!collapsed && (
           <span className="type-heading font-lora text-accent text-lg font-bold italic">
             Synapse-V

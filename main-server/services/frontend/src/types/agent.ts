@@ -11,6 +11,9 @@ export interface AgentTLabelInfo {
   immediate: boolean
   permanent: boolean
   jeus_confirm?: boolean
+  capture_params?: boolean
+  capture_params_include?: string
+  capture_params_exclude?: string
   enabled?: boolean
 }
 

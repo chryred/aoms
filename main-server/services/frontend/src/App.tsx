@@ -1,5 +1,13 @@
 import { lazy, Suspense } from 'react'
-import { BrowserRouter, Routes, Route, Navigate, Outlet, useLocation } from 'react-router-dom'
+import {
+  BrowserRouter,
+  Routes,
+  Route,
+  Navigate,
+  Outlet,
+  useLocation,
+  type Location,
+} from 'react-router-dom'
 import { ROUTES } from '@/constants/routes'
 import { AppLayout } from '@/components/layout/AppLayout'
 import { AuthLayout } from '@/components/layout/AuthLayout'
@@ -121,6 +129,283 @@ const SslDeploymentHistoryPage = lazy(() =>
 const RootCaGuidePage = lazy(() =>
   import('@/pages/ssl/RootCaGuidePage').then((m) => ({ default: m.RootCaGuidePage })),
 )
+/** 앱 레이아웃 내부 라우트 — 탭(MDI) 워크스페이스가 탭마다 자신의 location 으로 렌더링한다. */
+function AppRoutes({ location }: { location: Location }) {
+  return (
+    <Routes location={location}>
+      <Route path="/" element={<Navigate to={ROUTES.DASHBOARD} replace />} />
+      <Route element={<DashboardAnimatedLayout />}>
+        <Route
+          path="/dashboard"
+          element={
+            <Suspense fallback={<LoadingSkeleton shape="card" count={4} />}>
+              <DashboardPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/dashboard/:systemId"
+          element={
+            <Suspense fallback={<LoadingSkeleton shape="card" count={3} />}>
+              <DashboardSystemDetailPage />
+            </Suspense>
+          }
+        />
+      </Route>
+      <Route
+        path="/systems"
+        element={
+          <Suspense fallback={<LoadingSkeleton shape="card" count={4} />}>
+            <SystemListPage />
+          </Suspense>
+        }
+      />
+      <Route
+        path="/alerts"
+        element={
+          <Suspense fallback={<LoadingSkeleton shape="table" />}>
+            <AlertHistoryPage />
+          </Suspense>
+        }
+      />
+
+      {/* Phase 2 */}
+      <Route
+        path="/contacts"
+        element={
+          <Suspense fallback={<LoadingSkeleton shape="table" />}>
+            <ContactListPage />
+          </Suspense>
+        }
+      />
+      <Route
+        path="/reports"
+        element={
+          <Suspense fallback={<LoadingSkeleton shape="card" count={3} />}>
+            <ReportPage />
+          </Suspense>
+        }
+      />
+      <Route
+        path="/reports/history"
+        element={
+          <Suspense fallback={<LoadingSkeleton shape="table" />}>
+            <ReportHistoryPage />
+          </Suspense>
+        }
+      />
+      <Route
+        path="/trends"
+        element={
+          <Suspense fallback={<LoadingSkeleton shape="card" count={5} />}>
+            <TrendAlertsPage />
+          </Suspense>
+        }
+      />
+      <Route
+        path="/search"
+        element={
+          <Suspense fallback={<LoadingSkeleton shape="card" count={3} />}>
+            <SimilarSearchPage />
+          </Suspense>
+        }
+      />
+      {/* /feedback — 인시던트 단위로 전환됨 (Wave 3C). /incidents 로 redirect */}
+      <Route path="/feedback" element={<Navigate to={ROUTES.INCIDENTS} replace />} />
+      <Route path={ROUTES.FEEDBACK_SEARCH} element={<FeedbackSearchRedirect />} />
+      <Route
+        path={ROUTES.FEEDBACK_MANAGE}
+        element={
+          <Suspense fallback={<LoadingSkeleton shape="table" />}>
+            <FeedbackManagePage />
+          </Suspense>
+        }
+      />
+      <Route
+        path={ROUTES.APM_LIVE}
+        element={
+          <Suspense fallback={<LoadingSkeleton shape="card" />}>
+            <ApmLivePage />
+          </Suspense>
+        }
+      />
+      <Route
+        path={ROUTES.APM_TRANSACTIONS}
+        element={
+          <Suspense fallback={<LoadingSkeleton shape="table" />}>
+            <ApmTransactionsPage />
+          </Suspense>
+        }
+      />
+      <Route
+        path="/apm/tx/:traceId/:spanId"
+        element={
+          <Suspense fallback={<LoadingSkeleton shape="card" />}>
+            <ApmTxDetailPage />
+          </Suspense>
+        }
+      />
+      <Route
+        path={ROUTES.INCIDENTS}
+        element={
+          <Suspense fallback={<LoadingSkeleton shape="table" />}>
+            <IncidentListPage />
+          </Suspense>
+        }
+      />
+      <Route
+        path="/incidents/:id"
+        element={
+          <Suspense fallback={<LoadingSkeleton shape="card" count={3} />}>
+            <IncidentDetailPage />
+          </Suspense>
+        }
+      />
+      <Route
+        path="/grafana-dashboard"
+        element={
+          <Suspense fallback={<LoadingSkeleton shape="card" />}>
+            <GrafanaDashboardPage />
+          </Suspense>
+        }
+      />
+      <Route
+        path={ROUTES.KNOWLEDGE}
+        element={
+          <Suspense fallback={<LoadingSkeleton shape="card" count={3} />}>
+            <KnowledgePage />
+          </Suspense>
+        }
+      />
+      <Route
+        path={ROUTES.CHAT}
+        element={
+          <Suspense fallback={<LoadingSkeleton shape="card" count={3} />}>
+            <ChatPage />
+          </Suspense>
+        }
+      />
+      <Route element={<AgentAnimatedLayout />}>
+        <Route
+          path="/agents"
+          element={
+            <Suspense fallback={<LoadingSkeleton shape="card" count={4} />}>
+              <AgentListPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/agents/:id"
+          element={
+            <Suspense fallback={<LoadingSkeleton shape="card" count={3} />}>
+              <AgentDetailPage />
+            </Suspense>
+          }
+        />
+      </Route>
+      <Route
+        path="/profile"
+        element={
+          <Suspense fallback={<LoadingSkeleton shape="card" />}>
+            <ProfilePage />
+          </Suspense>
+        }
+      />
+      <Route
+        path="/synapse-cli"
+        element={
+          <Suspense fallback={<LoadingSkeleton shape="table" />}>
+            <CliManagerPage />
+          </Suspense>
+        }
+      />
+
+      {/* Admin 전용 */}
+      <Route
+        element={
+          <AdminGuard>
+            <Outlet />
+          </AdminGuard>
+        }
+      >
+        <Route
+          path="/admin/users"
+          element={
+            <Suspense fallback={<LoadingSkeleton shape="table" />}>
+              <UserManagementPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/admin/llm-config"
+          element={
+            <Suspense fallback={<LoadingSkeleton shape="table" />}>
+              <LlmAgentConfigPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/admin/chat-tools"
+          element={
+            <Suspense fallback={<LoadingSkeleton shape="table" />}>
+              <ChatToolsPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/admin/scheduler-runs"
+          element={
+            <Suspense fallback={<LoadingSkeleton shape="table" />}>
+              <SchedulerRunHistoryPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path={ROUTES.ADMIN_OAUTH_CLIENTS}
+          element={
+            <Suspense fallback={<LoadingSkeleton shape="table" />}>
+              <OAuthClientsPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/vector-health"
+          element={
+            <Suspense fallback={<LoadingSkeleton shape="card" count={4} />}>
+              <VectorHealthPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path={ROUTES.SSL_DASHBOARD}
+          element={
+            <Suspense fallback={<LoadingSkeleton shape="card" count={3} />}>
+              <SslDashboardPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path={ROUTES.SSL_SERVERS}
+          element={
+            <Suspense fallback={<LoadingSkeleton shape="table" />}>
+              <SslServersPage />
+            </Suspense>
+          }
+        />
+        <Route
+          path={ROUTES.SSL_DEPLOYMENTS}
+          element={
+            <Suspense fallback={<LoadingSkeleton shape="table" />}>
+              <SslDeploymentHistoryPage />
+            </Suspense>
+          }
+        />
+      </Route>
+      <Route path="*" element={<Navigate to={ROUTES.DASHBOARD} replace />} />
+    </Routes>
+  )
+}
+
 export function App() {
   return (
     <BrowserRouter>
@@ -191,285 +476,15 @@ export function App() {
           }
         />
 
-        {/* 앱 레이아웃 */}
+        {/* 앱 레이아웃 — 내부 라우트는 AppRoutes 가 탭별 location 으로 렌더링 */}
         <Route
+          path="/*"
           element={
             <AuthGuard>
-              <AppLayout />
+              <AppLayout renderRoutes={(location) => <AppRoutes location={location} />} />
             </AuthGuard>
           }
-        >
-          <Route index element={<Navigate to={ROUTES.DASHBOARD} replace />} />
-          <Route element={<DashboardAnimatedLayout />}>
-            <Route
-              path="/dashboard"
-              element={
-                <Suspense fallback={<LoadingSkeleton shape="card" count={4} />}>
-                  <DashboardPage />
-                </Suspense>
-              }
-            />
-            <Route
-              path="/dashboard/:systemId"
-              element={
-                <Suspense fallback={<LoadingSkeleton shape="card" count={3} />}>
-                  <DashboardSystemDetailPage />
-                </Suspense>
-              }
-            />
-          </Route>
-          <Route
-            path="/systems"
-            element={
-              <Suspense fallback={<LoadingSkeleton shape="card" count={4} />}>
-                <SystemListPage />
-              </Suspense>
-            }
-          />
-          <Route
-            path="/alerts"
-            element={
-              <Suspense fallback={<LoadingSkeleton shape="table" />}>
-                <AlertHistoryPage />
-              </Suspense>
-            }
-          />
-
-          {/* Phase 2 */}
-          <Route
-            path="/contacts"
-            element={
-              <Suspense fallback={<LoadingSkeleton shape="table" />}>
-                <ContactListPage />
-              </Suspense>
-            }
-          />
-          <Route
-            path="/reports"
-            element={
-              <Suspense fallback={<LoadingSkeleton shape="card" count={3} />}>
-                <ReportPage />
-              </Suspense>
-            }
-          />
-          <Route
-            path="/reports/history"
-            element={
-              <Suspense fallback={<LoadingSkeleton shape="table" />}>
-                <ReportHistoryPage />
-              </Suspense>
-            }
-          />
-          <Route
-            path="/trends"
-            element={
-              <Suspense fallback={<LoadingSkeleton shape="card" count={5} />}>
-                <TrendAlertsPage />
-              </Suspense>
-            }
-          />
-          <Route
-            path="/search"
-            element={
-              <Suspense fallback={<LoadingSkeleton shape="card" count={3} />}>
-                <SimilarSearchPage />
-              </Suspense>
-            }
-          />
-          {/* /feedback — 인시던트 단위로 전환됨 (Wave 3C). /incidents 로 redirect */}
-          <Route path="/feedback" element={<Navigate to={ROUTES.INCIDENTS} replace />} />
-          <Route path={ROUTES.FEEDBACK_SEARCH} element={<FeedbackSearchRedirect />} />
-          <Route
-            path={ROUTES.FEEDBACK_MANAGE}
-            element={
-              <Suspense fallback={<LoadingSkeleton shape="table" />}>
-                <FeedbackManagePage />
-              </Suspense>
-            }
-          />
-          <Route
-            path={ROUTES.APM_LIVE}
-            element={
-              <Suspense fallback={<LoadingSkeleton shape="card" />}>
-                <ApmLivePage />
-              </Suspense>
-            }
-          />
-          <Route
-            path={ROUTES.APM_TRANSACTIONS}
-            element={
-              <Suspense fallback={<LoadingSkeleton shape="table" />}>
-                <ApmTransactionsPage />
-              </Suspense>
-            }
-          />
-          <Route
-            path="/apm/tx/:traceId/:spanId"
-            element={
-              <Suspense fallback={<LoadingSkeleton shape="card" />}>
-                <ApmTxDetailPage />
-              </Suspense>
-            }
-          />
-          <Route
-            path={ROUTES.INCIDENTS}
-            element={
-              <Suspense fallback={<LoadingSkeleton shape="table" />}>
-                <IncidentListPage />
-              </Suspense>
-            }
-          />
-          <Route
-            path="/incidents/:id"
-            element={
-              <Suspense fallback={<LoadingSkeleton shape="card" count={3} />}>
-                <IncidentDetailPage />
-              </Suspense>
-            }
-          />
-          <Route
-            path="/grafana-dashboard"
-            element={
-              <Suspense fallback={<LoadingSkeleton shape="card" />}>
-                <GrafanaDashboardPage />
-              </Suspense>
-            }
-          />
-          <Route
-            path={ROUTES.KNOWLEDGE}
-            element={
-              <Suspense fallback={<LoadingSkeleton shape="card" count={3} />}>
-                <KnowledgePage />
-              </Suspense>
-            }
-          />
-          <Route
-            path={ROUTES.CHAT}
-            element={
-              <Suspense fallback={<LoadingSkeleton shape="card" count={3} />}>
-                <ChatPage />
-              </Suspense>
-            }
-          />
-          <Route element={<AgentAnimatedLayout />}>
-            <Route
-              path="/agents"
-              element={
-                <Suspense fallback={<LoadingSkeleton shape="card" count={4} />}>
-                  <AgentListPage />
-                </Suspense>
-              }
-            />
-            <Route
-              path="/agents/:id"
-              element={
-                <Suspense fallback={<LoadingSkeleton shape="card" count={3} />}>
-                  <AgentDetailPage />
-                </Suspense>
-              }
-            />
-          </Route>
-          <Route
-            path="/profile"
-            element={
-              <Suspense fallback={<LoadingSkeleton shape="card" />}>
-                <ProfilePage />
-              </Suspense>
-            }
-          />
-          <Route
-            path="/synapse-cli"
-            element={
-              <Suspense fallback={<LoadingSkeleton shape="table" />}>
-                <CliManagerPage />
-              </Suspense>
-            }
-          />
-
-          {/* Admin 전용 */}
-          <Route
-            element={
-              <AdminGuard>
-                <Outlet />
-              </AdminGuard>
-            }
-          >
-            <Route
-              path="/admin/users"
-              element={
-                <Suspense fallback={<LoadingSkeleton shape="table" />}>
-                  <UserManagementPage />
-                </Suspense>
-              }
-            />
-            <Route
-              path="/admin/llm-config"
-              element={
-                <Suspense fallback={<LoadingSkeleton shape="table" />}>
-                  <LlmAgentConfigPage />
-                </Suspense>
-              }
-            />
-            <Route
-              path="/admin/chat-tools"
-              element={
-                <Suspense fallback={<LoadingSkeleton shape="table" />}>
-                  <ChatToolsPage />
-                </Suspense>
-              }
-            />
-            <Route
-              path="/admin/scheduler-runs"
-              element={
-                <Suspense fallback={<LoadingSkeleton shape="table" />}>
-                  <SchedulerRunHistoryPage />
-                </Suspense>
-              }
-            />
-            <Route
-              path={ROUTES.ADMIN_OAUTH_CLIENTS}
-              element={
-                <Suspense fallback={<LoadingSkeleton shape="table" />}>
-                  <OAuthClientsPage />
-                </Suspense>
-              }
-            />
-            <Route
-              path="/vector-health"
-              element={
-                <Suspense fallback={<LoadingSkeleton shape="card" count={4} />}>
-                  <VectorHealthPage />
-                </Suspense>
-              }
-            />
-            <Route
-              path={ROUTES.SSL_DASHBOARD}
-              element={
-                <Suspense fallback={<LoadingSkeleton shape="card" count={3} />}>
-                  <SslDashboardPage />
-                </Suspense>
-              }
-            />
-            <Route
-              path={ROUTES.SSL_SERVERS}
-              element={
-                <Suspense fallback={<LoadingSkeleton shape="table" />}>
-                  <SslServersPage />
-                </Suspense>
-              }
-            />
-            <Route
-              path={ROUTES.SSL_DEPLOYMENTS}
-              element={
-                <Suspense fallback={<LoadingSkeleton shape="table" />}>
-                  <SslDeploymentHistoryPage />
-                </Suspense>
-              }
-            />
-          </Route>
-        </Route>
-
-        <Route path="*" element={<Navigate to={ROUTES.DASHBOARD} replace />} />
+        />
       </Routes>
     </BrowserRouter>
   )

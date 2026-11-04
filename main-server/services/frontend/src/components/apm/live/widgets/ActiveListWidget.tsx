@@ -1,4 +1,4 @@
-import { useContext, useState } from 'react'
+import { useContext } from 'react'
 import { HTTPError } from 'ky'
 import toast from 'react-hot-toast'
 import { X } from 'lucide-react'
@@ -7,6 +7,7 @@ import { apmApi } from '@/api/apm'
 import { findAgentId, instanceKey, pickActive } from '@/lib/apm/liveData'
 import { queueColor } from '@/lib/apm/queueBuckets'
 import { LiveContext } from '@/components/apm/live/LiveContext'
+import { useWidgetState } from '@/components/apm/live/widgetState'
 import type { WidgetProps } from '@/components/apm/live/widgetRegistry'
 import type { ActiveTop } from '@/types/apm'
 
@@ -17,14 +18,14 @@ interface Row extends ActiveTop {
 }
 
 const TEXT_CLASS = {
-  normal: 'text-normal-text',
-  warning: 'text-warning-text',
-  critical: 'text-critical-text',
+  normal: 'text-apm-normal-text',
+  warning: 'text-apm-warning-text',
+  critical: 'text-apm-critical-text',
 } as const
 
 export function ActiveListWidget({ events, target }: WidgetProps) {
-  const { queueFilter, setQueueFilter, systemName } = useContext(LiveContext)
-  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const { queueFilter, setQueueFilter, instanceLabel } = useContext(LiveContext)
+  const [selectedId, setSelectedId] = useWidgetState<string | null>('selectedId', null)
 
   const rows: Row[] = pickActive(events.active, target)
     .filter((e) => queueFilter === null || instanceKey(e) === queueFilter)
@@ -65,15 +66,14 @@ export function ActiveListWidget({ events, target }: WidgetProps) {
           onClick={() => setQueueFilter(null)}
           className="bg-accent-muted text-accent flex w-fit items-center gap-1 rounded-sm px-2 py-0.5"
         >
-          필터: {queueFilter.replace(/^(\d+):/, (_, id) => `${systemName(Number(id))}/`)}{' '}
+          필터:{' '}
+          {queueFilter.replace(/^(\d+):(.*)$/, (_, id, role) => instanceLabel(Number(id), role))}{' '}
           <X size={12} aria-label="필터 해제" />
         </button>
       )}
       <div className="min-h-0 flex-1 overflow-auto">
         {rows.length === 0 ? (
-          <div className="text-text-tertiary flex h-full items-center justify-center">
-            진행 중인 트랜잭션 없음
-          </div>
+          <p className="text-text-tertiary py-2">진행 중인 트랜잭션 없음</p>
         ) : (
           <table className="w-full text-left">
             <thead className="text-text-secondary sticky top-0">
@@ -116,7 +116,7 @@ export function ActiveListWidget({ events, target }: WidgetProps) {
         <div className="border-border max-h-32 overflow-auto border-t pt-1">
           <div className="mb-1 flex items-center justify-between">
             <span className="text-text-secondary">
-              현재 스택 · {systemName(selected.system_id)}/{selected.instance_role}
+              현재 스택 · {instanceLabel(selected.system_id, selected.instance_role)}
             </span>
             <button
               type="button"

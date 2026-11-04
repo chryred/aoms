@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useTabActive } from '@/components/layout/tabs/TabContext'
 import {
   addIncidentComment,
   aiAnalyzeIncident,
@@ -18,11 +19,12 @@ const qk = {
 }
 
 export function useIncidents(params: IncidentListParams = {}) {
+  const active = useTabActive()
   return useQuery({
     queryKey: qk.list(params),
     queryFn: () => listIncidents(params),
     staleTime: 30_000,
-    refetchInterval: 60_000,
+    refetchInterval: active ? 60_000 : false,
   })
 }
 

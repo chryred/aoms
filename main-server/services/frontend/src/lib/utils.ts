@@ -29,11 +29,12 @@ export const kstDateToUtcEnd = (d: string) => {
 // UTC → KST (UTC+9) 변환
 export function formatKST(
   utcDate: string | Date,
-  format: 'datetime' | 'date' | 'HH:mm' | 'HH:mm:ss' = 'datetime',
+  format: 'datetime' | 'date' | 'HH:mm' | 'HH:mm:ss' | 'HH:mm:ss.SSS' = 'datetime',
 ): string {
   const normalized = typeof utcDate === 'string' ? normalizeUtc(utcDate) : utcDate
   const d = new Date(normalized)
   const kst = new Date(d.getTime() + 9 * 60 * 60 * 1000)
+  if (format === 'HH:mm:ss.SSS') return kst.toISOString().slice(11, 23)
   if (format === 'HH:mm:ss') return kst.toISOString().slice(11, 19)
   if (format === 'HH:mm') return kst.toISOString().slice(11, 16)
   if (format === 'date') return kst.toISOString().slice(0, 10)

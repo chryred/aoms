@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { fetchWithRefresh, openSse } from '@/lib/sse'
 import type { LiveActiveEvent, LiveAggEvent, LivePointsEvent, LiveSnapshot } from '@/types/apm'
 
@@ -47,15 +47,22 @@ function emptyData(): LiveData {
   return { active: new Map(), points: [], agg: new Map(), status: 'connecting' }
 }
 
-/** 시스템 목록의 실시간 스트림(SSE) 구독. 끊기면 지수 백오프 재연결, 3회 연속 실패 시 snapshot polling 폴백. */
-export function useApmLiveStream(systemIds: number[]): LiveData {
+/**
+ * 시스템 목록의 실시간 스트림(SSE) 구독. 끊기면 지수 백오프 재연결, 3회 연속 실패 시 snapshot polling 폴백.
+ * enabled=false(숨겨진 탭)이면 연결·폴링을 모두 멈추고 받은 데이터는 유지한다. 다시 true 가 되면 snapshot 으로 재동기화한다.
+ */
+export function useApmLiveStream(systemIds: number[], enabled = true): LiveData {
   const [data, setData] = useState<LiveData>(emptyData)
+  const lastIds = useRef<string | null>(null)
   // 배열 참조가 매 렌더 바뀌어도 재연결하지 않도록 값 기반 키 사용
   const idsKey = systemIds.join(',')
 
   useEffect(() => {
-    setData(emptyData())
-    if (!idsKey) return
+    // 시스템 구성이 바뀔 때만 비운다. 탭 재활성화 때는 이전 데이터를 보여 주며 snapshot 으로 이어 붙인다.
+    if (lastIds.current !== idsKey) setData(emptyData())
+    lastIds.current = idsKey
+    if (!idsKey || !enabled) return
+    setData((d) => (d.status === 'connecting' ? d : { ...d, status: 'connecting' }))
     const ac = new AbortController()
     const query = `system_ids=${idsKey}`
     let failures = 0
@@ -190,7 +197,7 @@ export function useApmLiveStream(systemIds: number[]): LiveData {
       ac.abort()
       if (timer) clearTimeout(timer)
     }
-  }, [idsKey])
+  }, [idsKey, enabled])
 
   return data
 }
