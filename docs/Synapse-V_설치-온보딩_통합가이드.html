@@ -168,7 +168,7 @@ figcaption b{color:var(--ink2)}
 <nav class="toc">
   <div class="brand">
     <h1>Synapse-V 설치·온보딩 가이드</h1>
-    <p>설치 → Teams 웹훅 → 시스템 등록 → 트랜잭션 전 과정<br>릴리스 2.1 · 2026-11-04 기준</p>
+    <p>설치 → Teams 웹훅 → 시스템 등록 → 트랜잭션 전 과정<br>릴리스 2.2 · 2026-11-05 기준</p>
   </div>
   <div class="toc-group">시작</div>
   <a href="#s0" data-s="s0"><span class="n">00</span><span>문서 개요 · 구성도</span></a>
@@ -194,7 +194,7 @@ figcaption b{color:var(--ink2)}
   <a href="#a1" data-s="a1"><span class="n">A</span><span>증상별 조치 (전체)</span></a>
   <a href="#a2" data-s="a2"><span class="n">B</span><span>용어집 (줄임말 풀이)</span></a>
   <a href="#a3" data-s="a3"><span class="n">C</span><span>기존 문서와 달라진 점</span></a>
-  <a href="#a4" data-s="a4"><span class="n">D</span><span>업그레이드 (2.0 → 2.1)</span></a>
+  <a href="#a4" data-s="a4"><span class="n">D</span><span>업그레이드 (2.0 → 2.1 → 2.2)</span></a>
 </nav>
 <main><div class="inner">
 
@@ -215,9 +215,16 @@ figcaption b{color:var(--ink2)}
 
 <div class="note info"><span class="t">이미 설치가 끝난 환경이라면</span>
 <p>PART 1·2는 건너뛰고 <strong>09단계(계정 가입)</strong>부터 보면 됩니다. 신규 서비스를 붙이는 담당자에게는 PART 3만 전달해도 충분합니다.
-이미 2.0이 운영 중이고 2.1로 올리는 경우에는 <a href="#a4" data-s="a4">부록 D 업그레이드</a>만 따라 하면 됩니다.</p></div>
+이미 2.0이 운영 중이고 2.1로 올리는 경우, 또는 2.1에서 2.2로 올리는 경우에는 <a href="#a4" data-s="a4">부록 D 업그레이드</a>만 따라 하면 됩니다.</p></div>
 
-<h3>이 문서의 기준 버전 · 2.1 (2026-11-04)</h3>
+<h3>이 문서의 기준 버전 · 2.2 (2026-11-05)</h3>
+<div class="note info"><span class="t">릴리스 2.2에서 이 문서에 추가된 것</span>
+<ul style="margin:6px 0 0">
+<li><strong>Agent-T 설치 사전 점검</strong> 버튼: 설치 실행 전에 서버를 바꾸지 않고(읽기 전용) 설치 가능 여부를 점검합니다 (<a href="#s13" data-s="s13">13-7</a>).</li>
+<li>실시간 모니터링: <strong>액티브 큐</strong>를 WAS별 블록 탑으로 표시, <strong>산점도</strong> 범례에 실제 임계값 표기와 에러 건을 <strong>×</strong>로 구분, 위젯 <strong>동시 사용자(5분 고유) · JVM 스레드</strong>.</li>
+<li><strong>DB 커넥션 풀</strong> 사용 중 값이 <strong>5초 창 최대값</strong>으로 바뀌었습니다. 에이전트 jar 교체(재설치)와 <strong>WAS 재기동</strong>이 있어야 최대값이 나옵니다 (<a href="#a4" data-s="a4">부록 D-10</a>).</li>
+<li>frontend의 <code>index.html</code>은 <code>no-cache</code>, 해시가 붙은 번들은 장기 캐시로 바뀌어 배포 직후에 옛 화면이 보이지 않습니다.</li>
+</ul></div>
 <div class="note info"><span class="t">릴리스 2.1에서 이 문서에 반영된 것</span>
 <ul style="margin:6px 0 0">
 <li><strong>이미지 4종</strong>(admin-api · log-analyzer · frontend · <code>agent-t-gateway</code>) + ClickHouse 이미지를 함께 반입합니다. 버전 태그는 루트 <code>IMAGE_VERSION</code> 파일이 정하고 빌드할 때마다 자동으로 올라갑니다 (<a href="#s1" data-s="s1">01-3</a>).</li>
@@ -1596,6 +1603,9 @@ JVM 지표, DB 커넥션 풀을 모아 Server A의 <strong>agent-t-gateway(8330)
 이름이 우연히 겹치는 항목(<code>author</code>, <code>hotel</code>)도 가려지는 보수적인 방식입니다. 값은 256자, 항목은 최대 50개, 전체 4KB까지만 저장하고
 넘으면 화면에 <strong>일부 생략됨</strong>으로 표시됩니다. 개인정보 이슈가 없는지 확인된 URI에만 켜십시오.</p></div>
 
+<h4>사전 점검</h4>
+<p>에이전트 상세 화면의 <strong>설치 실행</strong> 옆 <strong>사전 점검</strong> 버튼은 서버에 아무것도 쓰지 않고(읽기 전용) 설정값 · 역할 중복 · gateway 주소 · SSH 접속 · 대상 JVM · JDK · 설치 경로 쓰기 권한 · 디스크 여유를 확인해 결과를 카드 안에 보여 줍니다. <strong>설치 실행 전에 먼저 실행</strong>하십시오.</p>
+
 <h4>설치 Job의 진행 단계</h4>
 <p><strong>설치 실행</strong>을 누르면 admin-api가 아래 순서로 진행하고, 로그가 같은 화면에 실시간으로 쌓입니다.
 SSH exec 채널이 막힌 서버는 PTY 셸 방식으로 자동 전환합니다.</p>
@@ -2099,6 +2109,17 @@ docker compose restart admin-api log-analyzer frontend</code></pre>
 <h2>기존 문서와 달라진 점</h2>
 <p class="lede">예전 문서를 이미 본 사람은 이 부록의 표만 봐도 됩니다. 최신 개정이 위에 있습니다.</p>
 
+<h3>2026-11-05 · 릴리스 2.2 반영</h3>
+<div class="tbl"><table>
+<tr><th>항목</th><th>2.1</th><th>2.2 (이 문서 기준)</th></tr>
+<tr><td>Agent-T 설치 전 점검</td><td>없음 (설치 실행 후 로그로 확인)</td><td><strong>사전 점검</strong> 버튼 추가, 읽기 전용. → <a href="#s13" data-s="s13">13-7</a></td></tr>
+<tr><td>액티브 큐 · 산점도</td><td>막대 형태 · 범례 없음</td><td>WAS별 <strong>블록 탑</strong>, 산점도 <strong>범례(실제 임계값)</strong>와 에러 <strong>×</strong> 표시</td></tr>
+<tr><td>동시 사용자</td><td>진행 중 건수 기준 (항상 0에 가까움)</td><td><strong>5분 고유 사용자</strong>(gateway 계산) + <strong>JVM 스레드</strong> 두 선</td></tr>
+<tr><td>DB 커넥션 풀</td><td>5초 시점 값</td><td><strong>5초 창 최대값</strong> (에이전트 1초 폴링). 에이전트 재설치 + WAS 재기동 필요</td></tr>
+<tr><td>frontend 캐시</td><td>기재 없음</td><td><code>index.html</code> <code>no-cache</code>, 해시 번들 <code>immutable</code></td></tr>
+<tr><td>업그레이드 범위</td><td>DB 마이그레이션 포함</td><td>PostgreSQL · ClickHouse 변경 없음, 이미지 교체만. → <a href="#a4" data-s="a4">부록 D-10</a></td></tr>
+</table></div>
+
 <h3>2026-11-04 · 릴리스 2.1 반영</h3>
 <div class="tbl"><table>
 <tr><th>항목</th><th>2.0 이전 문서</th><th>2.1 (이 문서 기준)</th></tr>
@@ -2163,7 +2184,7 @@ Agent-T를 실제로 설치하고 2.1을 배포한 뒤 찍은 것이고, 다크 
 <!-- ══════════════ 부록 D 업그레이드 ══════════════ -->
 <section class="step" id="a4">
 <div class="eyebrow">부록 D</div>
-<h2>업그레이드 (2.0 → 2.1) <span class="who">운영 서버 반영</span></h2>
+<h2>업그레이드 (2.0 → 2.1 → 2.2) <span class="who">운영 서버 반영</span></h2>
 <p class="lede">이미 2.0이 돌고 있는 Server A를 2.1로 올리는 절차입니다. 처음 설치하는 서버는 PART 1을 따르면 되고 이 부록은 필요 없습니다.
 <strong>ClickHouse 마이그레이션이 가장 먼저</strong>이고, 이미지는 임시 이름으로 올려 해시를 확인한 뒤 확정하며, 변경된 서비스만 <code>--no-deps</code>로 재생성합니다.</p>
 
@@ -2263,6 +2284,23 @@ rm -f /app/synapse/images/synapse-*-2.0.tar.gz</code></pre>
 cp docker-compose.yml.bak_YYYYMMDD docker-compose.yml        <span class="c"># 백업한 날짜로</span>
 docker compose up -d --no-deps admin-api log-analyzer frontend agent-t-gateway</code></pre>
 <p>이전 태그(2.0) 이미지를 D-7에서 지우기 <strong>전</strong>이어야 바로 되돌릴 수 있습니다. D-2의 컬럼 추가는 되돌리지 않아도 됩니다.</p>
+
+<h3>D-10. 2.1 → 2.2 업그레이드</h3>
+<p>2.2는 <strong>DB(PostgreSQL · ClickHouse) 변경이 없습니다.</strong> D-2의 ClickHouse 마이그레이션은 필요 없고, 이미지만 교체합니다.</p>
+<div class="tbl"><table>
+<tr><th>서비스</th><th>2.2 변경 여부</th></tr>
+<tr><td>admin-api</td><td>변경 (Agent-T 사전 점검 API)</td></tr>
+<tr><td>frontend</td><td>변경 (실시간 모니터링 위젯, 사전 점검 버튼, 캐시 헤더)</td></tr>
+<tr><td>agent-t-gateway</td><td>변경 (5분 고유 사용자 집계, 커넥션 풀 최대값 전달)</td></tr>
+<tr><td>log-analyzer</td><td>변경 없음 (이미지 교체 불필요)</td></tr>
+</table></div>
+<pre><code>docker compose up -d --no-deps admin-api frontend agent-t-gateway</code></pre>
+<p>이미지 업로드 · 해시 확인 · 태그 수정 · 정리 절차는 D-4 ~ D-7과 같으며 태그만 2.2로 바꿉니다.</p>
+<div class="note warn"><span class="t">커넥션 풀 최대값은 에이전트 재설치 후 WAS를 재기동해야 나옵니다</span>
+<p>서버 이미지를 올려도 <strong>5초 창 최대값</strong>은 에이전트 jar가 2.2일 때만 수집됩니다. 에이전트 관리에서 Agent-T를 재설치하고 WAS를 재기동하십시오 (D-8). 그 전까지는 이전 방식의 현재값이 표시됩니다.</p></div>
+<h4>선택 정리: PostgreSQL 폐기 스키마</h4>
+<p>소스에는 폐기된 테이블 <code>alert_exclusions</code>와 미사용 컬럼 <code>systems.host</code> · <code>os_type</code> · <code>system_type</code>을 제거하는 <code>20261105_drop_alert_exclusions.sql</code>이 추가되었습니다.
+운영 기능에는 영향이 없어 <strong>적용은 선택</strong>입니다. 적용 전에 <code>SELECT count(*) FROM alert_exclusions;</code>로 보존할 데이터가 없는지 확인하고, 필요하면 DB를 백업합니다.</p>
 
 <div class="pager">
   <button data-go="a3"><span>이전</span>← 부록 C · 기존 문서와 달라진 점</button>
