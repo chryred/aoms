@@ -458,6 +458,7 @@ async def run_install(job_id: str, agent: AgentInstance, session: dict, target_p
             jeus_ctx = await _jeus_precheck(
                 session, (session["host"], session["port"], session["username"], session["password"]),
                 info, jvm_match, service_path, f"-javaagent:{install_dir}/{jar_name}",
+                proc_args, _log,
             )
 
         # [4] 업로드
@@ -682,17 +683,49 @@ async def _apply_inject(session, conn, service_type, service_path, install_dir, 
         _log("→ 다음 WAS 재기동부터 기동 옵션으로 적용됩니다.")
 
 
-async def _jeus_precheck(session, conn, info, jvm_match, service_path, javaagent) -> tuple[str, str, str]:
+def _jeus_resolve_path(service_path: str, proc_args: str) -> tuple[str, bool, str | None]:
+    """(사용할 도메인 경로, 자동 탐지 여부, 탐지된 경로). 사용자 입력이 우선이고 비었을 때만 탐지값을 쓴다."""
+    derived = jeus_domain.derive_domain_dir(proc_args)
+    if service_path:
+        return service_path.rstrip("/") or service_path, False, derived
+    if derived:
+        return derived, True, derived
+    raise ValueError(
+        "JEUS 도메인 경로를 알 수 없습니다. 실행 중인 JVM 인자에서 jeus.home/도메인명을 찾지 못했으니 "
+        "service_path(도메인 디렉터리)를 직접 지정하세요."
+    )
+
+
+def _jeus_path_differs(path: str, derived: str | None) -> bool:
+    return bool(derived) and path.rstrip("/") != derived.rstrip("/")  # type: ignore[union-attr]
+
+
+async def _jeus_read_domain_xml(conn, path: str, derived: str | None) -> tuple[str, str]:
+    """(domain_xml 경로, 원문). 읽기 전용. 없으면 탐지된 경로의 domain.xml 을 읽어 보고 안내한다."""
+    domain_xml = f"{path}/config/domain.xml"
+    xml_text = await asyncio.to_thread(ssh_read_file, *conn, domain_xml)
+    if xml_text is None:
+        msg = f"domain.xml 을 찾을 수 없습니다: {domain_xml}"
+        if _jeus_path_differs(path, derived):
+            alt = f"{derived}/config/domain.xml"
+            if await asyncio.to_thread(ssh_read_file, *conn, alt) is not None:
+                msg += f" (실행 중인 JEUS 에서 탐지한 도메인 경로를 사용해 보세요: {derived})"
+        raise FileNotFoundError(msg)
+    return domain_xml, xml_text
+
+
+async def _jeus_precheck(session, conn, info, jvm_match, service_path, javaagent, proc_args="", _log=None) -> tuple[str, str, str]:
     """(domain_xml 경로, 서버명, 원문). service_path·서버명·domain.xml 내 서버 존재를 검증한다."""
-    if not service_path:
-        raise ValueError("JEUS 영구 적용에는 service_path(도메인 디렉터리)가 필요합니다.")
+    path, auto, derived = _jeus_resolve_path(service_path, proc_args)
+    if _log:
+        if auto:
+            _log(f"    도메인 경로 자동 탐지: {path}")
+        elif _jeus_path_differs(path, derived):
+            _log(f"    [경고] 입력한 도메인 경로({path})가 실행 중인 JEUS 에서 탐지한 경로({derived})와 다릅니다. 입력값을 사용합니다.")
     server_name = _jeus_server_name(info, jvm_match)
     if not server_name or not _SAFE_VALUE_RE.fullmatch(server_name):
         raise ValueError(f"jvm_match 에서 JEUS 서버명을 알 수 없습니다. label_info.server_name 을 지정하세요 ({jvm_match!r}).")
-    domain_xml = f"{service_path}/config/domain.xml"
-    xml_text = await asyncio.to_thread(ssh_read_file, *conn, domain_xml)
-    if xml_text is None:
-        raise FileNotFoundError(f"domain.xml 을 찾을 수 없습니다: {domain_xml}")
+    domain_xml, xml_text = await _jeus_read_domain_xml(conn, path, derived)
     jeus_domain.add_javaagent(xml_text, server_name, javaagent)  # 서버 부재·XML 오류면 ValueError
     return domain_xml, server_name, xml_text
 
@@ -858,6 +891,7 @@ async def precheck_install(agent: AgentInstance, session: dict, target_pid: int 
         add("대상 JVM", "ok", f"PID {chosen['pid']}, 계정 {chosen['user']}")
 
     major = None
+    proc_args = ""
     if chosen is not None:
         pid, proc_user, proc_args = str(chosen["pid"]), chosen["user"], chosen["command"]
         # 7. JDK
@@ -917,21 +951,23 @@ async def precheck_install(agent: AgentInstance, session: dict, target_pid: int 
                 add("영구 적용", "ok", "systemd drop-in 작성 가능 (root).")
         elif service_type == "jeus":
             try:
-                if not service_path:
-                    raise ValueError("JEUS 영구 적용에는 service_path(도메인 디렉터리)가 필요합니다.")
+                path, auto, derived = _jeus_resolve_path(service_path, proc_args)
                 server_name = _jeus_server_name(info, jvm_match)
                 if not server_name or not _SAFE_VALUE_RE.fullmatch(server_name):
                     raise ValueError(f"jvm_match 에서 JEUS 서버명을 알 수 없습니다. label_info.server_name 을 지정하세요 ({jvm_match!r}).")
-                domain_xml = f"{service_path}/config/domain.xml"
-                xml_text = await asyncio.to_thread(ssh_read_file, *conn, domain_xml)
-                if xml_text is None:
-                    raise FileNotFoundError(f"domain.xml 을 찾을 수 없습니다: {domain_xml}")
+                domain_xml, xml_text = await _jeus_read_domain_xml(conn, path, derived)
                 jeus_domain.add_javaagent(xml_text, server_name, f"-javaagent:{install_dir}/agent-t.jar")
                 dw, _, _ = await _writable_probe(session, domain_xml)
-                if dw:
-                    add("영구 적용", "ok", f"domain.xml 에서 서버 {server_name} 확인 (미리보기 가능).")
+                used = f"도메인 경로 {path}" + (" (자동 탐지)" if auto else "")
+                if _jeus_path_differs(path, derived):
+                    msg = f"입력한 도메인 경로({path})가 실행 중인 JEUS 에서 탐지한 경로({derived})와 다릅니다. 입력값으로 설치합니다."
+                    if not dw:
+                        msg += f" domain.xml 쓰기 권한도 없습니다 ({domain_xml})."
+                    add("영구 적용", "warn", msg)
+                elif dw:
+                    add("영구 적용", "ok", f"{used}, domain.xml 에서 서버 {server_name} 확인 (미리보기 가능).")
                 else:
-                    add("영구 적용", "warn", f"domain.xml 은 읽을 수 있으나 쓰기 권한이 없습니다 ({domain_xml}).")
+                    add("영구 적용", "warn", f"{used}: domain.xml 은 읽을 수 있으나 쓰기 권한이 없습니다 ({domain_xml}).")
             except (ValueError, FileNotFoundError, SSHError, OSError) as exc:
                 add("영구 적용", "fail", str(exc)[:200])
         else:

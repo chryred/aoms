@@ -1,7 +1,7 @@
 import { NeuInput } from '@/components/neumorphic/NeuInput'
 import { NeuSelect } from '@/components/neumorphic/NeuSelect'
 import type { AgentFormState } from '@/hooks/useAgentFormLogic'
-import { AGENT_T_SERVICE_TYPES } from '@/hooks/useAgentFormLogic'
+import { AGENT_T_SERVICE_TYPES, servicePathGuide } from '@/hooks/useAgentFormLogic'
 import type { AgentTServiceType } from '@/types/agent'
 
 interface AgentTFormProps {
@@ -139,8 +139,11 @@ export function AgentTForm({ form }: AgentTFormProps) {
             id="agent-t-service-path"
             value={agentTServicePath}
             onChange={(e) => setAgentTServicePath(e.target.value)}
-            placeholder={`~/${agentTServiceType}`}
+            placeholder={servicePathGuide(agentTServiceType).placeholder}
           />
+          {servicePathGuide(agentTServiceType).hint && (
+            <p className="text-text-disabled mt-1 text-[11px]">{servicePathGuide(agentTServiceType).hint}</p>
+          )}
         </div>
       )}
       <div>

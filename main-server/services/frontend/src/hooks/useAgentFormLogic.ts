@@ -42,6 +42,17 @@ export function validGlobs(v: string): boolean {
     .every((x) => GLOB_RE.test(x))
 }
 
+/** WAS 설치 경로 입력 안내. JEUS 는 비워 두면 서버가 실행 중인 JVM 인자에서 도메인 경로를 탐지한다. */
+export function servicePathGuide(type: AgentTServiceType): { placeholder: string; hint: string | null } {
+  if (type === 'jeus') {
+    return {
+      placeholder: '비워 두면 자동 탐지',
+      hint: '비워 두면 실행 중인 JEUS 에서 자동 탐지 (jeus.home/domains/도메인명)',
+    }
+  }
+  return { placeholder: `~/${type}`, hint: null }
+}
+
 export const AGENT_T_SERVICE_TYPES: { value: AgentTServiceType; label: string }[] = [
   { value: 'tomcat', label: 'Tomcat (setenv.sh)' },
   { value: 'jboss', label: 'JBoss / WildFly (standalone.conf.d)' },

@@ -85,3 +85,33 @@ def add_javaagent(xml_text: str, server_name: str, option: str) -> tuple[str, st
         )
     )
     return new_xml, diff
+
+
+# ── 실행 중인 JVM 인자에서 도메인 디렉터리 도출 ─────────────────────────────────
+
+_SAFE_SEG = r"[A-Za-z0-9_.\-]+"
+_JEUS_HOME_RE = re.compile(r"(?:^|\s)-Djeus\.home=(/\S*)")
+_JEUS_DOMAIN_NAME_RE = re.compile(rf"(?:^|\s)-Djeus\.domain\.name=({_SAFE_SEG})(?=\s|$)")
+_DOMAIN_TOKEN_RE = re.compile(rf"(?:^|\s)-domain\s+({_SAFE_SEG})(?=\s|$)")
+_DOMAINS_PATH_RE = re.compile(rf"(?<![^\s=])(/(?:[^\s\"'=:]*?/)?domains/{_SAFE_SEG})/config(?:/|(?=\s|$))")
+
+
+def derive_domain_dir(jvm_args: str) -> str | None:
+    """JVM 명령행에서 JEUS 도메인 디렉터리(`<jeus.home>/domains/<도메인명>`)를 도출한다. 순수 함수.
+
+    1순위 -Djeus.home + (-Djeus.domain.name | -domain 이름), 2순위 `.../domains/<이름>/config/...` 경로.
+    절대경로(/ 시작)만 인정한다 (`~` 확장·따옴표 값은 지원하지 않는다). 알 수 없으면 None.
+    """
+    if not jvm_args:
+        return None
+    args = jvm_args
+    home_m = _JEUS_HOME_RE.search(args)
+    if home_m:
+        name_m = _JEUS_DOMAIN_NAME_RE.search(args) or _DOMAIN_TOKEN_RE.search(args)
+        home = home_m.group(1).rstrip("/")
+        if name_m and home:
+            return f"{home}/domains/{name_m.group(1)}"
+    path_m = _DOMAINS_PATH_RE.search(args)
+    if path_m:
+        return path_m.group(1)
+    return None

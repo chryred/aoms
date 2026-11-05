@@ -1591,7 +1591,7 @@ JVM 지표, DB 커넥션 풀을 모아 Server A의 <strong>agent-t-gateway(8330)
 <tr><td><strong>JVM 식별 문자열</strong> (<code>jvm_match</code>)</td><td>대상 WAS 프로세스의 명령행에 들어 있는 문자열입니다 (예: <code>sic_server1</code>). 같은 호스트의 여러 WAS 중 대상을 구분합니다. 경계가 맞는 단어로만 일치합니다.</td></tr>
 <tr><td><strong>instance_role</strong></td><td>예: <code>was-1</code>. HA 인스턴스 식별자이며 위 사전 요건의 기본값 규칙을 따릅니다.</td></tr>
 <tr><td><strong>서비스 유형</strong></td><td>영구 적용 방식을 정합니다. Tomcat(<code>setenv.sh</code>) · JBoss/WildFly(<code>standalone.conf.d</code>) · <strong>JEUS(<code>domain.xml</code>)</strong> · systemd(root 필요) · 독립 실행(wrapper).</td></tr>
-<tr><td><strong>서비스 경로</strong></td><td>Tomcat · JBoss는 서버 홈, <strong>JEUS는 도메인 디렉터리</strong>(<code>config/domain.xml</code>이 있는 곳)를 적습니다.</td></tr>
+<tr><td><strong>서비스 경로</strong></td><td>Tomcat · JBoss는 서버 홈, <strong>JEUS는 도메인 디렉터리</strong>(<code>config/domain.xml</code>이 있는 곳)를 적습니다. JEUS는 비워 두면 실행 중인 JVM 인자(<code>jeus.home/domains/도메인명</code>)로 자동 탐지하며, 입력한 경로가 탐지한 경로와 다르면 사전 점검이 경고합니다.</td></tr>
 <tr><td><strong>설치 경로</strong></td><td>기본 <code>~/agent-t</code>. jar 3종, <code>agent-t.properties</code>(권한 600), <code>logs/agent-t.log</code>가 이 아래에 만들어집니다.</td></tr>
 <tr><td><strong>즉시 적용 / 영구 적용</strong></td><td>체크박스 두 개 (기본 둘 다 켬).</td></tr>
 <tr><td><strong>요청 파라미터 수집 (사용자 전문)</strong></td><td>기본 꺼짐. 켜면 <strong>느린 트랜잭션과 에러 트랜잭션</strong>의 쿼리 스트링과 폼 파라미터를 기록합니다 (본문은 수집하지 않음). 허용·제외 URI를 쉼표 구분 glob(<code>*</code> <code>?</code>)로 줄일 수 있습니다 (예: <code>/crm/*</code>, 제외 <code>/health/*</code>). 비밀번호 · 토큰 · 카드번호 · 주민번호 등은 값이 <code>****</code>로 마스킹됩니다. <strong>적용은 재설치가 필요</strong>합니다.</td></tr>

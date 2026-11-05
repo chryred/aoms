@@ -797,6 +797,81 @@ async def test_precheck_jeus_reads_domain_xml_only(env):
     _assert_read_only(env.remote)
 
 
+JEUS_PS = (
+    "4242 jeussic /usr/local/jdk1.7.0_79/bin/java -Djeus.home=/apps/jeussic/jeus7 "
+    "-Djeus.domain.name=sic_domain -Dsic_server1 -domain sic_domain weblogic.Server"
+)
+DERIVED = "/apps/jeussic/jeus7/domains/sic_domain"
+
+
+def _jeus_precheck_env(env):
+    orig = env.remote._run
+    env.remote._run = lambda cmd: (0, "W /home/jeussic\n/dev/x 1 1 900000 1% /\n", "") if cmd.startswith("d=") else orig(cmd)
+
+
+async def test_precheck_jeus_autodetect_empty_path(env):
+    env.remote.ps = JEUS_PS
+    env.remote.read_map[f"{DERIVED}/config/domain.xml"] = FIXTURE.read_text()
+    _jeus_precheck_env(env)
+    agent = await env.make({"jvm_match": "sic_server1", "service_type": "jeus", "server_name": "sic_server1"})
+    items = _by_item(await inst.precheck_install(agent, SESSION))
+    assert items["영구 적용"]["status"] == "ok", items["영구 적용"]
+    assert DERIVED in items["영구 적용"]["detail"] and "자동 탐지" in items["영구 적용"]["detail"]
+    _assert_read_only(env.remote)
+
+
+async def test_precheck_jeus_path_mismatch_warns(env):
+    env.remote.ps = JEUS_PS
+    env.remote.read_map["/home/jeussic/domain/config/domain.xml"] = FIXTURE.read_text()
+    _jeus_precheck_env(env)
+    agent = await env.make({"jvm_match": "sic_server1", "service_type": "jeus",
+                            "service_path": "/home/jeussic/domain", "server_name": "sic_server1"})
+    items = _by_item(await inst.precheck_install(agent, SESSION))
+    d = items["영구 적용"]
+    assert d["status"] == "warn" and "/home/jeussic/domain" in d["detail"] and DERIVED in d["detail"]
+    _assert_read_only(env.remote)
+
+
+async def test_precheck_jeus_wrong_path_suggests_derived(env):
+    env.remote.ps = JEUS_PS
+    env.remote.read_map[f"{DERIVED}/config/domain.xml"] = FIXTURE.read_text()
+    _jeus_precheck_env(env)
+    agent = await env.make({"jvm_match": "sic_server1", "service_type": "jeus",
+                            "service_path": "/nope", "server_name": "sic_server1"})
+    items = _by_item(await inst.precheck_install(agent, SESSION))
+    d = items["영구 적용"]
+    assert d["status"] == "fail" and "/nope/config/domain.xml" in d["detail"] and DERIVED in d["detail"]
+    _assert_read_only(env.remote)
+
+
+async def test_precheck_jeus_no_path_no_detection_fails(env):
+    _jeus_precheck_env(env)
+    agent = await env.make({"jvm_match": "sic_server1", "service_type": "jeus", "server_name": "sic_server1"})
+    items = _by_item(await inst.precheck_install(agent, SESSION))
+    assert items["영구 적용"]["status"] == "fail" and "service_path" in items["영구 적용"]["detail"]
+
+
+async def test_install_jeus_autodetects_domain_path(env):
+    env.remote.ps = JEUS_PS
+    env.remote.read_map[f"{DERIVED}/config/domain.xml"] = FIXTURE.read_text()
+    agent = await env.make({"jvm_match": "-Dsic_server1", "service_type": "jeus"})
+    await inst.run_install("job1", agent, SESSION)
+    job = await _job(env)
+    assert job.status == "done", job.error
+    assert f"도메인 경로 자동 탐지: {DERIVED}" in job.logs
+
+
+async def test_install_jeus_user_path_differs_logs_and_uses_user_path(env):
+    env.remote.ps = JEUS_PS
+    env.remote.read_map["/jeus/domains/sic_domain/config/domain.xml"] = FIXTURE.read_text()
+    agent = await env.make(_jeus_label())
+    await inst.run_install("job1", agent, SESSION)
+    job = await _job(env)
+    assert job.status == "done", job.error
+    assert "탐지한 경로" in job.logs and DERIVED in job.logs
+    assert "자동 탐지: " not in job.logs
+
+
 async def test_precheck_systemd_non_root_fails(env):
     agent = await env.make({"jvm_match": "sic_server1", "service_type": "systemd"})
     items = _by_item(await inst.precheck_install(agent, SESSION))
