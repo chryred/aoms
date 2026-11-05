@@ -14,7 +14,6 @@ from routes import collector_config, aggregations, reports, auth as auth_router
 from routes import agents as agents_router, agents_control as agents_control_router, dashboard, websocket, llm_config
 from routes import incidents as incidents_router
 from routes import chat, chat_attachments, chat_tools as chat_tools_router, chat_executor_configs
-from routes import alert_exclusions as alert_exclusions_router
 from routes import metric_exclusions as metric_exclusions_router
 from routes import llm_query as llm_query_router
 from routes import scheduler_runs as scheduler_runs_router
@@ -111,7 +110,6 @@ app.include_router(chat.router)
 app.include_router(chat_attachments.router)
 app.include_router(chat_tools_router.router)
 app.include_router(chat_executor_configs.router)
-app.include_router(alert_exclusions_router.router)
 app.include_router(metric_exclusions_router.router)
 app.include_router(llm_query_router.router)
 app.include_router(scheduler_runs_router.router)

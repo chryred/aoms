@@ -1,7 +1,6 @@
 """메트릭 알림(prometheus_analyzer) 예외 처리 규칙 CRUD.
 
-알림 모델 차이로 alert_exclusions 와 분리됨:
-- alert_exclusions: 로그 알림. (system_id + instance_role + template) 매칭, max_count_per_window 동작
+메트릭 알림 전용 (로그 알림 예외 alert_exclusions 는 Qdrant 유사도 재분류로 대체·폐기됨):
 - metric_exclusions: 메트릭 알림. (system_id + host + metric_type) 매칭, override_threshold 동작
 """
 from datetime import datetime, timezone

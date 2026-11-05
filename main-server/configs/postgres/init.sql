@@ -21,9 +21,6 @@ CREATE TABLE IF NOT EXISTS systems (
     system_name     VARCHAR(100) UNIQUE NOT NULL,   -- Prometheus label과 동일
     display_name    VARCHAR(200) NOT NULL,
     description     TEXT,
-    host            VARCHAR(200) NOT NULL DEFAULT '',
-    os_type         VARCHAR(20)  NOT NULL DEFAULT 'linux',  -- 'linux' | 'windows'
-    system_type     VARCHAR(50)  NOT NULL DEFAULT 'was',    -- 'web' | 'was' | 'db' | 'middleware' | 'other'
     status          VARCHAR(20)  DEFAULT 'active',
     teams_webhook_url TEXT,
     environment     VARCHAR(10)  NOT NULL DEFAULT 'prod',   -- 'dev' | 'prod' (Agent-T)
@@ -190,9 +187,9 @@ CREATE TABLE IF NOT EXISTS log_analysis_history (
     trace_summary_text    TEXT,                               -- 프롬프트 주입 원문 (감사·디버그용, NULL = Agent-T 미적용)
     -- 인시던트 연결
     incident_id      INTEGER REFERENCES incidents(id) ON DELETE SET NULL,
-    -- 예외 처리 (alert_exclusions.id 연결, NULL = 정상 분석)
+    -- 예외 처리 (NULL = 정상 분석)
     excluded          BOOLEAN NOT NULL DEFAULT FALSE,
-    exclusion_rule_id INTEGER,   -- FK는 alert_exclusions 생성 후 ALTER TABLE로 추가
+    exclusion_rule_id INTEGER,   -- 레거시 컬럼 (alert_exclusions 폐기, FK 없음)
     -- 개별 template 목록 (예외 처리 UI용)
     templates_json    JSONB,
     -- 실에러/알림성 분리 분류 건수
@@ -835,5 +832,5 @@ VALUES ('jeongwonchoi@shinsegae.com', '$2b$12$Cu6HhTH26AUBWCH1MabxuO/2Fxl17qRnDY
 ON CONFLICT (email) DO NOTHING;
 
 -- ── 샘플 데이터 (선택) ────────────────────────────────────────────────
--- INSERT INTO systems(system_name, display_name, host, os_type, system_type)
--- VALUES ('customer-experience', '고객 경험 시스템', 'cx-was01', 'linux', 'was');
+-- INSERT INTO systems(system_name, display_name)
+-- VALUES ('customer-experience', '고객 경험 시스템');

@@ -383,16 +383,6 @@ async def acknowledge_alert(
     return alert
 
 
-@router.post("/bulk-exclude")
-async def bulk_exclude_alerts():
-    """alert_exclusions 기능 폐기 — Qdrant semantic similarity로 대체됨."""
-    from fastapi.responses import JSONResponse
-    return JSONResponse(
-        status_code=410,
-        content={"detail": "bulk-exclude 기능이 폐기되었습니다. Qdrant semantic similarity가 알림 분류를 담당합니다."},
-    )
-
-
 @router.post("/templates", response_model=list[AlertTemplatesOut])
 async def get_alert_templates(
     payload: AlertsTemplatesRequest,

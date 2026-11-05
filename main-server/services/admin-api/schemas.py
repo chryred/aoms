@@ -402,50 +402,6 @@ class IncidentFeedbackPendingOut(BaseModel):
     can_approve: bool = False  # admin 또는 지정 승인자 여부
 
 
-# ── AlertExclusion ───────────────────────────────────────────────────────
-class AlertExclusionItem(BaseModel):
-    system_id: int
-    instance_role: Optional[str] = None
-    template: str
-    reason: Optional[str] = None
-    # 5분 윈도우 내 발생 건수 임계값 (None = 무제한)
-    max_count_per_window: Optional[int] = None
-    # 자동 만료 시각 (None = 만료 없음). 입력은 UTC naive 또는 ISO 8601 'Z'.
-    expires_at: Optional[datetime] = None
-    # 예외 유형: 'skip' 완전 제외 | 'force_real' LLM 알림성 오판 정정
-    exclusion_type: str = "skip"
-
-
-class AlertExclusionCreate(BaseModel):
-    items: list[AlertExclusionItem]
-    created_by: Optional[str] = None
-
-
-class AlertExclusionOut(BaseModel):
-    id: int
-    system_id: int
-    instance_role: Optional[str]
-    template: str
-    reason: Optional[str]
-    created_by: Optional[str]
-    created_at: UtcDatetime
-    active: bool
-    deactivated_by: Optional[str]
-    deactivated_at: Optional[UtcDatetime]
-    skip_count: int
-    last_skipped_at: Optional[UtcDatetime]
-    max_count_per_window: Optional[int] = None
-    expires_at: Optional[UtcDatetime] = None
-    exclusion_type: str = "skip"
-
-    model_config = {"from_attributes": True}
-
-
-class AlertExclusionDeactivateRequest(BaseModel):
-    ids: list[int]
-    deactivated_by: Optional[str] = None
-
-
 class BulkExcludeResult(BaseModel):
     succeeded: list[int]
     failed: list[dict]
@@ -501,13 +457,6 @@ class MetricExclusionDeactivateRequest(BaseModel):
     deactivated_by: Optional[str] = None
 
 
-class AlertsBulkExcludeRequest(BaseModel):
-    alert_ids: list[int]
-    reason: Optional[str] = None
-    include_instance_role: bool = True
-    created_by: Optional[str] = None
-    max_count_per_window: Optional[int] = None
-    expires_at: Optional[datetime] = None
 
 
 class AlertsTemplatesRequest(BaseModel):
