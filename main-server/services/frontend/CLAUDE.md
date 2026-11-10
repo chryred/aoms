@@ -47,7 +47,7 @@ src/
 │   ├── system/        # SystemFormDrawer
 │   ├── agent/         # SSHSessionModal, AgentCard, AgentStatusBadge, AgentFormModal, InstallJobMonitor (Phase 6)
 │   │                  #   InstallJobMonitor: Agent-T 설치 Job 이 `needs_target`(JVM 후보 2개 이상)이면 후보 라디오 목록 + "선택한 JVM 으로 설치" → `onSelectTarget(pid)` → `installAgent({agent_id, target_pid})` 재요청
-│   ├── chat/          # ChatHeader, ChatPanel, SystemMultiSelect, ChatSessionSearchInput, SessionItemMenu, SessionRenameModal, SessionDeleteConfirmModal
+│   ├── chat/          # ChatHeader(범위 칩·세션 드롭다운), ChatPanel, ChatContextNotice, SystemMultiSelect, ChatSessionSearchInput, SessionItemMenu, SessionRenameModal, SessionDeleteConfirmModal
 │   ├── help/          # GuestSystemGrid (다중 선택), HelpVisitorForm
 │   ├── mascot/        # Synap (마스코트 캐릭터)
 │   ├── apm/           # TxFilterBar, TxTable, ApmSummaryCard, detail/, live/(react-grid-layout 대시보드 + widgets/)
@@ -178,6 +178,18 @@ VITE_LOG_ANALYZER_URL    # log-analyzer 주소 (운영: http://log-analyzer:8000
 - **대시보드 레이아웃**: `react-grid-layout`(2.3.0). 레이아웃은 `apm_dashboards`(PG)에 저장.
 - **수치 폰트**: 밴드 숫자·범례 값·축 라벨은 `font-num`(`--font-num` = 번들 Pretendard + `tabular-nums` — 폐쇄망 Windows(Consolas 사선 0)에서도 동일하게 보이도록 고정폭 글꼴을 쓰지 않음; 카드·칩 그림자는 `shadow-neu-soft`, 웹폰트 다운로드 없음), 색 견본은 9px `rounded-xs` 사각. 위젯 `scatter` 의 표시 이름은 "트랜잭션 모니터링"(type 키 유지).
 - **Canvas 위젯 규칙**: 큐(액티브 대기열)·산점도처럼 점이 많이 찍히는 위젯은 SVG/DOM 이 아니라 **Canvas** 로 그린다(수천 점 + 1초 갱신). 색은 하드코딩하지 않고 CSS 변수를 `getComputedStyle` 로 읽어 쓰며 Dark/Light 전환 시 다시 그린다. 시각은 `formatKST()` 로만 표출.
+
+---
+
+## 챗봇(시냅이) 규칙 — 우하단 `ChatPanel` + 전체 화면 `/chat` 공통
+
+- **사용자별 상태**: `store/chatStore.ts` persist 키는 `chat-ui-state.{userId}`(`chatStorageKey`, 로그인 사용자 없으면 저장 안 함). 저장 항목은 `currentSessionId`·`scopeSystemIds`·`unread`·`lastSentContext`뿐이며 **`isOpen` 은 저장하지 않는다**(새로고침 시 자동으로 열리지 않음). 로그인 사용자가 바뀌면(`authStore` subscribe) 그 사용자 키로 rehydrate — 저장값이 없으면 기본값으로 덮어 이전 사용자 상태를 물려받지 않는다. 로그아웃은 패널 닫기 + 세션·범위 초기화(저장된 사용자 키는 유지).
+- **하루 단위 새 대화**: 세션 자동 선택·생성은 `hooks/useChatSessionBootstrap.ts` 한 곳(패널·`/chat` 공용, 다른 곳에 auto-create effect 금지). 패널이 열릴 때(닫힘→열림)와 `/chat` 진입 시마다 현재 세션의 `created_at`(naive UTC)을 `isSameKstDay`(`lib/utils.ts`, `formatKST` 기반 — 수동 +9h 금지)로 비교해 오늘(KST) 시작이 아니면 → 오늘 시작한 가장 최근 세션(빈 세션 포함)을 재사용, 없으면 `POST /chat/sessions {system_ids}` 한 번으로 생성(생성 후 PATCH 없음). 동시 생성은 ref 플래그로 차단. 세션이 정해지기 전(`ready=false`)에는 전송·자동 분석을 막는다.
+- **범위(scope)**: 기본 = 로그인 사용자의 담당(primary) 시스템(`hooks/useChatScope.ts`; 사용자가 직접 고른 값이 있으면 그것, 담당이 없으면 admin 이라도 빈 배열=전체). 헤더는 "지식 검색 대상 + 멀티셀렉트" 대신 한 줄 칩(`담당 시스템: 결제·CRM ▾` / `선택 시스템: …` / `전체 시스템 ▾`)이고 클릭하면 `SystemMultiSelect` 를 펼친다. 변경 = 현재 세션 PATCH + 사용자 기본값 저장(담당과 같아지면 "고른 값 없음"으로 복귀). 칩은 서버가 실제로 쓰는 `session.system_ids` 를 우선 보여준다. 우선순위(백엔드 최종 판정): 질문의 시스템명 > 화면 컨텍스트 system_id > 세션 system_ids > 전체.
+- **범위 표시**: SSE `scope` 이벤트(`source`=screen/session/all)를 스트리밍 답변 위에 작게 `현재 화면(결제) 기준` / `결제 기준으로 조회` / `전체 시스템 기준`(`lib/chatScope.ts describeScope`). 지난 답변은 같은 턴 tool 메시지의 `system_id` 를 이름으로 바꿔 `조회: 결제, CRM`(`buildQueriedSystemNames`), 없으면 표시 안 함.
+- **화면 컨텍스트**: 패널 열 때 1회 소비(구 `pendingScreenContext`)를 폐기하고 **전송하는 순간**(`useChatStreaming` `handleSend`/`handleAutoInsight`)의 `useScreenContext()` 값을 보낸다. 컨텍스트에 `system_name`(systems 목록에서 id→system_name)·APM 화면(`apm_live`/`apm_transactions`/`apm_tx_detail` + `trace_id`/`span_id`, `resolveScreen`)이 포함된다. `useRegisterScreenContext` 는 멀티 탭 keep-alive 에서 **활성 탭만** 등록한다(숨은 탭이 컨텍스트를 덮어쓰지 않게). `ApmTxDetailPage` 는 `summary.system_id` 를 등록한다.
+- **다른 화면에서 열기**: 같은 날이라도 패널을 열 때 화면의 system_id/incident_id 가 이 대화에서 마지막으로 쓴 값(`lastSentContext`)과 다르고 메시지가 있으면 메시지 목록 위에 인라인 한 줄 `다른 화면에서 열었어요. 새 대화로 시작할까요? [새 대화] [계속]`(`ChatContextNotice`, 모달·자동 전환 금지). 지금 화면에 시스템·인시던트가 없으면 안내하지 않는다.
+- **세션 드롭다운**: 세션 1개여도 항상 표시, 최근 10개 + `formatRelative` 날짜, 맨 아래 "전체 대화 보기" → `/chat`. 시작 화면 예시에 담당 시스템이 1개면 `{이름} 시스템 오늘 이상 있어?` 1개 추가(`useChatPromptCategories`).
 
 ---
 

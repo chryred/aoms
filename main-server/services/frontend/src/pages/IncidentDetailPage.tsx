@@ -111,20 +111,14 @@ export function IncidentDetailPage() {
 
   // Feature G — NextActionCard 챗봇 자동 분석 트리거
   const setChatOpen = useChatStore((s) => s.setOpen)
-  const setPendingScreenContext = useChatStore((s) => s.setPendingScreenContext)
   const setAutoInsightIncidentId = useChatStore((s) => s.setAutoInsightIncidentId)
   const isChatOpen = useChatStore((s) => s.isOpen)
 
   const handleChatTrigger = useCallback(() => {
     if (!Number.isFinite(incidentId) || incidentId <= 0) return
-    setPendingScreenContext({
-      screen: 'incidents',
-      screen_label: '인시던트 상세',
-      incident_id: id,
-    })
     setAutoInsightIncidentId(incidentId)
     if (!isChatOpen) setChatOpen(true)
-  }, [incidentId, id, isChatOpen, setChatOpen, setPendingScreenContext, setAutoInsightIncidentId])
+  }, [incidentId, isChatOpen, setChatOpen, setAutoInsightIncidentId])
 
   const { data: incident, isLoading, isError } = useIncident(incidentId)
   const updateMut = useUpdateIncident(incidentId)

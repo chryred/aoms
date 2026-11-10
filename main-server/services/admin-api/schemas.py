@@ -1035,6 +1035,9 @@ class ScreenContext(BaseModel):
     screen_label: str | None = None   # 사람이 읽는 한국어 라벨
     system_id: str | None = None
     incident_id: str | None = None
+    system_name: str | None = None    # 프론트가 알면 보냄 (보조값 — 백엔드는 system_id 로 DB 조회해 이름 확정)
+    trace_id: str | None = None       # 건별 트랜잭션 상세 화면에서만
+    span_id: str | None = None
 
 
 class ChatSendIn(BaseModel):

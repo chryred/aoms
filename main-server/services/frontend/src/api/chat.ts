@@ -16,7 +16,10 @@ export const chatApi = {
   },
   patchSession: (id: string, body: { title?: string; system_ids?: number[] }) =>
     adminApi.patch(`api/v1/chat/sessions/${id}`, { json: body }).json<ChatSession>(),
-  createSession: () => adminApi.post('api/v1/chat/sessions').json<ChatSession>(),
+  createSession: (systemIds?: number[]) =>
+    adminApi
+      .post('api/v1/chat/sessions', systemIds ? { json: { system_ids: systemIds } } : undefined)
+      .json<ChatSession>(),
   getMessages: (sessionId: string) =>
     adminApi.get(`api/v1/chat/sessions/${sessionId}/messages`).json<ChatMessage[]>(),
   deleteSession: (sessionId: string) =>
@@ -39,6 +42,10 @@ export const chatApi = {
   },
 }
 
+export function hasScreenContextValue(ctx: ScreenContext | null | undefined): boolean {
+  return ctx != null && (ctx.screen != null || ctx.system_id != null || ctx.incident_id != null)
+}
+
 /**
  * SSE 스트리밍 전송. ky 대신 fetch + ReadableStream으로 구현해 토큰 단위로 처리.
  * AbortController로 취소 가능.
@@ -57,11 +64,7 @@ export async function streamChatMessage(
   const base = (import.meta.env.VITE_ADMIN_API_URL as string | undefined) ?? ''
   const token = useAuthStore.getState().token
 
-  const hasScreenContext =
-    screenContext != null &&
-    (screenContext.screen != null ||
-      screenContext.system_id != null ||
-      screenContext.incident_id != null)
+  const hasScreenContext = hasScreenContextValue(screenContext)
 
   const resp = await fetch(`${base}/api/v1/chat/sessions/${sessionId}/messages`, {
     method: 'POST',
@@ -104,7 +107,7 @@ export async function streamAutoInsight(
   const token = useAuthStore.getState().token
 
   const body: Record<string, unknown> = { incident_id: incidentId }
-  if (screenContext != null) body.screen_context = screenContext
+  if (hasScreenContextValue(screenContext)) body.screen_context = screenContext
 
   const resp = await fetch(`${base}/api/v1/chat/sessions/${sessionId}/auto-insight`, {
     method: 'POST',

@@ -1,63 +1,62 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import toast from 'react-hot-toast'
-import { describeChatError } from '@/lib/chatErrorMessage'
-import { useQueryClient } from '@tanstack/react-query'
-import { streamAutoInsight, streamChatMessage } from '@/api/chat'
+import { useNavigate } from 'react-router-dom'
 import { useChatMessages } from '@/hooks/queries/useChatMessages'
-import { useChatSessions } from '@/hooks/queries/useChatSessions'
-import { useCreateChatSession } from '@/hooks/mutations/useCreateChatSession'
 import { usePatchChatSession } from '@/hooks/mutations/usePatchChatSession'
 import { useChatPromptCategories } from '@/hooks/queries/useChatPromptCategories'
 import { useChatAttachments } from '@/hooks/useChatAttachments'
+import { useChatScope } from '@/hooks/useChatScope'
+import { useChatSessionBootstrap } from '@/hooks/useChatSessionBootstrap'
+import { useChatStreaming } from '@/hooks/useChatStreaming'
+import { useChatContextNotice } from '@/hooks/useChatContextNotice'
+import { useScreenContext } from '@/hooks/useScreenContext'
 import { useChatStore } from '@/store/chatStore'
 import { useSystems } from '@/hooks/queries/useSystems'
-import { qk } from '@/constants/queryKeys'
-import type { ChatMessage, ChatStreamEvent, MessageImage, ScreenContext } from '@/types/chat'
+import { ROUTES } from '@/constants/routes'
+import type { ChatMessage } from '@/types/chat'
 import { cn } from '@/lib/utils'
+import { buildQueriedSystemNames, describeScope } from '@/lib/chatScope'
 import { getContextualPrompts } from '@/config/chatPrompts'
 import { useIncidentNextAction } from '@/hooks/queries/useIncidentNextAction'
 import { Sparkles } from 'lucide-react'
 import { ChatComposer } from './ChatComposer'
+import { ChatContextNotice } from './ChatContextNotice'
 import { ChatHeader } from './ChatHeader'
 import { ChatMessageView, StreamingAssistantMessage } from './ChatMessage'
 import { ToolCallCard } from './ToolCallCard'
 
-interface StreamingToolState {
-  id: string
-  name: string
-  args: Record<string, unknown>
-  result?: Record<string, unknown>
-  running: boolean
-  thought?: string
-}
+const RECENT_SESSION_LIMIT = 10
 
 export function ChatPanel() {
+  const navigate = useNavigate()
   const isOpen = useChatStore((s) => s.isOpen)
   const setOpen = useChatStore((s) => s.setOpen)
   const currentSessionId = useChatStore((s) => s.currentSessionId)
   const setCurrentSessionId = useChatStore((s) => s.setCurrentSessionId)
-  const filterSystemIds = useChatStore((s) => s.filterSystemIds)
-  const setFilterSystemIds = useChatStore((s) => s.setFilterSystemIds)
   const setThinking = useChatStore((s) => s.setThinking)
   const resetUnread = useChatStore((s) => s.resetUnread)
   const incrementUnread = useChatStore((s) => s.incrementUnread)
-  const consumePendingScreenContext = useChatStore((s) => s.consumePendingScreenContext)
   const autoInsightIncidentId = useChatStore((s) => s.autoInsightIncidentId)
   const setAutoInsightIncidentId = useChatStore((s) => s.setAutoInsightIncidentId)
 
-  // 패널이 열릴 때 1회 소비하여 로컬 state에 보관
-  const [latestScreenContext, setLatestScreenContext] = useState<ScreenContext | null>(null)
+  // 화면 컨텍스트는 렌더마다 최신 값이며, 전송하는 순간의 값이 서버로 간다(useChatStreaming).
+  // 여기서 쓰는 값은 시작 화면의 칩·자동 분석 버튼 표시용.
+  const screenContext = useScreenContext()
 
   // Feature 5C-1: 인시던트 컨텍스트가 있을 때 next_action_meta 조회 → status별 prompt chip
-  const { data: nextActionMeta } = useIncidentNextAction(latestScreenContext?.incident_id)
+  const { data: nextActionMeta } = useIncidentNextAction(screenContext.incident_id)
   const incidentStatus = nextActionMeta?.status ?? null
 
   const { data: systems = [] } = useSystems()
-
-  const qc = useQueryClient()
-  const { data: sessions } = useChatSessions(isOpen)
-  const createSession = useCreateChatSession()
   const patchSession = usePatchChatSession()
+  const { scopeIds, primaryIds, ready: scopeReady, saveScope } = useChatScope()
+
+  // 열 때마다: 오늘(KST) 대화가 아니면 새 대화, 빈 오늘 대화는 재사용. 생성은 이 훅 한 곳에서만.
+  const {
+    ready: sessionReady,
+    sessions,
+    startNewSession,
+  } = useChatSessionBootstrap({ active: isOpen, scopeIds, scopeReady })
+
   const {
     attachments,
     addFiles,
@@ -69,28 +68,6 @@ export function ChatPanel() {
 
   const promptCategories = useChatPromptCategories()
 
-  // 세션이 없으면 열 때 자동 생성 또는 최신 세션 복원
-  useEffect(() => {
-    if (!isOpen) return
-    if (sessions === undefined) return // 아직 로딩 중
-    if (currentSessionId) return // 유효한 세션 존재
-    if (sessions.length > 0) {
-      setCurrentSessionId(sessions[0].id)
-      return
-    }
-    if (!createSession.isPending) {
-      createSession.mutate(undefined, {
-        onSuccess: (s) => {
-          setCurrentSessionId(s.id)
-          if (filterSystemIds.length > 0) {
-            patchSession.mutate({ sessionId: s.id, data: { system_ids: filterSystemIds } })
-          }
-        },
-      })
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, currentSessionId, sessions, setCurrentSessionId, createSession])
-
   const { data: messages, isError: isMessagesError } = useChatMessages(currentSessionId)
 
   // localStorage에 남은 삭제된 세션 ID 무효화 — messages 404 감지 시 초기화
@@ -100,36 +77,45 @@ export function ChatPanel() {
     }
   }, [isMessagesError, currentSessionId, setCurrentSessionId])
 
-  const [streamText, setStreamText] = useState('')
-  const [streamThought, setStreamThought] = useState<string | undefined>()
-  const [streamingTools, setStreamingTools] = useState<StreamingToolState[]>([])
-  const [streamImages, setStreamImages] = useState<MessageImage[]>([])
-  const [isStreaming, setIsStreaming] = useState(false)
-  const abortRef = useRef<AbortController | null>(null)
-  const lastSentContentRef = useRef<string>('')
-  const isStreamingRef = useRef(false)
+  const {
+    streamText,
+    streamThought,
+    streamingTools,
+    streamImages,
+    streamScope,
+    isStreaming,
+    isStreamingRef,
+    lastSentContentRef,
+    abortRef,
+    handleSend,
+    handleAutoInsight,
+    handleRetry,
+    abortStream,
+  } = useChatStreaming({
+    currentSessionId,
+    screenContext,
+    readyKeys,
+    clearAttachments,
+    messages,
+    onStreamEnd: () => {
+      if (!isOpen) incrementUnread()
+    },
+  })
+
   const [restoreValue, setRestoreValue] = useState<{ content: string; nonce: number } | undefined>()
   const scrollRef = useRef<HTMLDivElement>(null)
   const userScrolledUpRef = useRef(false)
   const rafRef = useRef<number | null>(null)
-
-  useEffect(() => {
-    isStreamingRef.current = isStreaming
-  }, [isStreaming])
 
   // 스트리밍 상태 → 마스코트 thinking 동기화
   useEffect(() => {
     setThinking(isStreaming)
   }, [isStreaming, setThinking])
 
-  // 패널 열릴 때 미읽은 카운트 초기화 + 컨텍스트 1회 소비
+  // 패널 열릴 때 미읽은 카운트 초기화
   useEffect(() => {
-    if (isOpen) {
-      resetUnread()
-      const ctx = consumePendingScreenContext()
-      if (ctx) setLatestScreenContext(ctx)
-    }
-  }, [isOpen, resetUnread, consumePendingScreenContext])
+    if (isOpen) resetUnread()
+  }, [isOpen, resetUnread])
 
   // 닫기 전 포커스를 외부로 이동 — aria-hidden 적용 시 포커스 잔류 경고 방지
   const closePanel = useCallback(() => {
@@ -139,110 +125,13 @@ export function ChatPanel() {
     setOpen(false)
   }, [setOpen])
 
-  // 스트리밍이 끝나면 message list 재조회로 화면 교체
-  const finishStream = useCallback(() => {
-    setStreamText('')
-    setStreamThought(undefined)
-    setStreamingTools([])
-    setStreamImages([])
-    setIsStreaming(false)
-    if (currentSessionId) {
-      qc.invalidateQueries({ queryKey: qk.chat.messages(currentSessionId) })
-      qc.invalidateQueries({ queryKey: qk.chat.sessions() })
-    }
-    if (!isOpen) {
-      incrementUnread()
-    }
-  }, [qc, currentSessionId, isOpen, incrementUnread])
-
-  const handleEventRef = useRef<(event: ChatStreamEvent) => void>(() => {})
-
-  const handleSend = useCallback(
-    async (content: string) => {
-      if (!currentSessionId) {
-        toast.error('세션이 없습니다.')
-        return
-      }
-      if (isStreaming) return
-      lastSentContentRef.current = content
-      setIsStreaming(true)
-      setStreamText('')
-      setStreamThought(undefined)
-      setStreamingTools([])
-      setStreamImages([])
-
-      // optimistic user 메시지는 서버가 user_saved 이벤트로 DB 반영 후 invalidate → 화면 표시되도록 유지
-      const controller = new AbortController()
-      abortRef.current = controller
-      const keys = readyKeys
-      clearAttachments()
-
-      try {
-        await streamChatMessage(
-          currentSessionId,
-          content,
-          keys,
-          (event: ChatStreamEvent) => {
-            handleEventRef.current(event)
-          },
-          controller.signal,
-          null,
-          latestScreenContext,
-        )
-      } catch (err) {
-        console.error(err)
-        const msg = describeChatError(err)
-        if (msg) toast.error(msg)
-      } finally {
-        finishStream()
-      }
-    },
-    [currentSessionId, isStreaming, readyKeys, clearAttachments, finishStream, latestScreenContext],
-  )
-
-  // Feature 5C-2: 선제적 통찰 트리거
-  const handleAutoInsight = useCallback(
-    async (incidentId: number) => {
-      if (!currentSessionId) {
-        toast.error('세션이 없습니다.')
-        return
-      }
-      if (isStreaming) return
-
-      setIsStreaming(true)
-      setStreamText('')
-      setStreamThought(undefined)
-      setStreamingTools([])
-      setStreamImages([])
-
-      const controller = new AbortController()
-      abortRef.current = controller
-
-      try {
-        await streamAutoInsight(
-          currentSessionId,
-          incidentId,
-          (event: ChatStreamEvent) => {
-            handleEventRef.current(event)
-          },
-          controller.signal,
-          latestScreenContext,
-        )
-      } catch (err) {
-        console.error(err)
-        const msg = describeChatError(err)
-        if (msg) toast.error(msg)
-      } finally {
-        finishStream()
-      }
-    },
-    [currentSessionId, isStreaming, finishStream, latestScreenContext],
-  )
+  // 세션이 정해지기 전(오늘 대화 판정·생성 중)에는 전송·자동 분석을 막아 어제 대화에 섞이지 않게 한다
+  const canSend = !!currentSessionId && sessionReady
 
   // Feature G — 외부 트리거(NextActionCard 등)에서 set된 incident_id로 1회 자동 분석 발화
   useEffect(() => {
     if (!isOpen) return
-    if (!currentSessionId) return
+    if (!canSend) return
     if (!autoInsightIncidentId) return
     if (isStreaming) return
     const id = autoInsightIncidentId
@@ -250,107 +139,18 @@ export function ChatPanel() {
     void handleAutoInsight(id)
   }, [
     isOpen,
-    currentSessionId,
+    canSend,
     autoInsightIncidentId,
     isStreaming,
     setAutoInsightIncidentId,
     handleAutoInsight,
   ])
 
-  const handleEvent = (event: ChatStreamEvent) => {
-    switch (event.type) {
-      case 'auto_insight_start':
-        // Feature 5C-2: 자동 분석 시작 시그널 — 현재는 별도 처리 없음 (향후 토스트/스피너 추가 가능)
-        break
-      case 'user_saved':
-        if (currentSessionId) {
-          qc.invalidateQueries({ queryKey: qk.chat.messages(currentSessionId) })
-        }
-        break
-      case 'thought':
-        setStreamThought(String((event.data as { thought?: string }).thought ?? ''))
-        break
-      case 'tool_call': {
-        const data = event.data as { tool?: string; args?: Record<string, unknown> }
-        setStreamingTools((prev) => [
-          ...prev,
-          {
-            id: `${Date.now()}-${prev.length}`,
-            name: data.tool ?? '(unknown)',
-            args: data.args ?? {},
-            running: true,
-            thought: streamThought,
-          },
-        ])
-        break
-      }
-      case 'tool_result': {
-        const data = event.data as {
-          tool?: string
-          result?: Record<string, unknown>
-        }
-        setStreamingTools((prev) => {
-          if (prev.length === 0) return prev
-          const updated = [...prev]
-          const idx = updated.findIndex((t) => t.running && t.name === data.tool)
-          if (idx >= 0) {
-            updated[idx] = {
-              ...updated[idx],
-              result: data.result ?? {},
-              running: false,
-            }
-          }
-          return updated
-        })
-        break
-      }
-      case 'token': {
-        const chunk = String((event.data as { chunk?: string }).chunk ?? '')
-        setStreamText((prev) => prev + chunk)
-        break
-      }
-      case 'meta': {
-        const data = event.data as { images?: MessageImage[]; guide_ids?: string[] }
-        if (Array.isArray(data.images) && data.images.length > 0) {
-          setStreamImages(data.images)
-        }
-        break
-      }
-      case 'final':
-        // finishStream이 finally에서 실행됨. 여기선 빈 처리.
-        break
-      case 'error': {
-        const msg = String((event.data as { message?: string }).message ?? '알 수 없는 오류')
-        toast.error(msg)
-        break
-      }
-      default:
-        break
-    }
-  }
-  handleEventRef.current = handleEvent
-
-  const handleNewChat = useCallback(() => {
-    if (isStreaming) {
-      abortRef.current?.abort()
-    }
-    createSession.mutate(undefined, {
-      onSuccess: (s) => {
-        setCurrentSessionId(s.id)
-        clearAttachments()
-        if (filterSystemIds.length > 0) {
-          patchSession.mutate({ sessionId: s.id, data: { system_ids: filterSystemIds } })
-        }
-      },
-    })
-  }, [
-    createSession,
-    isStreaming,
-    setCurrentSessionId,
-    clearAttachments,
-    filterSystemIds,
-    patchSession,
-  ])
+  const handleNewChat = useCallback(async () => {
+    if (isStreamingRef.current) abortStream()
+    const created = await startNewSession()
+    if (created) clearAttachments()
+  }, [isStreamingRef, abortStream, startNewSession, clearAttachments])
 
   const currentSession = useMemo(
     () => sessions?.find((s) => s.id === currentSessionId) ?? null,
@@ -361,37 +161,35 @@ export function ChatPanel() {
     () =>
       sessions
         ?.slice()
-        .sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())
-        .slice(0, 5) ?? [],
+        .sort((a, b) => b.updated_at.localeCompare(a.updated_at))
+        .slice(0, RECENT_SESSION_LIMIT) ?? [],
     [sessions],
   )
 
-  const handleRetry = useCallback(
-    (failedMessageId: string) => {
-      if (!messages || isStreaming) return
-      const failedIdx = messages.findIndex((m) => m.id === failedMessageId)
-      if (failedIdx <= 0) return
-      let userIdx = failedIdx - 1
-      while (userIdx >= 0 && messages[userIdx].role !== 'user') {
-        userIdx--
-      }
-      if (userIdx < 0) return
-      const userContent = messages[userIdx].content
-      if (!userContent.trim()) return
-      handleSend(userContent)
-    },
-    [messages, isStreaming, handleSend],
-  )
+  // 헤더 칩은 서버가 이 대화에 실제로 쓰는 범위(세션 system_ids)를 보여준다. 아직 목록에 없으면 기본 범위.
+  const shownScopeIds = currentSession?.system_ids ?? scopeIds
 
-  // filterSystemIds 변경 시 현재 세션에 PATCH
-  const handleFilterChange = useCallback(
+  // 범위 변경: 현재 세션 PATCH + 이 사용자 기본값으로 저장
+  const handleScopeChange = useCallback(
     (ids: number[]) => {
-      setFilterSystemIds(ids)
+      saveScope(ids)
       if (currentSessionId) {
         patchSession.mutate({ sessionId: currentSessionId, data: { system_ids: ids } })
       }
     },
-    [setFilterSystemIds, currentSessionId, patchSession],
+    [saveScope, currentSessionId, patchSession],
+  )
+
+  const notice = useChatContextNotice({
+    active: isOpen,
+    currentSessionId,
+    messageCount: messages?.length ?? 0,
+    screenContext,
+  })
+
+  const queriedByMessage = useMemo(
+    () => buildQueriedSystemNames(messages, systems),
+    [messages, systems],
   )
 
   // 키보드 단축키
@@ -408,7 +206,7 @@ export function ChatPanel() {
       // Cmd/Ctrl+N — 새 대화 (항상)
       if (cmdKey && e.key === 'n') {
         e.preventDefault()
-        handleNewChat()
+        void handleNewChat()
         return
       }
 
@@ -425,7 +223,7 @@ export function ChatPanel() {
       // Esc — 스트리밍 중이면 중단 + 복원, 아니면 패널 닫기
       if (e.key === 'Escape') {
         if (isStreamingRef.current) {
-          abortRef.current?.abort()
+          abortStream()
           setRestoreValue({ content: lastSentContentRef.current, nonce: Date.now() })
         } else {
           closePanel()
@@ -435,7 +233,7 @@ export function ChatPanel() {
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [isOpen, handleNewChat, closePanel])
+  }, [isOpen, handleNewChat, closePanel, isStreamingRef, abortStream, lastSentContentRef])
 
   const handleScroll = useCallback(() => {
     const el = scrollRef.current
@@ -471,10 +269,11 @@ export function ChatPanel() {
 
   // 언마운트 시 스트림 취소 (닫기는 백그라운드 유지)
   useEffect(() => {
+    const ref = abortRef
     return () => {
-      abortRef.current?.abort()
+      ref.current?.abort()
     }
-  }, [])
+  }, [abortRef])
 
   // inert 속성: 닫힌 상태에서 DOM 내부 요소의 키보드 포커스 및 AT 접근 차단 (WCAG 2.1.1)
   const inertProps = !isOpen ? { inert: '' as const } : {}
@@ -510,8 +309,13 @@ export function ChatPanel() {
           onClose={closePanel}
           disabled={isStreaming}
           systems={systems}
-          filterSystemIds={filterSystemIds}
-          onFilterSystemChange={handleFilterChange}
+          scopeSystemIds={shownScopeIds}
+          primarySystemIds={primaryIds}
+          onScopeChange={handleScopeChange}
+          onViewAll={() => {
+            closePanel()
+            navigate(ROUTES.CHAT)
+          }}
         />
 
         <div
@@ -526,14 +330,14 @@ export function ChatPanel() {
               </p>
 
               {/* Feature 5C-2: 인시던트 자동 분석 버튼 — incident_id 있을 때만 표시 */}
-              {latestScreenContext?.incident_id && (
+              {screenContext?.incident_id && (
                 <button
                   type="button"
                   onClick={() => {
-                    const id = parseInt(String(latestScreenContext.incident_id ?? '0'), 10)
+                    const id = parseInt(String(screenContext.incident_id ?? '0'), 10)
                     if (id > 0) handleAutoInsight(id)
                   }}
-                  disabled={isStreaming || !currentSessionId}
+                  disabled={isStreaming || !canSend}
                   className={cn(
                     'bg-accent text-accent-contrast shadow-neu-flat',
                     'mb-3 flex w-full items-center justify-center gap-2 rounded-sm px-3 py-2.5 text-sm font-medium',
@@ -550,16 +354,13 @@ export function ChatPanel() {
 
               {/* 화면별 / 인시던트 status별 quick prompt chips */}
               {(() => {
-                const contextualChips = getContextualPrompts(
-                  latestScreenContext?.screen,
-                  incidentStatus,
-                )
-                if (!latestScreenContext?.screen || contextualChips.length === 0) return null
+                const contextualChips = getContextualPrompts(screenContext?.screen, incidentStatus)
+                if (!screenContext?.screen || contextualChips.length === 0) return null
                 return (
                   <div className="mb-3">
-                    {latestScreenContext.screen_label && (
+                    {screenContext.screen_label && (
                       <p className="text-text-secondary mb-1.5 text-[11px]">
-                        현재 화면: {latestScreenContext.screen_label}
+                        현재 화면: {screenContext.screen_label}
                         {nextActionMeta && (
                           <span className="text-accent ml-2">
                             · 인시던트: {nextActionMeta.status_ko} ({nextActionMeta.progress_pct}%)
@@ -573,7 +374,7 @@ export function ChatPanel() {
                           key={chip}
                           type="button"
                           onClick={() => setRestoreValue({ content: chip, nonce: Date.now() })}
-                          disabled={isStreaming || !currentSessionId}
+                          disabled={isStreaming || !canSend}
                           className={cn(
                             'border-border rounded-sm border px-2.5 py-1 text-left text-xs transition-colors',
                             'text-text-secondary hover:bg-accent-muted hover:border-accent hover:text-text-primary',
@@ -601,7 +402,7 @@ export function ChatPanel() {
                           key={category}
                           type="button"
                           onClick={() => handleSend(prompt)}
-                          disabled={isStreaming || !currentSessionId}
+                          disabled={isStreaming || !canSend}
                           className={cn(
                             'border-border rounded-sm border p-3 text-left transition-colors',
                             'hover:bg-accent-muted hover:border-accent',
@@ -622,12 +423,22 @@ export function ChatPanel() {
               </div>
             </div>
           )}
+          {notice.show && (
+            <ChatContextNotice
+              onNewChat={() => {
+                notice.dismiss()
+                void handleNewChat()
+              }}
+              onContinue={notice.dismiss}
+            />
+          )}
           {messages?.map((m: ChatMessage) => (
             <ChatMessageView
               key={m.id}
               message={m}
               sessionId={currentSessionId ?? ''}
               onRetry={handleRetry}
+              queriedSystems={queriedByMessage.get(m.id)}
             />
           ))}
           {streamingTools.map((t) => (
@@ -646,12 +457,13 @@ export function ChatPanel() {
               running={true}
               thought={streamThought}
               images={streamImages}
+              scopeLabel={describeScope(streamScope)}
             />
           )}
         </div>
 
         <ChatComposer
-          disabled={!currentSessionId}
+          disabled={!canSend}
           streaming={isStreaming}
           attachments={attachments}
           uploadingCount={isUploading ? 1 : 0}

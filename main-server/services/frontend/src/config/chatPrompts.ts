@@ -9,6 +9,11 @@ export const SCREEN_PROMPTS: Record<string, string[]> = {
   reports: ['이번 주 패턴은?', '전주 대비 차이는?'],
   knowledge: ['관련 운영 가이드는?', '유사 해결책 사례는?'],
   alerts: ['최근 위험 알림 정리해줘', '이번 주 알림 추세는?'],
+  apm_tx_detail: [
+    '이 트랜잭션이 느린 이유는?',
+    '이 트랜잭션의 SQL 중 오래 걸린 건?',
+    '같은 URI의 최근 성능은 어때?',
+  ],
 }
 
 /** 인시던트 status별 추천 prompt chip — Feature 5C 선제적 통찰. */

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTabTitle } from '@/components/layout/tabs/TabContext'
+import { useRegisterScreenContext } from '@/store/chatContextStore'
 import { useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, Info } from 'lucide-react'
 import { ErrorCard } from '@/components/common/ErrorCard'
@@ -47,6 +48,10 @@ export function ApmTxDetailPage() {
   const { data, isLoading, error, refetch } = useApmTransactionDetail(traceId, spanId)
   const { data: systems = [] } = useSystems()
   useTabTitle(data?.summary.uri)
+  // 챗봇에 이 트랜잭션의 시스템을 알린다 (trace_id/span_id 는 경로에서 도출)
+  useRegisterScreenContext({
+    system_id: data?.summary.system_id != null ? String(data.summary.system_id) : undefined,
+  })
 
   useEffect(() => {
     if (!infoOpen) return

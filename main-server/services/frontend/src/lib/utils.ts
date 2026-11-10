@@ -41,6 +41,11 @@ export function formatKST(
   return kst.toISOString().slice(0, 16).replace('T', ' ')
 }
 
+// naive UTC 시각이 기준 시점(기본: 지금)과 같은 KST 날짜인지 — 챗봇 "하루 단위 새 대화" 판정.
+export function isSameKstDay(utcDate: string, now: Date | number = Date.now()): boolean {
+  return formatKST(utcDate, 'date') === formatKST(new Date(now), 'date')
+}
+
 // 상대 시간 (1시간 이내: "3분 전", 7일 이내: "N시간/일 전", 이상: KST 절대)
 export function formatRelative(utcDate: string): string {
   const diff = Date.now() - new Date(normalizeUtc(utcDate)).getTime()

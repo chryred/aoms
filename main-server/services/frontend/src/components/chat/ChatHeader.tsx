@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
-import { Plus, X, HelpCircle, ChevronDown, Check } from 'lucide-react'
-import { cn } from '@/lib/utils'
+import { Plus, X, ChevronDown, Check } from 'lucide-react'
+import { cn, formatRelative } from '@/lib/utils'
+import { describeScopeChip } from '@/lib/chatScope'
 import { NeuButton } from '@/components/neumorphic/NeuButton'
 import { Synap } from '@/components/mascot'
 import { useSynapState } from '@/store/chatStore'
@@ -17,13 +18,21 @@ interface ChatHeaderProps {
   onClose?: () => void
   disabled?: boolean
   systems: System[]
-  filterSystemIds: number[]
-  onFilterSystemChange: (ids: number[]) => void
-  /** 최근 세션 목록 (최대 5개). 전달 시 제목 클릭으로 세션 전환 가능. */
+  /** 현재 대화의 조회 범위(빈 배열 = 전체 시스템) */
+  scopeSystemIds: number[]
+  /** 로그인 사용자의 담당 시스템 — 칩 문구("담당 시스템"/"선택 시스템") 판정용 */
+  primarySystemIds: number[]
+  onScopeChange: (ids: number[]) => void
+  /** 최근 세션 목록 (최대 10개). 전달 시 제목 클릭으로 세션 전환 가능. */
   sessions?: ChatSession[]
   currentSessionId?: string | null
   onSessionSelect?: (id: string) => void
+  /** "전체 대화 보기" — 전용 /chat 페이지로 이동. 미지정 시 링크를 숨김 */
+  onViewAll?: () => void
 }
+
+const SCOPE_TOOLTIP =
+  '질문에 시스템 이름을 쓰거나 시스템 화면에서 물으면 그 시스템을 우선 조회합니다.'
 
 export function ChatHeader({
   title,
@@ -32,18 +41,22 @@ export function ChatHeader({
   onClose,
   disabled,
   systems,
-  filterSystemIds,
-  onFilterSystemChange,
+  scopeSystemIds,
+  primarySystemIds,
+  onScopeChange,
   sessions,
   currentSessionId,
   onSessionSelect,
+  onViewAll,
 }: ChatHeaderProps) {
   const effectiveSubtitle = subtitle === null ? null : (subtitle ?? 'Synapse-V 어시스턴트')
   const synapState = useSynapState()
   const [dropdownOpen, setDropdownOpen] = useState(false)
+  const [scopeOpen, setScopeOpen] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
 
-  const hasSessionPicker = !!(sessions && sessions.length > 1 && onSessionSelect)
+  // 세션이 1개여도 항상 표시한다 (전환·"전체 대화 보기" 진입점)
+  const hasSessionPicker = !!(sessions && sessions.length > 0 && onSessionSelect)
 
   useEffect(() => {
     if (!dropdownOpen) return
@@ -112,7 +125,12 @@ export function ChatHeader({
                       className={cn('h-3 w-3 shrink-0', isCurrent ? 'opacity-100' : 'opacity-0')}
                     />
                     <div className="min-w-0 flex-1">
-                      <div className="truncate">{session.title}</div>
+                      <div className="flex items-baseline gap-2">
+                        <span className="min-w-0 flex-1 truncate">{session.title}</span>
+                        <span className="text-text-disabled shrink-0 text-[11px]">
+                          {formatRelative(session.updated_at)}
+                        </span>
+                      </div>
                       {session.matched_in === 'message' && session.match_preview && (
                         <div className="text-text-secondary mt-0.5 truncate text-[11px]">
                           💬 {session.match_preview}
@@ -122,6 +140,18 @@ export function ChatHeader({
                   </button>
                 )
               })}
+              {onViewAll && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDropdownOpen(false)
+                    onViewAll()
+                  }}
+                  className="border-border text-text-secondary hover:bg-bg-base hover:text-text-primary mt-1 w-full border-t px-3 py-2 text-left text-xs"
+                >
+                  전체 대화 보기
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -142,28 +172,33 @@ export function ChatHeader({
         )}
       </div>
 
-      {/* 시스템 필터 행 */}
+      {/* 조회 범위 칩 — 클릭하면 시스템 선택을 펼쳐 바꿀 수 있다 */}
       {systems.length > 0 && (
-        <div className="border-border flex items-center gap-2 border-t px-3 py-1.5">
-          <span className="text-text-secondary flex shrink-0 items-center gap-1 text-[11px]">
-            <span className="cursor-default">지식 검색 대상</span>
-            <span
-              className="inline-flex cursor-help"
-              title="선택한 시스템의 과거 장애·문서·정책만 RAG 검색합니다. 여러 시스템을 동시에 선택할 수 있습니다."
-              aria-label="도움말"
-              role="img"
-            >
-              <HelpCircle className="h-3 w-3" />
+        <div className="border-border border-t px-2 py-0.5">
+          <button
+            type="button"
+            onClick={() => setScopeOpen((o) => !o)}
+            aria-expanded={scopeOpen}
+            title={SCOPE_TOOLTIP}
+            className="text-text-secondary hover:text-text-primary focus:ring-accent flex min-h-[28px] max-w-full items-center gap-1 rounded-sm px-1 text-[11px] focus:ring-1 focus:outline-none"
+          >
+            <span className="truncate">
+              {describeScopeChip(scopeSystemIds, primarySystemIds, systems)}
             </span>
-          </span>
-          <div className="flex-1">
-            <SystemMultiSelect
-              value={filterSystemIds}
-              onChange={onFilterSystemChange}
-              systems={systems}
-              placeholder="시스템 선택"
+            <ChevronDown
+              className={cn('h-3 w-3 shrink-0 transition-transform', scopeOpen && 'rotate-180')}
             />
-          </div>
+          </button>
+          {scopeOpen && (
+            <div className="mt-1 mb-1">
+              <SystemMultiSelect
+                value={scopeSystemIds}
+                onChange={onScopeChange}
+                systems={systems}
+                placeholder="전체 시스템"
+              />
+            </div>
+          )}
         </div>
       )}
     </div>

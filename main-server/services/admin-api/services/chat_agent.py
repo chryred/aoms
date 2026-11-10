@@ -31,7 +31,7 @@ from services.prompts import (
 logger = logging.getLogger(__name__)
 
 MAX_ITERS = int(os.getenv("CHAT_MAX_ITERS", "10"))
-HISTORY_WINDOW = int(os.getenv("CHAT_HISTORY_WINDOW", "20"))
+HISTORY_WINDOW = int(os.getenv("CHAT_HISTORY_WINDOW", "8"))
 TOOL_RESULT_MAX = int(os.getenv("CHAT_TOOL_RESULT_MAX", "2000"))  # observation bytes
 HISTORY_BUDGET_BYTES = int(os.getenv("CHAT_HISTORY_BUDGET_BYTES", "10000"))  # total history bytes
 
@@ -202,6 +202,89 @@ def _extract_system_id_from_tool(
     return None
 
 
+async def resolve_chat_scope(
+    db: AsyncSession,
+    session: ChatSession,
+    screen_context: ScreenContext | None = None,
+) -> dict[str, Any]:
+    """조회 범위 판정 → `{source: screen|session|all, systems: [{id, system_name, display_name}]}`.
+
+    우선순위: 화면 컨텍스트 system_id(유효한 시스템) > 세션 system_ids > 전체.
+    (질문에 명시된 시스템은 LLM 이 도구 인자로 직접 지정하므로 여기서 다루지 않는다.)
+    """
+    from models import System
+
+    def _row(s: System) -> dict[str, Any]:
+        return {"id": s.id, "system_name": s.system_name, "display_name": s.display_name}
+
+    raw_sid = getattr(screen_context, "system_id", None) if screen_context else None
+    if raw_sid not in (None, ""):
+        try:
+            screen_sid = int(str(raw_sid).strip())
+        except (TypeError, ValueError):
+            screen_sid = None
+        if screen_sid is not None:
+            row = (
+                await db.execute(select(System).where(System.id == screen_sid))
+            ).scalar_one_or_none()
+            if row is not None:
+                return {"source": "screen", "systems": [_row(row)]}
+
+    session_ids = list(getattr(session, "system_ids", None) or [])
+    if session_ids:
+        rows = (
+            await db.execute(select(System).where(System.id.in_(session_ids)))
+        ).scalars().all()
+        by_id = {r.id: r for r in rows}
+        systems = [_row(by_id[i]) for i in session_ids if i in by_id]
+        if systems:
+            return {"source": "session", "systems": systems}
+
+    return {"source": "all", "systems": []}
+
+
+def _inject_scope_args(
+    action: str,
+    args: Any,
+    scope: dict[str, Any],
+    session_system_ids: list[int],
+    tools: list[dict[str, Any]],
+) -> Any:
+    """도구 인자에 기본 조회 범위를 주입한다 (LLM 이 명시한 값은 항상 우선)."""
+    systems = scope.get("systems") or []
+
+    # qdrant_*: 화면 범위면 화면 시스템, 아니면 세션 system_ids
+    if action.startswith("qdrant_"):
+        ids = [systems[0]["id"]] if scope.get("source") == "screen" and systems else session_system_ids
+        if ids:
+            if isinstance(args, dict):
+                args.setdefault("system_ids", ids)
+            else:
+                args = {"system_ids": ids}
+        return args
+
+    # 그 외: 범위가 정확히 1개일 때만, 스키마에 있는 system_name/system_id 키를 비어 있을 때 채운다.
+    if len(systems) != 1:
+        return args
+    if args is None or args == "":
+        args = {}
+    if not isinstance(args, dict):
+        return args
+    tool = next((t for t in tools if t.get("name") == action), None)
+    props = ((tool or {}).get("input_schema") or {}).get("properties") or {}
+    has_name, has_id = "system_name" in props, "system_id" in props
+    if not (has_name or has_id):
+        return args
+    if args.get("system_name") or args.get("system_id"):
+        return args
+    only = systems[0]
+    if has_name:
+        args["system_name"] = only["system_name"]
+    if has_id:
+        args["system_id"] = only["id"]
+    return args
+
+
 def _parse_json(text: str) -> dict | None:
     try:
         text = text.strip()
@@ -263,6 +346,12 @@ async def run_react_stream(
 
     yield {"type": "user_saved", "data": {"message_id": user_msg.id}}
 
+    # 조회 범위 판정 (help_inquiry 는 범위 개념 없음 — 기존 동작 유지)
+    scope: dict[str, Any] | None = None
+    if session.area_code != "help_inquiry":
+        scope = await resolve_chat_scope(db, session, screen_context)
+        yield {"type": "scope", "data": scope}
+
     agent_code = await _get_agent_code(db, session.area_code or "chat_assistant")
 
     tool_call_counts: dict[str, int] = {}
@@ -297,7 +386,7 @@ async def run_react_stream(
             system_id = getattr(session, "visitor_system_id", None)
             prompt = _help_decision_prompt(tools, history, user_message, system_id, screen_context)
         else:
-            prompt = _decision_prompt(tools, history, user_message, screen_context)
+            prompt = _decision_prompt(tools, history, user_message, screen_context, scope)
 
         try:
             raw = await call_llm_text(prompt, max_tokens=10000, agent_code=agent_code)
@@ -387,9 +476,11 @@ async def run_react_stream(
             yield {"type": "final", "data": {"content": msg}}
             return
 
-        # qdrant 도구에 세션의 system_ids 주입 (LLM이 명시한 값 우선)
+        # 기본 조회 범위 주입 (LLM 이 명시한 값 우선)
         session_system_ids: list[int] = list(getattr(session, "system_ids", None) or [])
-        if action.startswith("qdrant_") and session_system_ids:
+        if scope is not None:
+            args = _inject_scope_args(action, args, scope, session_system_ids, tools)
+        elif action.startswith("qdrant_") and session_system_ids:
             if isinstance(args, dict):
                 args.setdefault("system_ids", session_system_ids)
             else:

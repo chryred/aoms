@@ -1,10 +1,6 @@
-import { useCallback, useEffect } from 'react'
+import { useCallback } from 'react'
 import toast from 'react-hot-toast'
-import {
-  useCreateChatSession,
-  useDeleteChatSession,
-  useRestoreChatSession,
-} from '@/hooks/mutations/useCreateChatSession'
+import { useDeleteChatSession, useRestoreChatSession } from '@/hooks/mutations/useCreateChatSession'
 import { usePatchChatSession } from '@/hooks/mutations/usePatchChatSession'
 import type { ActiveMenuSession } from './useChatPageState'
 import type { ChatSession } from '@/types/chat'
@@ -12,9 +8,9 @@ import type { ChatSession } from '@/types/chat'
 interface UseChatSessionManagerOptions {
   currentSessionId: string | null
   setCurrentSessionId: (id: string | null) => void
-  filterSystemIds: number[]
-  sessions: ChatSession[] | undefined
-  debouncedQ: string
+  /** useChatSessionBootstrap 의 startNewSession — 자동 생성과 같은 단일 생성 경로(동시 생성 방지) */
+  startNewSession: () => Promise<ChatSession | null>
+  isCreatingSession: boolean
   activeMenuSession: ActiveMenuSession | null
   setActiveMenuSession: (s: ActiveMenuSession | null) => void
   clearAttachments: () => void
@@ -25,62 +21,25 @@ interface UseChatSessionManagerOptions {
 export function useChatSessionManager({
   currentSessionId,
   setCurrentSessionId,
-  filterSystemIds,
-  sessions,
-  debouncedQ,
+  startNewSession,
+  isCreatingSession,
   activeMenuSession,
   setActiveMenuSession,
   clearAttachments,
   abortStream,
   isStreaming,
 }: UseChatSessionManagerOptions) {
-  const createSession = useCreateChatSession()
   const deleteSession = useDeleteChatSession()
   const restoreSession = useRestoreChatSession()
   const patchSession = usePatchChatSession()
 
-  // Auto-create or restore: if no current session, pick the most recent or create a new one
-  useEffect(() => {
-    if (currentSessionId) return
-    if (sessions && sessions.length > 0) {
-      setCurrentSessionId(sessions[0].id)
-      return
-    }
-    if (sessions && sessions.length === 0 && !debouncedQ && !createSession.isPending) {
-      createSession.mutate(undefined, {
-        onSuccess: (s) => {
-          setCurrentSessionId(s.id)
-          if (filterSystemIds.length > 0) {
-            patchSession.mutate({ sessionId: s.id, data: { system_ids: filterSystemIds } })
-          }
-        },
-      })
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentSessionId, sessions, debouncedQ, setCurrentSessionId, createSession])
-
-  const handleNewChat = useCallback(() => {
+  const handleNewChat = useCallback(async () => {
     if (isStreaming) {
       abortStream()
     }
-    createSession.mutate(undefined, {
-      onSuccess: (s) => {
-        setCurrentSessionId(s.id)
-        clearAttachments()
-        if (filterSystemIds.length > 0) {
-          patchSession.mutate({ sessionId: s.id, data: { system_ids: filterSystemIds } })
-        }
-      },
-    })
-  }, [
-    createSession,
-    isStreaming,
-    setCurrentSessionId,
-    clearAttachments,
-    filterSystemIds,
-    patchSession,
-    abortStream,
-  ])
+    const created = await startNewSession()
+    if (created) clearAttachments()
+  }, [isStreaming, abortStream, startNewSession, clearAttachments])
 
   const handleRenameSubmit = useCallback(
     async (title: string) => {
@@ -138,7 +97,7 @@ export function useChatSessionManager({
   ])
 
   return {
-    createSession,
+    isCreatingSession,
     deleteSession,
     handleNewChat,
     handleRenameSubmit,

@@ -11,6 +11,11 @@ export interface ScreenContext {
   screen_label?: string
   system_id?: string
   incident_id?: string
+  /** 프론트가 아는 시스템 이름(보조값 — 백엔드가 system_id 로 확정) */
+  system_name?: string
+  /** 건별 트랜잭션 상세 화면(apm_tx_detail)에서만 */
+  trace_id?: string
+  span_id?: string
 }
 
 export interface ChatAttachment {
@@ -33,6 +38,8 @@ export interface ChatMessage {
   tool_result?: Record<string, unknown> | null
   attachments: ChatAttachment[]
   images?: MessageImage[]
+  /** tool 메시지가 실제 조회한 시스템 */
+  system_id?: number | null
   created_at: string
 }
 
@@ -80,6 +87,7 @@ export interface ChatExecutorTestResult {
 
 export type ChatStreamEventType =
   | 'auto_insight_start' // Feature 5C-2: 선제적 통찰 시작 시그널
+  | 'scope' // 이번 질문의 기본 조회 범위 (iter_start 전 1회)
   | 'user_saved'
   | 'iter_start'
   | 'thought'
@@ -89,6 +97,11 @@ export type ChatStreamEventType =
   | 'meta'
   | 'final'
   | 'error'
+
+export interface ChatScopeEvent {
+  source: 'screen' | 'session' | 'all'
+  systems: { id: number; system_name: string; display_name: string }[]
+}
 
 export interface ChatStreamEvent {
   type: ChatStreamEventType

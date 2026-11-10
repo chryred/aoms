@@ -195,6 +195,15 @@ make test-api        # 단위 테스트 (SQLite in-memory)
 - `main.py` lifespan의 `create_all()`은 개발 편의용이다. 운영 스키마 변경은 직접 SQL로 적용한다.
 - **DDL 컬럼 순서**: `CREATE TABLE` 작성 시 시스템/감사 필드(`created_by`, `created_at`, `updated_by`, `updated_at`, `deactivated_by`, `deactivated_at`)는 **반드시 맨 끝**에 위치한다. 비즈니스 컬럼이 먼저, 시스템 필드가 마지막. 자세한 예시는 `main-server/CLAUDE.md` 참조.
 
+### [테스트] 브라우저 테스트 도구 순서 — ego-browser → Chrome DevTools → Playwright
+
+브라우저를 쓰는 모든 테스트·검증(로컬 QA, 디자인 리뷰, 운영기 배포 후 확인, 버그 재현)에 공통 적용한다.
+1. **`ego-browser` 스킬** — 항상 먼저 사용
+2. ego-browser 를 쓸 수 없을 때만 **Chrome DevTools MCP** (`mcp__plugin_chrome-devtools-mcp_*`)
+3. 둘 다 불가할 때만 **Playwright MCP** (`mcp__plugin_playwright_*`)
+- subagent 에 브라우저 테스트를 맡길 때도 프롬프트에 이 순서를 명시한다
+- 다음 도구로 내려간 경우 그 사유(미설치·연결 실패 등)를 결과 보고에 적는다
+
 ### [Frontend / React] 디자인 시스템 일탈 금지
 - 뉴모피즘 디자인 시스템(`design-system.md` 또는 기존 컴포넌트 참고)을 벗어난 스타일을 임의로 추가하지 않는다.
 - 새 색상, 그림자, 폰트 크기를 하드코딩하지 않고 CSS 변수(`--var-name`)를 사용한다.

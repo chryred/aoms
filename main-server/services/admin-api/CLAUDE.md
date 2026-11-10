@@ -501,8 +501,8 @@ DB 변경: `chat_sessions.user_id` nullable, `visitor_employee_id/email/system_i
   - `DELETE /api/v1/chat/sessions/{id}` — **소프트 삭제** (`deleted_at = NOW()`). 첨부파일은 보존.
   - `POST /api/v1/chat/sessions/{id}/restore` — 소프트 삭제 세션 **복구** (`deleted_at = NULL`). 본인 세션만. 프론트에서 삭제 직후 토스트 "되돌리기" 액션이 호출.
   - `GET /api/v1/chat/sessions/{id}/messages` — 메시지 이력 (소프트 삭제된 세션은 404)
-  - `POST /api/v1/chat/sessions/{id}/messages` → **SSE** (text/event-stream). body: `{content, attachment_keys, screen_context?}` — `screen_context: {screen, screen_label, system_id?, incident_id?}`은 화면 진입 시 ChatLauncher가 chatStore에 보관 → ChatPage가 메시지 전송 시 첨부. LLM 프롬프트 1턴에만 한 줄 메타로 prepend되며 chat_messages 본문에는 저장되지 않음.
-    - 이벤트 타입: `user_saved` / `iter_start` / `thought` / `tool_call` / `tool_result` / `token` / `final` / `error`
+  - `POST /api/v1/chat/sessions/{id}/messages` → **SSE** (text/event-stream). body: `{content, attachment_keys, screen_context?}` — `screen_context: {screen, screen_label, system_id?, incident_id?, system_name?, trace_id?, span_id?}`(`system_name`은 보조값 — 백엔드가 `system_id`로 DB 조회해 이름 확정, `trace_id/span_id`는 건별 트랜잭션 상세 화면 한정, 새 screen 값 `apm_live`/`apm_transactions`/`apm_tx_detail`)은 화면 진입 시 ChatLauncher가 chatStore에 보관 → ChatPage가 메시지 전송 시 첨부. LLM 프롬프트 1턴에만 한 줄 메타로 prepend되며 chat_messages 본문에는 저장되지 않음.
+    - 이벤트 타입: `user_saved` / `scope` / `iter_start` / `thought` / `tool_call` / `tool_result` / `token` / `final` / `error`
     - DevX 폴백: 완성 텍스트를 청크 분할하여 토큰 스트리밍
 - **통계** (admin 전용)
   - `GET /api/v1/chat/statistics?from=YYYY-MM-DD&to=YYYY-MM-DD&group_by=system` — 시스템별 챗봇 사용 통계
@@ -519,7 +519,13 @@ DB 변경: `chat_sessions.user_id` nullable, `visitor_employee_id/email/system_i
 
 ### 챗봇 ReAct 루프 요약
 - LLM(`llm_client.py`의 `chat_assistant` area)이 JSON 응답으로 action/final_answer 결정 → `run_tool()`로 도구 실행
-- 대화·도구 이력은 `chat_messages`(user/assistant/tool) 테이블에 저장하고, 매 턴마다 최근 20턴을 프롬프트에 재주입
+- 대화·도구 이력은 `chat_messages`(user/assistant/tool) 테이블에 저장하고, 매 턴마다 최근 8턴(`CHAT_HISTORY_WINDOW`, 기본 8)을 프롬프트에 재주입
+- **조회 범위(scope)**: `chat_agent.resolve_chat_scope()`가 판정 — 우선순위 **질문에 명시된 시스템(LLM이 도구 인자로 직접 지정) > 화면 컨텍스트 `system_id`(DB에 존재할 때) > 세션 `system_ids`(기본 담당 시스템) > 전체(필터 없음)**. `run_react_stream`(일반 메시지·auto-insight 공통)이 `user_saved` 직후 첫 `iter_start` 전에 SSE `scope` 이벤트를 1회 emit (`help_inquiry` 세션은 범위 개념이 없어 emit 안 함):
+  ```json
+  {"type":"scope","data":{"source":"screen","systems":[{"id":3,"system_name":"pay","display_name":"결제"}]}}
+  ```
+  `source` = `screen`|`session`|`all` (`all`이면 `systems: []`). 프롬프트 `[조회 범위] 기본 대상 시스템: 결제(pay), CRM(crm) (출처: 현재 화면|담당 시스템)` 블록은 `source=all`이면 생략되고, 화면 컨텍스트 라인은 `시스템: 결제(pay)` 처럼 이름으로 표기(`prompts._format_screen_context_line(ctx, system_label)`).
+  - **도구 인자 자동 주입** (`chat_agent._inject_scope_args`, LLM 명시값 항상 우선): `qdrant_*` → `system_ids` setdefault (source=`screen`이면 화면 시스템 `[id]`, 아니면 세션 `system_ids`) / 그 외 도구 → input_schema `properties`에 `system_name`/`system_id`가 있고 LLM이 둘 다 비웠으며 범위 systems가 **정확히 1개**일 때만 스키마에 있는 키를 채움. 범위가 여러 개면 주입하지 않고 LLM 판단(대상 전체 조회 또는 되묻기).
 - **선제적 통찰 (Feature 5C-2)**: `POST /api/v1/chat/sessions/{id}/auto-insight` — 사용자 메시지 없이 인시던트 자동 분석. `prompts.build_auto_insight_seed(incident_id)`가 user_message를 자동 생성하고 기존 `run_react_stream` 재사용. SSE 첫 이벤트로 `auto_insight_start` emit. 프론트엔드는 빈 챗봇 화면의 ✨ 버튼으로 트리거 (incident_id 있을 때만 노출).
 - **외부 트리거 진입점 (Feature G)**: 인시던트 상세 페이지 `NextActionCard` 하단 "✨ 챗봇으로 자동 분석" 버튼이 `chatStore.autoInsightIncidentId`에 incident_id를 set + `setOpen(true)` → `ChatPanel`의 useEffect가 `isOpen+currentSessionId+autoInsightIncidentId+!isStreaming` 조건에서 1회 자동 발화 후 null clear. 5C-2 endpoint 재사용. 운영자가 인시던트 처리 흐름에서 챗봇으로 자연스럽게 진입.
 - 도구 그룹:
@@ -624,7 +630,7 @@ log-analyzer → POST /api/v1/analysis
 | `CHAT_ATTACHMENT_DIR` | `/var/lib/synapse-v/chat-attachments` | 챗봇 메시지 첨부 이미지 저장 루트 |
 | `CHAT_ATTACHMENT_MAX_MB` | `10` | 첨부 이미지 단일 최대 크기(MB) |
 | `CHAT_MAX_ITERS` | `5` | ReAct 오케스트레이터 도구 호출 반복 한도 |
-| `CHAT_HISTORY_WINDOW` | `20` | LLM 프롬프트에 주입할 최근 메시지 N턴 |
+| `CHAT_HISTORY_WINDOW` | `8` | LLM 프롬프트에 주입할 최근 메시지 N턴 |
 | `KNOWLEDGE_DOCS_DIR` | `/app/synapse/knowledge-docs` | 업로드된 문서 저장 루트 디렉터리 (V1 RAG) |
 | `OAUTH_PRIVATE_KEY_PATH` | 없음 (필수) | RSA private key PEM 파일 경로. `admin-api/secrets/` 이미지 번들 → 컨테이너 `/app/secrets/oauth_private.pem` 고정. 로컬: 절대경로 지정 |
 | `OAUTH_PUBLIC_KEY_PATH` | 없음 (필수) | RSA public key PEM 파일 경로 (JWKS 노출용). 이미지 번들 → `/app/secrets/oauth_public.pem`. 로컬: 절대경로 지정 |

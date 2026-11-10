@@ -33,7 +33,20 @@ _ZOMBIE_COUNT_THRESHOLD   = float(os.getenv("PROM_ALERT_ZOMBIE_COUNT",          
 
 # ── 헬퍼 ─────────────────────────────────────────────────────────────────────
 
-def _format_screen_context_line(ctx: ScreenContext | None) -> str | None:
+def _system_label(system: dict[str, Any]) -> str:
+    """`결제(pay)` 형태. display_name 이 없거나 system_name 과 같으면 system_name 만."""
+    name = system.get("system_name") or ""
+    display = system.get("display_name") or ""
+    if display and name and display != name:
+        return f"{display}({name})"
+    return name or display or str(system.get("id", ""))
+
+
+def _format_screen_context_line(
+    ctx: ScreenContext | None,
+    system_label: str | None = None,
+) -> str | None:
+    """system_label: 백엔드가 DB 로 확정한 `결제(pay)` 형태 이름. 없으면 system_id 를 그대로 쓴다."""
     if ctx is None:
         return None
     parts: list[str] = []
@@ -41,12 +54,33 @@ def _format_screen_context_line(ctx: ScreenContext | None) -> str | None:
     if screen_val:
         parts.append(screen_val)
     if ctx.system_id:
-        parts.append(f"시스템: {ctx.system_id}")
+        parts.append(f"시스템: {system_label or ctx.system_id}")
     if ctx.incident_id:
         parts.append(f"인시던트: {ctx.incident_id}")
+    if ctx.trace_id:
+        tx = f"트랜잭션: trace={ctx.trace_id}"
+        if ctx.span_id:
+            tx += f" span={ctx.span_id}"
+        parts.append(tx)
     if not parts:
         return None
     return "[현재 사용자 화면: " + " / ".join(parts) + "]"
+
+
+_SCOPE_SOURCE_KO = {"screen": "현재 화면", "session": "담당 시스템"}
+
+
+def _format_scope_block(scope: dict[str, Any] | None) -> str:
+    """`[조회 범위]` 블록. source=all 이거나 systems 가 비면 빈 문자열."""
+    if not scope or scope.get("source") not in _SCOPE_SOURCE_KO or not scope.get("systems"):
+        return ""
+    labels = ", ".join(_system_label(s) for s in scope["systems"])
+    return (
+        f"[조회 범위] 기본 대상 시스템: {labels} (출처: {_SCOPE_SOURCE_KO[scope['source']]})\n"
+        "- 질문에 다른 시스템 이름이 나오면 그 시스템을 우선한다.\n"
+        "- 질문에 시스템이 없으면 기본 대상 시스템으로 도구 인자(system_name/system_id/system_ids)를 채운다.\n"
+        "- 기본 대상이 여러 개고 질문이 특정 시스템을 가리키지 않으면 대상 전체를 조회하거나 어느 시스템인지 되묻는다.\n\n"
+    )
 
 
 # ── 챗봇 ReAct 가이드 블록 (decision_prompt 조립용) ──────────────────────────
@@ -121,10 +155,16 @@ def decision_prompt(
     history: str,
     user_message: str,
     screen_context: ScreenContext | None = None,
+    scope: dict[str, Any] | None = None,
 ) -> str:
+    """scope: chat_agent.resolve_chat_scope() 결과 `{source, systems}`. 없으면 범위 블록 생략."""
     tools_json = json.dumps(tools, ensure_ascii=False)
-    ctx_line = _format_screen_context_line(screen_context)
+    screen_label = None
+    if scope and scope.get("source") == "screen" and scope.get("systems"):
+        screen_label = _system_label(scope["systems"][0])
+    ctx_line = _format_screen_context_line(screen_context, screen_label)
     ctx_block = f"사용자 화면 컨텍스트: {ctx_line}\n" if ctx_line else ""
+    scope_block = _format_scope_block(scope)
     return f"""역할: 당신은 Synapse-V 운영 어시스턴트입니다. 사용자 질문을 해결하기 위해
 아래 도구를 사용할 수 있습니다.
 
@@ -143,7 +183,7 @@ def decision_prompt(
 
 {_COMMON_RULES}
 
-사용 가능한 도구:
+{scope_block}사용 가능한 도구:
 {tools_json}
 
 대화 이력:

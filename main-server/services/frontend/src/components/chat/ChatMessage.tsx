@@ -146,9 +146,11 @@ interface ChatMessageProps {
   message: ChatMessageType
   sessionId: string
   onRetry?: (messageId: string) => void
+  /** 같은 턴의 도구가 실제 조회한 시스템 이름 — 답변 위에 "조회: 결제, CRM" 로 표시 */
+  queriedSystems?: string[]
 }
 
-export function ChatMessageView({ message, sessionId, onRetry }: ChatMessageProps) {
+export function ChatMessageView({ message, sessionId, onRetry, queriedSystems }: ChatMessageProps) {
   const { role, content, thought, attachments, images } = message
 
   const isFailedAssistant = useMemo(() => {
@@ -199,6 +201,9 @@ export function ChatMessageView({ message, sessionId, onRetry }: ChatMessageProp
           <SynapMini size={12} />
           <span>어시스턴트</span>
         </div>
+        {queriedSystems && queriedSystems.length > 0 && (
+          <div className="text-text-secondary text-[11px]">조회: {queriedSystems.join(', ')}</div>
+        )}
         {thought && <ThoughtToggle thought={thought} />}
         {content ? (
           <MarkdownContent content={content} />
@@ -272,11 +277,14 @@ export function StreamingAssistantMessage({
   running,
   thought,
   images,
+  scopeLabel,
 }: {
   content: string
   running: boolean
   thought?: string
   images?: MessageImage[]
+  /** SSE scope 이벤트로 받은 이번 질문의 기본 조회 범위 라벨 */
+  scopeLabel?: string | null
 }) {
   return (
     <div className="animate-fade-in-up-subtle flex">
@@ -286,6 +294,7 @@ export function StreamingAssistantMessage({
           <span>어시스턴트</span>
           {running && <Loader2 className="h-3 w-3 animate-spin" />}
         </div>
+        {scopeLabel && <div className="text-text-secondary text-[11px]">{scopeLabel}</div>}
         {thought && <div className="text-text-secondary text-xs italic">💭 {thought}</div>}
         <div className="break-words">
           {content && <MarkdownContent content={content} />}

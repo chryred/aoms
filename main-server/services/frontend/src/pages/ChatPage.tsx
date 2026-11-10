@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Menu, Plus, MessageSquare } from 'lucide-react'
 import { useChatMessages } from '@/hooks/queries/useChatMessages'
 import { useChatSessions } from '@/hooks/queries/useChatSessions'
@@ -7,14 +8,21 @@ import { useChatAttachments } from '@/hooks/useChatAttachments'
 import { useSystems } from '@/hooks/queries/useSystems'
 import { usePatchChatSession } from '@/hooks/mutations/usePatchChatSession'
 import { useChatPageState } from '@/hooks/useChatPageState'
+import { useChatScope } from '@/hooks/useChatScope'
+import { useChatSessionBootstrap } from '@/hooks/useChatSessionBootstrap'
+import { useChatContextNotice } from '@/hooks/useChatContextNotice'
+import { useScreenContext } from '@/hooks/useScreenContext'
 import { useChatSessionManager } from '@/hooks/useChatSessionManager'
 import { useChatStreaming } from '@/hooks/useChatStreaming'
 import type { ChatMessage, ChatSession } from '@/types/chat'
 import { cn, formatRelative } from '@/lib/utils'
-import { SCREEN_PROMPTS } from '@/config/chatPrompts'
+import { buildQueriedSystemNames, describeScope } from '@/lib/chatScope'
+import { getContextualPrompts } from '@/config/chatPrompts'
+import { ROUTES } from '@/constants/routes'
 import { PageHeader } from '@/components/common/PageHeader'
 import { NeuButton } from '@/components/neumorphic/NeuButton'
 import { ChatComposer } from '@/components/chat/ChatComposer'
+import { ChatContextNotice } from '@/components/chat/ChatContextNotice'
 import { ChatHeader } from '@/components/chat/ChatHeader'
 import { ChatMessageView, StreamingAssistantMessage } from '@/components/chat/ChatMessage'
 import { ToolCallCard } from '@/components/chat/ToolCallCard'
@@ -24,12 +32,10 @@ import { SessionRenameModal } from '@/components/chat/SessionRenameModal'
 import { SessionDeleteConfirmModal } from '@/components/chat/SessionDeleteConfirmModal'
 
 export function ChatPage() {
+  const navigate = useNavigate()
   const {
     currentSessionId,
     setCurrentSessionId,
-    filterSystemIds,
-    setFilterSystemIds,
-    latestScreenContext,
     searchQ,
     setSearchQ,
     debouncedQ,
@@ -46,6 +52,15 @@ export function ChatPage() {
   const { data: systems = [] } = useSystems()
   const patchSession = usePatchChatSession()
   const promptCategories = useChatPromptCategories()
+  const screenContext = useScreenContext()
+  const { scopeIds, primaryIds, ready: scopeReady, saveScope } = useChatScope()
+
+  // 진입할 때: 오늘(KST) 대화가 아니면 새 대화, 빈 오늘 대화는 재사용 (우하단 패널과 같은 훅)
+  const {
+    ready: sessionReady,
+    isCreating,
+    startNewSession,
+  } = useChatSessionBootstrap({ active: true, scopeIds, scopeReady })
 
   const {
     attachments,
@@ -61,6 +76,7 @@ export function ChatPage() {
     streamThought,
     streamingTools,
     streamImages,
+    streamScope,
     isStreaming,
     isStreamingRef,
     lastSentContentRef,
@@ -70,19 +86,18 @@ export function ChatPage() {
     abortStream,
   } = useChatStreaming({
     currentSessionId,
-    latestScreenContext,
+    screenContext,
     readyKeys,
     clearAttachments,
     messages,
   })
 
-  const { createSession, deleteSession, handleNewChat, handleRenameSubmit, handleDeleteConfirm } =
+  const { deleteSession, handleNewChat, handleRenameSubmit, handleDeleteConfirm } =
     useChatSessionManager({
       currentSessionId,
       setCurrentSessionId,
-      filterSystemIds,
-      sessions,
-      debouncedQ,
+      startNewSession,
+      isCreatingSession: isCreating,
       activeMenuSession,
       setActiveMenuSession,
       clearAttachments,
@@ -90,19 +105,38 @@ export function ChatPage() {
       isStreaming,
     })
 
-  const handleFilterChange = useCallback(
+  const currentSession = useMemo(
+    () => sessions?.find((s) => s.id === currentSessionId) ?? null,
+    [sessions, currentSessionId],
+  )
+
+  // 헤더 칩은 서버가 이 대화에 실제로 쓰는 범위(세션 system_ids)를 보여준다. 아직 목록에 없으면 기본 범위.
+  const shownScopeIds = currentSession?.system_ids ?? scopeIds
+
+  // 범위 변경: 현재 세션 PATCH + 이 사용자 기본값으로 저장
+  const handleScopeChange = useCallback(
     (ids: number[]) => {
-      setFilterSystemIds(ids)
+      saveScope(ids)
       if (currentSessionId) {
         patchSession.mutate({ sessionId: currentSessionId, data: { system_ids: ids } })
       }
     },
-    [setFilterSystemIds, currentSessionId, patchSession],
+    [saveScope, currentSessionId, patchSession],
   )
 
-  const currentSession = useMemo(
-    () => sessions?.find((s) => s.id === currentSessionId) ?? null,
-    [sessions, currentSessionId],
+  // 세션이 정해지기 전(오늘 대화 판정·생성 중)에는 전송을 막아 어제 대화에 섞이지 않게 한다
+  const canSend = !!currentSessionId && sessionReady
+
+  const notice = useChatContextNotice({
+    active: true,
+    currentSessionId,
+    messageCount: messages?.length ?? 0,
+    screenContext,
+  })
+
+  const queriedByMessage = useMemo(
+    () => buildQueriedSystemNames(messages, systems),
+    [messages, systems],
   )
 
   // Keyboard shortcuts
@@ -117,7 +151,7 @@ export function ChatPage() {
       // Cmd/Ctrl+N — new chat (always)
       if (cmdKey && e.key === 'n') {
         e.preventDefault()
-        handleNewChat()
+        void handleNewChat()
         return
       }
 
@@ -265,7 +299,7 @@ export function ChatPage() {
               variant="secondary"
               size="sm"
               onClick={handleNewChat}
-              disabled={createSession.isPending}
+              disabled={isCreating}
               className="w-full"
             >
               <Plus className="h-4 w-4" />
@@ -360,8 +394,10 @@ export function ChatPage() {
             onNewChat={handleNewChat}
             disabled={isStreaming}
             systems={systems}
-            filterSystemIds={filterSystemIds}
-            onFilterSystemChange={handleFilterChange}
+            scopeSystemIds={shownScopeIds}
+            primarySystemIds={primaryIds}
+            onScopeChange={handleScopeChange}
+            onViewAll={() => navigate(ROUTES.CHAT)}
           />
 
           <div
@@ -376,33 +412,34 @@ export function ChatPage() {
                 </p>
 
                 {/* Screen-specific quick prompt chips */}
-                {latestScreenContext?.screen && SCREEN_PROMPTS[latestScreenContext.screen] && (
-                  <div className="mb-3">
-                    {latestScreenContext.screen_label && (
-                      <p className="text-text-secondary mb-1.5 text-[11px]">
-                        현재 화면: {latestScreenContext.screen_label}
-                      </p>
-                    )}
-                    <div className="flex flex-wrap gap-1.5">
-                      {SCREEN_PROMPTS[latestScreenContext.screen].map((chip) => (
-                        <button
-                          key={chip}
-                          type="button"
-                          onClick={() => setRestoreValue({ content: chip, nonce: Date.now() })}
-                          disabled={isStreaming || !currentSessionId}
-                          className={cn(
-                            'border-border rounded-sm border px-2.5 py-1 text-left text-xs transition-colors',
-                            'text-text-secondary hover:bg-accent-muted hover:border-accent hover:text-text-primary',
-                            'focus:ring-accent focus:ring-1 focus:outline-none',
-                            'disabled:cursor-not-allowed disabled:opacity-40',
-                          )}
-                        >
-                          {chip}
-                        </button>
-                      ))}
+                {screenContext.screen &&
+                  getContextualPrompts(screenContext.screen, null).length > 0 && (
+                    <div className="mb-3">
+                      {screenContext.screen_label && (
+                        <p className="text-text-secondary mb-1.5 text-[11px]">
+                          현재 화면: {screenContext.screen_label}
+                        </p>
+                      )}
+                      <div className="flex flex-wrap gap-1.5">
+                        {getContextualPrompts(screenContext.screen, null).map((chip) => (
+                          <button
+                            key={chip}
+                            type="button"
+                            onClick={() => setRestoreValue({ content: chip, nonce: Date.now() })}
+                            disabled={isStreaming || !canSend}
+                            className={cn(
+                              'border-border rounded-sm border px-2.5 py-1 text-left text-xs transition-colors',
+                              'text-text-secondary hover:bg-accent-muted hover:border-accent hover:text-text-primary',
+                              'focus:ring-accent focus:ring-1 focus:outline-none',
+                              'disabled:cursor-not-allowed disabled:opacity-40',
+                            )}
+                          >
+                            {chip}
+                          </button>
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                )}
+                  )}
 
                 {/* Recommended prompt cards — grouped by category */}
                 <div className="space-y-3">
@@ -417,7 +454,7 @@ export function ChatPage() {
                             key={category}
                             type="button"
                             onClick={() => handleSend(prompt)}
-                            disabled={isStreaming || !currentSessionId}
+                            disabled={isStreaming || !canSend}
                             className={cn(
                               'border-border rounded-sm border p-3 text-left transition-colors',
                               'hover:bg-accent-muted hover:border-accent',
@@ -443,12 +480,22 @@ export function ChatPage() {
                 </p>
               </div>
             )}
+            {notice.show && (
+              <ChatContextNotice
+                onNewChat={() => {
+                  notice.dismiss()
+                  void handleNewChat()
+                }}
+                onContinue={notice.dismiss}
+              />
+            )}
             {messages?.map((m: ChatMessage) => (
               <ChatMessageView
                 key={m.id}
                 message={m}
                 sessionId={currentSessionId ?? ''}
                 onRetry={handleRetry}
+                queriedSystems={queriedByMessage.get(m.id)}
               />
             ))}
             {streamingTools.map((t) => (
@@ -467,12 +514,13 @@ export function ChatPage() {
                 running={true}
                 thought={streamThought}
                 images={streamImages}
+                scopeLabel={describeScope(streamScope)}
               />
             )}
           </div>
 
           <ChatComposer
-            disabled={!currentSessionId}
+            disabled={!canSend}
             streaming={isStreaming}
             attachments={attachments}
             uploadingCount={isUploading ? 1 : 0}

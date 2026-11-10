@@ -6,6 +6,7 @@ import {
   FileSearch,
   TrendingUp,
   History,
+  Activity,
 } from 'lucide-react'
 import { useMyPrimarySystems } from './useMyPrimarySystems'
 
@@ -43,10 +44,26 @@ export function useChatPromptCategories(): PromptGroup[] {
   const statusSystem = firstSystem ?? FALLBACK_STATUS_SYSTEM
   const metricSystem = firstSystem ?? FALLBACK_METRIC_SYSTEM
 
+  // 담당 시스템이 정확히 1개면 그 이름을 넣은 "오늘 이상 있어?" 예시를 맨 앞에 추가
+  const singleName =
+    !isLoading && primarySystems && primarySystems.length === 1
+      ? primarySystems[0].display_name
+      : null
+  const todayItem: PromptCategory[] = singleName
+    ? [
+        {
+          icon: Activity,
+          category: '오늘 현황',
+          prompt: `${singleName}${singleName.endsWith('시스템') ? '' : ' 시스템'} 오늘 이상 있어?`,
+        },
+      ]
+    : []
+
   return [
     {
       label: '시스템 상태',
       items: [
+        ...todayItem,
         {
           icon: Server,
           category: '시스템 상태',

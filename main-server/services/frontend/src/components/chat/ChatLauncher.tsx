@@ -2,7 +2,6 @@ import { X } from 'lucide-react'
 import { useChatStore, useSynapState } from '@/store/chatStore'
 import { Synap, SynapBubble } from '@/components/mascot'
 import { cn } from '@/lib/utils'
-import { useScreenContext } from '@/hooks/useScreenContext'
 import { useReducedMotion } from '@/hooks/useReducedMotion'
 import { useSynapPersonality } from '@/hooks/useSynapPersonality'
 import type { SynapStateType } from '@/components/mascot'
@@ -11,26 +10,14 @@ import type { SynapStateType } from '@/components/mascot'
 export function ChatLauncher() {
   const isOpen = useChatStore((s) => s.isOpen)
   const setOpen = useChatStore((s) => s.setOpen)
-  const setPendingScreenContext = useChatStore((s) => s.setPendingScreenContext)
   const unread = useChatStore((s) => s.unread)
   const baseSynapState = useSynapState()
-  const screenContext = useScreenContext()
   const noAnim = useReducedMotion()
   const { message, dismiss, isSpeaking } = useSynapPersonality()
 
   const synapState: SynapStateType = isSpeaking ? 'listening' : baseSynapState
 
-  const handleClick = () => {
-    if (!isOpen) {
-      // false→true 전환 시에만 현재 화면 컨텍스트 캡처
-      const hasContext =
-        screenContext.screen ?? screenContext.system_id ?? screenContext.incident_id
-      if (hasContext) {
-        setPendingScreenContext(screenContext)
-      }
-    }
-    setOpen(!isOpen)
-  }
+  const handleClick = () => setOpen(!isOpen)
 
   return (
     <div className="fixed right-12 bottom-15 z-50 h-12 w-12">
