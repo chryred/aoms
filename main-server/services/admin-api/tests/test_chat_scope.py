@@ -53,6 +53,34 @@ async def test_scope_screen_wins_over_session(db_session, systems):
     assert scope == {"source": "screen", "systems": [_sys(pay.id, "pay", "결제")]}
 
 
+async def test_scope_screen_from_incident_when_no_system_id(db_session, systems):
+    """인시던트 화면은 incident_id 만 보내도 인시던트의 시스템이 화면 범위가 된다."""
+    from models import Incident
+
+    pay, crm = systems
+    inc = Incident(system_id=pay.id, title="t", severity="warning", status="open",
+                   detected_at=datetime.now(timezone.utc).replace(tzinfo=None))
+    db_session.add(inc)
+    await db_session.commit()
+    await db_session.refresh(inc)
+    session = await _make_session(db_session, [crm.id])
+    scope = await resolve_chat_scope(db_session, session, ScreenContext(incident_id=str(inc.id)))
+    assert scope == {"source": "screen", "systems": [_sys(pay.id, "pay", "결제")]}
+    # 존재하지 않는 인시던트면 세션 범위로
+    scope2 = await resolve_chat_scope(db_session, session, ScreenContext(incident_id="999999"))
+    assert scope2["source"] == "session"
+
+
+def test_extract_system_id_does_not_fall_back_to_session_scope():
+    """시스템과 무관한 도구 호출을 세션 기본 시스템으로 기록하지 않는다 ("조회:" 표시 오류 방지)."""
+    from services.chat_agent import _extract_system_id_from_tool
+
+    assert _extract_system_id_from_tool({}, {"items": []}, [7]) is None
+    assert _extract_system_id_from_tool({"system_id": "5"}, None, [7]) == 5
+    assert _extract_system_id_from_tool({"system_ids": [9]}, None, [7]) == 9
+    assert _extract_system_id_from_tool({"system_ids": [9, 10]}, None, [7]) is None
+
+
 async def test_scope_session_when_no_screen_system(db_session, systems):
     pay, crm = systems
     session = await _make_session(db_session, [crm.id, pay.id])
@@ -102,7 +130,7 @@ async def test_scope_event_emitted_before_first_iter(db_session, systems):
     assert scope_evt["data"] == {"source": "screen", "systems": [_sys(pay.id, "pay", "결제")]}
     # 프롬프트에 범위 블록이 들어갔는지
     prompt = llm.call_args.args[0]
-    assert "[조회 범위] 기본 대상 시스템: 결제(pay) (출처: 현재 화면)" in prompt
+    assert f"[조회 범위] 기본 대상 시스템: 결제(pay) [system_name=pay, system_id={pay.id}] (출처: 현재 화면)" in prompt
 
 
 async def test_scope_event_all_has_no_scope_block(db_session):
@@ -273,7 +301,9 @@ def test_screen_context_line_trace_span():
 def test_decision_prompt_scope_block_session_multi():
     scope = {"source": "session", "systems": [_sys(3, "pay", "결제"), _sys(4, "crm", "CRM")]}
     prompt = decision_prompt([], "", "질문", None, scope)
-    assert "[조회 범위] 기본 대상 시스템: 결제(pay), CRM(crm) (출처: 담당 시스템)" in prompt
+    assert ("[조회 범위] 기본 대상 시스템: 결제(pay) [system_name=pay, system_id=3], "
+            "CRM(crm) [system_name=crm, system_id=4] (출처: 담당 시스템)") in prompt
+    assert "이름이 비슷한 다른 시스템" in prompt
     assert "질문에 다른 시스템 이름이 나오면 그 시스템을 우선한다" in prompt
     assert "어느 시스템인지 되묻는다" in prompt
 

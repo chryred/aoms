@@ -78,8 +78,8 @@ describe('ChatHeader — 세션 드롭다운', () => {
 
 describe('범위 표시 라벨', () => {
   it('스트리밍 답변 위에 scope 라벨을 보인다', () => {
-    render(<StreamingAssistantMessage content="" running scopeLabel="결제 기준으로 조회" />)
-    expect(screen.getByText('결제 기준으로 조회')).toBeInTheDocument()
+    render(<StreamingAssistantMessage content="" running scopeLabel="기본 범위: 결제" />)
+    expect(screen.getByText('기본 범위: 결제')).toBeInTheDocument()
   })
 
   it('지난 답변 위에 "조회: 결제, CRM" 을 보인다', () => {

@@ -6,7 +6,8 @@ export function describeScope(scope: ChatScopeEvent | null | undefined): string 
   if (!scope) return null
   if (scope.source === 'all' || scope.systems.length === 0) return '전체 시스템 기준'
   const names = scope.systems.map((s) => s.display_name || s.system_name).join('·')
-  return scope.source === 'screen' ? `현재 화면(${names}) 기준` : `${names} 기준으로 조회`
+  // session 범위는 '기본값'일 뿐 — 질문에 다른 시스템을 쓰면 그 시스템을 조회하므로 단정하지 않는다
+  return scope.source === 'screen' ? `현재 화면(${names}) 기준` : `기본 범위: ${names}`
 }
 
 /**

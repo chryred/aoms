@@ -107,8 +107,6 @@ export function IncidentDetailPage() {
   const incidentId = Number(id)
   const navigate = useNavigate()
 
-  useRegisterScreenContext({ incident_id: id })
-
   // Feature G — NextActionCard 챗봇 자동 분석 트리거
   const setChatOpen = useChatStore((s) => s.setOpen)
   const setAutoInsightIncidentId = useChatStore((s) => s.setAutoInsightIncidentId)
@@ -121,6 +119,11 @@ export function IncidentDetailPage() {
   }, [incidentId, isChatOpen, setChatOpen, setAutoInsightIncidentId])
 
   const { data: incident, isLoading, isError } = useIncident(incidentId)
+  // 인시던트의 시스템도 함께 등록 — 챗봇이 '현재 화면(시스템) 기준'으로 조회하고 다른 화면 안내를 비교할 수 있게
+  useRegisterScreenContext({
+    incident_id: id,
+    system_id: incident?.system_id != null ? String(incident.system_id) : undefined,
+  })
   const updateMut = useUpdateIncident(incidentId)
   const commentMut = useAddIncidentComment(incidentId)
 

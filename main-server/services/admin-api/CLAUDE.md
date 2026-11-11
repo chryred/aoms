@@ -520,12 +520,13 @@ DB 변경: `chat_sessions.user_id` nullable, `visitor_employee_id/email/system_i
 ### 챗봇 ReAct 루프 요약
 - LLM(`llm_client.py`의 `chat_assistant` area)이 JSON 응답으로 action/final_answer 결정 → `run_tool()`로 도구 실행
 - 대화·도구 이력은 `chat_messages`(user/assistant/tool) 테이블에 저장하고, 매 턴마다 최근 8턴(`CHAT_HISTORY_WINDOW`, 기본 8)을 프롬프트에 재주입
-- **조회 범위(scope)**: `chat_agent.resolve_chat_scope()`가 판정 — 우선순위 **질문에 명시된 시스템(LLM이 도구 인자로 직접 지정) > 화면 컨텍스트 `system_id`(DB에 존재할 때) > 세션 `system_ids`(기본 담당 시스템) > 전체(필터 없음)**. `run_react_stream`(일반 메시지·auto-insight 공통)이 `user_saved` 직후 첫 `iter_start` 전에 SSE `scope` 이벤트를 1회 emit (`help_inquiry` 세션은 범위 개념이 없어 emit 안 함):
+- **조회 범위(scope)**: `chat_agent.resolve_chat_scope()`가 판정 — 우선순위 **질문에 명시된 시스템(LLM이 도구 인자로 직접 지정) > 화면 컨텍스트 `system_id`(DB에 존재할 때, 없으면 `incident_id` 의 인시던트 시스템) > 세션 `system_ids`(기본 담당 시스템) > 전체(필터 없음)**. `run_react_stream`(일반 메시지·auto-insight 공통)이 `user_saved` 직후 첫 `iter_start` 전에 SSE `scope` 이벤트를 1회 emit (`help_inquiry` 세션은 범위 개념이 없어 emit 안 함):
   ```json
   {"type":"scope","data":{"source":"screen","systems":[{"id":3,"system_name":"pay","display_name":"결제"}]}}
   ```
   `source` = `screen`|`session`|`all` (`all`이면 `systems: []`). 프롬프트 `[조회 범위] 기본 대상 시스템: 결제(pay), CRM(crm) (출처: 현재 화면|담당 시스템)` 블록은 `source=all`이면 생략되고, 화면 컨텍스트 라인은 `시스템: 결제(pay)` 처럼 이름으로 표기(`prompts._format_screen_context_line(ctx, system_label)`).
-  - **도구 인자 자동 주입** (`chat_agent._inject_scope_args`, LLM 명시값 항상 우선): `qdrant_*` → `system_ids` setdefault (source=`screen`이면 화면 시스템 `[id]`, 아니면 세션 `system_ids`) / 그 외 도구 → input_schema `properties`에 `system_name`/`system_id`가 있고 LLM이 둘 다 비웠으며 범위 systems가 **정확히 1개**일 때만 스키마에 있는 키를 채움. 범위가 여러 개면 주입하지 않고 LLM 판단(대상 전체 조회 또는 되묻기).
+  - **도구 인자 자동 주입** (`chat_agent._inject_scope_args`, LLM 명시값 항상 우선): `qdrant_*` → `system_ids` setdefault (source=`screen`이면 화면 시스템 `[id]`, 아니면 세션 `system_ids`) / 그 외 도구 → input_schema `properties`에 `system_name`/`system_id`가 있고 LLM이 둘 다 비웠으며 범위 systems가 **정확히 1개**일 때만 스키마에 있는 키를 채움. 범위가 여러 개면 주입하지 않고 LLM 판단(대상 전체 조회 또는 되묻기). 프롬프트 범위 블록에는 `[system_name=…, system_id=…]` 를 함께 넣어 [DEV]·[운영]처럼 이름이 비슷한 시스템 혼동을 막는다.
+  - **tool 메시지 `system_id` 기록** (`_extract_system_id_from_tool`): args.system_id → result.system_id → args.system_ids 1개 → args.system_name DB 조회 순. 세션 기본 시스템으로 일괄 폴백하지 않는다(시스템 무관 도구까지 기본 시스템으로 기록돼 프론트 `조회:` 표시가 틀어졌던 문제, 2.4 운영 검증에서 발견).
 - **선제적 통찰 (Feature 5C-2)**: `POST /api/v1/chat/sessions/{id}/auto-insight` — 사용자 메시지 없이 인시던트 자동 분석. `prompts.build_auto_insight_seed(incident_id)`가 user_message를 자동 생성하고 기존 `run_react_stream` 재사용. SSE 첫 이벤트로 `auto_insight_start` emit. 프론트엔드는 빈 챗봇 화면의 ✨ 버튼으로 트리거 (incident_id 있을 때만 노출).
 - **외부 트리거 진입점 (Feature G)**: 인시던트 상세 페이지 `NextActionCard` 하단 "✨ 챗봇으로 자동 분석" 버튼이 `chatStore.autoInsightIncidentId`에 incident_id를 set + `setOpen(true)` → `ChatPanel`의 useEffect가 `isOpen+currentSessionId+autoInsightIncidentId+!isStreaming` 조건에서 1회 자동 발화 후 null clear. 5C-2 endpoint 재사용. 운영자가 인시던트 처리 흐름에서 챗봇으로 자연스럽게 진입.
 - 도구 그룹:

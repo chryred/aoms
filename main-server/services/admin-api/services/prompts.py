@@ -74,11 +74,15 @@ def _format_scope_block(scope: dict[str, Any] | None) -> str:
     """`[조회 범위]` 블록. source=all 이거나 systems 가 비면 빈 문자열."""
     if not scope or scope.get("source") not in _SCOPE_SOURCE_KO or not scope.get("systems"):
         return ""
-    labels = ", ".join(_system_label(s) for s in scope["systems"])
+    labels = ", ".join(
+        f"{_system_label(s)} [system_name={s.get('system_name')}, system_id={s.get('id')}]" for s in scope["systems"]
+    )
     return (
         f"[조회 범위] 기본 대상 시스템: {labels} (출처: {_SCOPE_SOURCE_KO[scope['source']]})\n"
         "- 질문에 다른 시스템 이름이 나오면 그 시스템을 우선한다.\n"
-        "- 질문에 시스템이 없으면 기본 대상 시스템으로 도구 인자(system_name/system_id/system_ids)를 채운다.\n"
+        "- 질문에 시스템이 없으면 위 system_name/system_id 값을 그대로 도구 인자(system_name/system_id/system_ids)에 넣는다."
+        " 이름이 비슷한 다른 시스템(예: [DEV]와 [운영])으로 바꾸지 않는다.\n"
+        "- 출처가 현재 화면이면 이전 대화에서 다른 시스템을 다뤘더라도 이번 질문의 \"이 시스템\"은 현재 화면 시스템이다.\n"
         "- 기본 대상이 여러 개고 질문이 특정 시스템을 가리키지 않으면 대상 전체를 조회하거나 어느 시스템인지 되묻는다.\n\n"
     )
 

@@ -174,7 +174,7 @@ def _extract_system_id_from_tool(
     폴백 순서:
     1. tool_args.system_id
     2. tool_result에서 단일 system_id 노출
-    3. 세션의 system_ids가 1개면 그것
+    3. tool_args.system_ids 가 정확히 1개면 그것
     4. NULL
     tool_args.system_name은 비동기 DB 조회가 필요하므로 별도 처리.
     """
@@ -195,9 +195,15 @@ def _extract_system_id_from_tool(
             except (TypeError, ValueError):
                 pass
 
-    # 3. 세션 스코프가 단 1개
-    if len(session_system_ids) == 1:
-        return session_system_ids[0]
+    # 3. qdrant 도구의 system_ids 가 정확히 1개 (스코프 주입 포함)
+    #    ※ 세션 스코프로 일괄 폴백하지 않는다 — 시스템과 무관한 도구(admin_list_systems 등)나
+    #      다른 시스템을 조회한 호출까지 기본 시스템으로 기록돼 "조회:" 표시가 틀어진다.
+    ids = tool_args.get("system_ids")
+    if isinstance(ids, list) and len(ids) == 1:
+        try:
+            return int(ids[0])
+        except (TypeError, ValueError):
+            pass
 
     return None
 
@@ -209,7 +215,7 @@ async def resolve_chat_scope(
 ) -> dict[str, Any]:
     """조회 범위 판정 → `{source: screen|session|all, systems: [{id, system_name, display_name}]}`.
 
-    우선순위: 화면 컨텍스트 system_id(유효한 시스템) > 세션 system_ids > 전체.
+    우선순위: 화면 컨텍스트 system_id(유효한 시스템, 없으면 incident_id 의 시스템) > 세션 system_ids > 전체.
     (질문에 명시된 시스템은 LLM 이 도구 인자로 직접 지정하므로 여기서 다루지 않는다.)
     """
     from models import System
@@ -226,6 +232,24 @@ async def resolve_chat_scope(
         if screen_sid is not None:
             row = (
                 await db.execute(select(System).where(System.id == screen_sid))
+            ).scalar_one_or_none()
+            if row is not None:
+                return {"source": "screen", "systems": [_row(row)]}
+
+    # 인시던트 화면: system_id 가 없으면 인시던트의 시스템을 화면 시스템으로 본다
+    raw_iid = getattr(screen_context, "incident_id", None) if screen_context else None
+    if raw_sid in (None, "") and raw_iid not in (None, ""):
+        from models import Incident
+
+        try:
+            iid = int(str(raw_iid).strip())
+        except (TypeError, ValueError):
+            iid = None
+        if iid is not None:
+            row = (
+                await db.execute(
+                    select(System).join(Incident, Incident.system_id == System.id).where(Incident.id == iid)
+                )
             ).scalar_one_or_none()
             if row is not None:
                 return {"source": "screen", "systems": [_row(row)]}

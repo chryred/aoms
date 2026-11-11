@@ -26,13 +26,13 @@ const msg = (over: Partial<ChatMessage>): ChatMessage => ({
 })
 
 describe('describeScope (SSE scope 이벤트 표시)', () => {
-  it('source=session → "{이름} 기준으로 조회"', () => {
+  it('source=session → "기본 범위: {이름}"', () => {
     expect(
       describeScope({
         source: 'session',
         systems: [{ id: 1, system_name: 'pay', display_name: '결제' }],
       }),
-    ).toBe('결제 기준으로 조회')
+    ).toBe('기본 범위: 결제')
   })
   it('source=screen → "현재 화면({이름}) 기준"', () => {
     expect(
