@@ -215,6 +215,8 @@ ssh user@server-a "mkdir -p /opt/synapse/models && \
 
 ### 일반 코드 배포 (이후 매번)
 
+> 운영기(Server A) 실제 반영 절차·이슈는 프로젝트 스킬 `.claude/skills/prod-deploy/SKILL.md` 가 정본이다(아래는 개략).
+
 ```bash
 # 1. 이미지 빌드 및 저장 (~500MB)
 ./build-images.sh

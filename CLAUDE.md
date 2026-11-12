@@ -18,6 +18,12 @@
 
 > 참조 방식: `@` 자동 로드 아님. **필요할 때 Read tool로 경로를 읽는다** (예: `Read `.claude/memory/adrs.md``).
 
+## 프로젝트 스킬 (`.claude/skills/`)
+
+| 스킬 | 언제 쓰나 |
+|---|---|
+| `prod-deploy` (`.claude/skills/prod-deploy/SKILL.md`) | 운영기(Server A) 반영·롤백·배포 후 확인. 빌드 → `.tmp` 업로드·sha256 대조 → 로드 → 바뀐 서비스만 `--no-deps` 교체 → 검증 순서, 접속 헬퍼 `scripts/r.py`(exec 채널 거부 대응), 과거 배포 이슈 표 포함. **운영 배포 작업 전 반드시 이 스킬을 먼저 로드** |
+
 ---
 
 ## Quick Reference — 항상 알아야 할 핵심
